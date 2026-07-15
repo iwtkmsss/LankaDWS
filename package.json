@@ -1,28 +1,44 @@
 {
-  "name": "bertcrm",
-  "version": "0.1.0",
+  "name": "bert-crm",
+  "version": "1.0.0",
   "private": true,
-  "description": "BertCRM development workspace",
+  "description": "BERT CRM internal operations workspace",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
   "workspaces": [
-    "frontend",
-    "backend"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n frontend,backend -c cyan,green \"npm run dev --workspace frontend\" \"npm run start:dev --workspace backend\"",
-    "dev:frontend": "npm run dev --workspace frontend",
-    "dev:backend": "npm run start:dev --workspace backend",
-    "build": "npm run build --workspaces",
-    "build:frontend": "npm run build --workspace frontend",
-    "build:backend": "npm run build --workspace backend",
-    "lint": "npm run lint --workspaces",
-    "test": "npm run test --workspace backend",
-    "format": "npm run format --workspace backend",
-    "prisma:generate": "npm run prisma:generate --workspace backend",
-    "prisma:migrate": "npm run prisma:migrate --workspace backend",
-    "prisma:deploy": "npm run prisma:deploy --workspace backend",
-    "prisma:studio": "npm run prisma:studio --workspace backend"
+    "predev": "npm run build --workspace @bert-crm/contracts",
+    "dev": "concurrently -n web,api -c cyan,green \"npm run dev --workspace @bert-crm/web\" \"npm run start:dev --workspace @bert-crm/api\"",
+    "dev:web": "npm run dev --workspace @bert-crm/web",
+    "dev:api": "npm run start:dev --workspace @bert-crm/api",
+    "build": "npm run build --workspace @bert-crm/contracts && npm run build --workspace @bert-crm/api && npm run build --workspace @bert-crm/web",
+    "lint": "npm run lint --workspace @bert-crm/contracts && npm run lint --workspace @bert-crm/api && npm run lint --workspace @bert-crm/web",
+    "typecheck": "npm run build --workspace @bert-crm/contracts && npm run typecheck --workspace @bert-crm/api && npm run typecheck --workspace @bert-crm/web",
+    "test": "npm run test --workspace @bert-crm/contracts && npm run test --workspace @bert-crm/api && npm run test --workspace @bert-crm/web",
+    "test:integration": "npm run test:integration --workspace @bert-crm/api",
+    "test:e2e": "npm run test:e2e --workspace @bert-crm/api && npm run test:e2e --workspace @bert-crm/web",
+    "quality": "npm ci && npm run prisma:generate && npm run lint && npm run typecheck && npm run test && npm run test:integration && npm run build",
+    "prisma:generate": "npm run prisma:generate --workspace @bert-crm/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace @bert-crm/api",
+    "prisma:deploy": "npm run prisma:deploy --workspace @bert-crm/api",
+    "prisma:seed": "npm run prisma:seed --workspace @bert-crm/api",
+    "prisma:studio": "npm run prisma:studio --workspace @bert-crm/api",
+    "bert": "npm run bert --workspace @bert-crm/api --",
+    "backup": "npm run backup --workspace @bert-crm/api",
+    "restore:verify": "npm run restore:verify --workspace @bert-crm/api",
+    "openapi": "npm run openapi --workspace @bert-crm/api"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"
+  },
+  "overrides": {
+    "@prisma/dev": {
+      "@hono/node-server": "1.19.13"
+    }
   }
 }

@@ -1,0 +1,27 @@
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--canvas); font-family: var(--font); color: var(--ink-900); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas); font-size: 14px; line-height: 1.5; text-rendering: optimizeLegibility; }
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; object-fit: cover; }
+svg { flex: 0 0 auto; }
+h1, h2, h3, h4, p { margin-top: 0; }
+h1 { margin-bottom: 5px; font-size: clamp(25px, 2.4vw, 34px); line-height: 1.2; letter-spacing: -.035em; }
+h2 { margin-bottom: 10px; font-size: 18px; line-height: 1.3; letter-spacing: -.018em; }
+h3 { margin-bottom: 7px; font-size: 16px; }
+p { color: var(--ink-500); }
+input, select, textarea { width: 100%; min-height: 42px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-900); padding: 9px 11px; outline: 0; transition: border .16s, box-shadow .16s; }
+textarea { resize: vertical; }
+input:focus, select:focus, textarea:focus { border-color: var(--cobalt-500); box-shadow: var(--focus); }
+input:disabled { background: var(--surface-soft); color: var(--ink-500); }
+label { display: flex; flex-direction: column; gap: 6px; color: var(--ink-700); font-weight: 650; }
+label small { color: var(--ink-400); font-weight: 450; }
+:focus-visible { outline: 2px solid var(--cobalt-600); outline-offset: 2px; }
+::selection { background: var(--cobalt-100); color: var(--cobalt-700); }
+.muted { color: var(--ink-400); }
+.optional { color: var(--ink-400); font-size: 12px; font-weight: 500; }
+.eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--cobalt-600); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.skip-link { position: fixed; z-index: 200; top: 8px; left: 8px; transform: translateY(-150%); padding: 8px 12px; border-radius: 7px; background: var(--surface); color: var(--cobalt-700); box-shadow: var(--shadow-lg); }
+.skip-link:focus { transform: none; }

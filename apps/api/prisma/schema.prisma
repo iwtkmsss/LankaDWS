@@ -1,0 +1,1029 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum UserStatus {
+  PENDING_FIRST_LOGIN
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum ScopeType {
+  OWN
+  SELECTED_COMPANIES
+  ALL_COMPANIES
+}
+
+enum TaskStatus {
+  NEW
+  PLANNED
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  BLOCKED
+  CANCELLED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DecisionStatus {
+  DRAFT
+  SUBMITTED
+  PENDING
+  APPROVED
+  RETURNED
+  REJECTED
+  CANCELLED
+}
+
+enum ExecutionStatus {
+  NOT_STARTED
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  PARTIAL_FAILURE
+  FAILED
+}
+
+enum Confidentiality {
+  GENERAL
+  INTERNAL
+  CONFIDENTIAL
+  HR_SECURITY
+}
+
+enum JobState {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum FileScanStatus {
+  QUARANTINED
+  SCANNING
+  CLEAN
+  INFECTED
+  UNSUPPORTED
+  FAILED
+}
+
+enum OutboxState {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+
+model Workspace {
+  id              String       @id
+  displayName     String
+  status          RecordStatus @default(ACTIVE)
+  defaultTimezone String       @default("Europe/Kyiv")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  companies       Company[]
+  users           User[]
+  roles           Role[]
+
+  @@index([status])
+}
+
+model Company {
+  id              String       @id
+  workspaceId     String
+  displayName     String
+  legalName       String
+  code            String
+  status          RecordStatus @default(ACTIVE)
+  timezone        String       @default("Europe/Kyiv")
+  locale          String       @default("uk-UA")
+  workingDaysJson String       @default("[1,2,3,4,5]")
+  holidayJson     String       @default("[]")
+  version         Int          @default(1)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  primaryUsers    User[]       @relation("PrimaryCompany")
+  userAccess      UserCompanyAccess[]
+
+  @@unique([workspaceId, code])
+  @@index([workspaceId, status])
+}
+
+model User {
+  id                 String     @id
+  workspaceId        String
+  primaryCompanyId   String
+  displayName        String
+  username           String
+  normalizedUsername String
+  contactEmail       String?
+  jobTitle           String     @default("")
+  displayRole        String
+  approverId         String?
+  timezone           String     @default("Europe/Kyiv")
+  locale             String     @default("uk-UA")
+  status             UserStatus @default(PENDING_FIRST_LOGIN)
+  mustChangePassword Boolean    @default(true)
+  mustEnroll2FA      Boolean    @default(false)
+  authorizationVersion Int      @default(1)
+  avatarAsset        String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  workspace          Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  primaryCompany     Company    @relation("PrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: Restrict)
+  approver           User?      @relation("UserApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  approverFor        User[]     @relation("UserApprover")
+  companyAccess      UserCompanyAccess[]
+  roles              UserRole[]
+  passwordCredential PasswordCredential?
+  totpCredential     TotpCredential?
+  recoveryCodes      RecoveryCode[]
+  sessions           UserSession[]
+
+  @@unique([workspaceId, normalizedUsername])
+  @@index([workspaceId, status])
+  @@index([primaryCompanyId, status])
+  @@index([approverId])
+}
+
+model UsernameReservation {
+  id                 String   @id
+  workspaceId        String
+  normalizedUsername String
+  currentUserId      String?
+  previousUserId     String?
+  state              String
+  reservedAt         DateTime @default(now())
+
+  @@unique([workspaceId, normalizedUsername])
+}
+
+model UserCompanyAccess {
+  id         String       @id
+  userId     String
+  companyId  String
+  status     RecordStatus @default(ACTIVE)
+  grantedBy  String?
+  grantedAt  DateTime     @default(now())
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@index([companyId, status])
+}
+
+model Role {
+  id             String       @id
+  workspaceId    String
+  name           String
+  normalizedName String
+  isSystem       Boolean      @default(false)
+  isFullAdmin    Boolean      @default(false)
+  status         RecordStatus @default(ACTIVE)
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  permissions    RolePermission[]
+  users          UserRole[]
+
+  @@unique([workspaceId, normalizedName])
+  @@index([workspaceId, status])
+}
+
+model Permission {
+  code        String @id
+  domain      String
+  risk        String @default("NORMAL")
+  description String
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  id          String     @id
+  roleId      String
+  permissionCode String
+  scope       ScopeType  @default(OWN)
+  companyIdsJson String  @default("[]")
+  version     Int        @default(1)
+  role        Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission  Permission @relation(fields: [permissionCode], references: [code], onDelete: Restrict)
+
+  @@unique([roleId, permissionCode])
+  @@index([permissionCode])
+}
+
+model UserRole {
+  id        String       @id
+  userId    String
+  roleId    String
+  grantedBy String?
+  validFrom DateTime     @default(now())
+  validTo   DateTime?
+  status    RecordStatus @default(ACTIVE)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, roleId])
+  @@index([roleId, status])
+}
+
+model Delegation {
+  id             String   @id
+  delegatorId    String
+  substituteId   String
+  companyIdsJson String
+  actionsJson    String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String
+  status         String
+  createdAt      DateTime @default(now())
+
+  @@index([delegatorId, startsAt, endsAt])
+  @@index([substituteId, startsAt, endsAt])
+}
+
+model PasswordCredential {
+  id                String   @id
+  userId            String   @unique
+  passwordHash      String
+  algorithmVersion  String   @default("argon2id-v1")
+  credentialVersion Int      @default(1)
+  changedAt         DateTime @default(now())
+  compromisedAt     DateTime?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model TemporaryCredential {
+  id            String   @id
+  userId        String
+  secretHash    String
+  purpose       String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  invalidatedAt DateTime?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model TotpCredential {
+  id              String   @id
+  userId          String   @unique
+  encryptedSecret String
+  keyVersion      Int      @default(1)
+  confirmedAt     DateTime?
+  disabledAt      DateTime?
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RecoveryCode {
+  id         String   @id
+  userId     String
+  codeHash   String
+  createdAt  DateTime @default(now())
+  consumedAt DateTime?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, consumedAt])
+}
+
+model UserSession {
+  id                   String   @id
+  sessionHash          String   @unique
+  userId               String
+  authAssurance        Int      @default(1)
+  authorizationVersion Int
+  csrfHash             String
+  deviceLabel          String
+  userAgentHash        String?
+  ipHash               String?
+  createdAt            DateTime @default(now())
+  lastSeenAt           DateTime @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  revokeReason         String?
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+}
+
+model LoginAttempt {
+  id                  String   @id
+  usernameFingerprint String
+  resolvedUserId      String?
+  ipHash              String?
+  result              String
+  reasonCode          String
+  createdAt           DateTime @default(now())
+
+  @@index([usernameFingerprint, createdAt])
+  @@index([ipHash, createdAt])
+}
+
+model CredentialEvent {
+  id            String   @id
+  userId        String
+  actorId       String?
+  type          String
+  result        String
+  reasonCode    String?
+  correlationId String
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model CredentialResetApproval {
+  id          String   @id
+  targetId    String
+  initiatorId String
+  approverId  String?
+  resetType   String
+  state       String
+  reason      String
+  expiresAt   DateTime
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([targetId, state, expiresAt])
+}
+
+model ReauthChallenge {
+  id          String   @id
+  sessionId   String
+  purpose     String
+  assurance   Int
+  expiresAt   DateTime
+  satisfiedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId, purpose, expiresAt])
+}
+
+model Task {
+  id              String       @id
+  workspaceId     String
+  companyId       String
+  number          String       @unique
+  title           String
+  description     String       @default("")
+  creatorId       String
+  assigneeId      String
+  status          TaskStatus   @default(NEW)
+  priority        Priority     @default(MEDIUM)
+  deadline        DateTime?
+  version         Int          @default(1)
+  recurrenceKey   String?      @unique
+  archivedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  checklist       TaskChecklistItem[]
+
+  @@index([companyId, status, deadline, id])
+  @@index([assigneeId, status, deadline])
+  @@index([creatorId, updatedAt])
+}
+
+model TaskChecklistItem {
+  id            String   @id
+  taskId        String
+  position      Int
+  text          String
+  isDone        Boolean  @default(false)
+  completedById String?
+  completedAt   DateTime?
+  version       Int      @default(1)
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, position])
+}
+
+model EntityLink {
+  id         String   @id
+  sourceType String
+  sourceId   String
+  targetType String
+  targetId   String
+  relation   String
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  @@unique([sourceType, sourceId, targetType, targetId, relation])
+  @@index([targetType, targetId])
+}
+
+model RequestType {
+  id                   String       @id
+  workspaceId          String
+  name                 String
+  category             String
+  status               RecordStatus @default(ACTIVE)
+  currentVersion       Int          @default(1)
+  schemaJson           String
+  effectsJson          String
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([workspaceId, name])
+}
+
+model Request {
+  id                 String          @id
+  workspaceId        String
+  companyId          String
+  number             String          @unique
+  authorId           String
+  typeId             String
+  typeVersion        Int
+  routeVersion       Int
+  version            Int             @default(1)
+  decisionStatus     DecisionStatus  @default(DRAFT)
+  executionStatus    ExecutionStatus @default(NOT_STARTED)
+  currentApproverId  String?
+  confidentiality    Confidentiality @default(INTERNAL)
+  slaDueAt           DateTime?
+  idempotencyKey     String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  snapshots          RequestSnapshot[]
+  privateDetails     RequestPrivateDetail[]
+  approvals          ApprovalAttempt[]
+  effects            ApprovalEffect[]
+
+  @@unique([authorId, idempotencyKey])
+  @@index([companyId, decisionStatus, updatedAt, id])
+  @@index([currentApproverId, decisionStatus, slaDueAt])
+  @@index([authorId, updatedAt])
+}
+
+model RequestSnapshot {
+  id              String   @id
+  requestId       String
+  version         Int
+  valuesJson      String
+  safeSummary     String
+  authorId        String
+  submittedAt     DateTime @default(now())
+  request         Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, version])
+}
+
+model RequestPrivateDetail {
+  id            String  @id
+  requestId     String
+  version       Int
+  encryptedJson String
+  keyVersion    Int     @default(1)
+  request       Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, version])
+}
+
+model ApprovalAttempt {
+  id             String   @id
+  requestId      String
+  requestVersion Int
+  step           Int      @default(1)
+  approverId     String
+  state          String
+  comment        String?
+  decidedAt      DateTime?
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+  request        Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, requestVersion, approverId, idempotencyKey])
+  @@index([approverId, state, createdAt])
+}
+
+model ApprovalEffect {
+  id             String          @id
+  requestId      String
+  requestVersion Int
+  effectType     String
+  idempotencyKey String          @unique
+  state          ExecutionStatus @default(QUEUED)
+  resultRef      String?
+  lastErrorCode  String?
+  request        Request         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, state])
+}
+
+model Event {
+  id             String   @id
+  workspaceId    String
+  companyId      String
+  ownerId        String
+  title          String
+  startAt        DateTime
+  endAt          DateTime
+  sourceTimezone String
+  allDay         Boolean  @default(false)
+  visibility     String   @default("INTERNAL")
+  sourceRequestId String?
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId, startAt, endAt])
+  @@index([ownerId, startAt])
+  @@unique([sourceRequestId, ownerId])
+}
+
+model PresenceRecord {
+  id              String   @id
+  workspaceId     String
+  companyId       String
+  userId          String
+  state           String
+  startAt         DateTime
+  endAt           DateTime
+  visibility      String   @default("PUBLIC_SAFE")
+  sourceRequestId String?  @unique
+  version         Int      @default(1)
+  createdAt       DateTime @default(now())
+
+  @@index([companyId, startAt, endAt])
+  @@index([userId, startAt])
+}
+
+model LifecycleProcess {
+  id              String   @id
+  workspaceId     String
+  companyId       String
+  employeeId      String
+  processType     String
+  templateVersion Int
+  ownerId         String
+  startAt         DateTime
+  endAt           DateTime?
+  status          String
+  progress        Int      @default(0)
+  version         Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  steps           LifecycleStep[]
+
+  @@index([companyId, processType, status])
+  @@index([employeeId, status])
+}
+
+model LifecycleStep {
+  id           String   @id
+  processId    String
+  sourceKey    String
+  linkedTaskId String
+  ownerId      String
+  status       String
+  dueAt        DateTime
+  blocker      String?
+  process      LifecycleProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  @@unique([processId, sourceKey])
+}
+
+model FileObject {
+  id               String         @id
+  workspaceId      String
+  companyId        String
+  storageKey       String         @unique
+  safeFilename     String
+  declaredMime     String
+  detectedMime     String?
+  bytes            Int
+  sha256           String
+  scanStatus       FileScanStatus @default(QUARANTINED)
+  ownerId          String
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([companyId, scanStatus, createdAt])
+  @@index([ownerId, createdAt])
+}
+
+model FileLink {
+  id          String   @id
+  fileId      String
+  entityType  String
+  entityId    String
+  purpose     String
+  aclMode     String
+  createdAt   DateTime @default(now())
+
+  @@unique([fileId, entityType, entityId, purpose])
+  @@index([entityType, entityId])
+}
+
+model Document {
+  id               String          @id
+  workspaceId      String
+  companyId        String
+  number           String          @unique
+  name             String
+  ownerId          String
+  status           String
+  confidentiality  Confidentiality @default(INTERNAL)
+  currentVersionId String?
+  version          Int             @default(1)
+  archivedAt       DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  versions         DocumentVersion[]
+
+  @@index([companyId, status, updatedAt, id])
+  @@index([ownerId, updatedAt])
+}
+
+model DocumentVersion {
+  id            String   @id
+  documentId    String
+  version       Int
+  fileId        String
+  createdBy     String
+  changeSummary String
+  status        String
+  createdAt     DateTime @default(now())
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+}
+
+model DocumentAcl {
+  id            String @id
+  documentId    String
+  principalType String
+  principalId   String
+  actionsJson   String
+
+  @@unique([documentId, principalType, principalId])
+}
+
+model KnowledgeArticle {
+  id               String       @id
+  workspaceId      String
+  slug             String
+  ownerId          String
+  status           RecordStatus @default(ACTIVE)
+  currentVersionId String?
+  reviewAt         DateTime?
+  version          Int          @default(1)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  versions         KnowledgeArticleVersion[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, status, updatedAt])
+}
+
+model KnowledgeArticleVersion {
+  id            String   @id
+  articleId     String
+  version       Int
+  title         String
+  body          String
+  changeSummary String
+  createdBy     String
+  publishedAt   DateTime?
+  article       KnowledgeArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, version])
+}
+
+model ArticleAudience {
+  id            String @id
+  articleId     String
+  principalType String
+  principalId   String
+
+  @@unique([articleId, principalType, principalId])
+}
+
+model Acknowledgement {
+  id          String   @id
+  entityType  String
+  entityId    String
+  version     Int
+  userId      String
+  dueAt       DateTime
+  openedAt    DateTime?
+  confirmedAt DateTime?
+
+  @@unique([entityType, entityId, version, userId])
+  @@index([userId, confirmedAt, dueAt])
+}
+
+model Announcement {
+  id          String   @id
+  workspaceId String
+  authorId    String
+  title       String
+  body        String
+  status      String
+  isPinned    Boolean  @default(false)
+  publishAt   DateTime?
+  expiresAt   DateTime?
+  version     Int      @default(1)
+  archivedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  companies   AnnouncementAudienceCompany[]
+  roles       AnnouncementAudienceRole[]
+  users       AnnouncementAudienceUser[]
+  receipts    AnnouncementReceipt[]
+
+  @@index([workspaceId, status, publishAt])
+}
+
+model AnnouncementAudienceCompany {
+  id             String @id
+  announcementId String
+  companyId      String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, companyId])
+}
+
+model AnnouncementAudienceRole {
+  id             String @id
+  announcementId String
+  roleId         String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, roleId])
+}
+
+model AnnouncementAudienceUser {
+  id             String @id
+  announcementId String
+  userId         String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+}
+
+model AnnouncementReceipt {
+  id                      String   @id
+  announcementId          String
+  userId                  String
+  deliveredAt             DateTime @default(now())
+  readAt                  DateTime?
+  dismissedAt             DateTime?
+  effectiveContentVersion Int
+  announcement            Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([userId, readAt, deliveredAt])
+}
+
+model Notification {
+  id             String   @id
+  recipientId    String
+  category       String
+  safeTitle      String
+  safeSnippet    String
+  entityType     String
+  entityId       String
+  requiresAction Boolean  @default(false)
+  readAt         DateTime?
+  deliveredAt    DateTime?
+  dedupeKey      String   @unique
+  createdAt      DateTime @default(now())
+
+  @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, requiresAction, createdAt])
+}
+
+model NotificationPreference {
+  id           String @id
+  userId       String
+  category     String
+  channel      String
+  enabled      Boolean @default(true)
+  digest       String  @default("IMMEDIATE")
+  quietJson    String  @default("{}")
+  version      Int     @default(1)
+
+  @@unique([userId, category, channel])
+}
+
+model MessageThread {
+  id            String   @id
+  workspaceId   String
+  companyId     String?
+  kind          String
+  title         String?
+  entityType    String?
+  entityId      String?
+  lastMessageAt DateTime?
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  participants  ThreadParticipant[]
+  messages      Message[]
+
+  @@index([companyId, lastMessageAt])
+}
+
+model ThreadParticipant {
+  id                String   @id
+  threadId          String
+  userId            String
+  role              String
+  joinedAt          DateTime @default(now())
+  leftAt            DateTime?
+  lastReadMessageId String?
+  thread            MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([threadId, userId])
+  @@index([userId, leftAt])
+}
+
+model Message {
+  id        String   @id
+  threadId  String
+  authorId  String
+  body      String
+  replyToId String?
+  createdAt DateTime @default(now())
+  editedAt  DateTime?
+  deletedAt DateTime?
+  version   Int      @default(1)
+  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt, id])
+}
+
+model Comment {
+  id          String   @id
+  workspaceId String
+  companyId   String
+  entityType  String
+  entityId    String
+  authorId    String
+  body        String
+  visibility  String
+  createdAt   DateTime @default(now())
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  version     Int      @default(1)
+
+  @@index([entityType, entityId, createdAt])
+}
+
+model SavedView {
+  id         String   @id
+  userId     String
+  module     String
+  name       String
+  queryState String
+  isDefault  Boolean  @default(false)
+  version    Int      @default(1)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, module, name])
+}
+
+model AuditEvent {
+  id            String   @id
+  workspaceId   String
+  companyId     String?
+  actorType     String
+  actorId       String?
+  action        String
+  entityType    String
+  entityId      String
+  result        String
+  risk          String
+  safeDiffJson  String   @default("{}")
+  reasonCode    String?
+  correlationId String
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId, createdAt, id])
+  @@index([companyId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
+model OutboxEvent {
+  id            String      @id
+  aggregateType String
+  aggregateId   String
+  aggregateVersion Int
+  eventType     String
+  safePayload   String
+  state         OutboxState @default(PENDING)
+  attempts      Int         @default(0)
+  nextRunAt     DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  processedAt   DateTime?
+
+  @@unique([aggregateType, aggregateId, aggregateVersion, eventType])
+  @@index([state, nextRunAt])
+}
+
+model BackgroundJob {
+  id             String   @id
+  type           String
+  entityType     String
+  entityId       String
+  state          JobState @default(QUEUED)
+  safePayload    String
+  progress       Int      @default(0)
+  attempts       Int      @default(0)
+  maxAttempts    Int      @default(5)
+  runAt          DateTime @default(now())
+  leaseOwner     String?
+  leaseUntil     DateTime?
+  lastErrorCode  String?
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([state, runAt, id])
+  @@index([leaseUntil])
+}
+
+model RetentionPolicy {
+  id          String   @id
+  category    String
+  durationDays Int
+  action      String
+  version     Int
+  effectiveAt DateTime
+  changedBy   String
+  createdAt   DateTime @default(now())
+
+  @@unique([category, version])
+  @@index([effectiveAt])
+}
+
+model SystemSetting {
+  id          String   @id
+  key         String
+  valueJson   String
+  version     Int      @default(1)
+  effectiveAt DateTime @default(now())
+  updatedBy   String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, version])
+  @@index([key, effectiveAt])
+}
+
+model LegalHold {
+  id           String   @id
+  entityType   String
+  entityId     String
+  reason       String
+  placedBy     String
+  placedAt     DateTime @default(now())
+  releasedBy   String?
+  releasedAt   DateTime?
+  status       String
+
+  @@index([entityType, entityId, status])
+}
+
+model IdempotencyRecord {
+  id                 String   @id
+  userId             String
+  key                String
+  operation          String
+  requestFingerprint String
+  resultType         String?
+  resultId           String?
+  responseStatus     Int?
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  @@unique([userId, key, operation])
+  @@index([expiresAt])
+}

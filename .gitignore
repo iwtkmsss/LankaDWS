@@ -4,13 +4,19 @@ node_modules/
 # Build output
 dist/
 coverage/
-frontend/dist/
-backend/dist/
-backend/src/generated/prisma/
-backend/prisma/*.db
-backend/prisma/*.db-journal
-backend/prisma/*.db-shm
-backend/prisma/*.db-wal
+apps/web/dist/
+apps/api/dist/
+packages/*/dist/
+apps/api/src/generated/prisma/
+apps/api/prisma/*.db
+apps/api/prisma/*.db-journal
+apps/api/prisma/*.db-shm
+apps/api/prisma/*.db-wal
+data/
+backups/
+apps/web/artifacts/screenshots/*.png
+apps/web/artifacts/playwright-report/
+apps/web/test-results/
 
 # Environment
 .env

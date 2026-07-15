@@ -1,0 +1,38 @@
+export const Permission = {
+  TasksRead: 'tasks.read',
+  TasksCreate: 'tasks.create',
+  TasksManage: 'tasks.manage',
+  RequestsRead: 'requests.read',
+  RequestsCreate: 'requests.create',
+  RequestsApprove: 'requests.approve',
+  CalendarRead: 'calendar.read',
+  CalendarManage: 'calendar.manage',
+  DocumentsRead: 'documents.read',
+  DocumentsManage: 'documents.manage',
+  KnowledgeRead: 'knowledge.read',
+  KnowledgeManage: 'knowledge.manage',
+  EmployeesRead: 'employees.read',
+  LifecycleManage: 'lifecycle.manage',
+  AnnouncementsRead: 'announcements.read',
+  AnnouncementsCreate: 'announcements.create',
+  AnnouncementsPublish: 'announcements.publish',
+  AnalyticsRead: 'analytics.read',
+  MessagesRead: 'messages.read',
+  NotificationsRead: 'notifications.read',
+  UsersManage: 'users.manage',
+  UsersCredentialsReset: 'users.credentials.reset',
+  UsersMfaReset: 'users.mfa.reset',
+  UsersSecurityUnlock: 'users.security.unlock',
+  RolesManage: 'roles.manage',
+  CompaniesManage: 'companies.manage',
+  SecurityManage: 'security.manage',
+  AuditRead: 'audit.read',
+  AuditExport: 'audit.export',
+  SystemManage: 'system.manage',
+  ConfidentialHrRead: 'confidential.hr.read',
+  ConfidentialSecurityRead: 'confidential.security.read',
+} as const
+
+export type PermissionCode = (typeof Permission)[keyof typeof Permission]
+
+export const allPermissionCodes = Object.values(Permission)
