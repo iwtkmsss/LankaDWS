@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import '../src/config/load-env.js'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { PrismaClient } from '../src/generated/prisma/client.js'
 import { allPermissionCodes, Permission } from '@bert-crm/contracts'

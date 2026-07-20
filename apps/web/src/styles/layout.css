@@ -1,7 +1,9 @@
 .app-frame { min-height: 100vh; }
 .sidebar { position: fixed; z-index: 50; inset: 0 auto 0 0; display: flex; width: var(--sidebar); flex-direction: column; background: linear-gradient(180deg, var(--navy-950), var(--navy-900)); color: #d8deef; }
 .sidebar__brand { display: flex; height: var(--topbar); align-items: center; gap: 10px; padding: 0 18px; }
-.brand-mark { display: inline-grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: 10px; background: var(--cobalt-600); color: #fff; font-size: 17px; font-weight: 850; box-shadow: 0 6px 16px rgba(31, 94, 255, .28); }
+.brand-mark { display: inline-grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; }
+.brand-mark > img { width: 100%; height: 100%; }
+.brand-mark--lg { width: 48px; height: 48px; flex-basis: 48px; }
 .sidebar__brand > span:nth-child(2) { display: flex; flex-direction: column; line-height: 1.1; }
 .sidebar__brand strong { color: #fff; font-size: 16px; letter-spacing: .04em; }
 .sidebar__brand small { margin-top: 4px; color: #77829e; font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }

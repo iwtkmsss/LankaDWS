@@ -11,6 +11,11 @@ export function IconButton({ label, children, ...props }: ButtonHTMLAttributes<H
   return <button type="button" className="icon-button" aria-label={label} title={label} {...props}>{children}</button>
 }
 
+export function BrandMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
+  const pixels = size === 'lg' ? 48 : 32
+  return <span className={`brand-mark brand-mark--${size}`} aria-hidden="true"><img src="/favicon.svg" alt="" width={pixels} height={pixels} /></span>
+}
+
 export function Card({ children, className = '' }: PropsWithChildren<{ className?: string }>) { return <section className={`card ${className}`}>{children}</section> }
 
 export function Avatar({ name, src, size = 'md' }: { name: string; src?: string | null; size?: 'sm' | 'md' | 'lg' }) {

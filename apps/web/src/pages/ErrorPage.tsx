@@ -1,6 +1,6 @@
 import { ArrowLeft, House, RefreshCw, SearchX, ShieldX, TriangleAlert, WifiOff, Wrench } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button } from '../shared/ui'
+import { BrandMark, Button } from '../shared/ui'
 
 export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offline' | 'conflict' | 'maintenance' }) {
   const navigate = useNavigate()
@@ -45,7 +45,7 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
   return (
     <main className="error-page">
       <div className="error-brand">
-        <span className="brand-mark">B</span>
+        <BrandMark />
         <strong>BERT CRM</strong>
       </div>
       <section>

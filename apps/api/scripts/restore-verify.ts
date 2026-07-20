@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import '../src/config/load-env.js'
 import Database from 'better-sqlite3'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'

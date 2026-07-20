@@ -42,6 +42,12 @@ RPO target ≤ 1 година, RTO target ≤ 4 години.
 
 `npm run bert -- admin:create` працює лише коли active full admin відсутній і вимагає masked TTY. Для reset full admin за нормальної роботи потрібні дві різні особи в admin flow. `npm run bert -- admin:recover` дозволений лише коли іншого active full admin немає, installation secret відповідає `BREAK_GLASS_SECRET_HASH`, operator вводить reason та `RECOVER`. Після виконання доставте temporary credential окремим каналом, перевірте audit, rotate installation secret і розслідуйте причину.
 
+Конфігурація завантажується з кореневого `.env`, навіть коли npm workspace виконує команду з `apps/api`; значення, задані середовищем процесу, не перезаписуються. Для первинної конфігурації виконайте `npm run bert -- recovery:hash` у захищеному TTY і підтвердьте `GENERATE`. Команда створює незалежні OS-CSPRNG secrets/keys, Argon2id-хеш recovery secret та development seed password, зберігаючи структуру й несекретні значення `.env`. Відкритий recovery secret показується тільки один раз і має бути одразу перенесений у password manager.
+
+Якщо у `.env` уже є операційні секрети, команда переходить у режим rotation і вимагає точного підтвердження `ROTATE`. Перед цим створіть перевірений backup і захистіть попередні ключі: зміна `SESSION_PEPPER` завершує чинні sessions, а ротація `TOTP_ENCRYPTION_KEY` та `BACKUP_ENCRYPTION_KEY` без окремої re-encryption/retention процедури робить відповідні старі ciphertext або backup недоступними. Після ротації перезапустіть API, виконайте контрольований recovery drill та задокументуйте audit/incident context.
+
+У локальному development дозволена спрощена команда `npm run bert -- admin:dev-reset`: вона використовує постійний `DEMO_SEED_PASSWORD` із `.env`, скидає локальний 2FA, відкликає сесії та записує credential/audit events без видалення CRM-даних. Команда fail-closed при `NODE_ENV=production`; у production використовуйте лише two-person reset або `admin:recover`.
+
 ## Secret rotation
 
 Плануйте maintenance. Створіть backup/restore point. Для session/CSRF/file-link secret rotation завершіть active sessions або підтримайте контрольований dual-key window до повного переходу; для TOTP/private-data key потрібна data re-encryption procedure з version metadata; для backup key збережіть попередній ключ до завершення retention старих копій. Ніколи не логувати key values.

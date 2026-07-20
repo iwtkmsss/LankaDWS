@@ -6,6 +6,11 @@ describe('production configuration', () => {
 
   it('fails closed for development defaults', () => {
     vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('SESSION_PEPPER', 'development-only-session-pepper-change-me')
+    vi.stubEnv('CSRF_SECRET', 'development-only-csrf-secret-change-me')
+    vi.stubEnv('FILE_LINK_SECRET', 'development-only-file-link-secret')
+    vi.stubEnv('TOTP_ENCRYPTION_KEY', '1'.repeat(64))
+    vi.stubEnv('BACKUP_ENCRYPTION_KEY', '2'.repeat(64))
     resetConfigForTests()
     expect(() => getConfig()).toThrow(/SESSION_PEPPER/)
   })

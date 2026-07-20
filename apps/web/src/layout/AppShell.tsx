@@ -25,7 +25,7 @@ import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-
 import { routes } from '../app/routes'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { Avatar, IconButton } from '../shared/ui'
+import { Avatar, BrandMark, IconButton } from '../shared/ui'
 
 const iconByPath: Record<string, typeof Gauge> = {
   '/overview': Gauge,
@@ -90,7 +90,7 @@ export function AppShell({ children }: PropsWithChildren) {
       {mobileNav && <button className="nav-scrim" aria-label="Закрити меню" onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
         <div className="sidebar__brand">
-          <span className="brand-mark">B</span>
+          <BrandMark />
           <span>
             <strong>BERT</strong>
             <small>CRM workspace</small>

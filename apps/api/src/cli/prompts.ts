@@ -1,6 +1,33 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 
+export interface HiddenChunkResult {
+  value: string
+  output: string
+  complete: boolean
+  interrupted: boolean
+}
+
+export function consumeHiddenChunk(current: string, chunk: string): HiddenChunkResult {
+  let value = current
+  let output = ''
+  const normalized = chunk.replaceAll('\u001b[200~', '').replaceAll('\u001b[201~', '')
+  for (const character of normalized) {
+    if (character === '\u0003') return { value, output, complete: false, interrupted: true }
+    if (character === '\r' || character === '\n') return { value, output, complete: true, interrupted: false }
+    if (character === '\u007f' || character === '\b') {
+      if (value.length) {
+        value = value.slice(0, -1)
+        output += '\b \b'
+      }
+    } else if (character >= ' ') {
+      value += character
+      output += '*'
+    }
+  }
+  return { value, output, complete: false, interrupted: false }
+}
+
 export async function promptText(label: string, defaultValue?: string): Promise<string> {
   const rl = createInterface({ input: stdin, output: stdout })
   try {
@@ -21,21 +48,16 @@ export async function promptHidden(label: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let value = ''
     const onData = (chunk: string) => {
-      if (chunk === '\u0003') {
+      const result = consumeHiddenChunk(value, chunk)
+      value = result.value
+      stdout.write(result.output)
+      if (result.interrupted) {
         cleanup()
         reject(new Error('Interrupted'))
-      } else if (chunk === '\r' || chunk === '\n') {
+      } else if (result.complete) {
         stdout.write('\n')
         cleanup()
         resolve(value)
-      } else if (chunk === '\u007f' || chunk === '\b') {
-        if (value.length) {
-          value = value.slice(0, -1)
-          stdout.write('\b \b')
-        }
-      } else if (chunk >= ' ') {
-        value += chunk
-        stdout.write('*')
       }
     }
     const cleanup = () => {

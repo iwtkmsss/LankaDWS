@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import '../config/load-env.js'
 import { NestFactory } from '@nestjs/core'
 import { stdout } from 'node:process'
 import { pathToFileURL } from 'node:url'
@@ -9,6 +9,38 @@ import { getConfig } from '../config/config.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { assertPasswordPolicy } from '../modules/auth/password-policy.js'
 import { promptHidden, promptText } from './prompts.js'
+import { bootstrapEnvironmentSecrets } from './secret-bootstrap.js'
+
+export async function resetDevelopmentAdmin(prisma: PrismaService): Promise<void> {
+  if (process.env.NODE_ENV === 'production') throw new Error('admin:dev-reset is forbidden in production')
+  const password = process.env.DEMO_SEED_PASSWORD
+  if (!password) throw new Error('DEMO_SEED_PASSWORD is missing; run: npm run bert -- recovery:hash')
+  const administrators = await prisma.user.findMany({
+    where: { status: { not: 'DEACTIVATED' }, roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true, status: 'ACTIVE' } } } },
+    select: { id: true, username: true, workspaceId: true, primaryCompanyId: true },
+    take: 2,
+  })
+  if (administrators.length !== 1) throw new Error('admin:dev-reset requires exactly one non-deactivated full administrator')
+  const [user] = administrators
+  if (!user) throw new Error('Development administrator not found')
+  const passwordHash = await hashPassword(password)
+  const correlationId = id('corr')
+  await prisma.$transaction(async (tx) => {
+    await tx.temporaryCredential.updateMany({ where: { userId: user.id, consumedAt: null, invalidatedAt: null }, data: { invalidatedAt: new Date() } })
+    await tx.userSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'development_admin_reset' } })
+    await tx.recoveryCode.deleteMany({ where: { userId: user.id } })
+    await tx.totpCredential.deleteMany({ where: { userId: user.id } })
+    await tx.passwordCredential.upsert({
+      where: { userId: user.id },
+      create: { id: id('pwd'), userId: user.id, passwordHash },
+      update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date(), compromisedAt: null },
+    })
+    await tx.user.update({ where: { id: user.id }, data: { status: 'ACTIVE', mustChangePassword: false, mustEnroll2FA: false, authorizationVersion: { increment: 1 } } })
+    await tx.credentialEvent.create({ data: { id: id('cev'), userId: user.id, actorId: user.id, type: 'development_admin_reset', result: 'SUCCESS', reasonCode: 'local_development', correlationId } })
+    await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: user.workspaceId, companyId: user.primaryCompanyId, actorType: 'SYSTEM', actorId: user.id, action: 'system.development_admin_reset', entityType: 'USER', entityId: user.id, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: 'local_development', correlationId } })
+  })
+  stdout.write(`Development admin готовий.\nЛогін: ${user.username}\nПароль: ${password}\n`)
+}
 
 export async function createAdmin(prisma: PrismaService): Promise<void> {
   const existing = await prisma.user.findFirst({ where: { status: 'ACTIVE', roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true, status: 'ACTIVE' } } } } })
@@ -48,10 +80,12 @@ export async function createAdmin(prisma: PrismaService): Promise<void> {
 }
 
 export async function recoverAdmin(prisma: PrismaService): Promise<void> {
-  if (!getConfig().BREAK_GLASS_SECRET_HASH) throw new Error('BREAK_GLASS_SECRET_HASH is not configured')
+  const recoveryHash = getConfig().BREAK_GLASS_SECRET_HASH
+  if (!recoveryHash) throw new Error('BREAK_GLASS_SECRET_HASH is not configured')
+  if (!recoveryHash.startsWith('$argon2id$')) throw new Error('BREAK_GLASS_SECRET_HASH must be an Argon2id hash; run: npm run bert -- recovery:hash')
   const username = (await promptText('Нікнейм адміністратора')).toLowerCase()
   const installationSecret = await promptHidden('Installation recovery secret')
-  if (!(await verifyPassword(getConfig().BREAK_GLASS_SECRET_HASH, installationSecret))) throw new Error('Recovery authorization failed')
+  if (!(await verifyPassword(recoveryHash, installationSecret))) throw new Error('Recovery authorization failed')
   const reason = await promptText('Причина break-glass')
   const confirmation = await promptText('Введіть RECOVER, щоб підтвердити вплив')
   if (confirmation !== 'RECOVER' || !reason.trim()) throw new Error('Recovery cancelled')
@@ -75,12 +109,17 @@ export async function recoverAdmin(prisma: PrismaService): Promise<void> {
 async function main(): Promise<void> {
   process.env.DISABLE_JOB_WORKER = 'true'
   const command = process.argv[2]
+  if (command === 'recovery:hash') {
+    await bootstrapEnvironmentSecrets()
+    return
+  }
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false })
   try {
     const prisma = app.get(PrismaService)
     if (command === 'admin:create') await createAdmin(prisma)
     else if (command === 'admin:recover') await recoverAdmin(prisma)
-    else throw new Error('Usage: npm run bert -- admin:create | admin:recover')
+    else if (command === 'admin:dev-reset') await resetDevelopmentAdmin(prisma)
+    else throw new Error('Usage: npm run bert -- admin:create | admin:recover | admin:dev-reset | recovery:hash')
   } finally {
     await app.close()
   }

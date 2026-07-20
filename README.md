@@ -51,6 +51,22 @@ npm run bert -- admin:create
 
 Команда одноразова, не приймає пароль через argv і створює workspace, першу company, full-admin role, user, Argon2id credential та audit event однією транзакцією. Аварійне відновлення останнього адміністратора описане в [operations runbook](docs/operations-runbook.md) і запускається лише як `npm run bert -- admin:recover` з налаштованим `BREAK_GLASS_SECRET_HASH`.
 
+API, Prisma та CLI читають `.env` з кореня репозиторію; змінні середовища процесу мають вищий пріоритет. Команда нижче криптографічно незалежно генерує `SESSION_PEPPER`, `CSRF_SECRET`, `TOTP_ENCRYPTION_KEY`, `FILE_LINK_SECRET`, `BACKUP_ENCRYPTION_KEY`, Argon2id `BREAK_GLASS_SECRET_HASH` і development seed password, після підтвердження записує їх у кореневий `.env`:
+
+```bash
+npm run bert -- recovery:hash
+```
+
+Генератор використовує OS CSPRNG (`crypto.randomBytes`) з 256–384 бітами ентропії на значення. Відкритий installation recovery secret не записується у `.env`: він показується один раз, а в конфігурацію потрапляє лише Argon2id-хеш. Збережіть одноразово показаний secret у password manager, перезапустіть API, а потім запускайте `npm run bert -- admin:recover`. Повторний запуск із уже робочими секретами вимагає явного `ROTATE` і попереджає про вплив на sessions, TOTP/private ciphertext та старі backup.
+
+Для локальної development-бази break-glass не потрібен. Наступна команда знаходить єдиного full-admin, встановлює йому постійний `DEMO_SEED_PASSWORD` із `.env`, прибирає локальний 2FA, відкликає старі сесії та друкує готові credentials, не змінюючи CRM-дані:
+
+```bash
+npm run bert -- admin:dev-reset
+```
+
+`admin:dev-reset` жорстко заборонений при `NODE_ENV=production`.
+
 ## Команди
 
 ```bash

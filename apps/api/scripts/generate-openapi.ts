@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import '../src/config/load-env.js'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { NestFactory } from '@nestjs/core'
