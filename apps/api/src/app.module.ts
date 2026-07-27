@@ -15,12 +15,16 @@ import { DashboardModule } from './modules/dashboard/dashboard.module.js'
 import { DocumentsModule } from './modules/documents/documents.module.js'
 import { EmployeesModule } from './modules/employees/employees.module.js'
 import { FilesModule } from './modules/files/files.module.js'
+import { FeedModule } from './modules/feed/feed.module.js'
 import { HealthModule } from './modules/health/health.module.js'
+import { GroupsModule } from './modules/groups/groups.module.js'
 import { JobsModule } from './modules/jobs/jobs.module.js'
 import { KnowledgeModule } from './modules/knowledge/knowledge.module.js'
+import { ImportControlModule } from './modules/import-control/import-control.module.js'
 import { LifecycleModule } from './modules/lifecycle/lifecycle.module.js'
 import { RequestsModule } from './modules/requests/requests.module.js'
 import { RetentionModule } from './modules/retention/retention.module.js'
+import { OrgModule } from './modules/org/org.module.js'
 import { TasksModule } from './modules/tasks/tasks.module.js'
 
 @Module({
@@ -36,8 +40,12 @@ import { TasksModule } from './modules/tasks/tasks.module.js'
     CalendarModule,
     DocumentsModule,
     FilesModule,
+    FeedModule,
     KnowledgeModule,
+    ImportControlModule,
     EmployeesModule,
+    OrgModule,
+    GroupsModule,
     LifecycleModule,
     AnnouncementsModule,
     CommunicationModule,

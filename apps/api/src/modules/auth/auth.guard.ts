@@ -64,7 +64,9 @@ export class SessionAuthGuard implements CanActivate {
       displayName: session.user.displayName,
       displayRole: session.user.displayRole,
       primaryCompanyId: session.user.primaryCompanyId,
-      allowedCompanyIds: session.user.companyAccess.map((item) => item.companyId),
+      // `companyId` is retained as a storage key while the product operates as
+      // one organization. Never widen a request to legacy additional companies.
+      allowedCompanyIds: [session.user.primaryCompanyId],
       permissions: new Set(session.user.roles.flatMap((item) => item.role.permissions.map((entry) => entry.permission.code))),
       authorizationVersion: session.user.authorizationVersion,
       sessionId: session.id,

@@ -9,6 +9,7 @@ export class DomainError extends Error {
     public readonly code: string,
     public readonly safeDetail?: string,
     public readonly fieldErrors?: Record<string, string[]>,
+    public readonly safeExtensions?: Pick<ProblemDetails, 'blockingSubtaskIds'>,
   ) {
     super(code)
   }
@@ -17,8 +18,16 @@ export class DomainError extends Error {
 export const badRequest = (code: string = ProblemCode.ValidationFailed, detail?: string) => new DomainError(400, code, detail)
 export const unauthorized = (code: string = ProblemCode.AuthenticationRequired) => new DomainError(401, code)
 export const forbidden = (detail?: string) => new DomainError(403, ProblemCode.Forbidden, detail)
+export const capabilityDisabled = (detail: string = 'Цей модуль ще не ввімкнено для організації.') => new DomainError(403, ProblemCode.CapabilityDisabled, detail)
 export const notFound = () => new DomainError(404, ProblemCode.NotFound)
 export const conflict = (detail?: string) => new DomainError(409, ProblemCode.Conflict, detail)
+export const taskCompletionBlocked = (blockingSubtaskIds: string[]) => new DomainError(
+  409,
+  ProblemCode.TaskCompletionBlocked,
+  'Спочатку завершіть або скасуйте активні підзадачі.',
+  undefined,
+  { blockingSubtaskIds },
+)
 export const rateLimited = () => new DomainError(429, ProblemCode.RateLimited)
 export const unavailable = (detail?: string) => new DomainError(503, ProblemCode.ServiceUnavailable, detail)
 
@@ -70,6 +79,7 @@ export class ProblemFilter implements ExceptionFilter {
       correlationId: request.correlationId ?? 'unknown',
       ...(detail ? { detail } : {}),
       ...(errors ? { errors } : {}),
+      ...(exception instanceof DomainError ? exception.safeExtensions : {}),
     }
     response.status(status).type('application/problem+json').json(problem)
   }

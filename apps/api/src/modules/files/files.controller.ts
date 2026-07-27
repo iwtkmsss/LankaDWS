@@ -21,13 +21,11 @@ export class FilesController {
   }
 
   @Get(':id/status')
-  @RequirePermissions(Permission.DocumentsRead)
   status(@Req() request: BertRequest, @Param('id') id: string) {
     return this.files.status(principalFrom(request), id)
   }
 
   @Get(':id/download')
-  @RequirePermissions(Permission.DocumentsRead)
   async download(@Req() request: BertRequest, @Param('id') id: string, @Res() response: Response) {
     const file = await this.files.download(principalFrom(request), id)
     response.setHeader('Content-Type', file.mime)

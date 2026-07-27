@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 1,
+  "kind": "bertcrm.feed.representative-load-evidence",
+  "generatedAt": "2026-07-23T14:57:28.981Z",
+  "evidenceStatus": "PASS",
+  "performanceAcceptance": "MEASURED_BASELINE_NO_APPROVED_SLA",
+  "caveat": "This is a deterministic local baseline, not production capacity approval and not a substitute for DDB-004 or D-020.",
+  "sourceBasis": {
+    "document": "docs/bitrix24-database-migration-plan.md",
+    "measuredSourceFingerprint": {
+      "canonicalBlogPosts": 5573,
+      "canonicalBlogComments": 7357,
+      "taskActivityRows": 150534,
+      "calendarActivityRows": 639,
+      "importantActivityRows": 133,
+      "activeUsers": 515,
+      "activeGroups": 54
+    },
+    "profile": "representative",
+    "fixture": {
+      "users": 515,
+      "groups": 54,
+      "posts": 5573,
+      "comments": 7357,
+      "tasks": 150534,
+      "events": 639,
+      "announcements": 133,
+      "fileShares": 64,
+      "supersededPostSources": 200,
+      "postVersions": 4
+    },
+    "syntheticExtension": {
+      "standaloneFileShares": 64,
+      "reason": "Target-native file share cards have no approved Bitrix source count yet; the bounded fixture exercises the new ACL/scanner query branch without claiming source representativeness."
+    },
+    "liveDeltaAssumption": {
+      "heads": 1014,
+      "reason": "Historical materialization is silent and seeds read cursors; only a bounded synthetic post-cutover delta counts as unread."
+    }
+  },
+  "isolation": {
+    "generatedDataOnly": true,
+    "containsProductionPii": false,
+    "modifiedDevelopmentDatabase": false,
+    "temporaryDatabaseRemovedAfterRun": true
+  },
+  "environment": {
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "node": "v24.14.0",
+    "sqlite": "3.53.2",
+    "cpuModel": "12th Gen Intel(R) Core(TM) i5-1235U",
+    "logicalCpuCount": 12,
+    "totalMemoryBytes": 16850202624,
+    "databaseBytes": 325279744,
+    "gitCommit": "cfc68859f132c12978d6253942f622059816b7c3",
+    "workingTreeDirty": true
+  },
+  "execution": {
+    "startedAt": "2026-07-23T14:54:11.841Z",
+    "durationMs": 197141,
+    "seedDurationMs": 94035.45,
+    "warmupPerScenario": 3,
+    "measuredIterationsPerScenario": 20
+  },
+  "fixtureEvidence": {
+    "expectedVisibleHeads": 118005,
+    "expectedUnreadHeads": 761,
+    "expectedPendingAcknowledgements": 93,
+    "expectedOverdueTasks": 60214,
+    "expectedFavoriteHeads": 100,
+    "totalFeedItems": 157543,
+    "totalHeads": 156943,
+    "supersededItems": 600,
+    "liveDeltaHeads": 1014,
+    "forbiddenSourceIds": [
+      "post_feed_0000000",
+      "task_feed_0000000",
+      "event_feed_0000000",
+      "announcement_feed_0000000",
+      "fshare_feed_0000000"
+    ],
+    "visibleGroupId": "grp_feed_0000",
+    "visibleGroupFileShareIds": [
+      "fshare_feed_0000004",
+      "fshare_feed_0000010",
+      "fshare_feed_0000016",
+      "fshare_feed_0000022",
+      "fshare_feed_0000028",
+      "fshare_feed_0000034",
+      "fshare_feed_0000040",
+      "fshare_feed_0000046",
+      "fshare_feed_0000052",
+      "fshare_feed_0000058"
+    ]
+  },
+  "correctness": {
+    "status": "PASS",
+    "firstPageItems": 50,
+    "secondPageItems": 50,
+    "traversedPages": 20,
+    "uniqueTraversedSourceIdentities": 1000,
+    "unreadCount": 761,
+    "pendingAcknowledgements": 93,
+    "overdueTasks": 60214,
+    "sourceHeadIntegrity": {
+      "headCount": 156943,
+      "distinctSourceCount": 156943,
+      "mismatchedHeads": 0
+    },
+    "checks": [
+      "one current head per workspace/company/source identity",
+      "head points to matching immutable FeedItem and cannot regress",
+      "no adjacent-page or bounded-traversal source duplicates",
+      "current-head unread count matches the deterministic live-delta ACL oracle",
+      "post/task/event/announcement/file ACL canaries remain hidden",
+      "acknowledgement, favorite and exact-group facets remain relevant"
+    ]
+  },
+  "queryPlans": {
+    "status": "PASS",
+    "coreOrderedHeadScan": [
+      "SEARCH FeedSourceHead USING COVERING INDEX FeedSourceHead_workspaceId_companyId_occurredAt_itemId_idx (workspaceId=? AND companyId=?)"
+    ],
+    "unreadHeadScan": [
+      "SEARCH FeedSourceHead USING COVERING INDEX FeedSourceHead_workspaceId_companyId_countsAsUnread_occurredAt_itemId_idx (workspaceId=? AND companyId=? AND countsAsUnread=?)"
+    ],
+    "recipientProbe": [
+      "SEARCH FeedItemRecipient USING COVERING INDEX FeedItemRecipient_itemId_userId_key (itemId=? AND userId=?)"
+    ],
+    "requiredCoreIndex": "FeedSourceHead_workspaceId_companyId_occurredAt_itemId_idx",
+    "requiredUnreadIndex": "FeedSourceHead_workspaceId_companyId_countsAsUnread_occurredAt_itemId_idx",
+    "temporarySortObserved": false
+  },
+  "timings": {
+    "allFirstPage": {
+      "samples": 20,
+      "p50Ms": 411.56,
+      "p95Ms": 450,
+      "meanMs": 409.59,
+      "maxMs": 455.94
+    },
+    "allCursorPage": {
+      "samples": 20,
+      "p50Ms": 305.76,
+      "p95Ms": 493.28,
+      "meanMs": 339.82,
+      "maxMs": 829.1
+    },
+    "posts": {
+      "samples": 20,
+      "p50Ms": 375.98,
+      "p95Ms": 408.06,
+      "meanMs": 373.36,
+      "maxMs": 410.19
+    },
+    "tasks": {
+      "samples": 20,
+      "p50Ms": 386.24,
+      "p95Ms": 487.71,
+      "meanMs": 408.62,
+      "maxMs": 494.57
+    },
+    "acknowledgementInbox": {
+      "samples": 20,
+      "p50Ms": 757.16,
+      "p95Ms": 854.3,
+      "meanMs": 766.4,
+      "maxMs": 1137.91
+    },
+    "favorites": {
+      "samples": 20,
+      "p50Ms": 716.59,
+      "p95Ms": 786.47,
+      "meanMs": 725.97,
+      "maxMs": 788.29
+    },
+    "exactGroup": {
+      "samples": 20,
+      "p50Ms": 428.9,
+      "p95Ms": 529.22,
+      "meanMs": 442.77,
+      "maxMs": 565.55
+    },
+    "files": {
+      "samples": 20,
+      "p50Ms": 228.98,
+      "p95Ms": 300.04,
+      "meanMs": 205.25,
+      "maxMs": 300.32
+    }
+  }
+}

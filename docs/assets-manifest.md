@@ -9,6 +9,7 @@
 - `apps/web/public/assets/heroes/admin-overview.webp` і `admin-system.webp` — administrator visuals.
 - `apps/web/public/assets/lifecycle/onboarding-workspace.webp` і `offboarding-workspace.webp` — lifecycle states.
 - `apps/web/public/assets/errors/error-orbit.png` — 403/404/500/offline/conflict/maintenance pages.
+- `apps/web/public/assets/empty-states/workspace.webp`, `search.webp` і `calendar.webp` — compact illustrated empty states for files, filtered search and free calendar periods.
 - `apps/web/public/assets/avatars/avatar-*.webp` — local demo avatar cutouts.
 - `apps/web/public/licenses/ONEST-OFL-1.1.txt` — bundled Onest font license; runtime font files надходять із local npm build, без remote dependency.
 
@@ -16,4 +17,6 @@ Bitmap assets створені локально для цього workspace, rol
 
 ## Browser screenshots
 
-Playwright створює visual evidence у `apps/web/artifacts/screenshots/` для desktop/mobile overview та admin routes. PNG screenshots навмисно git-ignored як generated test artifacts; команда відтворення: `npm run test:e2e --workspace @bert-crm/web`. HTML report: `apps/web/artifacts/playwright-report/`.
+Повний маршрутний аудит зберігає desktop/mobile evidence у `output/playwright/route-audit/screenshots/`, а машинний результат — у `output/playwright/route-audit/report.json`. Деталі покриття та знайдених виправлень: `docs/frontend-browser-audit.md`.
+
+Окремі функціональні E2E screenshots і HTML report створюються у `apps/web/artifacts/`; команда відтворення: `npm run test:e2e --workspace @bert-crm/web`.

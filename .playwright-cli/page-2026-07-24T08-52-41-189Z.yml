@@ -1,0 +1,140 @@
+- generic [ref=f1e10]:
+  - link "Перейти до вмісту" [ref=f1e11] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary [ref=f1e12]:
+    - generic [ref=f1e13]:
+      - generic [ref=f1e15]:
+        - strong [ref=f1e16]: BERT
+        - generic [ref=f1e17]: CRM workspace
+      - button "Закрити меню" [ref=f1e18] [cursor=pointer]
+    - navigation "Головна навігація" [ref=f1e22]:
+      - link "Стрічка" [ref=f1e23] [cursor=pointer]:
+        - /url: /overview?company=cmp_bert_ua
+      - link "Завдання" [ref=f1e28] [cursor=pointer]:
+        - /url: /tasks?company=cmp_bert_ua
+      - link "Чат" [ref=f1e33] [cursor=pointer]:
+        - /url: /messages?company=cmp_bert_ua
+      - link "Календар" [ref=f1e37] [cursor=pointer]:
+        - /url: /calendar?company=cmp_bert_ua
+      - generic [ref=f1e41]:
+        - button "Ще" [expanded] [ref=f1e42] [cursor=pointer]
+        - generic [ref=f1e50]:
+          - link "Заявки" [ref=f1e51] [cursor=pointer]:
+            - /url: /requests?company=cmp_bert_ua
+          - link "Документи" [ref=f1e57] [cursor=pointer]:
+            - /url: /documents?company=cmp_bert_ua
+          - link "Працівники" [ref=f1e62] [cursor=pointer]:
+            - /url: /employees?company=cmp_bert_ua
+          - link "База знань" [ref=f1e69] [cursor=pointer]:
+            - /url: /knowledge?company=cmp_bert_ua
+    - button "Марія Іваненко Працівник" [ref=f1e74] [cursor=pointer]:
+      - generic [ref=f1e76]:
+        - strong [ref=f1e77]: Марія Іваненко
+        - generic [ref=f1e78]: Працівник
+  - generic [ref=f1e81]:
+    - banner [ref=f1e82]:
+      - button "Відкрити меню" [ref=f1e83] [cursor=pointer]
+      - button "BERT Україна" [ref=f1e86] [cursor=pointer]
+      - button "Пошук у BERT CRM" [ref=f1e94] [cursor=pointer]
+      - generic [ref=f1e98]:
+        - button "Повідомлення" [ref=f1e99] [cursor=pointer]
+        - button "Сповіщення" [ref=f1e102] [cursor=pointer]
+    - main [ref=f1e107]:
+      - generic [ref=f1e108]:
+        - generic [ref=f1e109]:
+          - generic [ref=f1e110]:
+            - heading "Завдання" [level=1] [ref=f1e111]
+            - paragraph [ref=f1e112]: Окремі робочі списки за вашою роллю в кожному завданні
+          - link "Нове завдання" [ref=f1e113] [cursor=pointer]:
+            - /url: /tasks/new?company=cmp_bert_ua&role=OBSERVER
+        - generic [ref=f1e115]:
+          - generic [ref=f1e116]:
+            - tablist [ref=f1e117]:
+              - tab "Мої" [ref=f1e225] [cursor=pointer]
+              - tab "Допомагаю" [ref=f1e120] [cursor=pointer]
+              - tab "Доручив" [ref=f1e121] [cursor=pointer]
+              - tab "Спостерігаю 1" [selected] [ref=f1e226] [cursor=pointer]:
+                - text: Спостерігаю
+                - generic [ref=f1e227]: "1"
+            - generic [ref=f1e123]:
+              - button "Пошук" [ref=f1e124] [cursor=pointer]
+              - button "Фільтри" [ref=f1e128] [cursor=pointer]
+          - table [ref=f1e229]:
+            - rowgroup [ref=f1e230]:
+              - row [ref=f1e231]:
+                - cell [ref=f1e232]:
+                  - link "Підготувати доступи нового працівника TSK-2404" [ref=f1e233] [cursor=pointer]:
+                    - /url: /tasks/tsk_onboarding?company=cmp_bert_ua&role=OBSERVER
+                    - generic [ref=f1e235]:
+                      - strong [ref=f1e236]: Підготувати доступи нового працівника
+                      - generic [ref=f1e237]: TSK-2404
+                - cell "Олена Бондар" [ref=f1e238]
+                - cell "17 лип." [ref=f1e241]
+                - cell [ref=f1e242]
+                - cell [ref=f1e246]:
+                  - generic [ref=f1e247]: "00"
+        - dialog "TSK-2404" [active] [ref=f1e253]:
+          - generic [ref=f1e254]:
+            - heading "TSK-2404" [level=2] [ref=f1e255]
+            - button "Закрити" [ref=f1e256] [cursor=pointer]
+          - generic [ref=f1e261]:
+            - generic [ref=f1e262]:
+              - generic [ref=f1e263]: У роботі
+              - heading "Підготувати доступи нового працівника" [level=3] [ref=f1e266]
+              - paragraph [ref=f1e267]: Опис не додано.
+            - generic [ref=f1e268]:
+              - generic [ref=f1e269]:
+                - term [ref=f1e270]: Виконавець
+                - definition [ref=f1e271]:
+                  - generic [ref=f1e272]: ОБ
+                  - text: Олена Бондар
+              - generic [ref=f1e273]:
+                - term [ref=f1e274]: Строк
+                - definition [ref=f1e275]: 17 липня о 12:00
+              - generic [ref=f1e276]:
+                - term [ref=f1e277]: Пріоритет
+                - definition [ref=f1e278]: HIGH
+              - generic [ref=f1e279]:
+                - term [ref=f1e280]: Автор
+                - definition [ref=f1e281]: Андрій Коваль
+            - region [ref=f1e282]:
+              - generic [ref=f1e284]:
+                - heading "Учасники" [level=4] [ref=f1e285]
+                - paragraph [ref=f1e286]: Роль визначає робочий список і доступні дії для кожної людини.
+              - generic [ref=f1e287]:
+                - generic [ref=f1e288]:
+                  - generic [ref=f1e289]: Відповідальний
+                  - strong [ref=f1e292]: Олена Бондар
+                - generic [ref=f1e293]:
+                  - generic [ref=f1e294]: Постановник
+                  - generic [ref=f1e295]:
+                    - generic [ref=f1e296]: АК
+                    - strong [ref=f1e297]: Андрій Коваль
+                - generic [ref=f1e298]:
+                  - generic [ref=f1e299]: Співвиконавці
+                  - generic [ref=f1e300]: Ніхто не допомагає
+                - generic [ref=f1e301]:
+                  - generic [ref=f1e302]: Спостерігачі
+                  - strong [ref=f1e306]: Марія Іваненко
+            - region [ref=f1e307]:
+              - generic [ref=f1e309]:
+                - heading "Підзадачі" [level=4] [ref=f1e310]
+                - paragraph [ref=f1e311]: Розбийте результат на окремі відповідальні кроки.
+            - generic [ref=f1e312]:
+              - heading "Контрольний список" [level=4] [ref=f1e313]
+              - paragraph [ref=f1e314]: Кроків немає
+            - generic [ref=f1e315]:
+              - heading "Обговорення" [level=4] [ref=f1e316]
+              - generic [ref=f1e317]:
+                - textbox "Додати коментар" [ref=f1e318]
+                - button "Надіслати" [ref=f1e319] [cursor=pointer]
+  - navigation "Мобільна навігація" [ref=f1e203]:
+    - link "Стрічка" [ref=f1e204] [cursor=pointer]:
+      - /url: /overview?company=cmp_bert_ua
+    - link "Завдання" [ref=f1e209] [cursor=pointer]:
+      - /url: /tasks?company=cmp_bert_ua
+    - link "Чат" [ref=f1e214] [cursor=pointer]:
+      - /url: /messages?company=cmp_bert_ua
+    - link "Календар" [ref=f1e218] [cursor=pointer]:
+      - /url: /calendar?company=cmp_bert_ua
+    - button "Ще" [ref=f1e222] [cursor=pointer]

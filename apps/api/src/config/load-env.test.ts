@@ -3,18 +3,19 @@ import { describe, expect, it } from 'vitest'
 import { resolveEnvFiles } from './load-env.js'
 
 describe('environment file resolution', () => {
-  it('loads the initiating repository environment before the workspace fallback', () => {
+  it('loads only the repository environment when started from the repository', () => {
     const repository = resolve('C:/example/bert-crm')
     const api = resolve(repository, 'apps/api')
 
-    expect(resolveEnvFiles({ cwd: api, initCwd: repository, explicitPath: '' })).toEqual([
+    expect(resolveEnvFiles({ cwd: api, initCwd: repository })).toEqual([
       resolve(repository, '.env'),
-      resolve(api, '.env'),
     ])
   })
 
-  it('keeps an explicitly selected environment file first', () => {
+  it('resolves the repository root from an API workspace invocation', () => {
     const api = resolve('C:/example/bert-crm/apps/api')
-    expect(resolveEnvFiles({ cwd: api, initCwd: '', explicitPath: './custom.env' })[0]).toBe(resolve(api, 'custom.env'))
+    expect(resolveEnvFiles({ cwd: api, initCwd: '' })).toEqual([
+      resolve('C:/example/bert-crm/.env'),
+    ])
   })
 })

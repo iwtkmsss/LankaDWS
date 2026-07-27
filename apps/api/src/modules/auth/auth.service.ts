@@ -8,6 +8,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
+import { CapabilitiesService } from '../authorization/capabilities.service.js'
 
 interface SessionTarget { id: string; authorizationVersion: number }
 
@@ -15,7 +16,7 @@ interface SessionTarget { id: string; authorizationVersion: number }
 export class AuthService {
   private readonly dummyHash = hashPassword(randomToken())
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly capabilities: CapabilitiesService) {}
 
   async login(input: LoginInput, request: Request, response: Response): Promise<LoginResult> {
     const normalized = input.username.trim().toLowerCase()
@@ -190,19 +191,24 @@ export class AuthService {
   async me(principal: AuthPrincipal, csrfToken: string): Promise<PrincipalView> {
     const user = await this.prisma.user.findUnique({
       where: { id: principal.userId },
-      include: { companyAccess: { where: { status: 'ACTIVE' }, include: { company: true } } },
+      include: { primaryCompany: true },
     })
     if (!user) throw notFound()
+    const capabilities = await this.capabilities.forOrganization(user.primaryCompanyId)
     return {
       id: user.id,
       displayName: user.displayName,
       username: user.username,
       displayRole: user.displayRole,
       jobTitle: user.jobTitle,
-      primaryCompanyId: user.primaryCompanyId,
       avatarAsset: user.avatarAsset,
-      companies: user.companyAccess.map(({ company }) => ({ id: company.id, displayName: company.displayName, code: company.code, timezone: company.timezone })),
+      organization: {
+        id: user.primaryCompany.id,
+        displayName: user.primaryCompany.displayName,
+        timezone: user.primaryCompany.timezone,
+      },
       permissions: [...principal.permissions],
+      capabilities,
       csrfToken,
       mustEnroll2FA: user.mustEnroll2FA,
     }

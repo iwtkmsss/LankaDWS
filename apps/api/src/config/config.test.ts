@@ -33,4 +33,13 @@ describe('production configuration', () => {
     resetConfigForTests()
     expect(getConfig().NODE_ENV).toBe('production')
   })
+
+  it('parses trusted import signing keys and rejects malformed configuration', () => {
+    vi.stubEnv('IMPORT_SIGNING_PUBLIC_KEYS_JSON', JSON.stringify({ 'migration-key-1': 'public-key-material'.padEnd(64, '-') }))
+    resetConfigForTests()
+    expect(getConfig().trustedImportSigningKeys).toHaveProperty('migration-key-1')
+    vi.stubEnv('IMPORT_SIGNING_PUBLIC_KEYS_JSON', '[]')
+    resetConfigForTests()
+    expect(() => getConfig()).toThrow(/IMPORT_SIGNING_PUBLIC_KEYS_JSON/)
+  })
 })

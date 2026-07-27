@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { OrganizationCapabilityView } from './capabilities.js'
 
 export const companyScopeSchema = z.union([
   z.literal('all'),
@@ -17,6 +18,18 @@ export const taskStatusSchema = z.enum([
   'ARCHIVED',
 ])
 export type TaskStatus = z.infer<typeof taskStatusSchema>
+
+export const taskViewRoleSchema = z.enum([
+  'RESPONSIBLE',
+  'CO_EXECUTOR',
+  'CREATOR',
+  'OBSERVER',
+  'ALL',
+])
+export type TaskViewRole = z.infer<typeof taskViewRoleSchema>
+
+export const taskParticipantRoleSchema = z.enum(['CO_EXECUTOR', 'OBSERVER'])
+export type TaskParticipantRole = z.infer<typeof taskParticipantRoleSchema>
 
 export const requestDecisionStatusSchema = z.enum([
   'DRAFT',
@@ -47,10 +60,9 @@ export const confidentialitySchema = z.enum([
 ])
 export type Confidentiality = z.infer<typeof confidentialitySchema>
 
-export interface CompanyView {
+export interface OrganizationView {
   id: string
   displayName: string
-  code: string
   timezone: string
 }
 
@@ -60,13 +72,13 @@ export interface UserSummary {
   username: string
   displayRole: string
   jobTitle: string
-  primaryCompanyId: string
   avatarAsset: string | null
 }
 
 export interface PrincipalView extends UserSummary {
-  companies: CompanyView[]
+  organization: OrganizationView
   permissions: string[]
+  capabilities: OrganizationCapabilityView[]
   csrfToken: string
   mustEnroll2FA: boolean
 }
@@ -82,6 +94,7 @@ export interface TaskListItem {
   id: string
   number: string
   companyId: string
+  parentTaskId: string | null
   title: string
   assignee: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
   status: TaskStatus
@@ -90,6 +103,107 @@ export interface TaskListItem {
   version: number
   commentCount: number
   attachmentCount: number
+  subtaskProgress: {
+    done: number
+    total: number
+  }
+  viewerRoles: Exclude<TaskViewRole, 'ALL'>[]
+}
+
+export interface TaskParticipantView {
+  id: string
+  user: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  role: TaskParticipantRole
+  addedAt: string
+}
+
+export interface TaskReminderView {
+  id: string
+  remindAt: string
+  status: 'ACTIVE' | 'SENT' | 'CANCELLED'
+}
+
+export interface TaskPersonalStateView {
+  favorited: boolean
+  important: boolean
+  following: boolean
+  followerCount: number
+  reminders: TaskReminderView[]
+}
+
+export interface TaskActivityItem {
+  id: string
+  action: string
+  label: string
+  actor: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'> | null
+  createdAt: string
+}
+
+export interface TaskActivityPage {
+  items: TaskActivityItem[]
+  nextCursor: string | null
+}
+
+export interface TaskAttachmentView {
+  id: string
+  fileName: string
+  bytes: number
+  mimeType: string
+  scanStatus: 'QUARANTINED' | 'SCANNING' | 'CLEAN' | 'INFECTED' | 'UNSUPPORTED' | 'FAILED'
+  createdAt: string
+  canRemove: boolean
+}
+
+export interface TaskSourceLinkView {
+  id: string
+  kind: 'MESSAGE' | 'LIFECYCLE' | 'DOCUMENT'
+  label: string
+  href: string
+  createdAt: string
+}
+
+export interface TaskReference {
+  id: string
+  number: string
+  title: string
+  status: TaskStatus
+}
+
+export interface TaskDetailView extends TaskListItem {
+  description: string
+  blockReason: string | null
+  creator: Pick<UserSummary, 'id' | 'displayName'>
+  checklist: Array<{
+    id: string
+    text: string
+    isDone: boolean
+    version: number
+  }>
+  comments: Array<{
+    id: string
+    author: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+    body: string
+    createdAt: string
+    replyToCommentId: string | null
+    replyPreview: {
+      authorName: string
+      body: string
+    } | null
+    attachments: TaskAttachmentView[]
+  }>
+  attachments: TaskAttachmentView[]
+  sourceLinks: TaskSourceLinkView[]
+  parent: TaskReference | null
+  subtasks: TaskReference[]
+  coExecutors: TaskParticipantView[]
+  observers: TaskParticipantView[]
+  canEdit: boolean
+  canReassign: boolean
+  canTransferCreator: boolean
+  canCreateSubtask: boolean
+  canManageParticipants: boolean
+  canAttachFiles: boolean
+  personalState: TaskPersonalStateView
 }
 
 export interface RequestListItem {
@@ -98,6 +212,7 @@ export interface RequestListItem {
   companyId: string
   type: string
   safeSummary: string
+  author: Pick<UserSummary, 'id' | 'displayName'> | null
   currentApprover: Pick<UserSummary, 'id' | 'displayName'> | null
   decisionStatus: RequestDecisionStatus
   executionStatus: ExecutionStatus

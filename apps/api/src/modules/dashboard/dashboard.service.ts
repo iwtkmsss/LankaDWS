@@ -11,7 +11,7 @@ export class DashboardService {
 
   async get(principal: AuthPrincipal): Promise<DashboardView> {
     const [tasks, requests, decisions, eventRows, receipts, lifecycle] = await Promise.all([
-      this.tasks.list(principal, principal.primaryCompanyId, 'mine', 1, 5),
+      this.tasks.list(principal, principal.primaryCompanyId, 'RESPONSIBLE', 1, 5),
       this.requests.list(principal, principal.primaryCompanyId, 'mine', 1, 3),
       principal.permissions.has('requests.approve') ? this.requests.list(principal, 'all', 'approval', 1, 5) : Promise.resolve({ items: [], page: 1, pageSize: 5, total: 0 }),
       this.prisma.event.findMany({ where: { ownerId: principal.userId, endAt: { gte: new Date() } }, orderBy: { startAt: 'asc' }, take: 5 }),

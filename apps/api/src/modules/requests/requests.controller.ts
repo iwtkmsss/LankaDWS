@@ -12,8 +12,14 @@ export class RequestsController {
   constructor(private readonly requests: RequestsService) {}
 
   @Get()
-  list(@Req() request: BertRequest, @Query('company') company?: string, @Query('segment') segment?: string, @Query('page') page?: string) {
-    return this.requests.list(principalFrom(request), company, segment, Number(page ?? 1))
+  list(
+    @Req() request: BertRequest,
+    @Query('company') company?: string,
+    @Query('segment') segment?: string,
+    @Query('page') page?: string,
+    @Query('q') query?: string,
+  ) {
+    return this.requests.list(principalFrom(request), company, segment, Number(page ?? 1), 25, query)
   }
 
   @Get(':id')

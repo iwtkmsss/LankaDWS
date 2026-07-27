@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
+import { organizationCapabilityCodeSchema, Permission, updateOrganizationCapabilitySchema } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { RequirePermissions } from '../auth/auth.decorators.js'
@@ -16,7 +16,7 @@ export class AdminController {
 
   @Get('users')
   @RequirePermissions(Permission.UsersManage)
-  users(@Req() request: BertRequest, @Query('search') search?: string, @Query('status') status?: string, @Query('company') company?: string) { return this.admin.users(principalFrom(request), search, status, company) }
+  users(@Req() request: BertRequest, @Query('search') search?: string, @Query('status') status?: string) { return this.admin.users(principalFrom(request), search, status) }
 
   @Get('users/:id')
   @RequirePermissions(Permission.UsersManage)
@@ -24,7 +24,7 @@ export class AdminController {
 
   @Post('users')
   @RequirePermissions(Permission.UsersManage)
-  createUser(@Req() request: BertRequest, @Body() body: { displayName: string; username: string; roleId: string; companyId: string; jobTitle?: string; contactEmail?: string; approverId?: string }) { return this.admin.createUser(principalFrom(request), body) }
+  createUser(@Req() request: BertRequest, @Body() body: { displayName: string; username: string; roleId: string; jobTitle?: string; contactEmail?: string; approverId?: string }) { return this.admin.createUser(principalFrom(request), body) }
 
   @Post('users/:id/password-reset')
   @RequirePermissions(Permission.UsersCredentialsReset)
@@ -54,17 +54,20 @@ export class AdminController {
   @RequirePermissions(Permission.RolesManage)
   updateRole(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number; name?: string; permissions: Array<{ code: string; scope: 'OWN' | 'SELECTED_COMPANIES' | 'ALL_COMPANIES'; companyIds?: string[] }> }) { return this.admin.updateRole(principalFrom(request), id, body) }
 
-  @Post('access-preview')
-  @RequirePermissions(Permission.RolesManage)
-  accessPreview(@Req() request: BertRequest, @Body() body: { userId: string; companyId: string; action: string }) { return this.admin.accessPreview(principalFrom(request), body) }
+  @Get('organization/capabilities')
+  @RequirePermissions(Permission.OrganizationManage)
+  capabilities(@Req() request: BertRequest) {
+    return this.admin.organizationCapabilities(principalFrom(request))
+  }
 
-  @Get('companies')
-  @RequirePermissions(Permission.CompaniesManage)
-  companies(@Req() request: BertRequest) { return this.admin.companies(principalFrom(request)) }
-
-  @Post('companies')
-  @RequirePermissions(Permission.CompaniesManage)
-  createCompany(@Req() request: BertRequest, @Body() body: { displayName: string; legalName: string; code: string; timezone: string }) { return this.admin.createCompany(principalFrom(request), body) }
+  @Patch('organization/capabilities/:code')
+  @RequirePermissions(Permission.OrganizationManage)
+  updateCapability(@Req() request: BertRequest, @Param('code') rawCode: string, @Body() body: unknown) {
+    const code = organizationCapabilityCodeSchema.safeParse(rawCode)
+    const input = updateOrganizationCapabilitySchema.safeParse(body)
+    if (!code.success || !input.success) throw badRequest('validation_failed', 'Некоректний capability code або version.')
+    return this.admin.updateOrganizationCapability(principalFrom(request), code.data, input.data)
+  }
 
   @Get('audit')
   @RequirePermissions(Permission.AuditRead)

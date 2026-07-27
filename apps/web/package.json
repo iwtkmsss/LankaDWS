@@ -9,7 +9,7 @@
     "lint": "oxlint src",
     "typecheck": "npm run build --workspace @bert-crm/contracts && tsc -b --pretty false",
     "test": "vitest run",
-    "pretest:e2e": "npm run build --prefix ../../packages/contracts && npm run build --prefix ../api",
+    "pretest:e2e": "npm run build --prefix ../../packages/contracts && npm run build --prefix ../api && npm run web-e2e:prepare --prefix ../api",
     "test:e2e": "playwright test",
     "preview": "vite preview"
   },

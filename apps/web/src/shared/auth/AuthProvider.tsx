@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
-import type { AuthNextStep, LoginInput, PrincipalView } from '@bert-crm/contracts'
+import { type AuthNextStep, type LoginInput, type OrganizationCapabilityCode, type PrincipalView } from '@bert-crm/contracts'
 import { api, jsonBody, setCsrfToken } from '../api/client'
 
 type AuthState = 'loading' | 'authenticated' | 'anonymous' | 'restricted'
@@ -12,6 +12,7 @@ interface AuthContextValue {
   refresh(): Promise<void>
   logout(): Promise<void>
   can(permission?: string): boolean
+  canUseCapability(capability: OrganizationCapabilityCode): boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -49,7 +50,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setState('anonymous')
   }, [])
 
-  const value = useMemo<AuthContextValue>(() => ({ state, user, login, refresh, logout, can: (permission) => !permission || Boolean(user?.permissions.includes(permission)) }), [state, user, login, refresh, logout])
+  const value = useMemo<AuthContextValue>(() => ({
+    state,
+    user,
+    login,
+    refresh,
+    logout,
+    can: (permission) => !permission || Boolean(user?.permissions.includes(permission)),
+    canUseCapability: (capability) => {
+      if (!user) return false
+      return user.capabilities.some(
+        (item) => item.code === capability && item.enabled,
+      )
+    },
+  }), [state, user, login, refresh, logout])
   return <AuthContext value={value}>{children}</AuthContext>
 }
 

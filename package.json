@@ -31,7 +31,8 @@
     "bert": "npm run bert --workspace @bert-crm/api --",
     "backup": "npm run backup --workspace @bert-crm/api",
     "restore:verify": "npm run restore:verify --workspace @bert-crm/api",
-    "openapi": "npm run openapi --workspace @bert-crm/api"
+    "openapi": "npm run openapi --workspace @bert-crm/api",
+    "feed:rehearse": "npm run feed:rehearse --workspace @bert-crm/api --"
   },
   "devDependencies": {
     "concurrently": "^10.0.3"

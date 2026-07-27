@@ -8,7 +8,7 @@ BERT CRM — npm-workspaces modular monolith. `apps/web` є React/Vite client, `
 
 ## Модулі
 
-- Identity: auth, password/TOTP lifecycle, opaque sessions, users, companies, roles та authorization.
+- Identity: auth, password/TOTP lifecycle, opaque sessions, users, одна організація, рекурсивна структура підрозділів, roles та authorization.
 - Work: tasks/checklist/recurrence, requests/approvals, calendar/presence та onboarding/offboarding.
 - Content: documents/files, knowledge, announcements, contextual chat/comments і notifications.
 - Platform: search, analytics, append-only audit/export, durable jobs/outbox, retention/legal hold, backup/restore та health/observability.
@@ -34,6 +34,8 @@ Cross-module effect починається з outbox/job reference, записа
 
 ## Security boundary
 
-List/detail/mutation/search/notification/file операції спочатку визначають authenticated principal, потім company scope, record ACL/participation і лише після цього safe projection. `company=all` означає union уже дозволених companies, а не розширення прав. System administration не надає автоматичного доступу до private HR/chat/document fields. API problems відповідають RFC 9457 і не повертають stack, SQL, secret, physical path або private payload.
+List/detail/mutation/search/notification/file операції спочатку визначають authenticated principal, потім єдиний organization scope, record ACL/participation і лише після цього safe projection. Організаційна структура є рекурсивним деревом `підрозділ → підрозділ`; вона не створює окремих tenant або company scopes. System administration не надає автоматичного доступу до private HR/chat/document fields. API problems відповідають RFC 9457 і не повертають stack, SQL, secret, physical path або private payload.
+
+`companyId` тимчасово лишається внутрішнім persistence key для сумісності з наявними таблицями та історичними міграціями. Це не продуктове поняття: API завжди резолвить його в один primary organization record, відхиляє інші legacy ID, не підтримує `company=all`, а web-клієнт не показує перемикач і не зберігає company scope в URL.
 
 Structured request logs містять correlation ID, safe route pattern, status і latency без body/query values. Detailed health/metrics захищений `system.manage`; public liveness/readiness не розкриває DB/file paths або queue payload.

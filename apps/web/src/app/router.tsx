@@ -6,6 +6,7 @@ import { Skeleton } from '../shared/ui'
 import { routes, routeTitle, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
+import { ModuleUnavailablePage } from '../pages/ModuleUnavailablePage'
 
 function DocumentTitle() {
   const location = useLocation()
@@ -15,15 +16,26 @@ function DocumentTitle() {
 
 function ProtectedRoot() {
   const auth = useAuth()
+  const location = useLocation()
   if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
   if (auth.state === 'anonymous') return <Navigate to="/login" replace />
   if (auth.state === 'restricted') return <Navigate to="/access/setup" replace />
+  const search = new URLSearchParams(location.search)
+  if (search.has('company')) {
+    search.delete('company')
+    const nextSearch = search.toString()
+    return <Navigate to={`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}${location.hash}`} replace />
+  }
   return <><DocumentTitle /><AppShell><Outlet /></AppShell></>
 }
 
 function ProtectedPage({ route }: { route: RouteMeta }) {
   const auth = useAuth()
   if (!auth.can(route.permission)) return <ErrorPage status={403} />
+  if (route.capability && !auth.canUseCapability(route.capability)) {
+    return <ModuleUnavailablePage title={route.title} state="disabled" />
+  }
+  if (route.releaseState === 'planned') return <ModuleUnavailablePage title={route.title} state="preparing" />
   const Component = route.component
   return <Suspense fallback={<div className="route-loading"><Skeleton rows={5} /></div>}><Component /></Suspense>
 }

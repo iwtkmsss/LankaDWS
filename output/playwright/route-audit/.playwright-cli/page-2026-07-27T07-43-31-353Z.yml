@@ -1,0 +1,200 @@
+- generic [ref=e36]:
+  - link "Перейти до вмісту" [ref=e37] [cursor=pointer]:
+    - /url: "#main-content"
+  - complementary [ref=e38]:
+    - generic [ref=e41]:
+      - strong [ref=e42]: BERT
+      - generic [ref=e43]: CRM workspace
+    - navigation "Головна навігація" [ref=e44]:
+      - link "Стрічка" [ref=e45] [cursor=pointer]:
+        - /url: /overview?company=cmp_bert_ua
+      - link "Завдання" [ref=e50] [cursor=pointer]:
+        - /url: /tasks?company=cmp_bert_ua
+      - link "Чат" [ref=e55] [cursor=pointer]:
+        - /url: /messages?company=cmp_bert_ua
+      - link "Календар" [ref=e59] [cursor=pointer]:
+        - /url: /calendar?company=cmp_bert_ua
+      - generic [ref=e63]:
+        - button "Ще" [expanded] [ref=e64] [cursor=pointer]
+        - generic [ref=e72]:
+          - link "Заявки" [ref=e73] [cursor=pointer]:
+            - /url: /requests?company=cmp_bert_ua
+          - link "Робочі групи" [ref=e79] [cursor=pointer]:
+            - /url: /groups?company=cmp_bert_ua
+          - link "Диск" [ref=e84] [cursor=pointer]:
+            - /url: /drive?company=cmp_bert_ua
+          - link "Працівники" [ref=e89] [cursor=pointer]:
+            - /url: /employees?company=cmp_bert_ua
+          - link "База знань" [ref=e96] [cursor=pointer]:
+            - /url: /knowledge?company=cmp_bert_ua
+          - link "Аналітика" [ref=e100] [cursor=pointer]:
+            - /url: /analytics?company=cmp_bert_ua
+          - generic [ref=e104]:
+            - link "Адміністрування" [ref=e105] [cursor=pointer]:
+              - /url: /admin?company=cmp_bert_ua
+            - button "Розгорнути адміністрування" [ref=e110] [cursor=pointer]
+    - button "Дмитро Савчук Адміністратор" [ref=e114] [cursor=pointer]:
+      - generic [ref=e116]:
+        - strong [ref=e117]: Дмитро Савчук
+        - generic [ref=e118]: Адміністратор
+  - generic [ref=e121]:
+    - banner [ref=e122]:
+      - button "BERT Україна" [ref=e124] [cursor=pointer]
+      - button "Пошук у BERT CRM" [ref=e132] [cursor=pointer]:
+        - generic [ref=e137]: Ctrl K
+      - button "Швидке створення" [ref=e139] [cursor=pointer]:
+        - generic [ref=e141]: Створити
+      - generic [ref=e144]:
+        - button "Повідомлення" [ref=e145] [cursor=pointer]
+        - button "Сповіщення" [ref=e148] [cursor=pointer]
+    - main [ref=e152]:
+      - generic [ref=e153]:
+        - generic [ref=e155]:
+          - heading "Жива стрічка" [level=1] [ref=e156]
+          - paragraph [ref=e157]: Важливі оновлення команди без шуму чатів і дублювання завдань
+        - generic [ref=e158]:
+          - generic [ref=e159]:
+            - generic [ref=e161]:
+              - generic [ref=e162]:
+                - generic [ref=e163]: Нова публікація
+                - heading "Що важливо знати команді?" [level=2] [ref=e164]
+              - generic [ref=e165]:
+                - generic [ref=e166]: Текст публікації
+                - textbox "Текст публікації" [ref=e167]:
+                  - /placeholder: Коротко опишіть оновлення, рішення або потрібну дію…
+              - generic [ref=e168]:
+                - generic [ref=e169]:
+                  - generic [ref=e170]: Хто побачить
+                  - combobox "Хто побачить" [ref=e171]:
+                    - option "BERT Україна" [selected]
+                    - option "Група · Продукт і дизайн"
+                - generic [ref=e172] [cursor=pointer]:
+                  - checkbox "Потрібне підтвердження Кожен адресат має натиснути окрему кнопку" [ref=e173]
+                  - generic [ref=e174]:
+                    - strong [ref=e175]: Потрібне підтвердження
+                    - generic [ref=e176]: Кожен адресат має натиснути окрему кнопку
+                - button "Опублікувати" [disabled] [ref=e177]
+              - generic [ref=e181]:
+                - generic [ref=e182] [cursor=pointer]:
+                  - text: Додати файл
+                  - button "Додати файл" [ref=e186]
+                - generic "Окрема картка без текстової публікації" [ref=e187] [cursor=pointer]:
+                  - text: Поширити файл
+                  - button "Поширити файл" [ref=e192]
+                - link "Створити завдання" [ref=e193] [cursor=pointer]:
+                  - /url: /tasks/new?company=cmp_bert_ua
+                - link "Додати подію" [ref=e197] [cursor=pointer]:
+                  - /url: /calendar?company=cmp_bert_ua
+            - region "Фільтри стрічки" [ref=e200]:
+              - tablist [ref=e201]:
+                - tab "Усі" [selected] [ref=e202] [cursor=pointer]
+                - tab "До підтвердження 1" [ref=e203] [cursor=pointer]:
+                  - text: До підтвердження
+                  - generic [ref=e204]: "1"
+                - tab "Мої" [ref=e205] [cursor=pointer]
+                - tab "Стежу" [ref=e206] [cursor=pointer]
+              - generic [ref=e207]:
+                - generic [ref=e208]: Тип події
+                - combobox "Тип події" [ref=e209]:
+                  - option "Усі типи" [selected]
+                  - option "Публікації"
+                  - option "Завдання"
+                  - option "Події"
+                  - option "Оголошення"
+                  - option "Файли"
+              - button "Фільтри" [ref=e210] [cursor=pointer]
+            - region "Оновлення стрічки" [ref=e212]:
+              - generic [ref=e213]:
+                - generic [ref=e214]:
+                  - generic [ref=e216]:
+                    - strong [ref=e217]: Андрій Коваль
+                    - generic [ref=e218]:
+                      - text: Уся компанія ·
+                      - time [ref=e219]: 23 липня о 11:30
+                  - generic [ref=e220]:
+                    - button "Додати в обране" [ref=e221] [cursor=pointer]
+                    - button "Дії з публікацією" [ref=e225] [cursor=pointer]
+                - generic [ref=e230]: "Сьогодні оновили робочий простір: головна сторінка показує важливі командні оновлення, а завдання й події залишаються окремими діями. Перегляньте зміни та підтвердьте ознайомлення."
+                - generic [ref=e231]:
+                  - generic [ref=e235]:
+                    - strong [ref=e236]: Потрібне явне підтвердження
+                    - generic [ref=e237]: 0 із 4 адресатів підтвердили
+                  - button "Підтвердити" [ref=e238] [cursor=pointer]
+                - generic [ref=e239]:
+                  - button "Подобається" [ref=e240] [cursor=pointer]
+                  - button "Коментарі" [ref=e243] [cursor=pointer]
+                  - button "Стежити" [ref=e247] [cursor=pointer]
+              - generic [ref=e253]:
+                - generic [ref=e254]:
+                  - generic [ref=e256]:
+                    - strong [ref=e257]: Марія Іваненко
+                    - generic [ref=e258]:
+                      - text: Продукт і дизайн ·
+                      - time [ref=e259]: 22 липня о 17:10
+                  - generic [ref=e260]:
+                    - button "Додати в обране" [ref=e261] [cursor=pointer]
+                    - button "Дії з публікацією" [ref=e265] [cursor=pointer]
+                - generic [ref=e270]: "Підготувала компактніший варіант екрану огляду: головна дія тепер одна, фільтри залишаються в URL, а мобільна версія не має горизонтального прокручування."
+                - generic [ref=e271]:
+                  - button "Подобається" [ref=e272] [cursor=pointer]
+                  - button "Коментарі · 1" [ref=e275] [cursor=pointer]
+                  - button "Стежити" [ref=e279] [cursor=pointer]
+              - generic [ref=e285]:
+                - generic [ref=e290]:
+                  - generic [ref=e291]:
+                    - generic [ref=e292]: Завдання заблоковано
+                    - time [ref=e293]: 21 липня о 16:20
+                  - heading "Підготувати звіт за липень" [level=2] [ref=e294]
+                  - generic [ref=e295]:
+                    - generic [ref=e296]: TSK-2403
+                    - generic [ref=e297]: Заблоковано
+                    - generic [ref=e298]: "Відповідальна людина: Андрій Коваль"
+                    - generic [ref=e299]: "Строк: 14 лип. 2026 р., 18:00"
+                    - generic [ref=e300]: Андрій Коваль
+                - generic [ref=e301]:
+                  - button "Додати в обране" [ref=e302] [cursor=pointer]
+                  - link "Відкрити завдання" [ref=e305] [cursor=pointer]:
+                    - /url: /tasks/tsk_report?company=cmp_bert_ua
+              - generic [ref=e308]:
+                - generic [ref=e312]:
+                  - generic [ref=e313]:
+                    - generic [ref=e314]: Подія календаря
+                    - time [ref=e315]: 20 липня о 13:00
+                  - heading "Огляд операцій" [level=2] [ref=e316]
+                  - paragraph [ref=e317]: 15 лип. 2026 р., 15:30 — 15 лип. 2026 р., 16:00
+                  - generic [ref=e318]:
+                    - generic [ref=e319]: Europe/Kyiv
+                    - generic [ref=e320]: Андрій Коваль
+                - generic [ref=e321]:
+                  - button "Додати в обране" [ref=e322] [cursor=pointer]
+                  - link "Відкрити подію" [ref=e325] [cursor=pointer]:
+                    - /url: /calendar/events/evt_review?company=cmp_bert_ua&date=2026-07-15
+              - generic [ref=e328]:
+                - generic [ref=e333]:
+                  - generic [ref=e334]:
+                    - generic [ref=e335]: Оголошення
+                    - time [ref=e336]: 19 липня о 12:00
+                  - heading "Оновлено політику роботи з даними" [level=2] [ref=e337]
+                  - paragraph [ref=e338]: Перегляньте короткий перелік змін і підтвердьте ознайомлення у базі знань.
+                  - generic [ref=e339]:
+                    - generic [ref=e340]: Закріплено
+                    - generic [ref=e341]: Олена Бондар
+                - generic [ref=e342]:
+                  - button "Додати в обране" [ref=e343] [cursor=pointer]
+                  - link "Відкрити оголошення" [ref=e346] [cursor=pointer]:
+                    - /url: /announcements/ann_policy?company=cmp_bert_ua
+          - complementary "Потребує уваги" [ref=e349]:
+            - generic [ref=e350]:
+              - generic [ref=e351]: Потребує уваги
+              - heading "Ваші наступні кроки" [level=2] [ref=e354]
+              - link "1 підтверджень очікують" [ref=e355] [cursor=pointer]:
+                - /url: /overview?company=cmp_bert_ua&filter=ACK_REQUIRED
+                - generic [ref=e359]:
+                  - strong [ref=e360]: "1"
+                  - generic [ref=e361]: підтверджень очікують
+              - link "0 прострочених завдань" [ref=e362] [cursor=pointer]:
+                - /url: /tasks?company=cmp_bert_ua&role=RESPONSIBLE
+                - generic [ref=e366]:
+                  - strong [ref=e367]: "0"
+                  - generic [ref=e368]: прострочених завдань
+            - paragraph [ref=e369]: 2 нових подій позначено прочитаними. Підтвердження важливого завжди виконується окремо.

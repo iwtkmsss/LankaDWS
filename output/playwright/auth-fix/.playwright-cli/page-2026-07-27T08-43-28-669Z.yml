@@ -1,0 +1,24 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: З поверненням
+      - heading "Увійти до BERT CRM" [level=1] [ref=e7]
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - text: Нікнейм
+        - generic [ref=e10]:
+          - generic [ref=e11]: "@"
+          - textbox "Нікнейм @" [ref=e12]:
+            - /placeholder: maria
+      - generic [ref=e13]:
+        - text: Пароль
+        - generic [ref=e14]:
+          - textbox "Пароль Показати пароль" [ref=e19]
+          - button "Показати пароль" [ref=e20] [cursor=pointer]
+      - button "Увійти" [ref=e24] [cursor=pointer]
+      - link "Не вдається увійти?" [ref=e27] [cursor=pointer]:
+        - /url: /access-help
+    - complementary [ref=e28]:
+      - strong [ref=e29]: Демо-режим
+      - generic [ref=e30]: maria / andrii / olena / dmytro
+      - code [ref=e31]: O7ktY1qu78nT0RmbNwAmplKN_HMx9BOe-A7!

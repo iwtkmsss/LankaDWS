@@ -25,3 +25,8 @@ label small { color: var(--ink-400); font-weight: 450; }
 .eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--cobalt-600); font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .skip-link { position: fixed; z-index: 200; top: 8px; left: 8px; transform: translateY(-150%); padding: 8px 12px; border-radius: 7px; background: var(--surface); color: var(--cobalt-700); box-shadow: var(--shadow-lg); }
 .skip-link:focus { transform: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

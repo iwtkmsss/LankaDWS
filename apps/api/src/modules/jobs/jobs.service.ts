@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { id } from '../../common/crypto.js';
 import { getConfig } from '../../config/config.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { writeFeedProjection } from '../feed/feed-projection.service.js';
 import { promoteFile, writeCleanFile } from '../files/storage.js';
 import {
   buildRetentionPlan,
@@ -109,6 +110,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   async runOnce(): Promise<void> {
     await this.dispatchOutbox();
     const now = new Date();
+    const expired = await this.prisma.backgroundJob.findFirst({
+      where: { state: 'RUNNING', leaseUntil: { lt: now } },
+      orderBy: [{ leaseUntil: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    });
     await this.prisma.backgroundJob.updateMany({
       where: { state: 'RUNNING', leaseUntil: { lt: now } },
       data: {
@@ -119,10 +125,14 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         lastErrorCode: 'lease_expired',
       },
     });
-    const candidate = await this.prisma.backgroundJob.findFirst({
-      where: { state: 'QUEUED', runAt: { lte: now } },
-      orderBy: [{ runAt: 'asc' }, { id: 'asc' }],
-    });
+    const candidate = expired
+      ? await this.prisma.backgroundJob.findFirst({
+          where: { id: expired.id, state: 'QUEUED', runAt: { lte: now } },
+        })
+      : await this.prisma.backgroundJob.findFirst({
+          where: { state: 'QUEUED', runAt: { lte: now } },
+          orderBy: [{ runAt: 'asc' }, { id: 'asc' }],
+        });
     if (!candidate) return;
     const leaseUntil = new Date(
       Date.now() + getConfig().JOB_LEASE_SECONDS * 1000,
@@ -205,6 +215,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (type === 'file.scan') return this.markDevelopmentScan(entityId);
     if (type === 'task.recurrence')
       return this.createRecurringTask(entityId, payload);
+    if (type === 'task.reminder') return this.deliverTaskReminder(entityId);
     if (type === 'retention.purge') return this.runRetention(entityId, payload);
     if (type === 'export.generate')
       return this.generateAuditExport(entityId, payload);
@@ -338,15 +349,17 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       include: { companies: true, roles: true, users: true },
     });
     if (!announcement) throw new Error('AnnouncementMissing');
+    let effectiveVersion = announcement.version;
     if (
       announcement.status === 'SCHEDULED' &&
       announcement.publishAt &&
       announcement.publishAt <= new Date()
     ) {
-      await this.prisma.announcement.update({
+      const published = await this.prisma.announcement.update({
         where: { id: announcement.id },
         data: { status: 'PUBLISHED', version: { increment: 1 } },
       });
+      effectiveVersion = published.version;
     }
     const users = await this.prisma.user.findMany({
       where: {
@@ -370,18 +383,34 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       },
       select: { id: true },
     });
-    for (const user of users) {
-      await this.prisma.announcementReceipt.upsert({
-        where: { announcementId_userId: { announcementId, userId: user.id } },
-        create: {
-          id: id('anr'),
-          announcementId,
-          userId: user.id,
-          effectiveContentVersion: announcement.version,
-        },
-        update: { effectiveContentVersion: announcement.version },
-      });
-    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const user of users) {
+        await tx.announcementReceipt.upsert({
+          where: { announcementId_userId: { announcementId, userId: user.id } },
+          create: {
+            id: id('anr'),
+            announcementId,
+            userId: user.id,
+            effectiveContentVersion: effectiveVersion,
+          },
+          update: { effectiveContentVersion: effectiveVersion },
+        });
+      }
+      for (const company of announcement.companies) {
+        await writeFeedProjection(tx, {
+          workspaceId: announcement.workspaceId,
+          companyId: company.companyId,
+          sourceType: 'ANNOUNCEMENT',
+          sourceId: announcement.id,
+          sourceVersion: effectiveVersion,
+          action: 'PUBLISHED',
+          actorId: announcement.authorId,
+          recipientIds: users.map((user) => user.id),
+          visibility: 'PARTICIPANTS',
+          occurredAt: announcement.publishAt ?? new Date(),
+        });
+      }
+    });
   }
 
   private async notifyApprover(
@@ -514,6 +543,110 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         next,
       );
     }
+  }
+
+  private async deliverTaskReminder(reminderId: string): Promise<void> {
+    const reminder = await this.prisma.taskReminder.findUnique({
+      where: { id: reminderId },
+      include: {
+        task: true,
+        user: {
+          select: {
+            id: true,
+            status: true,
+            companyAccess: {
+              select: {
+                companyId: true,
+                status: true,
+              },
+            },
+            groupMemberships: {
+              select: {
+                groupId: true,
+                leftAt: true,
+              },
+            },
+            roles: {
+              where: {
+                status: 'ACTIVE',
+                validFrom: { lte: new Date() },
+                OR: [{ validTo: null }, { validTo: { gt: new Date() } }],
+              },
+              select: {
+                role: {
+                  select: {
+                    status: true,
+                    permissions: {
+                      where: { permissionCode: 'tasks.manage' },
+                      select: { id: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!reminder || reminder.status !== 'ACTIVE') return;
+    const task = reminder.task;
+    const hasCompanyAccess = reminder.user.status === 'ACTIVE'
+      && reminder.user.companyAccess.some((access) => (
+        access.companyId === task.companyId && access.status === 'ACTIVE'
+      ));
+    const hasGroupAccess = !task.groupId
+      || reminder.user.groupMemberships.some((membership) => (
+        membership.groupId === task.groupId && !membership.leftAt
+      ));
+    const isDirectActor = task.creatorId === reminder.userId
+      || task.assigneeId === reminder.userId
+      || Boolean(await this.prisma.taskParticipant.findFirst({
+        where: {
+          taskId: task.id,
+          userId: reminder.userId,
+          removedAt: null,
+        },
+        select: { id: true },
+      }));
+    const canManage = reminder.user.roles.some((assignment) => (
+      assignment.role.status === 'ACTIVE'
+      && assignment.role.permissions.length > 0
+    ));
+    if (
+      task.archivedAt
+      || !hasCompanyAccess
+      || !hasGroupAccess
+      || (!isDirectActor && !canManage)
+    ) {
+      await this.prisma.taskReminder.updateMany({
+        where: { id: reminder.id, status: 'ACTIVE' },
+        data: { status: 'CANCELLED' },
+      });
+      return;
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const sent = await tx.taskReminder.updateMany({
+        where: { id: reminder.id, status: 'ACTIVE' },
+        data: { status: 'SENT' },
+      });
+      if (!sent.count) return;
+      await tx.notification.upsert({
+        where: { dedupeKey: `task-reminder:${reminder.id}:${reminder.userId}` },
+        create: {
+          id: id('ntf'),
+          recipientId: reminder.userId,
+          category: 'TASKS',
+          safeTitle: 'Нагадування про завдання',
+          safeSnippet: `${task.number} · ${task.title}`.slice(0, 180),
+          entityType: 'TASK',
+          entityId: task.id,
+          requiresAction: true,
+          deliveredAt: new Date(),
+          dedupeKey: `task-reminder:${reminder.id}:${reminder.userId}`,
+        },
+        update: {},
+      });
+    });
   }
 
   private async runRetention(

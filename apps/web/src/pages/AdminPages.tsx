@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ImportReadinessView } from '@bert-crm/contracts'
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   Building2,
   Check,
   ChevronRight,
   CircleAlert,
   Clipboard,
   Download,
+  Database,
   FileClock,
   KeyRound,
   LockKeyhole,
@@ -16,6 +19,7 @@ import {
   Search,
   ServerCog,
   ShieldCheck,
+  ShieldAlert,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -38,7 +42,7 @@ import {
 
 interface AdminOverview {
   users: { active: number; pending: number; deactivated: number }
-  companies: number
+  departments: number
   roles: number
   twoFactorCoverage: number
   attention: { pendingUsers: number; without2fa: number; failedJobs: number }
@@ -50,7 +54,6 @@ interface AdminUser {
   username: string
   jobTitle: string
   status: string
-  company: { id: string; name: string }
   roles: Array<{ id: string; name: string }>
   displayRole: string
   twoFactor: boolean
@@ -58,17 +61,7 @@ interface AdminUser {
   avatarAsset: string | null
   updatedAt: string
 }
-interface Company {
-  id: string
-  displayName: string
-  legalName: string
-  code: string
-  timezone: string
-  status: string
-  activeUserCount: number
-  createdAt: string
-}
-type RoleScope = 'OWN' | 'SELECTED_COMPANIES' | 'ALL_COMPANIES'
+type RoleScope = 'OWN' | 'ALL_COMPANIES'
 interface Role {
   id: string
   name: string
@@ -104,10 +97,10 @@ export default function AdminPages() {
   const path = useLocation().pathname
   if (path === '/admin') return <AdminOverviewPage />
   if (path.startsWith('/admin/users')) return <UsersPage />
-  if (path.startsWith('/admin/companies')) return <CompaniesPage />
   if (path.startsWith('/admin/roles')) return <RolesPage />
   if (path.startsWith('/admin/security')) return <SecurityPage />
   if (path.startsWith('/admin/audit')) return <AuditPage />
+  if (path.startsWith('/admin/import')) return <ImportReadinessPage />
   return <SystemPage />
 }
 
@@ -125,27 +118,72 @@ function AdminOverviewPage() {
     )
   if (query.isError || !query.data) return <ErrorState />
   const data = query.data
+  const scoped = (path: string) => path
+  const attentionItems = [
+    {
+      id: 'failed-jobs',
+      count: data.attention.failedJobs,
+      label: 'Фонових робіт з помилкою',
+      action: 'Перевірити фонові роботи',
+      href: scoped('/admin/system?tab=jobs'),
+      icon: ServerCog,
+    },
+    {
+      id: 'without-2fa',
+      count: data.attention.without2fa,
+      label: 'Активних акаунтів без 2FA',
+      action: 'Перевірити захист акаунтів',
+      href: scoped('/admin/security'),
+      icon: LockKeyhole,
+    },
+    {
+      id: 'pending-users',
+      count: data.attention.pendingUsers,
+      label: 'Очікують першого входу',
+      action: 'Перевірити нові акаунти',
+      href: scoped('/admin/users?status=PENDING_FIRST_LOGIN'),
+      icon: KeyRound,
+    },
+  ].filter((item) => item.count > 0)
+  const attentionTotal = attentionItems.reduce((total, item) => total + item.count, 0)
+  const primaryAttention = attentionItems[0]
   return (
     <div className="admin-overview">
-      <PageHeader title="Адміністрування" description="Системний огляд окремо від вашого особистого dashboard" />
+      <PageHeader title="Адміністрування" description="Користувачі, доступи та безпека в одному робочому огляді" />
       <section className="admin-hero">
-        <div>
+        <div className="admin-hero__intro">
           <span className="eyebrow">
-            <ShieldCheck size={15} /> Системний контур
+            <ShieldCheck size={15} /> Системний фокус
           </span>
-          <h2>Доступи, компанії й безпека під контролем.</h2>
+          <h2>{attentionTotal ? 'Спочатку усуньте критичні ризики.' : 'Критичних ризиків не виявлено.'}</h2>
           <p>
-            {data.attention.pendingUsers + data.attention.without2fa + data.attention.failedJobs} пунктів потребують
-            перевірки.
+            {attentionTotal
+              ? `${attentionTotal} ${attentionTotal === 1 ? 'запис потребує' : 'записів потребують'} перевірки.`
+              : 'Стан користувачів, доступів і фонових робіт стабільний.'}
           </p>
         </div>
-        <img src="/assets/heroes/admin-system.webp" alt="" width="420" height="280" />
+        <div className="admin-hero__next">
+          <span>{primaryAttention ? 'Пріоритетна дія' : 'Наступний крок'}</span>
+          <strong>{primaryAttention?.label ?? 'Перегляньте останні системні зміни'}</strong>
+          <Link
+            className="button button--primary"
+            to={primaryAttention?.href ?? scoped('/admin/audit')}
+          >
+            {primaryAttention?.action ?? 'Відкрити журнал'} <ArrowRight size={16} />
+          </Link>
+        </div>
       </section>
       <div className="kpi-grid">
-        <Kpi icon={Users} value={data.users.active} label="Активні користувачі" href="/admin/users" />
-        <Kpi icon={Building2} value={data.companies} label="Компанії" href="/admin/companies" />
-        <Kpi icon={UsersRound} value={data.roles} label="Активні ролі" href="/admin/roles" />
-        <Kpi icon={ShieldCheck} value={`${data.twoFactorCoverage}%`} label="Покриття 2FA" href="/admin/security" />
+        <Kpi icon={Users} value={data.users.active} label="Активні користувачі" href={scoped('/admin/users')} />
+        <Kpi icon={Building2} value={data.departments} label="Підрозділи" href="/employees/org" />
+        <Kpi icon={UsersRound} value={data.roles} label="Активні ролі" href={scoped('/admin/roles')} />
+        <Kpi
+          icon={ShieldCheck}
+          value={`${data.twoFactorCoverage}%`}
+          label="Покриття 2FA"
+          href={scoped('/admin/security')}
+          attention={data.twoFactorCoverage < 100}
+        />
       </div>
       <div className="admin-grid">
         <Card>
@@ -153,36 +191,33 @@ function AdminOverviewPage() {
             <h2>Потребує уваги</h2>
           </header>
           <div className="attention-list">
-            <Link to="/admin/users?status=PENDING_FIRST_LOGIN">
-              <KeyRound />
-              <span>
-                <strong>{data.attention.pendingUsers}</strong>
-                <small>Очікують першого входу</small>
-              </span>
-              <ChevronRight />
-            </Link>
-            <Link to="/admin/security">
-              <LockKeyhole />
-              <span>
-                <strong>{data.attention.without2fa}</strong>
-                <small>Активних акаунтів без 2FA</small>
-              </span>
-              <ChevronRight />
-            </Link>
-            <Link to="/admin/system?tab=jobs">
-              <ServerCog />
-              <span>
-                <strong>{data.attention.failedJobs}</strong>
-                <small>Фонових робіт з помилкою</small>
-              </span>
-              <ChevronRight />
-            </Link>
+            {attentionItems.length ? attentionItems.map((item) => {
+              const Icon = item.icon
+              return (
+                <Link to={item.href} key={item.id}>
+                  <Icon />
+                  <span>
+                    <strong>{item.count}</strong>
+                    <small>{item.label}</small>
+                  </span>
+                  <ChevronRight />
+                </Link>
+              )
+            }) : (
+              <div className="attention-list__clear">
+                <ShieldCheck size={22} />
+                <span>
+                  <strong>Усе гаразд</strong>
+                  <small>Активних блокерів немає.</small>
+                </span>
+              </div>
+            )}
           </div>
         </Card>
         <Card>
           <header className="card-title">
             <h2>Останні дії</h2>
-            <Link to="/admin/audit">Журнал</Link>
+            <Link to={scoped('/admin/audit')}>Відкрити журнал</Link>
           </header>
           <AuditList items={data.recentAudit} />
         </Card>
@@ -208,7 +243,7 @@ function UsersPage() {
     <div>
       <PageHeader
         title="Користувачі"
-        description="Акаунти, ролі, компанії та security-стан"
+        description="Акаунти, ролі, підрозділи та security-стан"
         action={
           <Button onClick={() => setCreating(true)}>
             <Plus size={17} />
@@ -237,7 +272,6 @@ function UsersPage() {
               <thead>
                 <tr>
                   <th>Користувач</th>
-                  <th>Компанія</th>
                   <th>Ролі</th>
                   <th>2FA</th>
                   <th>Статус</th>
@@ -257,7 +291,6 @@ function UsersPage() {
                         </span>
                       </Link>
                     </td>
-                    <td>{user.company.name}</td>
                     <td>{user.roles.map((role) => role.name).join(', ')}</td>
                     <td>
                       {user.twoFactor ? (
@@ -293,10 +326,6 @@ function CreateUserDrawer({ onClose }: { onClose: () => void }) {
     queryKey: ['admin-roles'],
     queryFn: () => api<{ items: Role[] }>('/admin/roles'),
   })
-  const companies = useQuery({
-    queryKey: ['admin-companies'],
-    queryFn: () => api<{ items: Company[] }>('/admin/companies'),
-  })
   const [result, setResult] = useState<{
     username: string
     temporaryPassword: string
@@ -314,7 +343,6 @@ function CreateUserDrawer({ onClose }: { onClose: () => void }) {
           username: data.get('username'),
           jobTitle: data.get('jobTitle'),
           roleId: data.get('roleId'),
-          companyId: data.get('companyId'),
         }),
       })
       setResult(created)
@@ -367,19 +395,6 @@ function CreateUserDrawer({ onClose }: { onClose: () => void }) {
             <input name="jobTitle" />
           </label>
           <label>
-            Компанія
-            <select name="companyId" required defaultValue="">
-              <option disabled value="">
-                Оберіть
-              </option>
-              {companies.data?.items.map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
             Роль
             <select name="roleId" required defaultValue="">
               <option disabled value="">
@@ -410,8 +425,6 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     status: string
     timezone: string
     version: number
-    primaryCompany: Company
-    companies: Company[]
     roles: Role[]
     security: {
       twoFactor: boolean
@@ -444,10 +457,6 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           </div>
           <dl className="detail-grid">
             <div>
-              <dt>Основна компанія</dt>
-              <dd>{query.data.primaryCompany.displayName}</dd>
-            </div>
-            <div>
               <dt>Роль</dt>
               <dd>{query.data.displayRole}</dd>
             </div>
@@ -460,14 +469,6 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <dd>{query.data.security.activeSessions}</dd>
             </div>
           </dl>
-          <section>
-            <h4>Доступні компанії</h4>
-            <div className="tag-list">
-              {query.data.companies.map((item) => (
-                <span key={item.id}>{item.displayName}</span>
-              ))}
-            </div>
-          </section>
           <p className="privacy-note">
             <ShieldCheck size={16} />
             Перевірка доступу не створює сесію від імені користувача.
@@ -475,129 +476,6 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
       )}
     </Drawer>
-  )
-}
-
-function CompaniesPage() {
-  const { companyId } = useParams()
-  const navigate = useNavigate()
-  const client = useQueryClient()
-  const [creating, setCreating] = useState(false)
-  const query = useQuery({
-    queryKey: ['admin-companies'],
-    queryFn: () => api<{ items: Company[] }>('/admin/companies'),
-  })
-  return (
-    <div>
-      <PageHeader
-        title="Компанії"
-        description="Плоский перелік юридичних та операційних компаній"
-        action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus size={17} />
-            Додати компанію
-          </Button>
-        }
-      />
-      <div className="company-grid">
-        {query.isLoading ? (
-          <Skeleton rows={5} />
-        ) : query.isError ? (
-          <ErrorState />
-        ) : (
-          query.data?.items.map((company) => (
-            <Link to={`/admin/companies/${company.id}`} key={company.id}>
-              <span>
-                <Building2 />
-              </span>
-              <div>
-                <h2>{company.displayName}</h2>
-                <p>{company.legalName}</p>
-                <small>
-                  {company.code} · {company.timezone}
-                </small>
-              </div>
-              <b>{company.activeUserCount} людей</b>
-            </Link>
-          ))
-        )}
-      </div>
-      {companyId && (
-        <Drawer title="Компанія" onClose={() => navigate('/admin/companies')}>
-          {query.data?.items.find((item) => item.id === companyId) ? (
-            <CompanyDetail company={query.data.items.find((item) => item.id === companyId)!} />
-          ) : (
-            <Skeleton />
-          )}
-        </Drawer>
-      )}
-      {creating && (
-        <Drawer title="Нова компанія" onClose={() => setCreating(false)}>
-          <form
-            className="entity-form"
-            onSubmit={async (event) => {
-              event.preventDefault()
-              const data = new FormData(event.currentTarget)
-              await api('/admin/companies', {
-                method: 'POST',
-                body: jsonBody(Object.fromEntries(data)),
-              })
-              setCreating(false)
-              void client.invalidateQueries({ queryKey: ['admin-companies'] })
-            }}
-          >
-            <label className="span-2">
-              Відображувана назва
-              <input name="displayName" required />
-            </label>
-            <label className="span-2">
-              Юридична назва
-              <input name="legalName" required />
-            </label>
-            <label>
-              Код
-              <input name="code" pattern="[a-z0-9-]{2,24}" required />
-            </label>
-            <label>
-              Часовий пояс
-              <input name="timezone" defaultValue="Europe/Kyiv" required />
-            </label>
-            <Button className="span-2">Створити</Button>
-          </form>
-        </Drawer>
-      )}
-    </div>
-  )
-}
-function CompanyDetail({ company }: { company: Company }) {
-  return (
-    <div className="detail-stack">
-      <span className="settings-icon">
-        <Building2 />
-      </span>
-      <h3>{company.displayName}</h3>
-      <p>{company.legalName}</p>
-      <dl className="detail-grid">
-        <div>
-          <dt>Код</dt>
-          <dd>{company.code}</dd>
-        </div>
-        <div>
-          <dt>Часовий пояс</dt>
-          <dd>{company.timezone}</dd>
-        </div>
-        <div>
-          <dt>Активні працівники</dt>
-          <dd>{company.activeUserCount}</dd>
-        </div>
-        <div>
-          <dt>Статус</dt>
-          <dd>
-            <StatusBadge status={company.status} />
-          </dd>
-        </div>
-      </dl>
-    </div>
   )
 }
 
@@ -648,7 +526,7 @@ function RoleDetail({ role }: { role: Role }) {
   const [permissions, setPermissions] = useState(
     role.permissions.map((item) => ({
       code: item.permissionCode,
-      scope: item.scope,
+      scope: (item.scope === 'OWN' ? 'OWN' : 'ALL_COMPANIES') as RoleScope,
     })),
   )
   const save = useMutation({
@@ -689,8 +567,7 @@ function RoleDetail({ role }: { role: Role }) {
                 }
               >
                 <option value="OWN">Власні</option>
-                <option value="SELECTED_COMPANIES">Обрані компанії</option>
-                <option value="ALL_COMPANIES">Усі доступні</option>
+                <option value="ALL_COMPANIES">Вся організація</option>
               </select>
             </article>
           ))}
@@ -779,6 +656,8 @@ function SecurityPage() {
 
 function AuditPage() {
   const [params, setParams] = useSearchParams()
+  const { eventId } = useParams()
+  const navigate = useNavigate()
   const page = Number(params.get('page') ?? 1)
   const [exportId, setExportId] = useState('')
   const query = useQuery({
@@ -867,6 +746,23 @@ function AuditPage() {
           </>
         )}
       </Card>
+      {eventId && (
+        <Drawer
+          title="Подія журналу"
+          onClose={() => navigate(`/admin/audit?${params.toString()}`)}
+        >
+          {query.isLoading ? (
+            <Skeleton />
+          ) : query.data?.items.find((item) => item.id === eventId) ? (
+            <AuditEventDetail event={query.data.items.find((item) => item.id === eventId)!} />
+          ) : (
+            <EmptyState
+              title="Подію не знайдено"
+              description="Запис відсутній на поточній сторінці журналу або недоступний."
+            />
+          )}
+        </Drawer>
+      )}
     </div>
   )
 }
@@ -874,20 +770,147 @@ function AuditList({ items }: { items: AuditEvent[] }) {
   return (
     <div className="audit-list">
       {items.map((item) => (
-        <article key={item.id}>
-          <span className={`risk risk--${item.risk.toLowerCase()}`}>
-            <Activity size={17} />
-          </span>
-          <div>
-            <strong>{item.action}</strong>
-            <small>
-              {item.entityType} · {item.entityId ?? 'system'}
-            </small>
-          </div>
-          <StatusBadge status={item.result} />
-          <time>{formatDateTime(item.createdAt)}</time>
-        </article>
+        <Link key={item.id} to={`/admin/audit/${item.id}`}>
+          <article>
+            <span className={`risk risk--${item.risk.toLowerCase()}`}>
+              <Activity size={17} />
+            </span>
+            <div>
+              <strong>{item.action}</strong>
+              <small>
+                {item.entityType} · {item.entityId ?? 'system'}
+              </small>
+            </div>
+            <StatusBadge status={item.result} />
+            <time>{formatDateTime(item.createdAt)}</time>
+          </article>
+        </Link>
       ))}
+    </div>
+  )
+}
+
+function AuditEventDetail({ event }: { event: AuditEvent }) {
+  return (
+    <dl className="detail-list">
+      <div><dt>Дія</dt><dd>{event.action}</dd></div>
+      <div><dt>Сутність</dt><dd>{event.entityType} · {event.entityId ?? 'system'}</dd></div>
+      <div><dt>Результат</dt><dd><StatusBadge status={event.result} /></dd></div>
+      <div><dt>Ризик</dt><dd>{event.risk}</dd></div>
+      <div><dt>Час</dt><dd>{formatDateTime(event.createdAt)}</dd></div>
+      <div><dt>Correlation ID</dt><dd><code>{event.correlationId}</code></dd></div>
+    </dl>
+  )
+}
+
+function ImportReadinessPage() {
+  const query = useQuery({
+    queryKey: ['admin-import-readiness'],
+    queryFn: () => api<ImportReadinessView>('/admin/import/readiness'),
+  })
+
+  if (query.isLoading) {
+    return (
+      <div>
+        <PageHeader title="Готовність імпорту" />
+        <Skeleton rows={8} />
+      </div>
+    )
+  }
+  if (query.isError || !query.data) {
+    return (
+      <div>
+        <PageHeader title="Готовність імпорту" />
+        <ErrorState title="Не вдалося перевірити готовність імпорту" onRetry={() => void query.refetch()} />
+      </div>
+    )
+  }
+
+  const data = query.data
+  const blockingGates = data.gates.filter((gate) => gate.status === 'BLOCKING').length
+  const metrics = [
+    { label: 'Пакети даних', value: data.counters.datasets },
+    { label: 'Запечатані пакети', value: data.counters.sealedDatasets },
+    { label: 'Запуски', value: data.counters.runs },
+    { label: 'Блокувальні проблеми', value: data.counters.unresolvedBlockingIssues },
+  ]
+
+  return (
+    <div className="import-readiness">
+      <PageHeader
+        title="Готовність імпорту"
+        description="Безпечна підготовка перенесення даних із Bitrix24 без передчасного запуску production APPLY"
+      />
+      <Card className="import-readiness__hero">
+        <span className="import-readiness__hero-icon" aria-hidden="true">
+          <ShieldAlert size={27} />
+        </span>
+        <div>
+          <span className="eyebrow">
+            <LockKeyhole size={15} /> Production APPLY вимкнено
+          </span>
+          <h2>Спочатку закриваємо {blockingGates} критичних рішень</h2>
+          <p>
+            Контрольна площина вже захищає маніфести, ланцюжки та журнал змін. Запуск імпорту
+            з’явиться лише після формального закриття всіх блокерів і успішної репетиції.
+          </p>
+        </div>
+        <StatusBadge status={data.state} />
+      </Card>
+
+      <dl className="import-readiness__metrics">
+        {metrics.map((metric) => (
+          <div key={metric.label}>
+            <dt>{metric.label}</dt>
+            <dd>{metric.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="import-readiness__layout">
+        <Card className="import-gates">
+          <header className="card-title">
+            <div>
+              <span className="eyebrow">Preflight gates</span>
+              <h2>Що потрібно вирішити</h2>
+            </div>
+            <StatusBadge status={blockingGates ? 'BLOCKED' : 'READY'} />
+          </header>
+          <div className="import-gates__list">
+            {data.gates.map((gate) => (
+              <article key={gate.id} className={gate.status === 'READY' ? 'is-ready' : ''}>
+                <span className="import-gates__icon" aria-hidden="true">
+                  {gate.status === 'READY' ? <Check size={18} /> : <AlertTriangle size={18} />}
+                </span>
+                <div>
+                  <small>{gate.id}</small>
+                  <h3>{gate.title}</h3>
+                  <p>{gate.detail}</p>
+                </div>
+                <StatusBadge status={gate.status === 'READY' ? 'READY' : 'BLOCKED'} />
+              </article>
+            ))}
+          </div>
+        </Card>
+
+        <Card className="import-safety">
+          <span className="settings-icon">
+            <Database />
+          </span>
+          <span className="eyebrow">Control plane v{data.controlPlaneVersion}</span>
+          <h2>Що вже захищено</h2>
+          <ul>
+            <li><Check size={16} /> Sealed-пакети не можна переписати</li>
+            <li><Check size={16} /> Delta продовжує лише сумісний ланцюжок</li>
+            <li><Check size={16} /> APPLY потребує окремого lease</li>
+            <li><Check size={16} /> Change journal працює append-only</li>
+            <li><Check size={16} /> Дані та ID maps ізольовані за workspace</li>
+          </ul>
+          <p className="import-safety__note">
+            Остання перевірка: <time dateTime={data.checkedAt}>{formatDateTime(data.checkedAt)}</time>
+          </p>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -1032,14 +1055,16 @@ function Kpi({
   value,
   label,
   href,
+  attention = false,
 }: {
   icon: typeof Users
   value: string | number
   label: string
   href: string
+  attention?: boolean
 }) {
   return (
-    <Link to={href} className="kpi-link">
+    <Link to={href} className={`kpi-link ${attention ? 'kpi-link--attention' : ''}`}>
       <span>
         <Icon size={20} />
       </span>

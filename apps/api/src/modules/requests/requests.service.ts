@@ -20,16 +20,59 @@ export interface AbsenceInput {
 export class RequestsService {
   constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
 
-  async list(principal: AuthPrincipal, company: string | undefined, segment = 'mine', page = 1, pageSize = 25): Promise<PageResult<RequestListItem>> {
+  async list(
+    principal: AuthPrincipal,
+    company: string | undefined,
+    segment = 'mine',
+    page = 1,
+    pageSize = 25,
+    search?: string,
+  ): Promise<PageResult<RequestListItem> & { counts: { mine: number; approval: number; company: number } }> {
     const companyIds = this.scope.allowedCompanies(principal, company)
-    const segmentWhere = segment === 'approval' ? { currentApproverId: principal.userId, decisionStatus: 'PENDING' as const } :
-      segment === 'company' && principal.permissions.has('requests.approve') ? {} : { authorId: principal.userId }
-    const where = { companyId: { in: companyIds }, ...segmentWhere }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.request.findMany({ where, include: { snapshots: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * pageSize, take: pageSize }),
+    const normalizedPage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1
+    const normalizedSearch = search?.trim().slice(0, 100) ?? ''
+    const normalizedSegment = segment === 'approval' && principal.permissions.has('requests.approve')
+      ? 'approval'
+      : segment === 'company' && principal.permissions.has('confidential.hr.read')
+        ? 'company'
+        : 'mine'
+    const segmentWhere = normalizedSegment === 'approval'
+      ? { currentApproverId: principal.userId, decisionStatus: 'PENDING' as const }
+      : normalizedSegment === 'company'
+        ? {}
+        : { authorId: principal.userId }
+    const searchWhere = normalizedSearch
+      ? {
+          OR: [
+            { number: { contains: normalizedSearch } },
+            { snapshots: { some: { safeSummary: { contains: normalizedSearch } } } },
+          ],
+        }
+      : {}
+    const baseWhere = { companyId: { in: companyIds } }
+    const where = { ...baseWhere, ...segmentWhere, ...searchWhere }
+    const [rows, total, mine, approval, companyTotal] = await this.prisma.$transaction([
+      this.prisma.request.findMany({ where, include: { snapshots: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }], skip: (normalizedPage - 1) * pageSize, take: pageSize }),
       this.prisma.request.count({ where }),
+      this.prisma.request.count({ where: { ...baseWhere, authorId: principal.userId } }),
+      this.prisma.request.count({
+        where: {
+          ...baseWhere,
+          currentApproverId: principal.userId,
+          decisionStatus: 'PENDING',
+        },
+      }),
+      principal.permissions.has('confidential.hr.read')
+        ? this.prisma.request.count({ where: baseWhere })
+        : this.prisma.request.count({ where: { id: '__not_available__' } }),
     ])
-    return { items: await this.mapRows(rows), page, pageSize, total }
+    return {
+      items: await this.mapRows(rows),
+      page: normalizedPage,
+      pageSize,
+      total,
+      counts: { mine, approval, company: companyTotal },
+    }
   }
 
   async detail(principal: AuthPrincipal, requestId: string) {
@@ -145,13 +188,23 @@ export class RequestsService {
     return this.detail(principal, requestId)
   }
 
-  private async mapRows(rows: Array<{ id: string; number: string; companyId: string; typeId: string; currentApproverId: string | null; decisionStatus: string; executionStatus: string; slaDueAt: Date | null; version: number; updatedAt: Date; snapshots: Array<{ safeSummary: string }> }>): Promise<RequestListItem[]> {
-    const approvers = await this.prisma.user.findMany({ where: { id: { in: rows.flatMap((row) => row.currentApproverId ? [row.currentApproverId] : []) } }, select: { id: true, displayName: true } })
-    const approverById = new Map(approvers.map((user) => [user.id, user]))
+  private async mapRows(rows: Array<{ id: string; number: string; companyId: string; authorId: string; typeId: string; currentApproverId: string | null; decisionStatus: string; executionStatus: string; slaDueAt: Date | null; version: number; updatedAt: Date; snapshots: Array<{ safeSummary: string }> }>): Promise<RequestListItem[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: {
+          in: [...new Set(rows.flatMap((row) => [
+            row.authorId,
+            ...(row.currentApproverId ? [row.currentApproverId] : []),
+          ]))],
+        },
+      },
+      select: { id: true, displayName: true },
+    })
+    const userById = new Map(users.map((user) => [user.id, user]))
     const typeIds = [...new Set(rows.map((row) => row.typeId))]
     const types = await this.prisma.requestType.findMany({ where: { id: { in: typeIds } }, select: { id: true, name: true } })
     const typeById = new Map(types.map((type) => [type.id, type.name]))
-    return rows.map((row) => ({ id: row.id, number: row.number, companyId: row.companyId, type: typeById.get(row.typeId) ?? 'Заявка', safeSummary: row.snapshots[0]?.safeSummary ?? 'Чернетка', currentApprover: row.currentApproverId ? approverById.get(row.currentApproverId) ?? null : null, decisionStatus: row.decisionStatus as RequestListItem['decisionStatus'], executionStatus: row.executionStatus as RequestListItem['executionStatus'], slaDueAt: row.slaDueAt?.toISOString() ?? null, version: row.version, updatedAt: row.updatedAt.toISOString() }))
+    return rows.map((row) => ({ id: row.id, number: row.number, companyId: row.companyId, type: typeById.get(row.typeId) ?? 'Заявка', safeSummary: row.snapshots[0]?.safeSummary ?? 'Чернетка', author: userById.get(row.authorId) ?? null, currentApprover: row.currentApproverId ? userById.get(row.currentApproverId) ?? null : null, decisionStatus: row.decisionStatus as RequestListItem['decisionStatus'], executionStatus: row.executionStatus as RequestListItem['executionStatus'], slaDueAt: row.slaDueAt?.toISOString() ?? null, version: row.version, updatedAt: row.updatedAt.toISOString() }))
   }
 
   private workdays(start: Date, end: Date): number {

@@ -10,7 +10,7 @@
     "start:dev": "nest start --watch",
     "lint": "eslint \"{src,test,scripts}/**/*.ts\"",
     "typecheck": "npm run build --workspace @bert-crm/contracts && prisma generate && tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --exclude test/integration/** --exclude test/e2e/**",
+    "test": "vitest run --exclude dist/** --exclude test/integration/** --exclude test/e2e/**",
     "test:integration": "vitest run test/integration",
     "test:e2e": "vitest run test/e2e",
     "prisma:generate": "prisma generate",
@@ -19,9 +19,11 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
     "bert": "tsx src/cli/main.ts",
+    "web-e2e:prepare": "tsx scripts/prepare-web-e2e.ts",
     "backup": "tsx scripts/backup.ts",
     "restore:verify": "tsx scripts/restore-verify.ts",
-    "openapi": "tsx scripts/generate-openapi.ts"
+    "openapi": "tsx scripts/generate-openapi.ts",
+    "feed:rehearse": "tsx scripts/feed-rehearsal.ts"
   },
   "dependencies": {
     "@bert-crm/contracts": "*",

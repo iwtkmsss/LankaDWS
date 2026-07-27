@@ -1,0 +1,45 @@
+{
+  "requestVersion": 1,
+  "payload": {
+    "manifestVersion": 1,
+    "datasetId": "replace-with-dataset-id",
+    "snapshotId": "replace-with-snapshot-id",
+    "sourceSystem": "bitrix24",
+    "sourceTenantId": "replace-with-approved-tenant-id",
+    "sourceBuild": "20.0.1198",
+    "perconaVersion": "5.7.26-29-log",
+    "sourceSchemaFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "charset": "utf8",
+    "collation": "utf8_unicode_ci",
+    "systemTimezone": "MSK",
+    "captureStartedAt": "2026-07-23T08:00:00.000Z",
+    "captureEndedAt": "2026-07-23T08:05:00.000Z",
+    "sourceCoordinates": {
+      "kind": "UNAVAILABLE",
+      "reason": "Replace with the approved evidence-backed reason."
+    },
+    "databaseSnapshotId": "replace-with-database-snapshot-id",
+    "uploadSnapshotId": "replace-with-upload-snapshot-id",
+    "tableAllowlistVersion": 1,
+    "exclusionRuleVersion": 1,
+    "companyMappingVersion": 1,
+    "mappingVersion": 1,
+    "schemaVersion": 1,
+    "exporterVersion": 1,
+    "kind": "SNAPSHOT",
+    "parentDatasetId": null,
+    "sequence": 0,
+    "watermarkFrom": null,
+    "watermarkTo": {
+      "replace-with-entity": {
+        "replace-with-cursor": 0
+      }
+    },
+    "encryptionKeyId": "replace-with-ops-storage-key-id"
+  },
+  "signing": {
+    "signerId": "replace-with-exporter-id",
+    "keyId": "replace-with-ed25519-key-id",
+    "algorithm": "ED25519"
+  }
+}

@@ -12,6 +12,10 @@ const schema = z.object({
   FILE_QUARANTINE_DIR: z.string().default('../../data/quarantine'),
   FILE_TEMP_DIR: z.string().default('../../data/tmp'),
   BACKUP_DIR: z.string().default('../../backups'),
+  BITRIX_SNAPSHOT_ROOT: z.string().optional(),
+  BITRIX_MANIFEST_METADATA_PATH: z.string().optional(),
+  IMPORT_SIGNING_PUBLIC_KEYS_JSON: z.string().default('{}'),
+  IMPORT_SIGNING_PRIVATE_KEY_PATH: z.string().optional(),
   BACKUP_KEEP_DAILY: z.coerce.number().int().min(1).max(365).default(30),
   BACKUP_KEEP_MONTHLY: z.coerce.number().int().min(1).max(120).default(12),
   BACKUP_SCHEDULE_CRON: z.string().default('0 * * * *'),
@@ -40,13 +44,25 @@ const schema = z.object({
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
 })
 
-export type AppConfig = z.infer<typeof schema> & { allowedMime: Set<string> }
+export type AppConfig = z.infer<typeof schema> & {
+  allowedMime: Set<string>
+  trustedImportSigningKeys: Record<string, string>
+}
 
 let cached: AppConfig | undefined
 
 export function getConfig(): AppConfig {
   if (cached) return cached
   const parsed = schema.parse(process.env)
+  let trustedImportSigningKeys: Record<string, string>
+  try {
+    trustedImportSigningKeys = z.record(
+      z.string().trim().min(1).max(160),
+      z.string().min(32).max(16_000),
+    ).parse(JSON.parse(parsed.IMPORT_SIGNING_PUBLIC_KEYS_JSON) as unknown)
+  } catch {
+    throw new Error('IMPORT_SIGNING_PUBLIC_KEYS_JSON must be a JSON object of key IDs to public keys')
+  }
   if (parsed.NODE_ENV === 'production') {
     const secrets: Array<[string, string]> = [
       ['SESSION_PEPPER', parsed.SESSION_PEPPER],
@@ -77,7 +93,11 @@ export function getConfig(): AppConfig {
       throw new Error('MALWARE_SCANNER development-clean is forbidden in production')
     }
   }
-  cached = { ...parsed, allowedMime: new Set(parsed.ALLOWED_UPLOAD_MIME.split(',').map((value) => value.trim())) }
+  cached = {
+    ...parsed,
+    allowedMime: new Set(parsed.ALLOWED_UPLOAD_MIME.split(',').map((value) => value.trim())),
+    trustedImportSigningKeys,
+  }
   return cached
 }
 

@@ -14,6 +14,8 @@ export class ApiProblem extends Error {
 
 export function setCsrfToken(value: string): void { csrfToken = value }
 
+export function apiUrl(path: string): string { return `${baseUrl}${path}` }
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body && !(init.body instanceof FormData)) headers.set('content-type', 'application/json')

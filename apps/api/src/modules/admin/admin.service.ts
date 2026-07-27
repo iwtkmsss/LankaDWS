@@ -1,5 +1,11 @@
 import { Injectable } from '@nestjs/common'
-import { usernamePattern, allPermissionCodes } from '@bert-crm/contracts'
+import {
+  allOrganizationCapabilityCodes,
+  usernamePattern,
+  allPermissionCodes,
+  type OrganizationCapabilityCode,
+  type UpdateOrganizationCapability,
+} from '@bert-crm/contracts'
 import { hashPassword, id, randomTemporaryPassword } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -13,41 +19,40 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly jobQueue: JobsService) {}
 
   async overview(principal: AuthPrincipal) {
-    const [activeUsers, pendingUsers, inactiveUsers, companies, roles, without2fa, failedJobs, recentAudit] = await Promise.all([
+    const [activeUsers, pendingUsers, inactiveUsers, departments, roles, without2fa, failedJobs, recentAudit] = await Promise.all([
       this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
       this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'PENDING_FIRST_LOGIN' } }),
       this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'DEACTIVATED' } }),
-      this.prisma.company.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
+      this.prisma.orgUnit.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
       this.prisma.role.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
       this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE', totpCredential: null } }),
       this.prisma.backgroundJob.count({ where: { state: 'FAILED' } }),
       this.prisma.auditEvent.findMany({ where: { workspaceId: principal.workspaceId }, orderBy: { createdAt: 'desc' }, take: 8 }),
     ])
-    return { users: { active: activeUsers, pending: pendingUsers, deactivated: inactiveUsers }, companies, roles, twoFactorCoverage: activeUsers ? Math.round((activeUsers - without2fa) / activeUsers * 100) : 0, attention: { pendingUsers, without2fa, failedJobs }, recentAudit }
+    return { users: { active: activeUsers, pending: pendingUsers, deactivated: inactiveUsers }, departments, roles, twoFactorCoverage: activeUsers ? Math.round((activeUsers - without2fa) / activeUsers * 100) : 0, attention: { pendingUsers, without2fa, failedJobs }, recentAudit }
   }
 
-  async users(principal: AuthPrincipal, search?: string, status?: string, company?: string) {
+  async users(principal: AuthPrincipal, search?: string, status?: string) {
     const rows = await this.prisma.user.findMany({ where: {
       workspaceId: principal.workspaceId,
       ...(status ? { status: status as 'ACTIVE' } : {}),
-      ...(company ? { companyAccess: { some: { companyId: company, status: 'ACTIVE' } } } : {}),
       ...(search ? { OR: [{ displayName: { contains: search } }, { username: { contains: search } }, { jobTitle: { contains: search } }] } : {}),
-    }, include: { primaryCompany: true, roles: { where: { status: 'ACTIVE' }, include: { role: true } }, totpCredential: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } }, orderBy: { displayName: 'asc' } })
-    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, status: user.status, company: { id: user.primaryCompany.id, name: user.primaryCompany.displayName }, roles: user.roles.map((entry) => ({ id: entry.role.id, name: entry.role.name })), displayRole: user.displayRole, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user.sessions.length, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })) }
+    }, include: { roles: { where: { status: 'ACTIVE' }, include: { role: true } }, totpCredential: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } }, orderBy: { displayName: 'asc' } })
+    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, status: user.status, roles: user.roles.map((entry) => ({ id: entry.role.id, name: entry.role.name })), displayRole: user.displayRole, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user.sessions.length, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })) }
   }
 
   async userDetail(principal: AuthPrincipal, userId: string) {
-    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, companyAccess: { include: { company: true } }, roles: { include: { role: { include: { permissions: true } } } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
+    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { roles: { include: { role: { include: { permissions: true } } } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
-    return { id: user.id, displayName: user.displayName, username: user.username, contactEmail: user.contactEmail, jobTitle: user.jobTitle, displayRole: user.displayRole, approverId: user.approverId, timezone: user.timezone, status: user.status, version: user.authorizationVersion, primaryCompany: user.primaryCompany, companies: user.companyAccess.map((entry) => entry.company), roles: user.roles.map((entry) => entry.role), security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustChangePassword: user.mustChangePassword, mustEnroll2FA: user.mustEnroll2FA } }
+    return { id: user.id, displayName: user.displayName, username: user.username, contactEmail: user.contactEmail, jobTitle: user.jobTitle, displayRole: user.displayRole, approverId: user.approverId, timezone: user.timezone, status: user.status, version: user.authorizationVersion, roles: user.roles.map((entry) => entry.role), security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustChangePassword: user.mustChangePassword, mustEnroll2FA: user.mustEnroll2FA } }
   }
 
-  async createUser(principal: AuthPrincipal, input: { displayName: string; username: string; roleId: string; companyId: string; jobTitle?: string; contactEmail?: string; approverId?: string }) {
+  async createUser(principal: AuthPrincipal, input: { displayName: string; username: string; roleId: string; jobTitle?: string; contactEmail?: string; approverId?: string }) {
     const username = input.username.trim().toLowerCase()
     if (!usernamePattern.test(username) || !input.displayName.trim()) throw badRequest('user_fields')
     const [reservation, company, role] = await Promise.all([
       this.prisma.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } }),
-      this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
+      this.prisma.company.findFirst({ where: { id: principal.primaryCompanyId, workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
       this.prisma.role.findFirst({ where: { id: input.roleId, workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
     ])
     if (reservation) throw conflict('Нікнейм уже використаний або зарезервований.')
@@ -157,25 +162,73 @@ export class AdminService {
     return { version: input.expectedVersion + 1, affectedUsers: role.users.length }
   }
 
-  async accessPreview(principal: AuthPrincipal, input: { userId: string; companyId: string; action: string }) {
-    const user = await this.prisma.user.findFirst({ where: { id: input.userId, workspaceId: principal.workspaceId }, include: { companyAccess: { where: { status: 'ACTIVE' } }, roles: { where: { status: 'ACTIVE' }, include: { role: { include: { permissions: true } } } } } })
-    if (!user) throw notFound()
-    const companyAllowed = user.companyAccess.some((entry) => entry.companyId === input.companyId)
-    const permission = user.roles.flatMap((entry) => entry.role.permissions).find((entry) => entry.permissionCode === input.action)
-    return { allowed: companyAllowed && Boolean(permission), companyAllowed, matchedRole: permission ? user.roles.find((entry) => entry.role.permissions.some((item) => item.id === permission.id))?.role.name : null, scope: permission?.scope ?? null, missingPermission: permission ? null : input.action, note: 'Це перевірка політики; сесія від імені користувача не створюється.' }
+  async organizationCapabilities(principal: AuthPrincipal) {
+    const companyId = principal.primaryCompanyId
+    const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId }, select: { id: true } })
+    if (!company) throw notFound()
+    const rows = await this.prisma.companyCapability.findMany({ where: { companyId }, orderBy: { code: 'asc' } })
+    return { items: allOrganizationCapabilityCodes.map((code) => {
+      const row = rows.find((item) => item.code === code)
+      return {
+        code,
+        enabled: row?.enabled ?? false,
+        version: row?.version ?? 0,
+        enabledAt: row?.enabledAt?.toISOString() ?? null,
+        disabledAt: row?.disabledAt?.toISOString() ?? null,
+      }
+    }) }
   }
 
-  async companies(principal: AuthPrincipal) {
-    const rows = await this.prisma.company.findMany({ where: { workspaceId: principal.workspaceId }, include: { _count: { select: { primaryUsers: { where: { status: 'ACTIVE' } } } } }, orderBy: { displayName: 'asc' } })
-    return { items: rows.map((company) => ({ ...company, activeUserCount: company._count.primaryUsers })) }
-  }
-
-  async createCompany(principal: AuthPrincipal, input: { displayName: string; legalName: string; code: string; timezone: string }) {
-    const code = input.code.trim().toLowerCase()
-    if (!/^[a-z0-9-]{2,24}$/.test(code) || !input.displayName.trim() || !input.legalName.trim()) throw badRequest('company_fields')
-    const company = await this.prisma.company.create({ data: { id: id('cmp'), workspaceId: principal.workspaceId, displayName: input.displayName.trim(), legalName: input.legalName.trim(), code, timezone: input.timezone } })
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company.id, actorType: 'USER', actorId: principal.userId, action: 'company.created', entityType: 'COMPANY', entityId: company.id, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
-    return company
+  async updateOrganizationCapability(
+    principal: AuthPrincipal,
+    code: OrganizationCapabilityCode,
+    input: UpdateOrganizationCapability,
+  ) {
+    const companyId = principal.primaryCompanyId
+    const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId }, select: { id: true } })
+    if (!company) throw notFound()
+    const current = await this.prisma.companyCapability.findUnique({ where: { companyId_code: { companyId, code } } })
+    if ((current?.version ?? 0) !== input.expectedVersion) throw conflict()
+    const now = new Date()
+    const nextVersion = input.expectedVersion + 1
+    const capability = await this.prisma.$transaction(async (tx) => {
+      let row
+      if (current) {
+        const updated = await tx.companyCapability.updateMany({
+          where: { id: current.id, version: input.expectedVersion },
+          data: {
+            enabled: input.enabled,
+            enabledById: input.enabled ? principal.userId : null,
+            enabledAt: input.enabled ? now : current.enabledAt,
+            disabledAt: input.enabled ? null : now,
+            version: nextVersion,
+          },
+        })
+        if (updated.count !== 1) throw conflict()
+        row = await tx.companyCapability.findUniqueOrThrow({ where: { id: current.id } })
+      } else {
+        row = await tx.companyCapability.create({
+            data: {
+              id: id('cap'), companyId, code, enabled: input.enabled,
+              enabledById: input.enabled ? principal.userId : null,
+              enabledAt: input.enabled ? now : null,
+              disabledAt: input.enabled ? null : now,
+              version: nextVersion,
+            },
+          })
+      }
+      await tx.auditEvent.create({ data: {
+        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
+        action: 'company.capability_changed', entityType: 'COMPANY_CAPABILITY', entityId: row.id, result: 'SUCCESS', risk: 'HIGH',
+        safeDiffJson: JSON.stringify({ code, before: current?.enabled ?? false, after: input.enabled, version: nextVersion }), correlationId: id('corr'),
+      } })
+      await tx.outboxEvent.create({ data: {
+        id: id('out'), aggregateType: 'COMPANY_CAPABILITY', aggregateId: row.id, aggregateVersion: nextVersion,
+        eventType: 'capability.changed', safePayload: JSON.stringify({ companyId, code, enabled: input.enabled, version: nextVersion }),
+      } })
+      return row
+    })
+    return { code, enabled: capability.enabled, version: capability.version, enabledAt: capability.enabledAt?.toISOString() ?? null, disabledAt: capability.disabledAt?.toISOString() ?? null }
   }
 
   async auditLog(principal: AuthPrincipal, page = 1) {

@@ -42,7 +42,7 @@ RPO target ≤ 1 година, RTO target ≤ 4 години.
 
 `npm run bert -- admin:create` працює лише коли active full admin відсутній і вимагає masked TTY. Для reset full admin за нормальної роботи потрібні дві різні особи в admin flow. `npm run bert -- admin:recover` дозволений лише коли іншого active full admin немає, installation secret відповідає `BREAK_GLASS_SECRET_HASH`, operator вводить reason та `RECOVER`. Після виконання доставте temporary credential окремим каналом, перевірте audit, rotate installation secret і розслідуйте причину.
 
-Конфігурація завантажується з кореневого `.env`, навіть коли npm workspace виконує команду з `apps/api`; значення, задані середовищем процесу, не перезаписуються. Для первинної конфігурації виконайте `npm run bert -- recovery:hash` у захищеному TTY і підтвердьте `GENERATE`. Команда створює незалежні OS-CSPRNG secrets/keys, Argon2id-хеш recovery secret та development seed password, зберігаючи структуру й несекретні значення `.env`. Відкритий recovery secret показується тільки один раз і має бути одразу перенесений у password manager.
+Конфігурація API, Prisma, CLI та Vite завантажується виключно з кореневого `.env`, навіть коли npm workspace виконує команду з `apps/api` або `apps/web`; локальні `apps/*/.env*` не підтримуються. Значення, задані середовищем процесу, не перезаписуються. Для первинної конфігурації виконайте `npm run bert -- recovery:hash` у захищеному TTY і підтвердьте `GENERATE`. Команда створює незалежні OS-CSPRNG secrets/keys, Argon2id-хеш recovery secret та development seed password, зберігаючи структуру й несекретні значення `.env`. Відкритий recovery secret показується тільки один раз і має бути одразу перенесений у password manager.
 
 Якщо у `.env` уже є операційні секрети, команда переходить у режим rotation і вимагає точного підтвердження `ROTATE`. Перед цим створіть перевірений backup і захистіть попередні ключі: зміна `SESSION_PEPPER` завершує чинні sessions, а ротація `TOTP_ENCRYPTION_KEY` та `BACKUP_ENCRYPTION_KEY` без окремої re-encryption/retention процедури робить відповідні старі ciphertext або backup недоступними. Після ротації перезапустіть API, виконайте контрольований recovery drill та задокументуйте audit/incident context.
 
@@ -69,3 +69,21 @@ RPO target ≤ 1 година, RTO target ≤ 4 години.
 ## SQLite capacity boundary
 
 Ознаки міграції на server database: тривале write contention/`SQLITE_BUSY` попри короткі транзакції, потреба в кількох writable replicas/HA, network storage, write-heavy workload або multi-region. Prisma та application services є точкою переходу; file storage мігрує окремо через storage boundary.
+
+## Feed relevance/load rehearsal
+
+Швидка перевірка runner-а:
+
+```bash
+npm run feed:rehearse -- --profile smoke --iterations 3 --warmup 1 --output artifacts/feed-rehearsal-smoke.json
+```
+
+Фіксація локального source-fingerprint baseline:
+
+```bash
+npm run feed:rehearse -- --profile representative --iterations 20 --warmup 3 --output artifacts/feed-rehearsal-representative.json
+```
+
+Runner створює fresh temporary SQLite, послідовно застосовує всі migrations, генерує лише synthetic non-PII fixture, запускає реальний `FeedService` з ACL і наприкінці видаляє БД. `prisma/dev.db` він не читає і не змінює. Evidence має підтвердити один current `FeedSourceHead` на source identity, відсутність повторів між cursor-сторінками, unread oracle для silent history + bounded live delta, приховані ACL canaries, exact acknowledgement/favourite/group facets, covering index без temporary sort і p50/p95 кожного сценарію.
+
+Порівнюйте latency лише для однакового profile, Node/SQLite, CPU class і кількості iterations; dirty worktree та характеристики host записуються в JSON. Результат `MEASURED_BASELINE_NO_APPROVED_SLA` не є production SLA, DDB-004 capacity approval або дозволом на full-history activation. Для topology gate все ще потрібні concurrent read/write, importer/reconcile throughput, search, binary corpus і backup/restore evidence.
