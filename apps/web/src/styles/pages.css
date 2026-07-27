@@ -254,6 +254,7 @@
 .employee-grid small { color: var(--ink-400); }
 .employee-grid .employee-org { display: flex; align-items: center; gap: 4px; margin-top: 3px; color: var(--ink-500); }
 .employee-grid em { display: flex; align-items: center; gap: 5px; margin-top: 7px; color: var(--ink-500); font-size: 10px; font-style: normal; }
+.employee-hierarchy { display: inline-flex; align-items: center; gap: 5px; margin: 14px 0 0; color: var(--ink-500); font-size: 11px; }
 .presence { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
 .presence--away, .presence--absence { background: var(--warning); }
 .employee-detail { text-align: center; }
@@ -339,6 +340,16 @@
 .messages-thread-list small { color: var(--ink-400); font-size: 8px; }
 .messages-thread-list > a > i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--cobalt-600); }
 .messages-thread-list > a.is-unread strong { font-weight: 800; }
+.messages-people-results { display: grid; gap: 3px; border-bottom: 1px solid var(--line); padding: 8px; }
+.messages-people-results h2 { margin: 0 4px 4px; color: var(--ink-400); font-size: 9px; font-weight: 760; text-transform: uppercase; }
+.messages-people-results button { display: grid; min-height: 48px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-700); padding: 7px; text-align: left; cursor: pointer; }
+.messages-people-results button:hover:not(:disabled) { background: var(--cobalt-50); color: var(--cobalt-700); }
+.messages-people-results button:disabled { cursor: wait; opacity: .72; }
+.messages-people-results button > span { display: grid; min-width: 0; gap: 1px; }
+.messages-people-results strong, .messages-people-results small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.messages-people-results strong { font-size: 11px; }
+.messages-people-results small { color: var(--ink-400); font-size: 9px; }
+.messages-people-results .form-error { margin: 4px; font-size: 9px; }
 .messages-sidebar__empty { display: grid; justify-items: center; gap: 5px; padding: 42px 22px; color: var(--ink-400); text-align: center; }
 .messages-sidebar__empty strong { color: var(--ink-600); font-size: 12px; }
 .messages-sidebar__empty p { margin: 0; font-size: 10px; line-height: 1.5; white-space: normal; }
@@ -623,12 +634,18 @@
 .org-browser__header > div { display: flex; align-items: center; gap: 8px; color: var(--ink-700); }
 .org-browser__header .search-field { width: 100%; background: var(--surface); }
 .org-tree { display: grid; padding: 8px; }
-.org-tree > button { display: grid; width: 100%; min-height: 58px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-700); padding: 8px 10px 8px var(--org-indent, 10px); text-align: left; }
-.org-tree > button:hover { background: var(--surface-soft); }
-.org-tree > button.is-selected { background: var(--cobalt-50); color: var(--cobalt-700); }
+.org-tree__item { display: grid; min-width: 0; grid-template-columns: 26px minmax(0, 1fr); align-items: center; padding-left: var(--org-indent, 10px); }
+.org-tree__toggle, .org-tree__toggle-spacer { width: 26px; height: 34px; }
+.org-tree__toggle { display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--ink-400); cursor: pointer; }
+.org-tree__toggle:hover { background: var(--surface-soft); color: var(--ink-700); }
+.org-tree__toggle svg { transition: transform .16s ease; }
+.org-tree__item[aria-expanded="false"] .org-tree__toggle svg { transform: rotate(-90deg); }
+.org-tree__select { display: grid; width: 100%; min-height: 58px; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-700); padding: 8px 10px; text-align: left; cursor: pointer; }
+.org-tree__select:hover { background: var(--surface-soft); }
+.org-tree__item.is-selected .org-tree__select { background: var(--cobalt-50); color: var(--cobalt-700); }
 .org-tree__icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: var(--surface-soft); color: var(--ink-500); }
-.org-tree > button.is-selected .org-tree__icon { background: var(--cobalt-100); color: var(--cobalt-700); }
-.org-tree button > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+.org-tree__item.is-selected .org-tree__icon { background: var(--cobalt-100); color: var(--cobalt-700); }
+.org-tree__select > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
 .org-tree strong, .org-tree small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .org-tree small { color: var(--ink-400); font-size: 11px; }
 .org-team { min-width: 0; padding: clamp(18px, 3vw, 28px); }

@@ -460,8 +460,7 @@ function CommandPalette({
     paletteRef.current?.querySelector<HTMLElement>('button.is-active')?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
-  const items: PaletteItem[] = query.trim().length < 2
-    ? shortcuts.map((shortcut) => ({
+  const shortcutItems: PaletteItem[] = shortcuts.map((shortcut) => ({
         id: shortcut.path,
         title: shortcut.title,
         safeSnippet: shortcut.safeSnippet,
@@ -469,7 +468,12 @@ function CommandPalette({
         route: shortcut.path,
         companyId: null,
       }))
-    : results
+  const normalizedQuery = query.trim().toLocaleLowerCase('uk')
+  const createItems = shortcutItems.filter((item) => item.type === 'CREATE' && (
+    item.title.toLocaleLowerCase('uk').includes(normalizedQuery)
+    || item.safeSnippet.toLocaleLowerCase('uk').includes(normalizedQuery)
+  ))
+  const items: PaletteItem[] = query.trim().length < 2 ? shortcutItems : [...createItems, ...results]
 
   function open(item: PaletteItem) {
     navigate(item.route)

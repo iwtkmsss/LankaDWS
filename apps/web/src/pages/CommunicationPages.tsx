@@ -534,6 +534,7 @@ function MessagesPage() {
   } | null>(null)
   const markedReadRef = useRef('')
   const sendAttemptRef = useRef({ signature: '', key: '' })
+  const directAttemptRef = useRef({ participantId: '', key: '' })
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const streamEndRef = useRef<HTMLDivElement>(null)
   const client = useQueryClient()
@@ -555,6 +556,30 @@ function MessagesPage() {
     refetchInterval: realtimeConnected ? false : 15_000,
     refetchIntervalInBackground: false,
   })
+  const employeeMatches = useQuery({
+    queryKey: ['chat-search-employees', companyId, search],
+    queryFn: () => api<{ items: ChatEmployee[] }>(
+      `/employees?company=${encodeURIComponent(companyId)}&search=${encodeURIComponent(search)}`,
+    ),
+    enabled: Boolean(companyId && search.trim().length >= 2 && can('messages.write')),
+  })
+  const startDirect = useMutation({
+    mutationFn: (participantId: string) => {
+      if (directAttemptRef.current.participantId !== participantId) {
+        directAttemptRef.current = { participantId, key: idempotencyKey('chat-thread') }
+      }
+      return api<{ id: string }>('/messages/threads', {
+        method: 'POST',
+        headers: { 'idempotency-key': directAttemptRef.current.key },
+        body: jsonBody({ companyId, kind: 'DIRECT', participantIds: [participantId] }),
+      })
+    },
+    onSuccess: (thread) => {
+      void client.invalidateQueries({ queryKey: ['threads'] })
+      navigate(`/messages/${thread.id}?${params.toString()}`)
+    },
+  })
+  const matchedEmployees = (employeeMatches.data?.items ?? []).filter((employee) => employee.id !== user?.id)
   const detail = useQuery({
     queryKey: ['thread', threadId],
     queryFn: () => api<ChatThreadDetail>(`/messages/threads/${threadId}`),
@@ -783,6 +808,28 @@ function MessagesPage() {
               </button>
             </div>
           </div>
+          {search.trim().length >= 2 && (
+            <section className="messages-people-results" aria-label="Працівники">
+              {matchedEmployees.length > 0 && <>
+                <h2>Працівники</h2>
+                {matchedEmployees.map((employee) => (
+                  <button
+                    type="button"
+                    key={employee.id}
+                    disabled={startDirect.isPending}
+                    onClick={() => startDirect.mutate(employee.id)}
+                  >
+                    <Avatar size="sm" name={employee.displayName} src={employee.avatarAsset} />
+                    <span><strong>{employee.displayName}</strong><small>{employee.jobTitle}</small></span>
+                    {startDirect.isPending && directAttemptRef.current.participantId === employee.id
+                      ? <LoaderCircle className="is-spinning" size={16} aria-label="Відкриваємо діалог" />
+                      : <MessageCircle size={16} aria-hidden />}
+                  </button>
+                ))}
+              </>}
+              {startDirect.isError && <p className="form-error" role="alert">Не вдалося відкрити діалог. Спробуйте ще раз.</p>}
+            </section>
+          )}
           {threads.isLoading ? (
             <Skeleton rows={6} />
           ) : threads.isError ? (

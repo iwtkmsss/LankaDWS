@@ -18,6 +18,12 @@ apps/web/artifacts/screenshots/*.png
 apps/web/artifacts/playwright-report/
 apps/web/test-results/
 
+# Generated browser/audit state
+.playwright-cli/
+**/.playwright-cli/
+**/playwright-cli.json
+output/
+
 # Environment
 .env
 .env.*

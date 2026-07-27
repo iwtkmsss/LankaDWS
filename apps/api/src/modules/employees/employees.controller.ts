@@ -58,6 +58,7 @@ export class EmployeesController {
               select: {
                 id: true,
                 name: true,
+                parent: { select: { id: true, name: true } },
                 manager: { select: { id: true, displayName: true } },
               },
             },
@@ -89,7 +90,7 @@ export class EmployeesController {
         ...user,
         presence: state.get(user.id) ?? 'AVAILABLE',
         positionTitle: assignment?.positionTitle ?? user.jobTitle,
-        orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name } : null,
+        orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name, parent: assignment.orgUnit.parent } : null,
         manager,
       }
     })
@@ -144,7 +145,7 @@ export class EmployeesController {
           where: { companyId: { in: companyIds }, endedAt: null, orgUnit: { status: 'ACTIVE' } },
           select: {
             positionTitle: true,
-            orgUnit: { select: { id: true, name: true, manager: { select: { id: true, displayName: true } } } },
+            orgUnit: { select: { id: true, name: true, parent: { select: { id: true, name: true } }, manager: { select: { id: true, displayName: true } } } },
           },
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
         },
@@ -165,7 +166,7 @@ export class EmployeesController {
     return {
       ...safeUser,
       positionTitle: assignment?.positionTitle ?? user.jobTitle,
-      orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name } : null,
+      orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name, parent: assignment.orgUnit.parent } : null,
       approver: assignment?.orgUnit.manager ?? approver,
       upcomingPresence: upcomingPresence.map((row) => ({
         state: row.state,

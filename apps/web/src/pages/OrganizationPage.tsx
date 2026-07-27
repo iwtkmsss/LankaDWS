@@ -1,21 +1,27 @@
 import { useQuery } from '@tanstack/react-query'
 import type { OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
-import { Building2, ChevronRight, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { Building2, ChevronDown, ChevronRight, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { Avatar, Card, EmptyState, ErrorState, PageHeader, Skeleton } from '../shared/ui'
 
-function orderedUnits(units: OrgUnitView[], search: string): Array<{ unit: OrgUnitView; depth: number }> {
+interface OrgTreeRow {
+  unit: OrgUnitView
+  depth: number
+  hasChildren: boolean
+}
+
+function createOrgTree(units: OrgUnitView[], search: string, expanded: Set<string>): OrgTreeRow[] {
   const children = new Map<string | null, OrgUnitView[]>()
+  const byId = new Map(units.map((unit) => [unit.id, unit]))
   for (const unit of units) children.set(unit.parentId, [...(children.get(unit.parentId) ?? []), unit])
   for (const values of children.values()) values.sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, 'uk'))
 
   const normalizedSearch = search.trim().toLocaleLowerCase('uk')
   const visible = new Set<string>()
   if (normalizedSearch) {
-    const byId = new Map(units.map((unit) => [unit.id, unit]))
     for (const unit of units) {
       if (![unit.name, unit.manager?.displayName ?? ''].some((value) => value.toLocaleLowerCase('uk').includes(normalizedSearch))) continue
       let current: OrgUnitView | undefined = unit
@@ -26,13 +32,16 @@ function orderedUnits(units: OrgUnitView[], search: string): Array<{ unit: OrgUn
     }
   }
 
-  const result: Array<{ unit: OrgUnitView; depth: number }> = []
+  const result: OrgTreeRow[] = []
   const visited = new Set<string>()
   const append = (unit: OrgUnitView, depth: number) => {
     if (visited.has(unit.id)) return
     visited.add(unit.id)
-    if (!normalizedSearch || visible.has(unit.id)) result.push({ unit, depth })
-    for (const child of children.get(unit.id) ?? []) append(child, depth + 1)
+    const childUnits = children.get(unit.id) ?? []
+    const isVisible = !normalizedSearch || visible.has(unit.id)
+    if (isVisible) result.push({ unit, depth, hasChildren: childUnits.length > 0 })
+    const shouldTraverse = !normalizedSearch ? expanded.has(unit.id) : childUnits.some((child) => visible.has(child.id))
+    if (shouldTraverse) for (const child of childUnits) append(child, depth + 1)
   }
   for (const root of children.get(null) ?? []) append(root, 0)
   for (const unit of units) append(unit, 0)
@@ -42,7 +51,9 @@ function orderedUnits(units: OrgUnitView[], search: string): Array<{ unit: OrgUn
 export default function OrganizationPage() {
   const { user } = useAuth()
   const [search, setSearch] = useState('')
-  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+  const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const selectedUnitId = searchParams.get('unit')
   const organizationId = user?.organization.id
   const unitsQuery = useQuery({
     queryKey: ['org-units', organizationId],
@@ -50,88 +61,84 @@ export default function OrganizationPage() {
     enabled: Boolean(organizationId),
   })
   const units = unitsQuery.data?.items ?? []
-  const visibleUnits = useMemo(() => orderedUnits(units, search), [units, search])
-  const selectedUnit = units.find((unit) => unit.id === selectedUnitId) ?? null
+  const orgTree = useMemo(() => createOrgTree(units, search, expandedUnitIds), [units, search, expandedUnitIds])
+  const unitById = useMemo(() => new Map(units.map((unit) => [unit.id, unit])), [units])
+  const selectedUnit = selectedUnitId ? unitById.get(selectedUnitId) ?? null : null
   const employeesQuery = useQuery({
     queryKey: ['org-unit-employees', selectedUnitId, organizationId],
     queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${selectedUnitId}/employees`),
-    enabled: Boolean(selectedUnitId && organizationId),
+    enabled: Boolean(selectedUnitId && organizationId && selectedUnit),
   })
 
+  const selectUnit = (unitId: string, replace = false) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('unit', unitId)
+    setSearchParams(next, { replace })
+  }
+
   useEffect(() => {
-    if (visibleUnits.length === 0) {
-      setSelectedUnitId(null)
-      return
-    }
+    if (!units.length) return
+    setExpandedUnitIds((current) => current.size ? current : new Set(units.filter((unit) => unit.parentId === null).map((unit) => unit.id)))
+    if (selectedUnitId && unitById.has(selectedUnitId)) return
     const normalizedSearch = search.trim().toLocaleLowerCase('uk')
-    const directMatch = normalizedSearch
-      ? visibleUnits.find(({ unit }) => [unit.name, unit.manager?.displayName ?? ''].some((value) => value.toLocaleLowerCase('uk').includes(normalizedSearch)))
+    const matchingUnit = normalizedSearch
+      ? units.find((unit) => [unit.name, unit.manager?.displayName ?? ''].some((value) => value.toLocaleLowerCase('uk').includes(normalizedSearch)))
       : undefined
-    if (directMatch && directMatch.unit.id !== selectedUnitId) {
-      setSelectedUnitId(directMatch.unit.id)
-      return
-    }
-    if (selectedUnitId && visibleUnits.some(({ unit }) => unit.id === selectedUnitId)) return
-    setSelectedUnitId((directMatch ?? visibleUnits[0])!.unit.id)
-  }, [visibleUnits, selectedUnitId, search])
+    selectUnit((matchingUnit ?? units[0])!.id, true)
+  }, [search, selectedUnitId, units, unitById])
+
+  const toggleUnit = (unitId: string) => {
+    setExpandedUnitIds((current) => {
+      const next = new Set(current)
+      if (next.has(unitId)) next.delete(unitId)
+      else next.add(unitId)
+      return next
+    })
+  }
+
+  const handleTreeKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, unitId: string, hasChildren: boolean) => {
+    const buttons = Array.from(event.currentTarget.closest('[role="tree"]')?.querySelectorAll<HTMLButtonElement>('.org-tree__select') ?? [])
+    const index = buttons.indexOf(event.currentTarget)
+    const focus = (target: HTMLButtonElement | undefined) => target?.focus()
+    if (event.key === 'ArrowDown') { event.preventDefault(); focus(buttons[index + 1]); return }
+    if (event.key === 'ArrowUp') { event.preventDefault(); focus(buttons[index - 1]); return }
+    if (event.key === 'Home') { event.preventDefault(); focus(buttons[0]); return }
+    if (event.key === 'End') { event.preventDefault(); focus(buttons.at(-1)); return }
+    if (event.key === 'ArrowRight' && hasChildren && !expandedUnitIds.has(unitId)) { event.preventDefault(); toggleUnit(unitId); return }
+    if (event.key === 'ArrowLeft' && hasChildren && expandedUnitIds.has(unitId)) { event.preventDefault(); toggleUnit(unitId) }
+  }
 
   return (
     <div>
-      <PageHeader
-        title="Структура організації"
-        description="Відділи, підвідділи, керівники та робочі ролі без приватних контактів"
-        action={<Link className="button button--secondary" to="/employees"><UserRound size={17} />Відкрити довідник людей</Link>}
-      />
+      <PageHeader title="Структура організації" description="Відділи, підвідділи, керівники та робочі ролі без приватних контактів" action={<Link className="button button--secondary" to="/employees"><UserRound size={17} />Відкрити довідник людей</Link>} />
       <p className="privacy-note org-privacy-note"><ShieldCheck size={17} />Показуємо лише безпечні робочі дані працівників організації.</p>
       <Card className="org-card">
         <section className="org-browser" aria-label="Підрозділи організації">
           <div className="org-browser__header">
             <div><Building2 size={18} /><strong>Підрозділи</strong></div>
-            <label className="search-field">
-              <span className="sr-only">Знайти підрозділ або керівника</span>
-              <Search size={17} aria-hidden />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Підрозділ або керівник" type="search" />
-            </label>
+            <label className="search-field"><span className="sr-only">Знайти підрозділ або керівника</span><Search size={17} aria-hidden /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Підрозділ або керівник" type="search" /></label>
           </div>
-          {unitsQuery.isLoading ? <Skeleton rows={6} /> : unitsQuery.isError ? <ErrorState onRetry={() => void unitsQuery.refetch()} /> : visibleUnits.length ? (
-            <div className="org-tree">
-              {visibleUnits.map(({ unit, depth }) => (
-                <button
-                  key={unit.id}
-                  className={selectedUnitId === unit.id ? 'is-selected' : ''}
-                  style={{ '--org-indent': `${10 + depth * 18}px` } as CSSProperties}
-                  aria-pressed={selectedUnitId === unit.id}
-                  onClick={() => setSelectedUnitId(unit.id)}
-                >
-                  <span className="org-tree__icon"><UsersRound size={17} /></span>
-                  <span><strong>{unit.name}</strong><small>{unit.manager?.displayName ?? 'Керівника не вказано'} · {unit.activeEmployeeCount} ос.</small></span>
-                  <ChevronRight size={17} aria-hidden />
-                </button>
-              ))}
+          {unitsQuery.isLoading ? <Skeleton rows={6} /> : unitsQuery.isError ? <ErrorState onRetry={() => void unitsQuery.refetch()} /> : orgTree.length ? (
+            <div className="org-tree" role="tree" aria-label="Структура підрозділів">
+              {orgTree.map(({ unit, depth, hasChildren }) => {
+                const isExpanded = expandedUnitIds.has(unit.id)
+                const isSelected = selectedUnitId === unit.id
+                return <div key={unit.id} className={`org-tree__item ${isSelected ? 'is-selected' : ''}`} role="treeitem" aria-level={depth + 1} aria-selected={isSelected} {...(hasChildren ? { 'aria-expanded': isExpanded } : {})} style={{ '--org-indent': `${10 + depth * 18}px` } as React.CSSProperties}>
+                  {hasChildren ? <button className="org-tree__toggle" type="button" aria-label={`${isExpanded ? 'Згорнути' : 'Розгорнути'} ${unit.name}`} onClick={() => toggleUnit(unit.id)}><ChevronDown size={16} aria-hidden /></button> : <span className="org-tree__toggle-spacer" aria-hidden />}
+                  <button className="org-tree__select" type="button" aria-current={isSelected ? 'true' : undefined} onClick={() => selectUnit(unit.id)} onKeyDown={(event) => handleTreeKeyDown(event, unit.id, hasChildren)}>
+                    <span className="org-tree__icon"><UsersRound size={17} /></span>
+                    <span><strong>{unit.name}</strong><small>{unit.manager?.displayName ?? 'Керівника не вказано'} · {unit.activeEmployeeCount} ос.</small></span>
+                    <ChevronRight size={17} aria-hidden />
+                  </button>
+                </div>
+              })}
             </div>
           ) : <EmptyState title="Підрозділів не знайдено" description={search ? 'Спробуйте коротший або інший запит.' : 'Структура з’явиться після синхронізації довідника.'} />}
         </section>
         <section className="org-team" aria-live="polite">
-          {selectedUnit ? (
-            <>
-              <header>
-                <span className="eyebrow">Обраний підрозділ</span>
-                <h2>{selectedUnit.name}</h2>
-                <p>{selectedUnit.manager ? `Керівник: ${selectedUnit.manager.displayName}` : 'Керівника ще не призначено'}</p>
-              </header>
-              {employeesQuery.isLoading ? <Skeleton rows={4} /> : employeesQuery.isError ? <ErrorState onRetry={() => void employeesQuery.refetch()} /> : employeesQuery.data?.items.length ? (
-                <div className="org-people">
-                  {employeesQuery.data.items.map((employee) => (
-                    <Link key={employee.id} to={`/employees/${employee.id}`}>
-                      <Avatar name={employee.displayName} src={employee.avatarAsset} />
-                      <span><strong>{employee.displayName}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span>
-                      <ChevronRight size={17} aria-hidden />
-                    </Link>
-                  ))}
-                </div>
-              ) : <EmptyState title="У підрозділі поки нікого немає" description="Активні призначення з’являться тут автоматично." />}
-            </>
-          ) : <EmptyState title="Оберіть підрозділ" description="Ліворуч показано доступну структуру організації." />}
+          {selectedUnit ? <><header><span className="eyebrow">Обраний підрозділ</span><h2>{selectedUnit.name}</h2><p>{selectedUnit.manager ? `Керівник: ${selectedUnit.manager.displayName}` : 'Керівника ще не призначено'}</p></header>
+            {employeesQuery.isLoading ? <Skeleton rows={4} /> : employeesQuery.isError ? <ErrorState onRetry={() => void employeesQuery.refetch()} /> : employeesQuery.data?.items.length ? <div className="org-people">{employeesQuery.data.items.map((employee) => <Link key={employee.id} to={`/employees/${employee.id}`}><Avatar name={employee.displayName} src={employee.avatarAsset} /><span><strong>{employee.displayName}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span><ChevronRight size={17} aria-hidden /></Link>)}</div> : <EmptyState title="У підрозділі поки нікого немає" description="Активні призначення з’являться тут автоматично." />}
+          </> : <EmptyState title="Оберіть підрозділ" description="Ліворуч показано доступну структуру організації." />}
         </section>
       </Card>
     </div>

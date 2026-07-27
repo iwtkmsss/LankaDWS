@@ -20,7 +20,7 @@ interface Employee {
   avatarAsset: string | null
   presence: string
   contactEmail?: string | null
-  orgUnit?: { id: string; name: string } | null
+  orgUnit?: { id: string; name: string; parent: { id: string; name: string } | null } | null
   manager?: { id: string; displayName: string } | null
   approver?: { id?: string; displayName: string } | null
   upcomingPresence?: Array<{ state: string; startAt: string; endAt: string }>
@@ -817,7 +817,7 @@ function EmployeesPage() {
                     <span>
                       <strong>{item.displayName}</strong>
                       <small>{item.positionTitle || item.jobTitle}</small>
-                      {item.orgUnit && <small className="employee-org"><Building2 size={12} />{item.orgUnit.name}</small>}
+                      {item.orgUnit && <small className="employee-org"><Building2 size={12} />{item.orgUnit.parent ? `${item.orgUnit.parent.name} → ${item.orgUnit.name}` : item.orgUnit.name}</small>}
                       <em>
                         <i className={`presence presence--${item.presence.toLowerCase()}`} />
                         {item.presence === 'AVAILABLE' ? 'Доступний' : 'Відсутній'}
@@ -898,8 +898,9 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   <CalendarClock size={16} />
                   Запланувати час
                 </Link>
-              )}
+            )}
           </div>
+          {query.data.orgUnit?.parent && <p className="employee-hierarchy"><Building2 size={15} />{query.data.orgUnit.parent.name} → {query.data.orgUnit.name}</p>}
           <dl className="detail-grid">
             {query.data.orgUnit && <div><dt>Підрозділ</dt><dd>{query.data.orgUnit.name}</dd></div>}
             <div><dt>Керівник</dt><dd>{query.data.approver?.displayName ?? 'Не вказано'}</dd></div>

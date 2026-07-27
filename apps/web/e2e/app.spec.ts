@@ -91,6 +91,49 @@ test('manager receives an approval queue and admin content does not flash for em
   await expect(page.getByText('Ролі та права')).toHaveCount(0)
 })
 
+test('organization tree expands and keeps the selected unit addressable', async ({ page }) => {
+  await login(page, 'maria')
+  await page.goto('/employees/org')
+  const tree = page.getByRole('tree', { name: 'Структура підрозділів' })
+  await expect(tree).toBeVisible()
+
+  const expandable = tree.locator('[role="treeitem"][aria-expanded]').first()
+  await expect(expandable).toHaveAttribute('aria-expanded', 'true')
+  const toggle = expandable.getByRole('button', { name: /Згорнути/ })
+  await toggle.click()
+  await expect(expandable).toHaveAttribute('aria-expanded', 'false')
+  await expandable.getByRole('button', { name: /Розгорнути/ }).click()
+
+  const selectedUnit = tree.locator('.org-tree__select').first()
+  await selectedUnit.click()
+  await expect(page).toHaveURL(/\/employees\/org\?unit=/)
+  await selectedUnit.press('ArrowDown')
+  await expect(tree.locator('.org-tree__select').nth(1)).toBeFocused()
+})
+
+test('command palette keeps canonical create actions ahead of results and chat search opens a direct thread', async ({ page }) => {
+  await login(page, 'maria')
+  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
+  const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
+  await palette.getByRole('textbox').fill('завдання')
+  await expect(palette.getByText('Створити', { exact: true })).toBeVisible()
+  await palette.getByRole('option', { name: /Нове завдання/ }).click()
+  await expect(page).toHaveURL(/\/tasks\/new/)
+
+  await page.goto('/messages?q=Олена')
+  await expect(page.getByRole('heading', { name: 'Працівники', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /Олена Бондар/ }).click()
+  await expect(page).toHaveURL(/\/messages\/thr_/)
+})
+
+test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
+  await login(page, 'maria')
+  await page.goto('/employees?q=Марія')
+  await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
+  await page.getByRole('link', { name: /Марія Іваненко/ }).click()
+  await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
+})
+
 test('chat search, exact read state, replies, mute and direct creation stay compact', async ({ page }, testInfo) => {
   const isMobile = testInfo.project.name === 'mobile-chromium'
   const teammateName = isMobile ? 'Дмитро Савчук' : 'Олена Бондар'

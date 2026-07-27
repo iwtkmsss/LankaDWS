@@ -1,0 +1,5 @@
+# Codex/Playwright generated context noise
+.playwright-cli/
+**/.playwright-cli/
+**/playwright-cli.json
+output/
