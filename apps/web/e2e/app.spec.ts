@@ -7,25 +7,35 @@ async function login(page: Page, username = 'maria') {
   await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
   await expect(page).toHaveURL(/\/overview$/)
-  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
 }
 
 test('employee feed and canonical navigation are accessible', async ({ page }, testInfo) => {
   await login(page)
+  await page.goto('/feed')
+  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await expect(page.locator('.sidebar .nav-section__label').getByText('Адміністрування', { exact: true })).toHaveCount(0)
   await expect(page.locator('.feed-card').getByText('Марія Іваненко').first()).toBeVisible()
+  await expect(page.locator('.feed-attention').getByRole('link').first()).toHaveAttribute(
+    'href',
+    '/feed?filter=ACK_REQUIRED',
+  )
   const eventSource = page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })
   await expect(eventSource).toBeVisible()
   await eventSource.getByRole('link', { name: 'Відкрити подію' }).click()
+  const eventDialog = page.getByRole('dialog', { name: 'Подія' })
+  await expect(eventDialog.getByRole('heading', { name: 'Огляд операцій' })).toBeVisible()
+  await eventDialog.getByRole('button', { name: 'Закрити' }).click()
   await expect(page.getByRole('heading', { name: 'Календар', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Огляд операцій' })).toBeVisible()
-  await page.goBack()
+  await page.goto('/feed')
+  await expect(page).toHaveURL(/\/feed$/)
   await page.getByLabel('Тип події').selectOption('EVENT')
   await expect(page).toHaveURL(/type=EVENT/)
   await expect(page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })).toBeVisible()
   await page.getByLabel('Тип події').selectOption('ALL')
   await page.getByRole('button', { name: 'Фільтри', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Додаткові фільтри' })).toBeVisible()
-  await expect(page.getByLabel('Кому адресовано').locator('option', { hasText: 'BERT Україна' })).toHaveCount(1)
+  await expect(page.getByLabel('Кому адресовано').locator('option', { hasText: 'BERT' })).toHaveCount(1)
   await expect(page.getByLabel('Робоча група').locator('option', { hasText: 'Продукт і дизайн' })).toHaveCount(1)
   await expect(page.getByLabel('Робоча група').locator('option', { hasText: 'Люди · приватна група' })).toHaveCount(0)
   await page.getByLabel('Робоча група').selectOption('grp_product_design')
@@ -233,16 +243,21 @@ test('chat search, exact read state, replies, mute and direct creation stay comp
 
 test('feed publishing, acknowledgement and comments remain explicit', async ({ page }, testInfo) => {
   await login(page, testInfo.project.name === 'mobile-chromium' ? 'olena' : 'maria')
-  const postText = `Перевірка зручності стрічки · ${testInfo.project.name}`
-  await page.getByLabel('Текст публікації').fill(postText)
-  await page.getByLabel('Додати файл').setInputFiles({
+  await page.goto('/feed')
+  const composerTrigger = page.getByRole('button', { name: 'Створити публікацію' })
+  await composerTrigger.click()
+  const composer = page.getByRole('dialog', { name: 'Створити публікацію' })
+  const postText = `Перевірка зручності стрічки · ${testInfo.project.name} · ${Date.now()}`
+  await composer.getByLabel('Текст публікації').fill(postText)
+  await composer.getByLabel('Додати файл').setInputFiles({
     name: `feed-${testInfo.project.name}.txt`,
     mimeType: 'text/plain',
     buffer: Buffer.from('Вкладення стрічки'),
   })
-  await expect(page.getByText(`feed-${testInfo.project.name}.txt`)).toBeVisible()
-  await page.getByRole('button', { name: 'Опублікувати', exact: true }).click()
-  await expect(page.getByText('Публікацію додано до стрічки.')).toBeVisible()
+  await expect(composer.getByText(`feed-${testInfo.project.name}.txt`)).toBeVisible()
+  await composer.getByRole('button', { name: 'Опублікувати', exact: true }).click()
+  await expect(composer).toHaveCount(0)
+  await expect(composerTrigger).toBeFocused()
   const card = page.locator('.feed-card').filter({ hasText: postText })
   await expect(card).toBeVisible()
   await card.getByRole('button', { name: 'Стежу', exact: true }).click()
@@ -257,12 +272,12 @@ test('feed publishing, acknowledgement and comments remain explicit', async ({ p
   await page.getByRole('tab', { name: 'Усі', exact: true }).click()
   await card.getByRole('button', { name: 'Додати в обране' }).click()
   await expect(card.getByRole('button', { name: 'Прибрати з обраного' })).toBeVisible()
-  await page.goto('/overview?favorite=true')
+  await page.goto('/feed?favorite=true')
   const favoriteCard = page.locator('.feed-card').filter({ hasText: postText })
   await expect(favoriteCard).toBeVisible()
   await favoriteCard.getByRole('button', { name: 'Прибрати з обраного' }).click()
   await expect(favoriteCard).not.toBeVisible()
-  await page.goto('/overview')
+  await page.goto('/feed')
   await expect(card).toBeVisible()
   await expect(card.getByText('Перевіряється перед завантаженням')).toBeVisible()
   await card.getByRole('button', { name: 'Подобається' }).click()
@@ -399,13 +414,17 @@ test('task role views explain why a task is visible and participant management s
 
 test('standalone file sharing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
   await login(page, 'dmytro')
+  await page.goto('/feed')
+  await page.getByRole('button', { name: 'Створити публікацію' }).click()
+  const composer = page.getByRole('dialog', { name: 'Створити публікацію' })
   const fileName = `standalone-${testInfo.project.name}.txt`
-  await page.getByLabel('Поширити файл').setInputFiles({
+  await composer.getByLabel('Поширити файл').setInputFiles({
     name: fileName,
     mimeType: 'text/plain',
     buffer: Buffer.from('Окремо поширений файл у стрічці'),
   })
-  await expect(page.getByText('Файл поширено. Завантаження відкриється після безпечної перевірки.')).toBeVisible()
+  await expect(composer.getByText('Файл поширено. Завантаження відкриється після безпечної перевірки.')).toBeVisible()
+  await composer.getByRole('button', { name: 'Закрити' }).click()
   const card = page.locator('.feed-source-card').filter({ hasText: fileName })
   await expect(card).toBeVisible()
   await expect(card.getByText('Перевіряється', { exact: true })).toBeVisible()
@@ -423,13 +442,42 @@ test('standalone file sharing is explicit, scanner-aware and revocable', async (
   await expect(card).not.toBeVisible()
 })
 
-test('administrator sees the approved nested admin navigation', async ({ page }, testInfo) => {
+test('administrator sees the approved grouped admin navigation', async ({ page }, testInfo) => {
   await login(page, 'dmytro')
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: 'Адміністрування', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
+})
+
+test('desktop sidebar groups routes, persists collapse and keeps active navigation visible', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop collapse is independent from mobile navigation.')
+  await login(page, 'dmytro')
+  const sidebar = page.locator('.sidebar')
+  await expect(sidebar.getByText('Основне', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Компанія', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Управління', { exact: true })).toBeVisible()
+  await expect(
+    sidebar.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
+  ).toBeVisible()
+
+  await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()
+  const feedLink = sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })
+  await expect(page).toHaveURL(/\/feed$/)
+  await expect(feedLink).toHaveClass(/active/)
+
+  await page.getByRole('button', { name: 'Згорнути бічну панель' }).click()
+  await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
+  await expect(feedLink).toHaveAttribute('title', 'Жива стрічка')
+  await expect.poll(() => page.evaluate(() =>
+    window.localStorage.getItem('bertcrm.sidebar.collapsed'))).toBe('true')
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
+  await expect(sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveClass(/active/)
+  await page.getByRole('button', { name: 'Розгорнути бічну панель' }).click()
+  await expect(page.getByRole('button', { name: 'Згорнути бічну панель' })).toBeVisible()
 })
 
 test('unknown route preserves URL and renders branded 404', async ({ page }) => {

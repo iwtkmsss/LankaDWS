@@ -64,6 +64,14 @@ The first native Feed increment uses canonical `/overview`; it does not add a co
 
 The UI applies the provided CRM design research without introducing another visual system: the composer has one primary action, audience labels are persistent, advanced post actions are disclosed on demand, the attention rail contains only actionable counts and mobile moves that rail before the stream. No generated or stock image is added to this dense work screen because imagery would not improve a decision here.
 
+## 2026-07-28 — Overview and Live Feed are separate canonical work surfaces
+
+This decision supersedes the 2026-07-23 routing decision above without deleting its rollout history. `/overview` is again the stable authenticated CRM home for every organization, while `/feed` is the canonical Feed route guarded by both `feed.read` and the existing `FEED` capability. Feed filters, saved views and browser-history state move with the Feed surface to `/feed`; `/overview` is never conditionally relabelled or replaced.
+
+The existing dashboard contract and `GET /dashboard` remain the single Overview data boundary. The response now composes permission-aware task, calendar, announcement, message, notification, Feed-activity and HR lifecycle projections, uses the organization IANA timezone for daily boundaries, and omits unavailable blocks instead of fetching private data for hidden metrics. The existing task-first focus panel remains compact, with navigable KPI and one small task-status analysis rather than a duplicate analytics page.
+
+Blocking overlays share one portal, focus, stack and scroll-lock owner. Drawer keeps its side-panel geometry, Modal provides the Feed composer surface, and Command Palette keeps its keyboard/search specialization. The desktop sidebar groups the same route registry into Основне, Комунікації, Компанія, Управління and Адміністрування; its persisted icon-only state is independent from the mobile menu and does not create alternate routes or authorization gates.
+
 This was the first complete native-post vertical slice, not a claim that F2b migration parity was finished. The subsequent decisions below add attachments, source projections, historical silent materialization and subscription preferences; the checklist remains the current source for outstanding F2b exit work.
 
 ## 2026-07-23 — Feed source cards remain projections and imported history stays silent

@@ -48,7 +48,7 @@ Status legend: `[x]` implemented and verified; `[~]` implemented with a host-dep
 - [x] Loading/empty/403/404/500/offline/conflict/maintenance states, keyboard/focus behavior and axe smoke.
 - [x] SaaS/CRM UX delivery rules recorded: one dominant task, progressive disclosure, WCAG 2.2 AA, reduced motion, useful-only imagery and CWV targets.
 - [x] Overview and Administration use a compact first-viewport work focus, one concrete primary action, non-zero-only admin blockers, explicit link labels and company-scoped first clicks at desktop, 412 px and 320 px.
-- [x] When `FEED` is enabled, canonical `/overview` switches atomically to a task-oriented Live Feed in the same Onest/navy/cobalt system; the legacy work overview remains the complete fallback for disabled companies.
+- [x] `/overview` is the canonical permission-aware work dashboard, while capability-gated `/feed` owns Feed filters, publishing and live activity in the same Onest/navy/cobalt system.
 
 ## Verification
 
@@ -61,7 +61,7 @@ Status legend: `[x]` implemented and verified; `[~]` implemented with a host-dep
 ## Bitrix24 functionality migration
 
 - [x] Company capability foundation for `FEED`, `GROUPS_UI`, `DRIVE`, `CALENDAR_WRITE`, `CALLS` and `ABSENCES`: shared schemas, Prisma migration, conservative permission backfill, versioned admin API, audit/outbox and `/me` projection.
-- [x] Daily navigation order is explicit: Огляд → Завдання → Чат → Календар; secondary modules use the existing dark-sidebar «Ще» disclosure on desktop and the mobile navigation drawer.
+- [x] Daily mobile navigation order remains explicit: Огляд → Завдання → Чат → Календар; desktop navigation uses one permission/capability-gated route registry grouped into Основне, Комунікації, Компанія, Управління and Адміністрування, with a persisted icon-only collapsed state independent from the mobile drawer.
 - [x] 390 px dashboard rows keep statuses inside the card without horizontal clipping.
 - [x] Group/Member and OrgUnit/UserOrgAssignment kernels, safe read APIs, privacy/capability E2E coverage and controlled unavailable routes are implemented.
 - [x] Company structure UI provides task-oriented search, safe employee projections, a controlled multi-company state and desktop/mobile browser QA.

@@ -39,6 +39,7 @@ const taskStatuses = [
 ] as const
 
 const taskPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const
+const activeTaskStatuses = ['NEW', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'] as const
 const terminalSubtaskStatuses = ['DONE', 'CANCELLED', 'ARCHIVED'] as const
 const taskViewRoles = ['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER', 'ALL'] as const
 const taskParticipantRoles = ['CO_EXECUTOR', 'OBSERVER'] as const
@@ -118,6 +119,15 @@ export interface TaskFollowerInput {
 
 export interface TaskReminderInput {
   remindAt: string
+}
+
+export interface DashboardTaskSummary {
+  items: TaskListItem[]
+  active: number
+  overdue: number
+  attention: number
+  completedLast7Days: number
+  byStatus: Array<{ status: TaskStatusValue; count: number }>
 }
 
 export interface TaskCommentInput {
@@ -208,7 +218,7 @@ export class TasksService {
     const now = new Date()
     const preset = filters.preset ?? (filters.overdue === 'true' ? 'OVERDUE' : undefined)
     const presetWhere: Prisma.TaskWhereInput | null = preset === 'ACTIVE'
-      ? { status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'] } }
+      ? { status: { in: [...activeTaskStatuses] } }
       : preset === 'DEFERRED'
         ? { status: 'PLANNED' }
         : preset === 'OVERDUE'
@@ -225,13 +235,7 @@ export class TasksService {
       companyId: { in: companyIds },
       archivedAt: null,
       AND: [
-        {
-          OR: [
-            { groupId: null },
-            { group: { members: { some: { userId: principal.userId, leftAt: null } } } },
-          ],
-        },
-        roleWhere,
+        ...this.visibilityFilters(principal.userId, roleWhere),
         ...(presetWhere ? [presetWhere] : []),
         ...(dueFrom || dueTo ? [{ deadline: { ...(dueFrom ? { gte: dueFrom } : {}), ...(dueTo ? { lte: dueTo } : {}) } }] : []),
         ...(filters.coExecutorId ? [{ participants: { some: { userId: filters.coExecutorId, role: 'CO_EXECUTOR' as const, removedAt: null } } }] : []),
@@ -302,6 +306,79 @@ export class TasksService {
       this.prisma.task.count({ where }),
     ])
     return { items: await this.mapRows(rows, principal.userId), page, pageSize, total }
+  }
+
+  async dashboardSummary(
+    principal: AuthPrincipal,
+    company: string | undefined,
+    completedSince: Date,
+  ): Promise<DashboardTaskSummary> {
+    const companyIds = this.scope.allowedCompanies(principal, company)
+    const baseWhere: Prisma.TaskWhereInput = {
+      companyId: { in: companyIds },
+      archivedAt: null,
+      AND: this.visibilityFilters(principal.userId, { assigneeId: principal.userId }),
+    }
+    const nonTerminalWhere: Prisma.TaskWhereInput = {
+      ...baseWhere,
+      status: { notIn: [...terminalSubtaskStatuses] },
+    }
+    const activeWhere: Prisma.TaskWhereInput = {
+      ...baseWhere,
+      status: { in: [...activeTaskStatuses] },
+    }
+    const overdueWhere: Prisma.TaskWhereInput = {
+      ...nonTerminalWhere,
+      deadline: { lt: new Date() },
+    }
+    const attentionWhere: Prisma.TaskWhereInput = {
+      ...nonTerminalWhere,
+      OR: [{ status: 'BLOCKED' }, { deadline: { lt: new Date() } }],
+    }
+    const [rows, active, overdue, attention, completedLast7Days, grouped] =
+      await this.prisma.$transaction([
+        this.prisma.task.findMany({
+          where: nonTerminalWhere,
+          include: {
+            parent: {
+              select: {
+                id: true,
+                number: true,
+                title: true,
+                status: true,
+              },
+            },
+          },
+          orderBy: [{ deadline: 'asc' }, { id: 'asc' }],
+          take: 5,
+        }),
+        this.prisma.task.count({ where: activeWhere }),
+        this.prisma.task.count({ where: overdueWhere }),
+        this.prisma.task.count({ where: attentionWhere }),
+        this.prisma.task.count({
+          where: {
+            ...baseWhere,
+            status: 'DONE',
+            completedAt: { gte: completedSince },
+          },
+        }),
+        this.prisma.task.groupBy({
+          by: ['status'],
+          where: activeWhere,
+          _count: { id: true },
+        }),
+      ])
+    return {
+      items: await this.mapRows(rows, principal.userId),
+      active,
+      overdue,
+      attention,
+      completedLast7Days,
+      byStatus: grouped.map((entry) => ({
+        status: entry.status,
+        count: entry._count.id,
+      })),
+    }
   }
 
   async detail(principal: AuthPrincipal, taskId: string): Promise<TaskDetailView> {
@@ -2723,6 +2800,21 @@ export class TasksService {
       subtaskProgress: progress.get(row.id) ?? { done: 0, total: 0 },
       viewerRoles: this.viewerRoles(viewerId, row, participantsByTask.get(row.id) ?? []),
     }))
+  }
+
+  private visibilityFilters(
+    userId: string,
+    roleWhere: Prisma.TaskWhereInput,
+  ): Prisma.TaskWhereInput[] {
+    return [
+      {
+        OR: [
+          { groupId: null },
+          { group: { members: { some: { userId, leftAt: null } } } },
+        ],
+      },
+      roleWhere,
+    ]
   }
 
   private async normalizeParticipantIds(

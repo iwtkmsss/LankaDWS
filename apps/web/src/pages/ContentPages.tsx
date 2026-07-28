@@ -416,7 +416,7 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
               <h4>Робота групи</h4>
               <div>
                 {can('feed.read') && canUseCapability(OrganizationCapability.Feed) && (
-                  <Link to={`/overview?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
+                  <Link to={`/feed?groupId=${encodeURIComponent(id)}`}>
                     <Newspaper size={19} />
                     <span><strong>Стрічка</strong><small>Оновлення групи</small></span>
                   </Link>

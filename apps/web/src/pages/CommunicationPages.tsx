@@ -107,9 +107,7 @@ function notificationRoute(item: Notification, company: string | null) {
   if (item.entityType === 'TASK') return `/tasks/${item.entityId}${suffix}`
   if (item.entityType === 'MESSAGE_THREAD') return `/messages/${item.entityId}${suffix}`
   if (item.entityType === 'FEED_POST') {
-    if (item.requiresAction) params.set('filter', 'ACK_REQUIRED')
-    const feedQuery = params.toString()
-    return `/overview${feedQuery ? `?${feedQuery}` : ''}`
+    return item.requiresAction ? '/feed?filter=ACK_REQUIRED' : '/feed'
   }
   if (item.entityType === 'USER') return `/settings/security${suffix}`
   return null

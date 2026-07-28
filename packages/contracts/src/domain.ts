@@ -229,10 +229,79 @@ export interface AnnouncementListItem {
   readAt: string | null
 }
 
+export interface DashboardKpi {
+  value: number
+  href: string
+}
+
+export interface DashboardAction {
+  label: string
+  href: string
+}
+
+export interface DashboardNextStep {
+  kind: 'TASK' | 'NOTIFICATION' | 'ACKNOWLEDGEMENT' | 'EVENT' | 'LIFECYCLE' | 'ANNOUNCEMENT'
+  title: string
+  detail: string
+  href: string
+}
+
+export interface DashboardLifecycleItem {
+  id: string
+  type: 'ONBOARDING' | 'OFFBOARDING'
+  employeeName: string
+  progress: number
+  status: string
+}
+
+export interface DashboardActivityItem {
+  id: string
+  kind: 'POST' | 'TASK' | 'EVENT' | 'ANNOUNCEMENT' | 'FILE'
+  title: string
+  summary: string
+  occurredAt: string
+  href: string
+}
+
 export interface DashboardView {
   attentionCount: number
   tasks: TaskListItem[]
   events: EventListItem[]
   announcements: AnnouncementListItem[]
-  lifecycle: Array<{ id: string; type: string; employeeName: string; progress: number; status: string }>
+  lifecycle: DashboardLifecycleItem[]
+  meta: {
+    generatedAt: string
+    timezone: string
+    localDate: string
+  }
+  availability: {
+    tasks: boolean
+    calendar: boolean
+    announcements: boolean
+    messages: boolean
+    notifications: boolean
+    activity: boolean
+    lifecycle: boolean
+  }
+  focus: {
+    nextStep: DashboardNextStep | null
+    primaryAction: DashboardAction
+  }
+  kpis: {
+    activeTasks: DashboardKpi | null
+    overdueTasks: DashboardKpi | null
+    events: {
+      todayCount: number
+      nextAt: string | null
+      href: string
+    } | null
+    unreadMessages: DashboardKpi | null
+    unreadNotifications: DashboardKpi | null
+  }
+  taskAnalytics: {
+    byStatus: Array<{ status: TaskStatus; count: number }>
+    completedLast7Days: number
+    overdue: number
+  } | null
+  activity: DashboardActivityItem[]
 }

@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import request from 'supertest';
-import type { ChatThreadDetail, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
+import type { ChatThreadDetail, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
 import { hashPassword } from '../../src/common/crypto.js';
 import { configureApp } from '../../src/bootstrap.js';
@@ -116,8 +116,22 @@ describe('BERT CRM API workflows', () => {
     expect(typeof feedCapability?.version).toBe('number');
     await agent.post('/api/v1/auth/logout').expect(403);
     const dashboard = await agent.get('/api/v1/dashboard').expect(200);
-    expect(dashboard.body).toHaveProperty('tasks');
-    expect(JSON.stringify(dashboard.body)).not.toContain('privateHrComment');
+    const dashboardBody = dashboard.body as DashboardView;
+    expect(dashboardBody).toHaveProperty('tasks');
+    expect(dashboardBody).toMatchObject({
+      meta: {
+        timezone: principal.organization.timezone,
+      },
+      availability: {
+        tasks: true,
+        activity: false,
+      },
+      kpis: {
+        activeTasks: { href: '/tasks?preset=ACTIVE' },
+      },
+    });
+    expect(dashboardBody.activity).toEqual([]);
+    expect(JSON.stringify(dashboardBody)).not.toContain('privateHrComment');
   });
 
   it('rolls an organization capability out atomically with version, audit, and outbox evidence', async () => {

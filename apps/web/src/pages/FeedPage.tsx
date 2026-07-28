@@ -7,7 +7,6 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import type {
-  FeedAudienceOption,
   FeedAudienceFacetOption,
   FeedAttachmentView,
   FeedAuthorOption,
@@ -25,18 +24,15 @@ import {
   BellOff,
   BellRing,
   CalendarDays,
-  CalendarPlus2,
   Check,
   CheckCircle2,
   ChevronDown,
   Download,
   FileText,
-  FileUp,
   Heart,
   Megaphone,
   MessageCircle,
   MoreHorizontal,
-  Paperclip,
   Pencil,
   Reply,
   Save,
@@ -48,8 +44,8 @@ import {
   Star,
   X,
 } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { withCompanyScope } from '../shared/lib/navigation'
@@ -60,10 +56,12 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
+  Modal,
   PageHeader,
   Skeleton,
   Tabs,
 } from '../shared/ui'
+import { FeedComposerForm, formatBytes } from './FeedComposerForm'
 
 interface SavedFeedView {
   id: string
@@ -74,10 +72,13 @@ interface SavedFeedView {
 
 export function FeedPage() {
   const { user, can } = useAuth()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const paramsRef = useRef(params)
   paramsRef.current = params
   const queryClient = useQueryClient()
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [composerBusy, setComposerBusy] = useState(false)
   const readKey = useRef('')
   const company = user?.organization.id ?? ''
   const filter = parseFilter(params.get('filter'))
@@ -394,7 +395,6 @@ export function FeedPage() {
     )
   }
   if (pages.isError || !firstPage) return <ErrorState onRetry={() => void pages.refetch()} />
-  const scoped = (path: string) => withCompanyScope(path, company)
   const feedSavedViews = savedViews.data?.filter((item) => item.module === 'FEED') ?? []
   const authorOptions = authors.data?.items ?? []
   const selectedAuthor = authorOptions.find((author) => author.id === authorId)
@@ -412,17 +412,14 @@ export function FeedPage() {
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
+        action={can('feed.create') ? (
+          <Button onClick={() => setComposerOpen(true)}>
+            Створити публікацію
+          </Button>
+        ) : undefined}
       />
       <div className="feed-layout">
         <div className="feed-main">
-          {can('feed.create') && (
-            <FeedComposer
-              company={company}
-              canShareFiles={can('documents.share')}
-              onCreated={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-            />
-          )}
-
           <section className="feed-toolbar" aria-label="Фільтри стрічки">
             <Tabs
               value={filter}
@@ -661,14 +658,14 @@ export function FeedPage() {
           <Card>
             <span className="eyebrow"><Sparkles size={14} /> Потребує уваги</span>
             <h2>Ваші наступні кроки</h2>
-            <Link to={`${scoped('/overview')}&filter=ACK_REQUIRED`}>
+            <Link to="/feed?filter=ACK_REQUIRED">
               <ShieldCheck size={18} />
               <span>
                 <strong>{firstPage.attention.pendingAcknowledgements}</strong>
                 <small>підтверджень очікують</small>
               </span>
             </Link>
-            <Link to={`${scoped('/tasks')}&role=RESPONSIBLE`}>
+            <Link to="/tasks?role=RESPONSIBLE">
               <CheckCircle2 size={18} />
               <span>
                 <strong>{firstPage.attention.overdueTasks}</strong>
@@ -686,229 +683,27 @@ export function FeedPage() {
           </p>
         </aside>
       </div>
-    </div>
-  )
-}
-
-function FeedComposer({
-  company,
-  canShareFiles,
-  onCreated,
-}: {
-  company: string
-  canShareFiles: boolean
-  onCreated: () => void
-}) {
-  const [body, setBody] = useState('')
-  const [audienceKey, setAudienceKey] = useState('')
-  const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(false)
-  const [attachments, setAttachments] = useState<FeedAttachmentView[]>([])
-  const [uploading, setUploading] = useState(false)
-  const [sharingFile, setSharingFile] = useState(false)
-  const [message, setMessage] = useState('')
-  const audiences = useQuery({
-    queryKey: ['feed-audiences', company],
-    queryFn: () => api<{ items: FeedAudienceOption[] }>(`/feed/audiences?company=${encodeURIComponent(company)}`),
-    enabled: company !== 'all',
-  })
-  const create = useMutation({
-    mutationFn: (input: {
-      companyId: string
-      body: string
-      audience: { type: 'COMPANY' } | { type: 'GROUP'; groupId: string }
-      requiresAcknowledgement: boolean
-      attachmentIds: string[]
-    }) => api('/feed', {
-      method: 'POST',
-      headers: { 'idempotency-key': idempotencyKey('feed-post') },
-      body: jsonBody(input),
-    }),
-    onSuccess: () => {
-      setBody('')
-      setRequiresAcknowledgement(false)
-      setAttachments([])
-      setMessage('Публікацію додано до стрічки.')
-      onCreated()
-    },
-  })
-  const options = audiences.data?.items ?? []
-  const selectedKey = audienceKey || (options[0] ? `${options[0].type}:${options[0].id}` : '')
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    const option = options.find((item) => `${item.type}:${item.id}` === selectedKey)
-    if (!option || !body.trim()) return
-    setMessage('')
-    await create.mutateAsync({
-      companyId: company,
-      body: body.trim(),
-      audience: option.type === 'GROUP' ? { type: 'GROUP', groupId: option.id } : { type: 'COMPANY' },
-      requiresAcknowledgement,
-      attachmentIds: attachments.map((attachment) => attachment.id),
-    }).catch(() => setMessage('Не вдалося опублікувати. Перевірте дані та спробуйте ще раз.'))
-  }
-
-  async function uploadSelected(files: FileList | null) {
-    if (!files?.length) return
-    const remaining = Math.max(0, 10 - attachments.length)
-    const selected = [...files].slice(0, remaining)
-    if (selected.length === 0) {
-      setMessage('До однієї публікації можна додати не більше 10 файлів.')
-      return
-    }
-    setUploading(true)
-    setMessage('')
-    try {
-      const uploaded: FeedAttachmentView[] = []
-      for (const file of selected) {
-        const form = new FormData()
-        form.append('file', file)
-        uploaded.push(await api<FeedAttachmentView>(
-          `/feed/attachments?company=${encodeURIComponent(company)}`,
-          { method: 'POST', body: form },
-        ))
-      }
-      setAttachments((current) => [...current, ...uploaded])
-    } catch {
-      setMessage('Не вдалося додати файл. Перевірте формат і розмір.')
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  async function shareSelected(fileList: FileList | null) {
-    const file = fileList?.[0]
-    const option = options.find((item) => `${item.type}:${item.id}` === selectedKey)
-    if (!file || !option) {
-      setMessage('Спочатку оберіть точну аудиторію файлу.')
-      return
-    }
-    setSharingFile(true)
-    setMessage('')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const uploaded = await api<FeedAttachmentView>(
-        `/feed/attachments?company=${encodeURIComponent(company)}`,
-        { method: 'POST', body: form },
-      )
-      await api(`/feed/file-shares/${encodeURIComponent(uploaded.id)}`, {
-        method: 'POST',
-        headers: { 'idempotency-key': idempotencyKey('feed-file-share') },
-        body: jsonBody({
-          companyId: company,
-          audience: option.type === 'GROUP'
-            ? { type: 'GROUP', groupId: option.id }
-            : { type: 'COMPANY' },
-        }),
-      })
-      setMessage('Файл поширено. Завантаження відкриється після безпечної перевірки.')
-      onCreated()
-    } catch {
-      setMessage('Не вдалося поширити файл. Перевірте доступ, формат і розмір.')
-    } finally {
-      setSharingFile(false)
-    }
-  }
-
-  return (
-    <Card className="feed-composer">
-      <form onSubmit={(event) => void submit(event)}>
-        <header>
-          <span className="eyebrow">Нова публікація</span>
-          <h2>Що важливо знати команді?</h2>
-        </header>
-        <label className="feed-composer__body">
-          <span>Текст публікації</span>
-          <textarea
-            value={body}
-            maxLength={10_000}
-            rows={4}
-            placeholder="Коротко опишіть оновлення, рішення або потрібну дію…"
-            onChange={(event) => setBody(event.target.value)}
+      {composerOpen && (
+        <Modal
+          title="Створити публікацію"
+          description="Поділіться важливим оновленням із потрібною аудиторією."
+          closeDisabled={composerBusy}
+          onClose={() => setComposerOpen(false)}
+        >
+          <FeedComposerForm
+            company={company}
+            canShareFiles={can('documents.share')}
+            onBusyChange={setComposerBusy}
+            onFeedChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+            onPostCreated={() => setComposerOpen(false)}
+            onNavigate={(path) => {
+              setComposerOpen(false)
+              navigate(withCompanyScope(path, company))
+            }}
           />
-        </label>
-        {attachments.length > 0 && (
-          <div className="feed-composer__attachments" aria-label="Додані файли">
-            {attachments.map((attachment) => (
-              <span key={attachment.id}>
-                <FileText size={15} />
-                <span>
-                  <strong>{attachment.fileName}</strong>
-                  <small>{formatBytes(attachment.bytes)} · перевіряється</small>
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Прибрати ${attachment.fileName}`}
-                  onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="feed-composer__controls">
-          <label>
-            <span>Хто побачить</span>
-            <select
-              value={selectedKey}
-              disabled={audiences.isLoading || options.length === 0}
-              onChange={(event) => setAudienceKey(event.target.value)}
-            >
-              {options.map((option) => (
-                <option key={`${option.type}:${option.id}`} value={`${option.type}:${option.id}`}>
-                  {option.type === 'GROUP' ? `Група · ${option.label}` : option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="feed-ack-option">
-            <input
-              type="checkbox"
-              checked={requiresAcknowledgement}
-              onChange={(event) => setRequiresAcknowledgement(event.target.checked)}
-            />
-            <span>
-              <strong>Потрібне підтвердження</strong>
-              <small>Кожен адресат має натиснути окрему кнопку</small>
-            </span>
-          </label>
-          <Button disabled={!body.trim() || !selectedKey || create.isPending || uploading}>
-            <Send size={16} /> {create.isPending ? 'Публікуємо…' : 'Опублікувати'}
-          </Button>
-        </div>
-        <footer>
-          <label className="feed-attachment-picker">
-            <Paperclip size={15} />
-            {uploading ? 'Додаємо…' : 'Додати файл'}
-            <input
-              type="file"
-              multiple
-              disabled={uploading || attachments.length >= 10}
-              onChange={(event) => { void uploadSelected(event.target.files); event.currentTarget.value = '' }}
-            />
-          </label>
-          {canShareFiles && (
-            <label className="feed-file-share-picker" title="Окрема картка без текстової публікації">
-              <FileUp size={15} />
-              {sharingFile ? 'Поширюємо…' : 'Поширити файл'}
-              <input
-                type="file"
-                disabled={sharingFile || uploading || !selectedKey}
-                onChange={(event) => {
-                  void shareSelected(event.target.files)
-                  event.currentTarget.value = ''
-                }}
-              />
-            </label>
-          )}
-          <Link to={withCompanyScope('/tasks/new', company)}><CheckCircle2 size={15} /> Створити завдання</Link>
-          <Link to={withCompanyScope('/calendar', company)}><CalendarPlus2 size={15} /> Додати подію</Link>
-          {message && <span role="status">{message}</span>}
-        </footer>
-      </form>
-    </Card>
+        </Modal>
+      )}
+    </div>
   )
 }
 
@@ -1482,12 +1277,6 @@ function itemTypeLabel(value: FeedItemType): string {
     ANNOUNCEMENT: 'Оголошення',
     FILE: 'Файли',
   } as const)[value]
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
 function attachmentStateLabel(status: FeedAttachmentView['scanStatus']): string {

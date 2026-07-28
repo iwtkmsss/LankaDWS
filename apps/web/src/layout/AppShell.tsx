@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { OrganizationCapability } from '@bert-crm/contracts'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -7,42 +7,30 @@ import {
   BookOpen,
   Building2,
   CalendarDays,
-  ChartNoAxesColumnIncreasing,
   CheckSquare2,
   ChevronDown,
+  Ellipsis,
   FileText,
   Gauge,
-  Ellipsis,
   KeyRound,
   LogOut,
   Megaphone,
   Menu,
   MessageCircle,
-  Newspaper,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
-  Settings,
   ShieldCheck,
   Users,
   X,
 } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { routes } from '../app/routes'
+import type { RouteMeta } from '../app/routes'
+import { navigationRoutes, routes } from '../app/routes'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { Avatar, BrandMark, IconButton } from '../shared/ui'
-
-const iconByPath: Record<string, typeof Gauge> = {
-  '/overview': Gauge,
-  '/tasks': CheckSquare2,
-  '/messages': MessageCircle,
-  '/calendar': CalendarDays,
-  '/documents': FileText,
-  '/knowledge': BookOpen,
-  '/employees': Users,
-  '/analytics': ChartNoAxesColumnIncreasing,
-  '/admin': Settings,
-}
+import { Avatar, BrandMark, DialogBase, IconButton } from '../shared/ui'
 
 interface QuickCreateAction {
   path: string
@@ -51,23 +39,104 @@ interface QuickCreateAction {
   icon: typeof Gauge
 }
 
+interface SidebarNavSection {
+  key: NonNullable<RouteMeta['navGroup']>
+  label: string
+  items: RouteMeta[]
+}
+
+const sidebarNavGroups = [
+  { key: 'primary', label: 'Основне' },
+  { key: 'communication', label: 'Комунікації' },
+  { key: 'company', label: 'Компанія' },
+  { key: 'management', label: 'Управління' },
+  { key: 'administration', label: 'Адміністрування' },
+] as const
+
+const sidebarNavVerticalPadding = 30
+const sidebarNavItemHeight = 44
+const sidebarNavFirstSectionLabelHeight = 17
+const sidebarNavFollowingSectionChrome = 37
+const sidebarMoreTriggerHeight = 53
+
+function sidebarSectionsHeight(sections: SidebarNavSection[]) {
+  return sections.reduce((height, section, index) =>
+    height
+    + section.items.length * sidebarNavItemHeight
+    + (index === 0 ? sidebarNavFirstSectionLabelHeight : sidebarNavFollowingSectionChrome), 0)
+}
+
 export function AppShell({ children }: PropsWithChildren) {
   const { user, can, canUseCapability, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
-  const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'))
-  const [moreOpen, setMoreOpen] = useState(true)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
+    window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
   const [profileOpen, setProfileOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
+  const sidebarNavRef = useRef<HTMLElement>(null)
   const organizationId = user?.organization.id ?? ''
-  const nav = useMemo(() => routes
-    .filter((route) => route.nav && route.releaseState !== 'planned' && can(route.permission) && (!route.capability || canUseCapability(route.capability)))
-    .sort((left, right) => (left.navOrder ?? 0) - (right.navOrder ?? 0)), [can, canUseCapability])
-  const coreNav = nav.filter((route) => route.navGroup === 'core')
-  const moreNav = nav.filter((route) => route.navGroup === 'more')
-  const feedActive = canUseCapability(OrganizationCapability.Feed)
+  const nav = useMemo(
+    () => navigationRoutes(can, canUseCapability),
+    [can, canUseCapability],
+  )
+  const navSections = useMemo(
+    () => sidebarNavGroups
+      .map(({ key, label }) => ({
+        key,
+        label,
+        items: nav.filter((route) => route.navGroup === key),
+      }))
+      .filter((section) => section.items.length > 0),
+    [nav],
+  )
+  const desktopNavRoutes = navSections.flatMap((section) => section.items)
+  let visibleRouteCount = desktopNavRoutes.length
+  if (desktopNavHeight !== null) {
+    const availableHeight = Math.max(0, desktopNavHeight - sidebarNavVerticalPadding)
+    if (sidebarSectionsHeight(navSections) > availableHeight) {
+      for (let count = desktopNavRoutes.length - 1; count >= 1; count -= 1) {
+        const candidatePaths = new Set(desktopNavRoutes.slice(0, count).map((route) => route.path))
+        const candidateSections = navSections
+          .map((section) => ({
+            ...section,
+            items: section.items.filter((route) => candidatePaths.has(route.path)),
+          }))
+          .filter((section) => section.items.length > 0)
+        if (sidebarSectionsHeight(candidateSections) + sidebarMoreTriggerHeight <= availableHeight) {
+          visibleRouteCount = count
+          break
+        }
+        visibleRouteCount = 1
+      }
+    }
+  }
+  const visibleRoutes = desktopNavRoutes.slice(0, visibleRouteCount)
+  const overflowRoutes = desktopNavRoutes.slice(visibleRouteCount)
+  const visibleRoutePaths = new Set(visibleRoutes.map((route) => route.path))
+  const overflowRoutePaths = new Set(overflowRoutes.map((route) => route.path))
+  const visibleNavSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((route) => visibleRoutePaths.has(route.path)),
+    }))
+    .filter((section) => section.items.length > 0)
+  const overflowNavSections = navSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((route) => overflowRoutePaths.has(route.path)),
+    }))
+    .filter((section) => section.items.length > 0)
+  const overflowHasActiveRoute = overflowRoutes.some((route) =>
+    location.pathname === route.path
+    || (route.path !== '/admin' && location.pathname.startsWith(`${route.path}/`)))
+  const mobileNavRoutes = nav
+    .filter((route) => route.mobileOrder !== undefined)
+    .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
   const quickCreateActions: QuickCreateAction[] = [
     ...(can('tasks.create') ? [{
       path: '/tasks/new',
@@ -117,7 +186,7 @@ export function AppShell({ children }: PropsWithChildren) {
       .filter((route) => route.path !== '/admin')
       .map((route) => ({
         path: route.path,
-        title: route.path === '/overview' && feedActive ? 'Стрічка' : route.title,
+        title: route.title,
         type: 'QUICK',
         safeSnippet: 'Відкрити розділ',
       })),
@@ -138,14 +207,43 @@ export function AppShell({ children }: PropsWithChildren) {
   const chatUnread = chatSummary.data?.unread ?? 0
 
   useEffect(() => {
+    window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
+  }, [sidebarCollapsed])
+
+  useLayoutEffect(() => {
+    const navElement = sidebarNavRef.current
+    if (!navElement) return
+    const desktopQuery = window.matchMedia('(min-width: 1051px)')
+    const updateHeight = () => {
+      setDesktopNavHeight(desktopQuery.matches ? navElement.clientHeight : null)
+    }
+    updateHeight()
+    const resizeObserver = new ResizeObserver(updateHeight)
+    resizeObserver.observe(navElement)
+    desktopQuery.addEventListener('change', updateHeight)
+    return () => {
+      resizeObserver.disconnect()
+      desktopQuery.removeEventListener('change', updateHeight)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (overflowRoutes.length === 0) setMoreOpen(false)
+  }, [overflowRoutes.length])
+
+  useEffect(() => {
+    setMoreOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setPaletteOpen(true)
       } else if (event.key === 'Escape') {
-        setPaletteOpen(false)
         setProfileOpen(false)
         setCreateOpen(false)
+        setMoreOpen(false)
       }
     }
     window.addEventListener('keydown', handle)
@@ -158,39 +256,22 @@ export function AppShell({ children }: PropsWithChildren) {
     navigate(path)
     setCreateOpen(false)
   }
-  function renderNavRoute(route: (typeof routes)[number]) {
-    const Icon = route.path === '/overview' && feedActive ? Newspaper : (iconByPath[route.path] ?? Gauge)
-    const title = route.path === '/overview' && feedActive ? 'Стрічка' : route.title
-    if (route.path === '/admin')
-      return (
-        <div className="admin-nav" key={route.path}>
-          <div className={`nav-parent ${location.pathname.startsWith('/admin') ? 'is-active' : ''}`}>
-            <NavLink to={scopedPath('/admin')} end onClick={() => setMobileNav(false)}>
-              <Icon size={18} />
-              <span>{title}</span>
-            </NavLink>
-            <button
-              aria-label={adminOpen ? 'Згорнути адміністрування' : 'Розгорнути адміністрування'}
-              onClick={() => setAdminOpen((value) => !value)}
-            >
-              <ChevronDown size={16} className={adminOpen ? 'rotated' : ''} />
-            </button>
-          </div>
-          {adminOpen && (
-            <div className="admin-nav__children">
-              {routes
-                .filter((item) => item.adminChild && can(item.permission))
-                .map((item) => (
-                  <NavLink key={item.path} to={scopedPath(item.path)} onClick={() => setMobileNav(false)}>
-                    {item.title}
-                  </NavLink>
-                ))}
-            </div>
-          )}
-        </div>
-      )
+  function renderNavRoute(route: (typeof routes)[number], menuItem = false) {
+    const Icon = route.navIcon ?? Gauge
+    const title = route.title
     return (
-      <NavLink key={route.path} to={scopedPath(route.path)} onClick={() => setMobileNav(false)}>
+      <NavLink
+        key={route.path}
+        to={scopedPath(route.path)}
+        end={route.path === '/admin'}
+        role={menuItem ? 'menuitem' : undefined}
+        aria-label={sidebarCollapsed ? title : undefined}
+        title={sidebarCollapsed ? title : undefined}
+        onClick={() => {
+          setMobileNav(false)
+          setMoreOpen(false)
+        }}
+      >
         <Icon size={18} />
         <span>{title}</span>
         {route.path === '/messages' && chatUnread > 0 && (
@@ -201,8 +282,22 @@ export function AppShell({ children }: PropsWithChildren) {
       </NavLink>
     )
   }
+  function renderNavSection(
+    label: string,
+    items: typeof nav,
+    className: string,
+    menuItems = false,
+  ) {
+    if (items.length === 0) return null
+    return (
+      <div className={`nav-section nav-section--${className}`}>
+        <span className="nav-section__label">{label}</span>
+        {items.map((route) => renderNavRoute(route, menuItems))}
+      </div>
+    )
+  }
   return (
-    <div className="app-frame">
+    <div className={`app-frame ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">
         Перейти до вмісту
       </a>
@@ -210,31 +305,53 @@ export function AppShell({ children }: PropsWithChildren) {
       <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
         <div className="sidebar__brand">
           <BrandMark />
-          <span>
+          <span className="sidebar__brand-copy">
             <strong>BERT</strong>
             <small>CRM workspace</small>
           </span>
+          <IconButton
+            className="sidebar__collapse"
+            label={sidebarCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'}
+            onClick={() => {
+              setMoreOpen(false)
+              setSidebarCollapsed((value) => !value)
+            }}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </IconButton>
           <IconButton label="Закрити меню" onClick={() => setMobileNav(false)}>
             <X size={18} />
           </IconButton>
         </div>
-        <nav aria-label="Головна навігація">
-          {coreNav.map(renderNavRoute)}
-          {moreNav.length > 0 && (
-            <div className="more-nav">
+        <nav ref={sidebarNavRef} className="sidebar__nav" aria-label="Головна навігація">
+          {visibleNavSections.map((section) =>
+            renderNavSection(section.label, section.items, section.key))}
+          {overflowRoutes.length > 0 && (
+            <div className="sidebar-more">
               <button
-                className="more-nav__trigger"
+                type="button"
+                className={`sidebar-more__trigger ${overflowHasActiveRoute ? 'active' : ''}`}
+                aria-label="Ще"
+                title={sidebarCollapsed ? 'Ще' : undefined}
+                aria-haspopup="menu"
                 aria-expanded={moreOpen}
-                onClick={() => setMoreOpen((value) => !value)}
+                onClick={() => {
+                  setProfileOpen(false)
+                  setMoreOpen((value) => !value)
+                }}
               >
                 <Ellipsis size={18} />
                 <span>Ще</span>
-                <ChevronDown size={16} className={moreOpen ? 'rotated' : ''} />
               </button>
-              {moreOpen && <div className="more-nav__children">{moreNav.map(renderNavRoute)}</div>}
             </div>
           )}
         </nav>
+        {moreOpen && overflowRoutes.length > 0 && (
+          <div className="sidebar-more__menu" role="menu" aria-label="Додаткові розділи">
+            {overflowNavSections.map((section) =>
+              renderNavSection(section.label, section.items, section.key, true))}
+          </div>
+        )}
         <div className="sidebar__profile">
           {profileOpen && (
             <div className="profile-popover">
@@ -262,8 +379,11 @@ export function AppShell({ children }: PropsWithChildren) {
           )}
           <button
             className="profile-button"
+            aria-label={sidebarCollapsed ? `Профіль: ${user.displayName}` : undefined}
+            title={sidebarCollapsed ? user.displayName : undefined}
             onClick={() => {
               setCreateOpen(false)
+              setMoreOpen(false)
               setProfileOpen((value) => !value)
             }}
             aria-expanded={profileOpen}
@@ -355,9 +475,9 @@ export function AppShell({ children }: PropsWithChildren) {
         />
       )}
       <nav className="bottom-nav" aria-label="Мобільна навігація">
-        {coreNav.map((route) => {
-          const Icon = route.path === '/overview' && feedActive ? Newspaper : (iconByPath[route.path] ?? Gauge)
-          const title = route.path === '/overview' && feedActive ? 'Стрічка' : route.title
+        {mobileNavRoutes.map((route) => {
+          const Icon = route.navIcon ?? Gauge
+          const title = route.title
           return (
             <NavLink key={route.path} to={scopedPath(route.path)}>
               <Icon size={19} />
@@ -370,7 +490,7 @@ export function AppShell({ children }: PropsWithChildren) {
             </NavLink>
           )
         })}
-        <button onClick={() => { setMoreOpen(true); setMobileNav(true) }}>
+        <button onClick={() => setMobileNav(true)}>
           <Menu size={19} />
           <span>Ще</span>
         </button>
@@ -419,7 +539,8 @@ function CommandPalette({
   const [results, setResults] = useState<PaletteItem[]>([])
   const [loading, setLoading] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
-  const paletteRef = useRef<HTMLElement>(null)
+  const paletteRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -481,43 +602,25 @@ function CommandPalette({
     if (type === 'EVENT' || baseRoute.startsWith('/calendar')) return <CalendarDays size={18} />
     if (type === 'ARTICLE' || baseRoute.startsWith('/knowledge')) return <BookOpen size={18} />
     if (baseRoute.startsWith('/announcements')) return <Megaphone size={18} />
-    if (baseRoute === '/overview') return <Gauge size={18} />
+    const RouteIcon = routes.find((candidate) => candidate.path === baseRoute)?.navIcon
+    if (RouteIcon) return <RouteIcon size={18} />
     return <Gauge size={18} />
   }
 
   return (
-    <div
-      className="palette-layer"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose()
-      }}
+    <DialogBase
+      title="Глобальний пошук"
+      variant="palette"
+      titleVisibility="sr-only"
+      showClose={false}
+      initialFocusRef={searchInputRef}
+      onClose={onClose}
     >
-      <section
-        ref={paletteRef}
-        className="palette"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Глобальний пошук"
-        onKeyDown={(event) => {
-          if (event.key !== 'Tab' || !paletteRef.current) return
-          const focusable = [...paletteRef.current.querySelectorAll<HTMLElement>('input, button:not(:disabled)')]
-          if (!focusable.length) return
-          const first = focusable[0]
-          const last = focusable.at(-1)!
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault()
-            last.focus()
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault()
-            first.focus()
-          }
-        }}
-      >
+      <div className="palette__content" ref={paletteRef}>
         <div>
           <Search size={20} />
           <input
-            autoFocus
+            ref={searchInputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
@@ -568,7 +671,7 @@ function CommandPalette({
           <p>Нічого не знайдено</p>
         )}
         <footer><span><kbd>↑</kbd><kbd>↓</kbd> вибір · <kbd>Enter</kbd> відкрити</span><span><kbd>Esc</kbd> закрити</span></footer>
-      </section>
-    </div>
+      </div>
+    </DialogBase>
   )
 }

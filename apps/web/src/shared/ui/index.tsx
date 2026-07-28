@@ -1,14 +1,15 @@
 import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from 'react'
-import { useEffect, useRef } from 'react'
-import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle, X } from 'lucide-react'
+import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle } from 'lucide-react'
 import { statusLabels } from '../lib/format'
+
+export { DialogBase, Drawer, Modal, OverlayProvider } from './Overlay'
 
 export function Button({ variant = 'primary', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }) {
   return <button className={`button button--${variant} ${className}`} {...props} />
 }
 
-export function IconButton({ label, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {
-  return <button type="button" className="icon-button" aria-label={label} title={label} {...props}>{children}</button>
+export function IconButton({ label, children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {
+  return <button type="button" className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>{children}</button>
 }
 
 export function BrandMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
@@ -57,27 +58,6 @@ export function EmptyState({
 }
 
 export function ErrorState({ title = 'Не вдалося завантажити дані', onRetry }: { title?: string; onRetry?: () => void }) { return <div className="empty-state empty-state--error"><CircleAlert size={34} aria-hidden /><h3>{title}</h3>{onRetry && <Button variant="secondary" onClick={onRetry}>Спробувати ще раз</Button>}</div> }
-
-export function Drawer({ title, children, onClose, footer }: PropsWithChildren<{ title: string; onClose: () => void; footer?: ReactNode }>) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null
-    ref.current?.focus()
-    const handle = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-      if (event.key !== 'Tab' || !ref.current) return
-      const focusable = [...ref.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
-      if (!focusable.length) { event.preventDefault(); ref.current.focus(); return }
-      const first = focusable[0]
-      const last = focusable.at(-1)
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }
-    window.addEventListener('keydown', handle)
-    return () => { window.removeEventListener('keydown', handle); previous?.focus() }
-  }, [onClose])
-  return <div className="drawer-layer" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><div className="drawer" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}><header><h2>{title}</h2><IconButton label="Закрити" onClick={onClose}><X size={20} /></IconButton></header><div className="drawer__body">{children}</div>{footer && <footer className="drawer__footer">{footer}</footer>}</div></div>
-}
 
 export function Tabs({ value, items, onChange }: { value: string; items: Array<{ value: string; label: string; count?: number }>; onChange: (value: string) => void }) {
   return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div>

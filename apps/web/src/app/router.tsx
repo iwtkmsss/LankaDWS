@@ -2,7 +2,7 @@ import { Suspense, useEffect } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { AppShell } from '../layout/AppShell'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { Skeleton } from '../shared/ui'
+import { OverlayProvider, Skeleton } from '../shared/ui'
 import { routes, routeTitle, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
@@ -26,7 +26,14 @@ function ProtectedRoot() {
     const nextSearch = search.toString()
     return <Navigate to={`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}${location.hash}`} replace />
   }
-  return <><DocumentTitle /><AppShell><Outlet /></AppShell></>
+  return (
+    <>
+      <DocumentTitle />
+      <OverlayProvider>
+        <AppShell><Outlet /></AppShell>
+      </OverlayProvider>
+    </>
+  )
 }
 
 function ProtectedPage({ route }: { route: RouteMeta }) {

@@ -9,5 +9,10 @@ import { NotificationsController } from './notifications.controller.js'
 import { SavedViewsController } from './saved-views.controller.js'
 import { SearchController } from './search.controller.js'
 
-@Module({ imports: [CalendarModule, FilesModule, TasksModule], controllers: [MessagesController, NotificationsController, SavedViewsController, SearchController], providers: [MessagesService, ChatRealtimeService] })
+@Module({
+  imports: [CalendarModule, FilesModule, TasksModule],
+  controllers: [MessagesController, NotificationsController, SavedViewsController, SearchController],
+  providers: [MessagesService, ChatRealtimeService],
+  exports: [MessagesService],
+})
 export class CommunicationModule {}
