@@ -31,17 +31,6 @@ export type TaskViewRole = z.infer<typeof taskViewRoleSchema>
 export const taskParticipantRoleSchema = z.enum(['CO_EXECUTOR', 'OBSERVER'])
 export type TaskParticipantRole = z.infer<typeof taskParticipantRoleSchema>
 
-export const requestDecisionStatusSchema = z.enum([
-  'DRAFT',
-  'SUBMITTED',
-  'PENDING',
-  'APPROVED',
-  'RETURNED',
-  'REJECTED',
-  'CANCELLED',
-])
-export type RequestDecisionStatus = z.infer<typeof requestDecisionStatusSchema>
-
 export const executionStatusSchema = z.enum([
   'NOT_STARTED',
   'QUEUED',
@@ -206,21 +195,6 @@ export interface TaskDetailView extends TaskListItem {
   personalState: TaskPersonalStateView
 }
 
-export interface RequestListItem {
-  id: string
-  number: string
-  companyId: string
-  type: string
-  safeSummary: string
-  author: Pick<UserSummary, 'id' | 'displayName'> | null
-  currentApprover: Pick<UserSummary, 'id' | 'displayName'> | null
-  decisionStatus: RequestDecisionStatus
-  executionStatus: ExecutionStatus
-  slaDueAt: string | null
-  version: number
-  updatedAt: string
-}
-
 export interface EventListItem {
   id: string
   companyId: string
@@ -258,8 +232,6 @@ export interface AnnouncementListItem {
 export interface DashboardView {
   attentionCount: number
   tasks: TaskListItem[]
-  requests: RequestListItem[]
-  decisions: RequestListItem[]
   events: EventListItem[]
   announcements: AnnouncementListItem[]
   lifecycle: Array<{ id: string; type: string; employeeName: string; progress: number; status: string }>

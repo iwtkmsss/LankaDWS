@@ -19,8 +19,8 @@ The palette debounces queries of at least two characters and routes safe results
 | Field | Current path |
 |---|---|
 | Frontend entry | `apps/web/src/layout/AppShell.tsx` |
-| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/requests/new?type=absence`, `/groups?new=1`, `/drive?new=1`, `/announcements/new` |
-| API owners | Existing tasks, messages, calendar, requests, groups, documents, and announcements controllers |
+| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/groups?new=1`, `/drive?new=1`, `/announcements/new` |
+| API owners | Existing tasks, messages, calendar, groups, documents, and announcements controllers |
 | Focused test | `apps/web/e2e/app.spec.ts` where the changed canonical flow is covered |
 
 Keep permission/capability gates and reuse the destination form.

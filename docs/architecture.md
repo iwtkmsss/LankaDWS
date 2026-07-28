@@ -9,7 +9,7 @@ BERT CRM — npm-workspaces modular monolith. `apps/web` є React/Vite client, `
 ## Модулі
 
 - Identity: auth, password/TOTP lifecycle, opaque sessions, users, одна організація, рекурсивна структура підрозділів, roles та authorization.
-- Work: tasks/checklist/recurrence, requests/approvals, calendar/presence та onboarding/offboarding.
+- Work: tasks/checklist/recurrence, calendar/presence та onboarding/offboarding.
 - Content: documents/files, knowledge, announcements, contextual chat/comments і notifications.
 - Platform: search, analytics, append-only audit/export, durable jobs/outbox, retention/legal hold, backup/restore та health/observability.
 

@@ -37,7 +37,7 @@ export class SearchController {
           select: { articleId: true },
         })).map((entry) => entry.articleId)
       : []
-    const [tasks, requests, documents, users, articles, groups, events, threads] = await Promise.all([
+    const [tasks, documents, users, articles, groups, events, threads] = await Promise.all([
       principal.permissions.has('tasks.read') ? this.prisma.task.findMany({
         where: {
           companyId: { in: companyIds },
@@ -67,7 +67,6 @@ export class SearchController {
         select: { id: true, title: true, companyId: true, status: true },
         take: 6,
       }) : [],
-      principal.permissions.has('requests.read') ? this.prisma.request.findMany({ where: { companyId: { in: companyIds }, OR: [{ authorId: principal.userId }, { currentApproverId: principal.userId }], snapshots: { some: { safeSummary: { contains: q } } } }, include: { snapshots: { orderBy: { version: 'desc' }, take: 1 } }, take: 6 }) : [],
       principal.permissions.has('documents.read') ? this.prisma.document.findMany({
         where: {
           companyId: { in: companyIds },
@@ -156,7 +155,6 @@ export class SearchController {
     )
     return { items: [
       ...tasks.map((item) => ({ type: 'TASK', id: item.id, title: item.title, safeSnippet: item.status, companyId: item.companyId, route: `/tasks/${item.id}` })),
-      ...requests.map((item) => ({ type: 'REQUEST', id: item.id, title: item.number, safeSnippet: item.snapshots[0]?.safeSummary ?? 'Заявка', companyId: item.companyId, route: `/requests/${item.id}` })),
       ...groups.map((item) => ({ type: 'GROUP', id: item.id, title: item.name, safeSnippet: `${item._count.members} учасн.`, companyId: item.companyId, route: `/groups/${item.id}` })),
       ...visibleThreads.map((item) => ({ type: 'CHAT', id: item.id, title: item.title ?? 'Особистий діалог', safeSnippet: `${item._count.participants} учасн.`, companyId: item.companyId, route: `/messages/${item.id}` })),
       ...documents.map((item) => ({ type: 'DOCUMENT', id: item.id, title: item.name, safeSnippet: item.archivedAt ? 'ARCHIVED' : item.status, companyId: item.companyId, route: `/drive/${item.id}` })),

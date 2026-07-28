@@ -17,7 +17,6 @@ export interface RouteMeta {
 
 const Overview = lazy(() => import('../pages/OverviewPage'))
 const Tasks = lazy(() => import('../pages/TasksPage'))
-const Requests = lazy(() => import('../pages/RequestsPage'))
 const Calendar = lazy(() => import('../pages/CalendarPage'))
 const Content = lazy(() => import('../pages/ContentPages'))
 const Communication = lazy(() => import('../pages/CommunicationPages'))
@@ -31,9 +30,6 @@ export const routes: RouteMeta[] = [
   { path: '/tasks', title: 'Завдання', permission: 'tasks.read', nav: true, navGroup: 'core', navOrder: 2, component: Tasks },
   { path: '/tasks/new', title: 'Нове завдання', permission: 'tasks.create', component: Tasks },
   { path: '/tasks/:taskId', title: 'Деталі завдання', permission: 'tasks.read', component: Tasks },
-  { path: '/requests', title: 'Заявки', permission: 'requests.read', nav: true, navGroup: 'more', navOrder: 1, component: Requests },
-  { path: '/requests/new', title: 'Нова заявка', permission: 'requests.create', component: Requests },
-  { path: '/requests/:requestId', title: 'Деталі заявки', permission: 'requests.read', component: Requests },
   { path: '/calendar', title: 'Календар', permission: 'calendar.read', nav: true, navGroup: 'core', navOrder: 4, component: Calendar },
   { path: '/calendar/events/:eventId', title: 'Подія календаря', permission: 'calendar.read', component: Calendar },
   { path: '/documents', title: 'Документи', permission: 'documents.read', component: Content },

@@ -202,16 +202,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     entityId: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    if (type === 'absence.calendar')
-      return this.applyAbsenceCalendar(entityId, payload);
-    if (type === 'absence.presence')
-      return this.applyAbsencePresence(entityId, payload);
-    if (type === 'absence.notifications')
-      return this.applyAbsenceNotifications(entityId, payload);
     if (type === 'announcement.materialize')
       return this.materializeAnnouncement(entityId);
-    if (type === 'request.notify-approver')
-      return this.notifyApprover(entityId, payload);
     if (type === 'file.scan') return this.markDevelopmentScan(entityId);
     if (type === 'task.recurrence')
       return this.createRecurringTask(entityId, payload);
@@ -221,126 +213,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       return this.generateAuditExport(entityId, payload);
     if (type === 'search.index' || type === 'document.preview') return;
     throw new Error('UnknownJobType');
-  }
-
-  private async applyAbsenceCalendar(
-    requestId: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    const request = await this.prisma.request.findUnique({
-      where: { id: requestId },
-    });
-    if (!request) throw new Error('RequestMissing');
-    const startAt = new Date(String(payload.startAt));
-    const endAt = new Date(String(payload.endAt));
-    await this.prisma.event.upsert({
-      where: {
-        sourceRequestId_ownerId: {
-          sourceRequestId: requestId,
-          ownerId: request.authorId,
-        },
-      },
-      create: {
-        id: id('evt'),
-        workspaceId: request.workspaceId,
-        companyId: request.companyId,
-        ownerId: request.authorId,
-        title: 'Відсутність',
-        startAt,
-        endAt,
-        sourceTimezone: payloadString(payload, 'timezone', 'Europe/Kyiv'),
-        allDay: true,
-        visibility: 'PUBLIC_SAFE',
-        sourceRequestId: requestId,
-      },
-      update: { startAt, endAt, version: { increment: 1 } },
-    });
-    await this.finishEffect(requestId, 'absence.calendar', 'EVENT');
-  }
-
-  private async applyAbsencePresence(
-    requestId: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    const request = await this.prisma.request.findUnique({
-      where: { id: requestId },
-    });
-    if (!request) throw new Error('RequestMissing');
-    await this.prisma.presenceRecord.upsert({
-      where: { sourceRequestId: requestId },
-      create: {
-        id: id('prs'),
-        workspaceId: request.workspaceId,
-        companyId: request.companyId,
-        userId: request.authorId,
-        state: 'ABSENT',
-        startAt: new Date(String(payload.startAt)),
-        endAt: new Date(String(payload.endAt)),
-        sourceRequestId: requestId,
-      },
-      update: {
-        startAt: new Date(String(payload.startAt)),
-        endAt: new Date(String(payload.endAt)),
-        version: { increment: 1 },
-      },
-    });
-    await this.finishEffect(requestId, 'absence.presence', 'PRESENCE');
-  }
-
-  private async applyAbsenceNotifications(
-    requestId: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    const request = await this.prisma.request.findUnique({
-      where: { id: requestId },
-    });
-    if (!request) throw new Error('RequestMissing');
-    const recipients = [
-      request.authorId,
-      payloadString(payload, 'substituteId'),
-    ].filter(Boolean);
-    for (const recipientId of recipients) {
-      await this.prisma.notification.upsert({
-        where: { dedupeKey: `absence-approved:${requestId}:${recipientId}` },
-        create: {
-          id: id('ntf'),
-          recipientId,
-          category: 'REQUESTS',
-          safeTitle: 'Заявку погоджено',
-          safeSnippet: 'Відсутність заплановано у календарі.',
-          entityType: 'REQUEST',
-          entityId: requestId,
-          dedupeKey: `absence-approved:${requestId}:${recipientId}`,
-          deliveredAt: new Date(),
-        },
-        update: {},
-      });
-    }
-    await this.finishEffect(
-      requestId,
-      'absence.notifications',
-      'NOTIFICATIONS',
-    );
-  }
-
-  private async finishEffect(
-    requestId: string,
-    effectType: string,
-    resultRef: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.approvalEffect.updateMany({
-        where: { requestId, effectType },
-        data: { state: 'SUCCEEDED', resultRef, lastErrorCode: null },
-      });
-      const remaining = await tx.approvalEffect.count({
-        where: { requestId, state: { not: 'SUCCEEDED' } },
-      });
-      await tx.request.update({
-        where: { id: requestId },
-        data: { executionStatus: remaining === 0 ? 'SUCCEEDED' : 'RUNNING' },
-      });
-    });
   }
 
   private async materializeAnnouncement(announcementId: string): Promise<void> {
@@ -410,30 +282,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           occurredAt: announcement.publishAt ?? new Date(),
         });
       }
-    });
-  }
-
-  private async notifyApprover(
-    requestId: string,
-    payload: Record<string, unknown>,
-  ): Promise<void> {
-    const recipientId = payloadString(payload, 'approverId');
-    if (!recipientId) throw new Error('ApproverMissing');
-    await this.prisma.notification.upsert({
-      where: { dedupeKey: `request-pending:${requestId}:${recipientId}` },
-      create: {
-        id: id('ntf'),
-        recipientId,
-        category: 'APPROVALS',
-        safeTitle: 'Потрібне ваше рішення',
-        safeSnippet: payloadString(payload, 'safeSummary', 'Нова заявка'),
-        entityType: 'REQUEST',
-        entityId: requestId,
-        requiresAction: true,
-        dedupeKey: `request-pending:${requestId}:${recipientId}`,
-        deliveredAt: new Date(),
-      },
-      update: {},
     });
   }
 

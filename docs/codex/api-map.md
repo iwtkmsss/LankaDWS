@@ -2,7 +2,7 @@
 
 Generated from `artifacts/openapi.json`. Do not edit manually.
 
-Total operations: **161**
+Total operations: **154**
 
 ## Admin
 
@@ -222,18 +222,6 @@ Total operations: **161**
 |---|---|---|---|
 | `GET` | `/api/v1/org/units` | `OrgController_listUnits` |  |
 | `GET` | `/api/v1/org/units/{id}/employees` | `OrgController_listEmployees` |  |
-
-## Requests
-
-| Method | Path | Operation | Summary |
-|---|---|---|---|
-| `GET` | `/api/v1/requests` | `RequestsController_list` |  |
-| `GET` | `/api/v1/requests/{id}` | `RequestsController_detail` |  |
-| `POST` | `/api/v1/requests/{id}/approve` | `RequestsController_approve` |  |
-| `POST` | `/api/v1/requests/{id}/cancel` | `RequestsController_cancel` |  |
-| `POST` | `/api/v1/requests/{id}/reject` | `RequestsController_reject` |  |
-| `POST` | `/api/v1/requests/{id}/return` | `RequestsController_returnForChanges` |  |
-| `POST` | `/api/v1/requests/absence` | `RequestsController_submitAbsence` |  |
 
 ## Retention
 

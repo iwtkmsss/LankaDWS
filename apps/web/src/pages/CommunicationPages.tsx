@@ -84,7 +84,6 @@ const notificationCategoryLabels: Record<string, string> = {
   CHAT: 'Чат',
   FEED: 'Стрічка',
   MENTION: 'Згадка',
-  REQUESTS: 'Заявки',
   SECURITY: 'Безпека',
   TASKS: 'Завдання',
 }
@@ -93,7 +92,6 @@ function notificationIcon(category: string) {
   if (category === 'TASKS') return <ListTodo size={19} />
   if (category === 'CHAT') return <MessageCircle size={19} />
   if (category === 'APPROVALS') return <CheckCircle2 size={19} />
-  if (category === 'REQUESTS') return <FileText size={19} />
   if (category === 'MENTION') return <BellRing size={19} />
   if (category === 'FEED') return <Megaphone size={19} />
   if (category === 'SECURITY') return <ShieldCheck size={19} />
@@ -107,7 +105,6 @@ function notificationRoute(item: Notification, company: string | null) {
   const suffix = scopedQuery ? `?${scopedQuery}` : ''
   if (!item.entityId) return null
   if (item.entityType === 'TASK') return `/tasks/${item.entityId}${suffix}`
-  if (item.entityType === 'REQUEST') return `/requests/${item.entityId}${suffix}`
   if (item.entityType === 'MESSAGE_THREAD') return `/messages/${item.entityId}${suffix}`
   if (item.entityType === 'FEED_POST') {
     if (item.requiresAction) params.set('filter', 'ACK_REQUIRED')

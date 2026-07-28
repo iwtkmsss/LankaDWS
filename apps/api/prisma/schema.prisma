@@ -57,16 +57,6 @@ enum TaskReminderStatus {
   CANCELLED
 }
 
-enum DecisionStatus {
-  DRAFT
-  SUBMITTED
-  PENDING
-  APPROVED
-  RETURNED
-  REJECTED
-  CANCELLED
-}
-
 enum ExecutionStatus {
   NOT_STARTED
   QUEUED
@@ -1319,105 +1309,6 @@ model EntityLink {
   @@index([targetType, targetId])
 }
 
-model RequestType {
-  id             String       @id
-  workspaceId    String
-  name           String
-  category       String
-  status         RecordStatus @default(ACTIVE)
-  currentVersion Int          @default(1)
-  schemaJson     String
-  effectsJson    String
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  @@unique([workspaceId, name])
-}
-
-model Request {
-  id                String                 @id
-  workspaceId       String
-  companyId         String
-  number            String                 @unique
-  authorId          String
-  typeId            String
-  typeVersion       Int
-  routeVersion      Int
-  version           Int                    @default(1)
-  decisionStatus    DecisionStatus         @default(DRAFT)
-  executionStatus   ExecutionStatus        @default(NOT_STARTED)
-  currentApproverId String?
-  confidentiality   Confidentiality        @default(INTERNAL)
-  slaDueAt          DateTime?
-  idempotencyKey    String?
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
-  snapshots         RequestSnapshot[]
-  privateDetails    RequestPrivateDetail[]
-  approvals         ApprovalAttempt[]
-  effects           ApprovalEffect[]
-
-  @@unique([authorId, idempotencyKey])
-  @@index([companyId, decisionStatus, updatedAt, id])
-  @@index([currentApproverId, decisionStatus, slaDueAt])
-  @@index([authorId, updatedAt])
-}
-
-model RequestSnapshot {
-  id          String   @id
-  requestId   String
-  version     Int
-  valuesJson  String
-  safeSummary String
-  authorId    String
-  submittedAt DateTime @default(now())
-  request     Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@unique([requestId, version])
-}
-
-model RequestPrivateDetail {
-  id            String  @id
-  requestId     String
-  version       Int
-  encryptedJson String
-  keyVersion    Int     @default(1)
-  request       Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@unique([requestId, version])
-}
-
-model ApprovalAttempt {
-  id             String    @id
-  requestId      String
-  requestVersion Int
-  step           Int       @default(1)
-  approverId     String
-  state          String
-  comment        String?
-  decidedAt      DateTime?
-  idempotencyKey String
-  createdAt      DateTime  @default(now())
-  request        Request   @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@unique([requestId, requestVersion, approverId, idempotencyKey])
-  @@index([approverId, state, createdAt])
-}
-
-model ApprovalEffect {
-  id             String          @id
-  requestId      String
-  requestVersion Int
-  effectType     String
-  idempotencyKey String          @unique
-  state          ExecutionStatus @default(QUEUED)
-  resultRef      String?
-  lastErrorCode  String?
-  request        Request         @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  @@index([requestId, state])
-}
-
 model Event {
   id              String   @id
   workspaceId     String
@@ -1429,12 +1320,10 @@ model Event {
   sourceTimezone  String
   allDay          Boolean  @default(false)
   visibility      String   @default("INTERNAL")
-  sourceRequestId String?
   version         Int      @default(1)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@unique([sourceRequestId, ownerId])
   @@index([companyId, startAt, endAt])
   @@index([ownerId, startAt])
 }
@@ -1448,7 +1337,6 @@ model PresenceRecord {
   startAt         DateTime
   endAt           DateTime
   visibility      String   @default("PUBLIC_SAFE")
-  sourceRequestId String?  @unique
   version         Int      @default(1)
   createdAt       DateTime @default(now())
 

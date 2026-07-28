@@ -122,21 +122,19 @@ export class AdminService {
       const fullAdminCount = await this.prisma.user.count({ where: { status: 'ACTIVE', roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true } } } } })
       if (fullAdminCount <= 1) throw forbidden('Не можна деактивувати останнього повного адміністратора.')
     }
-    const [tasks, documents, approvals] = await Promise.all([
+    const [tasks, documents] = await Promise.all([
       this.prisma.task.count({ where: { assigneeId: targetId, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } } }),
       this.prisma.document.count({ where: { ownerId: targetId, archivedAt: null } }),
-      this.prisma.request.count({ where: { currentApproverId: targetId, decisionStatus: 'PENDING' } }),
     ])
-    if ((tasks + documents + approvals) > 0 && !input.newOwnerId) return { blocked: true, impact: { tasks, documents, approvals } }
+    if ((tasks + documents) > 0 && !input.newOwnerId) return { blocked: true, impact: { tasks, documents } }
     await this.prisma.$transaction(async (tx) => {
       if (input.newOwnerId) {
         await tx.task.updateMany({ where: { assigneeId: targetId, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } }, data: { assigneeId: input.newOwnerId } })
         await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: input.newOwnerId } })
-        await tx.request.updateMany({ where: { currentApproverId: targetId, decisionStatus: 'PENDING' }, data: { currentApproverId: input.newOwnerId } })
       }
       await tx.user.update({ where: { id: targetId }, data: { status: 'DEACTIVATED', authorizationVersion: { increment: 1 } } })
       await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents, approvals }), correlationId: id('corr') } })
+      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents }), correlationId: id('corr') } })
     })
     return { deactivated: true }
   }

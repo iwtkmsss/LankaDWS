@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Bell,
   BookOpen,
-  BriefcaseBusiness,
   Building2,
   CalendarDays,
   ChartNoAxesColumnIncreasing,
@@ -37,7 +36,6 @@ const iconByPath: Record<string, typeof Gauge> = {
   '/overview': Gauge,
   '/tasks': CheckSquare2,
   '/messages': MessageCircle,
-  '/requests': BriefcaseBusiness,
   '/calendar': CalendarDays,
   '/documents': FileText,
   '/knowledge': BookOpen,
@@ -88,12 +86,6 @@ export function AppShell({ children }: PropsWithChildren) {
       title: 'Нова подія',
       description: 'Додати зустріч або робочу подію',
       icon: CalendarDays,
-    }] : []),
-    ...(can('requests.create') ? [{
-      path: '/requests/new?type=absence',
-      title: 'Нова заявка',
-      description: 'Подати заявку на відсутність',
-      icon: BriefcaseBusiness,
     }] : []),
     ...(can('groups.create') && canUseCapability(OrganizationCapability.GroupsUi) ? [{
       path: '/groups?new=1',
@@ -400,7 +392,6 @@ const paletteTypeLabels: Record<string, string> = {
   CREATE: 'Створити',
   QUICK: 'Швидкі переходи',
   TASK: 'Завдання',
-  REQUEST: 'Заявки',
   GROUP: 'Групи',
   CHAT: 'Чати',
   DOCUMENT: 'Файли',
@@ -483,7 +474,6 @@ function CommandPalette({
   function itemIcon(type: string, route: string) {
     const baseRoute = route.split('?')[0]
     if (type === 'TASK' || baseRoute.startsWith('/tasks')) return <CheckSquare2 size={18} />
-    if (type === 'REQUEST' || baseRoute.startsWith('/requests')) return <BriefcaseBusiness size={18} />
     if (type === 'GROUP' || baseRoute.startsWith('/groups')) return <Building2 size={18} />
     if (type === 'CHAT' || baseRoute.startsWith('/messages')) return <MessageCircle size={18} />
     if (type === 'DOCUMENT' || baseRoute === '/drive' || baseRoute.startsWith('/documents')) return <FileText size={18} />

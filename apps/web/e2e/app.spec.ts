@@ -10,7 +10,7 @@ async function login(page: Page, username = 'maria') {
   await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
 }
 
-test('employee feed, canonical navigation and absence wizard are accessible', async ({ page }, testInfo) => {
+test('employee feed and canonical navigation are accessible', async ({ page }, testInfo) => {
   await login(page)
   await expect(page.locator('.feed-card').getByText('Марія Іваненко').first()).toBeVisible()
   const eventSource = page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })
@@ -72,20 +72,14 @@ test('employee feed, canonical navigation and absence wizard are accessible', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-feed.png`, fullPage: true })
-  await page.goto('/requests/new?type=absence')
-  await expect(page.getByRole('heading', { name: 'Коли вас не буде?' })).toBeVisible()
-  await page.getByLabel('Перший день').fill('2027-03-15')
-  await page.getByLabel('Останній день').fill('2027-03-19')
-  await page.getByRole('button', { name: /Далі/ }).click()
-  await expect(page.getByRole('heading', { name: 'Хто підстрахує?' })).toBeVisible()
 })
 
-test('manager receives an approval queue and admin content does not flash for employee', async ({ page }) => {
+test('manager overview and admin access stay correctly scoped', async ({ page }) => {
   await login(page, 'andrii')
   await page.goto('/overview?company=cmp_bert_service')
   await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
   await expect(page).not.toHaveURL(/company=/)
-  await expect(page.getByText('Потребують рішення')).toBeVisible()
+  await expect(page.getByText('Потребують рішення')).toHaveCount(0)
   await page.goto('/admin/roles')
   await expect(page.getByRole('heading', { name: 'У вас немає доступу' })).toBeVisible()
   await expect(page.getByText('Ролі та права')).toHaveCount(0)

@@ -977,59 +977,10 @@ describe('BERT CRM API workflows', () => {
     await maria.agent.get('/api/v1/admin/import/readiness').expect(403);
   });
 
-  it('submits an absence idempotently, approves it once, and executes durable effects', async () => {
+  it('does not expose the removed requests API', async () => {
     const maria = await login('maria');
-    const key = `e2e-absence-${Date.now()}`;
-    const payload = {
-      companyId: 'cmp_bert_ua',
-      startDate: '2027-02-08',
-      endDate: '2027-02-12',
-      substituteId: 'usr_marko',
-      privateHrComment: 'Тільки для HR e2e',
-    };
-    const submitted = await maria.agent
-      .post('/api/v1/requests/absence')
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', key)
-      .send(payload)
-      .expect(201);
-    const repeated = await maria.agent
-      .post('/api/v1/requests/absence')
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', key)
-      .send(payload)
-      .expect(201);
-    expect(repeated.body.id).toBe(submitted.body.id);
-
-    const andrii = await login('andrii');
-    const approvalKey = `e2e-approval-${Date.now()}`;
-    const approved = await andrii.agent
-      .post(`/api/v1/requests/${submitted.body.id}/approve`)
-      .set('x-csrf-token', andrii.csrf)
-      .set('idempotency-key', approvalKey)
-      .send({ expectedVersion: 1 })
-      .expect(201);
-    expect(approved.body.decisionStatus).toBe('APPROVED');
-    const repeatedApproval = await andrii.agent
-      .post(`/api/v1/requests/${submitted.body.id}/approve`)
-      .set('x-csrf-token', andrii.csrf)
-      .set('idempotency-key', approvalKey)
-      .send({ expectedVersion: 1 })
-      .expect(201);
-    expect(repeatedApproval.body.decisionStatus).toBe('APPROVED');
-
-    const jobs = app.get(JobsService);
-    for (let index = 0; index < 20; index += 1) await jobs.runOnce();
-    const detail = await maria.agent
-      .get(`/api/v1/requests/${submitted.body.id}`)
-      .expect(200);
-    expect(detail.body.executionStatus).toBe('SUCCEEDED');
-    expect(detail.body.effects).toHaveLength(3);
-    expect(
-      detail.body.effects.every(
-        (effect: { state: string }) => effect.state === 'SUCCEEDED',
-      ),
-    ).toBe(true);
+    await maria.agent.get('/api/v1/requests').expect(404);
+    await maria.agent.post('/api/v1/requests/absence').set('x-csrf-token', maria.csrf).expect(404);
   });
 
   it('returns RFC 9457 problems without leaking details across scope', async () => {

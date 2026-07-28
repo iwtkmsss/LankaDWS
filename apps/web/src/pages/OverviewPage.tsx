@@ -4,8 +4,6 @@ import {
   ArrowRight,
   CalendarDays,
   CheckCircle2,
-  CircleAlert,
-  Clock3,
   Megaphone,
   Sparkles,
 } from 'lucide-react'
@@ -50,7 +48,7 @@ function LegacyOverviewPage() {
 
   return (
     <div className="overview-page">
-      <PageHeader title="Огляд" description="Ваші завдання, заявки й події на сьогодні" />
+      <PageHeader title="Огляд" description="Ваші завдання й події на сьогодні" />
       <section className={`focus-panel ${data.attentionCount ? 'focus-panel--attention' : 'focus-panel--clear'}`}>
         <div className="focus-panel__intro">
           <span className="eyebrow">
@@ -103,52 +101,6 @@ function LegacyOverviewPage() {
             </ul>
           ) : (
             <EmptyState title="Активних завдань немає" description="Нові завдання з’являться тут." />
-          )}
-        </Card>
-
-        {data.decisions.length > 0 && (
-          <Card className="dashboard-card">
-            <CardTitle
-              title="Потребують рішення"
-              href={scoped('/requests?tab=approval')}
-              linkLabel="Всі рішення"
-            />
-            <ul className="entity-list">
-              {data.decisions.map((request) => (
-                <li key={request.id}>
-                  <Link to={scoped(`/requests/${request.id}`)}>
-                    <CircleAlert size={18} />
-                    <span>
-                      <strong>{request.safeSummary}</strong>
-                      <small>{request.number} · SLA {request.slaDueAt ? formatDateTime(request.slaDueAt) : '—'}</small>
-                    </span>
-                    <StatusBadge status={request.decisionStatus} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        <Card className="dashboard-card">
-          <CardTitle title="Мої заявки" href={scoped('/requests')} linkLabel="Всі заявки" />
-          {data.requests.length ? (
-            <ul className="entity-list">
-              {data.requests.map((request) => (
-                <li key={request.id}>
-                  <Link to={scoped(`/requests/${request.id}`)}>
-                    <Clock3 size={18} />
-                    <span>
-                      <strong>{request.type}</strong>
-                      <small>{request.safeSummary}</small>
-                    </span>
-                    <StatusBadge status={request.decisionStatus} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState title="Заявок немає" description="Створіть відпустку або інший запит." />
           )}
         </Card>
 
@@ -219,15 +171,6 @@ function LegacyOverviewPage() {
 }
 
 function getPrimaryFocus(data: DashboardView, scoped: (path: string) => string): PrimaryFocus {
-  const decision = data.decisions[0]
-  if (decision) {
-    return {
-      title: decision.safeSummary,
-      detail: `${decision.number} · очікує вашого рішення`,
-      href: scoped(`/requests/${decision.id}`),
-      action: 'Переглянути рішення',
-    }
-  }
   const task = data.tasks[0]
   if (task) {
     return {
