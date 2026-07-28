@@ -7,6 +7,10 @@ import {
   organizationCapabilityCodeSchema,
   companyScopeSchema,
   chatThreadListQuerySchema,
+  chatMessagePageQuerySchema,
+  chatMessageSearchQuerySchema,
+  chatThreadPageSchema,
+  chatUserSearchQuerySchema,
   addChatParticipantSchema,
   convertChatMessageToEventSchema,
   convertChatMessageToTaskSchema,
@@ -229,12 +233,28 @@ describe('transport schemas', () => {
   it('keeps chat creation, collaboration, lifecycle, read and mute contracts explicit', () => {
     expect(chatThreadListQuerySchema.parse({
       company: 'cmp_bert',
-      query: '  дизайн  ',
       unread: 'true',
+      limit: '30',
     })).toEqual({
       company: 'cmp_bert',
-      query: 'дизайн',
       unread: true,
+      limit: 30,
+    })
+    expect(() => chatThreadListQuerySchema.parse({ limit: 51 })).toThrow()
+    expect(chatMessagePageQuerySchema.parse({ before: 'cursor', limit: '50' }))
+      .toEqual({ before: 'cursor', limit: 50 })
+    expect(() => chatMessagePageQuerySchema.parse({ before: 'a', after: 'b' })).toThrow()
+    expect(() => chatMessageSearchQuerySchema.parse({ q: 'x' })).toThrow()
+    expect(chatUserSearchQuerySchema.parse({ company: 'cmp_bert', q: 'ОЛЕНА' }))
+      .toEqual({ company: 'cmp_bert', q: 'ОЛЕНА', limit: 20 })
+    expect(chatThreadPageSchema.parse({
+      items: [],
+      counts: { all: 0, unread: 0 },
+      nextCursor: null,
+    })).toEqual({
+      items: [],
+      counts: { all: 0, unread: 0 },
+      nextCursor: null,
     })
     expect(createChatThreadSchema.parse({
       companyId: 'cmp_bert',

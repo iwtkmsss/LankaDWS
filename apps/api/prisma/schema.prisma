@@ -290,6 +290,7 @@ model User {
   workspaceId                  String
   primaryCompanyId             String
   displayName                  String
+  normalizedDisplayName        String
   username                     String
   normalizedUsername           String
   contactEmail                 String?
@@ -344,6 +345,8 @@ model User {
 
   @@unique([workspaceId, normalizedUsername])
   @@index([workspaceId, status])
+  @@index([workspaceId, status, normalizedUsername, id])
+  @@index([workspaceId, status, normalizedDisplayName, id])
   @@index([primaryCompanyId, status])
   @@index([approverId])
 }
@@ -372,6 +375,7 @@ model UserCompanyAccess {
 
   @@unique([userId, companyId])
   @@index([companyId, status])
+  @@index([companyId, status, userId])
 }
 
 model CompanyCapability {
@@ -1622,6 +1626,7 @@ model MessageThread {
 
   @@index([companyId, lastMessageAt])
   @@index([workspaceId, companyId, kind])
+  @@index([workspaceId, companyId, lastMessageAt, createdAt, id])
 }
 
 model ThreadParticipant {
@@ -1654,6 +1659,7 @@ model Message {
   thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([threadId, createdAt, id])
+  @@index([threadId, deletedAt, createdAt, id])
 }
 
 model Comment {

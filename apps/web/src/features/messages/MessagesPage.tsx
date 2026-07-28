@@ -1,0 +1,462 @@
+import { OrganizationCapability } from '@bert-crm/contracts'
+import type {
+  ChatAttachmentView,
+  ChatMessagePage,
+  ChatMessageView,
+} from '@bert-crm/contracts'
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+} from '@tanstack/react-query'
+import { MessageCircle } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { api, jsonBody } from '../../shared/api/client'
+import { useAuth } from '../../shared/auth/AuthProvider'
+import { EmptyState } from '../../shared/ui'
+import {
+  createThread,
+  getMessage,
+  getMessagePage,
+  getRecommendedChatUsers,
+  getThreadDetail,
+  getThreadPage,
+  searchChatUsers,
+  sendMessage,
+  uploadMessageAttachment,
+} from './api/messageApi'
+import { messageKeys } from './api/messageKeys'
+import { ConversationPane } from './components/ConversationPane'
+import { MessageConversionDrawer } from './components/MessageConversionDrawer'
+import { MessagesSidebar } from './components/MessagesSidebar'
+import { NewGroupDrawer } from './components/NewGroupDrawer'
+import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
+import { useMessageRealtime } from './hooks/useMessageRealtime'
+import {
+  addOptimisticMessage,
+  removeMessageCache,
+  upsertMessageCache,
+} from './lib/messageCache'
+import { normalizedCodePointLength } from './lib/messageText'
+import './messages.css'
+
+export function MessagesPage() {
+  const { threadId } = useParams()
+  const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
+  const client = useQueryClient()
+  const { user, can, canUseCapability } = useAuth()
+  const companyId = user?.organization.id ?? ''
+  const unreadOnly = params.get('unread') === 'true'
+  const groupOpen = params.get('new') === '1'
+  const [query, setQuery] = useState(params.get('q') ?? '')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [startingUserId, setStartingUserId] = useState<string | null>(null)
+  const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null)
+  const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
+  const [composerError, setComposerError] = useState('')
+  const [infoOpen, setInfoOpen] = useState(false)
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
+  const [conversion, setConversion] = useState<{
+    kind: 'task' | 'event'
+    message: ChatMessageView
+  } | null>(null)
+  const markedReadRef = useRef('')
+  const directAttemptRef = useRef({ userId: '', key: '' })
+  const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
+  const realtimeConnected = useMessageRealtime()
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200)
+    return () => window.clearTimeout(timer)
+  }, [query])
+  useEffect(() => {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      if (query) next.set('q', query)
+      else next.delete('q')
+      return next
+    }, { replace: true })
+  }, [query, setParams])
+
+  const threadPages = useInfiniteQuery({
+    queryKey: messageKeys.threads(companyId, unreadOnly),
+    queryFn: ({ pageParam, signal }) =>
+      getThreadPage(companyId, unreadOnly, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    enabled: Boolean(companyId),
+    refetchInterval: realtimeConnected ? false : 15_000,
+    refetchIntervalInBackground: false,
+  })
+  const threads = threadPages.data?.pages.flatMap((page) => page.items) ?? []
+  const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
+
+  const canWrite = can('messages.write')
+  const normalizedSearchLength = normalizedCodePointLength(debouncedQuery)
+  const users = useQuery({
+    queryKey: messageKeys.users(companyId, debouncedQuery),
+    queryFn: ({ signal }) => searchChatUsers(companyId, debouncedQuery, signal),
+    enabled: Boolean(companyId && canWrite && normalizedSearchLength >= 2),
+  })
+  const recommendations = useQuery({
+    queryKey: messageKeys.recommended(companyId),
+    queryFn: ({ signal }) => getRecommendedChatUsers(companyId, signal),
+    enabled: Boolean(companyId && canWrite && !query),
+    staleTime: 60_000,
+  })
+
+  const detail = useQuery({
+    queryKey: messageKeys.detail(threadId ?? ''),
+    queryFn: ({ signal }) => getThreadDetail(threadId!, signal),
+    enabled: Boolean(threadId),
+  })
+  const messagePages = useInfiniteQuery({
+    queryKey: messageKeys.pages(threadId ?? ''),
+    queryFn: ({ pageParam, signal }) =>
+      getMessagePage(threadId!, pageParam ? { before: pageParam } : {}, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.olderCursor ?? undefined,
+    enabled: Boolean(threadId),
+    refetchInterval: realtimeConnected ? false : 15_000,
+    refetchIntervalInBackground: false,
+  })
+  const messages = useMemo(
+    () => messagePages.data?.pages.slice().reverse().flatMap((page) => page.items) ?? [],
+    [messagePages.data],
+  )
+  const selectedPreview = threads.find((thread) => thread.id === threadId)
+
+  const direct = useMutation({
+    mutationFn: async (userId: string) => {
+      setStartingUserId(userId)
+      if (directAttemptRef.current.userId !== userId) {
+        directAttemptRef.current = {
+          userId,
+          key: `chat-direct:${crypto.randomUUID()}`,
+        }
+      }
+      return createThread({
+        companyId,
+        kind: 'DIRECT',
+        participantIds: [userId],
+      }, directAttemptRef.current.key)
+    },
+    onSuccess: (thread) => {
+      directAttemptRef.current = { userId: '', key: '' }
+      setStartingUserId(null)
+      setQuery('')
+      void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
+      navigate(`/messages/${thread.id}`)
+    },
+    onError: () => setStartingUserId(null),
+  })
+
+  const send = useMutation({
+    mutationFn: async (input: {
+      body: string
+      reply: ChatMessageView | null
+      attachments: ChatAttachmentView[]
+      signature: string
+      key: string
+      tempId: string
+    }) => {
+      const result = await sendMessage(threadId!, {
+        body: input.body,
+        replyToId: input.reply?.id ?? null,
+        attachmentIds: input.attachments.map((attachment) => attachment.id),
+      }, input.key)
+      return { ...result, tempId: input.tempId }
+    },
+    onSuccess: async (result) => {
+      const serverMessage = await getMessage(result.id)
+      upsertMessageCache(client, threadId!, serverMessage, result.tempId)
+      setReplyTo(null)
+      setAttachments([])
+      setComposerError('')
+      sendAttemptRef.current = { signature: '', key: '', tempId: '' }
+      await client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
+    },
+    onError: (_, input) => {
+      removeMessageCache(client, threadId!, input.tempId)
+      setComposerError('Не вдалося надіслати. Повторна спроба використає той самий безпечний ключ.')
+    },
+  })
+  const upload = useMutation({
+    mutationFn: async (files: File[]) => {
+      const results = await Promise.allSettled(
+        files.map((file) => uploadMessageAttachment(threadId!, file)),
+      )
+      return {
+        uploaded: results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+        failed: results.filter((result) => result.status === 'rejected').length,
+      }
+    },
+    onSuccess: ({ uploaded, failed }) => {
+      setAttachments((current) => [...current, ...uploaded].slice(0, 5))
+      setComposerError(failed ? `Не вдалося додати ${failed} файл(и). Перевірте формат і розмір.` : '')
+    },
+    onError: () => setComposerError('Не вдалося додати файл. Спробуйте ще раз.'),
+  })
+
+  const markRead = useMutation({
+    mutationFn: (messageId: string) => api(`/messages/threads/${threadId}/read`, {
+      method: 'POST',
+      body: jsonBody({ lastReadMessageId: messageId }),
+    }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
+      void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
+    },
+    onError: () => { markedReadRef.current = '' },
+  })
+  useEffect(() => {
+    const lastMessageId = detail.data?.lastMessageId
+    const marker = threadId && lastMessageId && !highlightedMessageId
+      ? `${threadId}:${lastMessageId}`
+      : ''
+    if (!marker || markedReadRef.current === marker) return
+    markedReadRef.current = marker
+    markRead.mutate(lastMessageId!)
+  }, [detail.data?.lastMessageId, highlightedMessageId, threadId])
+
+  useEffect(() => {
+    setReplyTo(null)
+    setAttachments([])
+    setComposerError('')
+    setHighlightedMessageId(null)
+    setInfoOpen(false)
+    setConversion(null)
+    sendAttemptRef.current = { signature: '', key: '', tempId: '' }
+  }, [threadId])
+
+  async function editMessage(message: ChatMessageView, body: string) {
+    await api(`/messages/${message.id}`, {
+      method: 'PATCH',
+      body: jsonBody({ body, expectedVersion: message.version }),
+    })
+    upsertMessageCache(client, threadId!, await getMessage(message.id))
+  }
+
+  async function deleteMessage(message: ChatMessageView) {
+    await api(`/messages/${message.id}`, {
+      method: 'DELETE',
+      body: jsonBody({ expectedVersion: message.version }),
+    })
+    upsertMessageCache(client, threadId!, await getMessage(message.id))
+  }
+
+  async function openSearchResult(messageId: string) {
+    const page = await getMessagePage(threadId!, { around: messageId })
+    client.setQueryData<InfiniteData<ChatMessagePage>>(messageKeys.pages(threadId!), {
+      pages: [page],
+      pageParams: [null],
+    })
+    setHighlightedMessageId(messageId)
+  }
+
+  async function returnToLatest() {
+    setHighlightedMessageId(null)
+    await client.resetQueries({ queryKey: messageKeys.pages(threadId!), exact: true })
+  }
+
+  async function submitMessage(body: string): Promise<boolean> {
+    if (!threadId || !user) return false
+    const signature = JSON.stringify({
+      threadId,
+      body,
+      replyToId: replyTo?.id ?? null,
+      attachmentIds: attachments.map((attachment) => attachment.id),
+    })
+    if (sendAttemptRef.current.signature !== signature) {
+      sendAttemptRef.current = {
+        signature,
+        key: `chat-message:${crypto.randomUUID()}`,
+        tempId: `optimistic:${crypto.randomUUID()}`,
+      }
+    }
+    const attempt = sendAttemptRef.current
+    const optimistic: ChatMessageView = {
+      id: attempt.tempId,
+      authorId: user.id,
+      body,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+      deletedAt: null,
+      version: 1,
+      replyToId: replyTo?.id ?? null,
+      replyPreview: replyTo ? {
+        id: replyTo.id,
+        authorName: replyTo.author.displayName,
+        body: replyTo.body.slice(0, 180),
+      } : null,
+      author: {
+        id: user.id,
+        displayName: user.displayName,
+        avatarAsset: user.avatarAsset,
+      },
+      attachments,
+      canEdit: true,
+      canDelete: true,
+    }
+    addOptimisticMessage(client, threadId, optimistic)
+    try {
+      await send.mutateAsync({
+        body,
+        reply: replyTo,
+        attachments,
+        ...attempt,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  function updateUnread(value: boolean) {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      if (value) next.set('unread', 'true')
+      else next.delete('unread')
+      return next
+    }, { replace: true })
+  }
+
+  function closeGroup() {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('new')
+      return next
+    }, { replace: true })
+  }
+
+  const canConvertToTask = can('tasks.create')
+  const canConvertToEvent = can('calendar.manage')
+    && canUseCapability(OrganizationCapability.CalendarWrite)
+
+  return (
+    <div className={`messages-workspace ${threadId ? 'has-thread' : ''}`}>
+      <MessagesSidebar
+        threads={threads}
+        counts={counts}
+        selectedThreadId={threadId}
+        unreadOnly={unreadOnly}
+        query={query}
+        debouncedQuery={debouncedQuery}
+        searchResults={users.data?.items ?? []}
+        recommendations={recommendations.data?.items ?? []}
+        loadingThreads={threadPages.isLoading}
+        threadError={threadPages.isError}
+        loadingSearch={users.isLoading}
+        loadingRecommendations={recommendations.isLoading}
+        startingUserId={startingUserId}
+        hasMoreThreads={Boolean(threadPages.hasNextPage)}
+        loadingMoreThreads={threadPages.isFetchingNextPage}
+        onQueryChange={setQuery}
+        onUnreadChange={updateUnread}
+        onSelectThread={(id) => navigate(`/messages/${id}?${params}`)}
+        onStartDirect={(id) => direct.mutate(id)}
+        onOpenGroup={() => {
+          setParams((current) => {
+            const next = new URLSearchParams(current)
+            next.set('new', '1')
+            return next
+          })
+        }}
+        onLoadMore={() => void threadPages.fetchNextPage()}
+        onRetryThreads={() => void threadPages.refetch()}
+      />
+
+      {threadId ? (
+        <ConversationPane
+          thread={detail.data}
+          preview={selectedPreview}
+          messages={messages}
+          currentUserId={user?.id ?? ''}
+          loading={detail.isLoading || messagePages.isLoading}
+          error={detail.isError || messagePages.isError}
+          highlightedMessageId={highlightedMessageId}
+          canLoadOlder={Boolean(messagePages.hasNextPage)}
+          loadingOlder={messagePages.isFetchingNextPage}
+          canConvertToTask={canConvertToTask}
+          canConvertToEvent={canConvertToEvent}
+          replyTo={replyTo}
+          attachments={attachments}
+          sending={send.isPending}
+          uploading={upload.isPending}
+          composerError={composerError}
+          onBack={() => navigate(`/messages?${params}`)}
+          onInfo={() => setInfoOpen(true)}
+          onToggleMute={() => {
+            if (!detail.data) return
+            void api(`/messages/threads/${threadId}/preferences`, {
+              method: 'PUT',
+              body: jsonBody({
+                notificationMode: detail.data.notificationMode === 'NONE' ? 'ALL' : 'NONE',
+                expectedVersion: detail.data.participantVersion,
+              }),
+            }).then(() => client.invalidateQueries({ queryKey: messageKeys.detail(threadId) }))
+          }}
+          onOpenSearchResult={(id) => void openSearchResult(id)}
+          onLatest={() => void returnToLatest()}
+          onLoadOlder={() => messagePages.fetchNextPage()}
+          onReply={(message) => setReplyTo(message)}
+          onReplyCancel={() => setReplyTo(null)}
+          onEdit={editMessage}
+          onDelete={deleteMessage}
+          onConvert={(kind, message) => setConversion({ kind, message })}
+          onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
+          onFiles={(files) => upload.mutate(files)}
+          onSend={submitMessage}
+          onRetry={() => {
+            void detail.refetch()
+            void messagePages.refetch()
+          }}
+        />
+      ) : (
+        <section className="messages-no-thread" aria-label="Діалог не вибрано">
+          <EmptyState
+            title="Оберіть діалог"
+            description="Знайдіть колегу, відкрийте наявну розмову або створіть робочу групу."
+            action={<MessageCircle size={18} aria-hidden="true" />}
+          />
+        </section>
+      )}
+
+      {groupOpen && companyId && (
+        <NewGroupDrawer
+          companyId={companyId}
+          onClose={closeGroup}
+          onCreated={(id) => {
+            closeGroup()
+            void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
+            navigate(`/messages/${id}`)
+          }}
+        />
+      )}
+      {infoOpen && detail.data && user && (
+        <ThreadInfoDrawer
+          thread={detail.data}
+          currentUserId={user.id}
+          onClose={() => setInfoOpen(false)}
+          onLeft={() => {
+            setInfoOpen(false)
+            navigate('/messages')
+          }}
+        />
+      )}
+      {conversion && detail.data && user && (
+        <MessageConversionDrawer
+          kind={conversion.kind}
+          message={conversion.message}
+          thread={detail.data}
+          currentUserId={user.id}
+          onClose={() => setConversion(null)}
+        />
+      )}
+    </div>
+  )
+}

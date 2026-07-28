@@ -1512,9 +1512,105 @@
         ]
       }
     },
+    "/api/v1/messages/threads/{id}/messages": {
+      "get": {
+        "operationId": "MessagesController_messagesPage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      },
+      "post": {
+        "operationId": "MessagesController_post",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/threads/{id}/messages/search": {
+      "get": {
+        "operationId": "MessagesController_searchMessages",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/threads/{id}/preview": {
+      "get": {
+        "operationId": "MessagesController_preview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
     "/api/v1/messages/threads/{id}/events": {
       "get": {
         "operationId": "MessagesController_events",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/events": {
+      "get": {
+        "operationId": "MessagesController_globalEvents",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/users/search": {
+      "get": {
+        "operationId": "MessagesController_searchUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/users/recommended": {
+      "get": {
+        "operationId": "MessagesController_recommendedUsers",
         "parameters": [],
         "responses": {
           "200": {
@@ -1627,21 +1723,19 @@
         ]
       }
     },
-    "/api/v1/messages/threads/{id}/messages": {
-      "post": {
-        "operationId": "MessagesController_post",
+    "/api/v1/messages/{id}": {
+      "get": {
+        "operationId": "MessagesController_message",
         "parameters": [],
         "responses": {
-          "201": {
+          "200": {
             "description": ""
           }
         },
         "tags": [
           "Messages"
         ]
-      }
-    },
-    "/api/v1/messages/{id}": {
+      },
       "patch": {
         "operationId": "MessagesController_editMessage",
         "parameters": [],

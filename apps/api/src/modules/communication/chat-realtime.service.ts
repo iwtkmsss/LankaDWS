@@ -1,11 +1,13 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
 import { Observable, Subject } from 'rxjs'
+import type { ChatRealtimeEvent } from '@bert-crm/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
 export class ChatRealtimeService {
-  private readonly streams = new Map<string, Subject<MessageEvent>>()
+  private readonly threadStreams = new Map<string, Subject<MessageEvent>>()
+  private readonly userStreams = new Map<string, Subject<MessageEvent>>()
   private sequence = 0
 
   constructor(private readonly prisma: PrismaService) {}
@@ -46,7 +48,7 @@ export class ChatRealtimeService {
   }
 
   stream(principal: AuthPrincipal, threadId: string): Observable<MessageEvent> {
-    const source = this.subject(threadId)
+    const source = this.threadSubject(threadId)
     return new Observable<MessageEvent>((subscriber) => {
       let closed = false
       let queue = Promise.resolve()
@@ -80,31 +82,107 @@ export class ChatRealtimeService {
         closed = true
         clearInterval(heartbeat)
         subscription.unsubscribe()
-        if (!source.observed) this.streams.delete(threadId)
+        if (!source.observed) this.threadStreams.delete(threadId)
       }
     })
   }
 
-  publish(threadId: string, eventType: string): void {
-    const stream = this.streams.get(threadId)
-    if (!stream) return
+  userStream(principal: AuthPrincipal): Observable<MessageEvent> {
+    const source = this.userSubject(principal.userId)
+    return new Observable<MessageEvent>((subscriber) => {
+      subscriber.next({
+        type: 'ready',
+        retry: 3_000,
+        data: { connectedAt: new Date().toISOString() },
+      })
+      const subscription = source.subscribe(subscriber)
+      const heartbeat = setInterval(() => subscriber.next({
+        type: 'ping',
+        data: { occurredAt: new Date().toISOString() },
+      }), 15_000)
+      heartbeat.unref()
+      return () => {
+        clearInterval(heartbeat)
+        subscription.unsubscribe()
+        if (!source.observed) this.userStreams.delete(principal.userId)
+      }
+    })
+  }
+
+  async publish(
+    threadId: string,
+    eventType: ChatRealtimeEvent['eventType'],
+    messageId: string | null = null,
+  ): Promise<void> {
     this.sequence += 1
-    stream.next({
+    const event: MessageEvent = {
       id: `${Date.now()}-${this.sequence}`,
       type: 'chat',
       data: {
         threadId,
         eventType,
+        messageId,
         occurredAt: new Date().toISOString(),
       },
+    }
+    this.threadStreams.get(threadId)?.next(event)
+
+    const thread = await this.prisma.messageThread.findUnique({
+      where: { id: threadId },
+      select: {
+        companyId: true,
+        entityType: true,
+        entityId: true,
+        participants: {
+          where: { leftAt: null },
+          select: { userId: true },
+        },
+      },
     })
+    if (!thread?.companyId) return
+    const activeUsers = await this.prisma.user.findMany({
+      where: {
+        id: { in: thread.participants.map((participant) => participant.userId) },
+        status: 'ACTIVE',
+        companyAccess: {
+          some: {
+            companyId: thread.companyId,
+            status: 'ACTIVE',
+          },
+        },
+      },
+      select: { id: true },
+    })
+    let recipientIds = activeUsers.map((user) => user.id)
+    if (thread.entityType === 'GROUP') {
+      if (!thread.entityId) return
+      const memberships = await this.prisma.groupMember.findMany({
+        where: {
+          groupId: thread.entityId,
+          userId: { in: recipientIds },
+          leftAt: null,
+          group: { companyId: thread.companyId, status: 'ACTIVE' },
+        },
+        select: { userId: true },
+      })
+      recipientIds = memberships.map((membership) => membership.userId)
+    }
+    for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
   }
 
-  private subject(threadId: string): Subject<MessageEvent> {
-    const existing = this.streams.get(threadId)
+  private threadSubject(threadId: string): Subject<MessageEvent> {
+    const existing = this.threadStreams.get(threadId)
     if (existing) return existing
     const created = new Subject<MessageEvent>()
-    this.streams.set(threadId, created)
+    this.threadStreams.set(threadId, created)
+    return created
+  }
+
+  private userSubject(userId: string): Subject<MessageEvent> {
+    const existing = this.userStreams.get(userId)
+    if (existing) return existing
+    const created = new Subject<MessageEvent>()
+    this.userStreams.set(userId, created)
     return created
   }
 }

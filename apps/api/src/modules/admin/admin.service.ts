@@ -9,6 +9,7 @@ import {
 import { hashPassword, id, randomTemporaryPassword } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
+import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { AuthService } from '../auth/auth.service.js'
@@ -62,7 +63,8 @@ export class AdminService {
     const secretHash = await hashPassword(temporaryPassword)
     const expiresAt = new Date(Date.now() + getConfig().TEMPORARY_PASSWORD_HOURS * 3_600_000)
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company.id, displayName: input.displayName.trim(), username, normalizedUsername: username, contactEmail: input.contactEmail?.trim() || null, jobTitle: input.jobTitle?.trim() ?? '', displayRole: role.name, approverId: input.approverId, status: 'PENDING_FIRST_LOGIN', mustChangePassword: true, mustEnroll2FA: role.isFullAdmin } })
+      const displayName = input.displayName.trim()
+      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company.id, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, contactEmail: input.contactEmail?.trim() || null, jobTitle: input.jobTitle?.trim() ?? '', displayRole: role.name, approverId: input.approverId, status: 'PENDING_FIRST_LOGIN', mustChangePassword: true, mustEnroll2FA: role.isFullAdmin } })
       await tx.usernameReservation.create({ data: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' } })
       await tx.userCompanyAccess.create({ data: { id: id('uca'), userId, companyId: company.id, grantedBy: principal.userId } })
       await tx.userRole.create({ data: { id: id('ur'), userId, roleId: role.id, grantedBy: principal.userId } })

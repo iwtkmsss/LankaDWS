@@ -9,10 +9,47 @@ export type ChatNotificationMode = z.infer<typeof chatNotificationModeSchema>
 
 export const chatThreadListQuerySchema = z.object({
   company: companyScopeSchema.optional(),
-  query: z.string().trim().max(100).optional(),
   unread: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  cursor: z.string().trim().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
 })
 export type ChatThreadListQuery = z.infer<typeof chatThreadListQuerySchema>
+
+export const chatMessagePageQuerySchema = z.object({
+  before: z.string().trim().min(1).max(512).optional(),
+  after: z.string().trim().min(1).max(512).optional(),
+  around: z.string().trim().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+}).superRefine((value, context) => {
+  const modes = [value.before, value.after, value.around].filter(Boolean)
+  if (modes.length > 1) {
+    context.addIssue({
+      code: 'custom',
+      message: 'Only one of before, after or around may be provided.',
+    })
+  }
+})
+export type ChatMessagePageQuery = z.infer<typeof chatMessagePageQuerySchema>
+
+export const chatMessageSearchQuerySchema = z.object({
+  q: z.string().trim().min(2).max(100),
+  cursor: z.string().trim().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+export type ChatMessageSearchQuery = z.infer<typeof chatMessageSearchQuerySchema>
+
+export const chatUserSearchQuerySchema = z.object({
+  company: z.string().trim().min(1).max(120),
+  q: z.string().max(100),
+  limit: z.coerce.number().int().min(1).max(30).default(20),
+})
+export type ChatUserSearchQuery = z.infer<typeof chatUserSearchQuerySchema>
+
+export const recommendedChatUsersQuerySchema = z.object({
+  company: z.string().trim().min(1).max(120),
+  limit: z.coerce.number().int().min(1).max(12).default(6),
+})
+export type RecommendedChatUsersQuery = z.infer<typeof recommendedChatUsersQuerySchema>
 
 export const createChatThreadSchema = z.object({
   companyId: z.string().trim().min(1).max(120),
@@ -131,72 +168,156 @@ export const removeChatParticipantSchema = z.object({
 })
 export type RemoveChatParticipantInput = z.infer<typeof removeChatParticipantSchema>
 
-export interface ChatParticipantView {
-  id: string
-  displayName: string
-  avatarAsset: string | null
-  role: 'OWNER' | 'MEMBER'
-  version: number
-}
+export const chatContactUserSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  username: z.string(),
+  jobTitle: z.string(),
+  avatarAsset: z.string().nullable(),
+})
+export type ChatContactUser = z.infer<typeof chatContactUserSchema>
 
-export interface ChatAttachmentView {
-  id: string
-  fileName: string
-  bytes: number
-  mimeType: string | null
-  scanStatus: 'QUARANTINED' | 'SCANNING' | 'CLEAN' | 'INFECTED' | 'UNSUPPORTED' | 'FAILED'
-}
+export const chatUserSearchPageSchema = z.object({
+  items: z.array(chatContactUserSchema),
+})
+export type ChatUserSearchPage = z.infer<typeof chatUserSearchPageSchema>
 
-export interface ChatThreadListItem {
-  id: string
-  companyId: string
-  title: string
-  kind: ChatThreadKind
-  avatarAsset: string | null
-  participantCount: number
-  lastMessageAt: string | null
-  lastMessage: string
-  lastMessageId: string | null
-  unread: boolean
-  notificationMode: ChatNotificationMode
-}
+export const recommendedChatReasonSchema = z.enum(['RECENT', 'FREQUENT', 'SHARED_CONTEXT', 'TEAM'])
+export type RecommendedChatReason = z.infer<typeof recommendedChatReasonSchema>
 
-export interface ChatMessageView {
-  id: string
-  authorId: string
-  body: string
-  createdAt: string
-  editedAt: string | null
-  deletedAt: string | null
-  version: number
-  replyToId: string | null
-  replyPreview: {
-    id: string
-    authorName: string
-    body: string
-  } | null
-  author: {
-    id: string
-    displayName: string
-    avatarAsset: string | null
-  }
-  attachments: ChatAttachmentView[]
-  canEdit: boolean
-  canDelete: boolean
-}
+export const recommendedChatUserSchema = chatContactUserSchema.extend({
+  reason: recommendedChatReasonSchema,
+})
+export type RecommendedChatUser = z.infer<typeof recommendedChatUserSchema>
 
-export interface ChatThreadDetail {
-  id: string
-  companyId: string
-  title: string
-  kind: ChatThreadKind
-  version: number
-  notificationMode: ChatNotificationMode
-  participantVersion: number
-  participants: ChatParticipantView[]
-  messages: ChatMessageView[]
-  lastMessageId: string | null
-  canPost: boolean
-  canManageParticipants: boolean
-  canLeave: boolean
-}
+export const recommendedChatUsersPageSchema = z.object({
+  items: z.array(recommendedChatUserSchema),
+})
+export type RecommendedChatUsersPage = z.infer<typeof recommendedChatUsersPageSchema>
+
+export const chatParticipantViewSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  username: z.string(),
+  jobTitle: z.string(),
+  avatarAsset: z.string().nullable(),
+  role: z.enum(['OWNER', 'MEMBER']),
+  version: z.number().int().positive(),
+})
+export type ChatParticipantView = z.infer<typeof chatParticipantViewSchema>
+
+export const chatAttachmentViewSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  bytes: z.number().int().nonnegative(),
+  mimeType: z.string().nullable(),
+  scanStatus: z.enum(['QUARANTINED', 'SCANNING', 'CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED']),
+})
+export type ChatAttachmentView = z.infer<typeof chatAttachmentViewSchema>
+
+export const chatThreadListItemSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  title: z.string(),
+  kind: chatThreadKindSchema,
+  avatarAsset: z.string().nullable(),
+  previewParticipants: z.array(chatContactUserSchema).max(3),
+  participantCount: z.number().int().nonnegative(),
+  lastMessageAt: z.string().datetime().nullable(),
+  lastMessage: z.string(),
+  lastMessageId: z.string().nullable(),
+  unread: z.boolean(),
+  unreadCount: z.number().int().nonnegative(),
+  notificationMode: chatNotificationModeSchema,
+})
+export type ChatThreadListItem = z.infer<typeof chatThreadListItemSchema>
+
+export const chatThreadCountsSchema = z.object({
+  all: z.number().int().nonnegative(),
+  unread: z.number().int().nonnegative(),
+})
+export type ChatThreadCounts = z.infer<typeof chatThreadCountsSchema>
+
+export const chatThreadPageSchema = z.object({
+  items: z.array(chatThreadListItemSchema),
+  counts: chatThreadCountsSchema,
+  nextCursor: z.string().nullable(),
+})
+export type ChatThreadPage = z.infer<typeof chatThreadPageSchema>
+
+export const chatThreadPreviewSchema = z.object({
+  item: chatThreadListItemSchema,
+  counts: chatThreadCountsSchema,
+})
+export type ChatThreadPreview = z.infer<typeof chatThreadPreviewSchema>
+
+export const chatMessageViewSchema = z.object({
+  id: z.string(),
+  authorId: z.string(),
+  body: z.string(),
+  createdAt: z.string().datetime(),
+  editedAt: z.string().datetime().nullable(),
+  deletedAt: z.string().datetime().nullable(),
+  version: z.number().int().positive(),
+  replyToId: z.string().nullable(),
+  replyPreview: z.object({
+    id: z.string(),
+    authorName: z.string(),
+    body: z.string(),
+  }).nullable(),
+  author: chatContactUserSchema.pick({
+    id: true,
+    displayName: true,
+    avatarAsset: true,
+  }),
+  attachments: z.array(chatAttachmentViewSchema),
+  canEdit: z.boolean(),
+  canDelete: z.boolean(),
+})
+export type ChatMessageView = z.infer<typeof chatMessageViewSchema>
+
+export const chatMessagePageSchema = z.object({
+  items: z.array(chatMessageViewSchema),
+  olderCursor: z.string().nullable(),
+  newerCursor: z.string().nullable(),
+})
+export type ChatMessagePage = z.infer<typeof chatMessagePageSchema>
+
+export const chatMessageSearchPageSchema = z.object({
+  items: z.array(chatMessageViewSchema),
+  total: z.number().int().nonnegative(),
+  nextCursor: z.string().nullable(),
+})
+export type ChatMessageSearchPage = z.infer<typeof chatMessageSearchPageSchema>
+
+export const chatThreadDetailSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  title: z.string(),
+  kind: chatThreadKindSchema,
+  version: z.number().int().positive(),
+  notificationMode: chatNotificationModeSchema,
+  participantVersion: z.number().int().positive(),
+  participants: z.array(chatParticipantViewSchema),
+  lastMessageId: z.string().nullable(),
+  lastReadMessageId: z.string().nullable(),
+  canPost: z.boolean(),
+  canManageParticipants: z.boolean(),
+  canLeave: z.boolean(),
+})
+export type ChatThreadDetail = z.infer<typeof chatThreadDetailSchema>
+
+export const chatRealtimeEventSchema = z.object({
+  threadId: z.string(),
+  eventType: z.enum([
+    'message.created',
+    'message.edited',
+    'message.deleted',
+    'thread.updated',
+    'thread.read',
+    'participant.updated',
+  ]),
+  messageId: z.string().nullable(),
+  occurredAt: z.string().datetime(),
+})
+export type ChatRealtimeEvent = z.infer<typeof chatRealtimeEventSchema>

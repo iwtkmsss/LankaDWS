@@ -1,13 +1,14 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import request from 'supertest';
-import type { ChatThreadDetail, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
+import type { ChatMessagePage, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
 import { hashPassword } from '../../src/common/crypto.js';
+import { normalizeUserSearchValue } from '../../src/common/user-search.js';
 import { configureApp } from '../../src/bootstrap.js';
 import { FeedProjectionService } from '../../src/modules/feed/feed-projection.service.js';
 import { JobsService } from '../../src/modules/jobs/jobs.service.js';
@@ -68,6 +69,12 @@ beforeAll(async () => {
   if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'EntityLink_event_message_scope_guard_insert'").get()) {
     migrationDb.exec(readFileSync(resolve('prisma/migrations/20260725090000_chat_message_conversions/migration.sql'), 'utf8'));
   }
+  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('User') WHERE name = 'normalizedDisplayName'").get()) {
+    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260728160000_messages_workspace/migration.sql'), 'utf8'));
+  }
+  const userRows = migrationDb.prepare('SELECT id, displayName FROM User').all() as Array<{ id: string; displayName: string }>;
+  const updateNormalizedDisplayName = migrationDb.prepare('UPDATE User SET normalizedDisplayName = ? WHERE id = ?');
+  for (const row of userRows) updateNormalizedDisplayName.run(normalizeUserSearchValue(row.displayName), row.id);
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = true, enabledAt = CURRENT_TIMESTAMP, disabledAt = NULL WHERE companyId = ? AND code = 'CALENDAR_WRITE'").run('cmp_bert_ua');
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'FEED'").run('cmp_bert_ua');
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'GROUPS_UI'").run('cmp_bert_ua');
@@ -1525,12 +1532,111 @@ describe('BERT CRM API workflows', () => {
     });
   });
 
+  it('searches only active scoped users with Unicode-insensitive deterministic ranking', async () => {
+    const maria = await login('maria');
+    const prisma = app.get(PrismaService);
+    const uppercase = await maria.agent
+      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('ОЛЕНА')}`)
+      .expect(200);
+    const uppercaseBody = uppercase.body as ChatUserSearchPage;
+    expect(uppercaseBody.items[0]).toMatchObject({
+      id: 'usr_olena',
+      username: 'olena',
+    });
+    expect(typeof uppercaseBody.items[0]?.displayName).toBe('string');
+    expect(typeof uppercaseBody.items[0]?.jobTitle).toBe('string');
+    expect(typeof uppercaseBody.items[0]?.avatarAsset).toBe('string');
+    expect(Object.keys(uppercaseBody.items[0] ?? {}).sort()).toEqual([
+      'avatarAsset',
+      'displayName',
+      'id',
+      'jobTitle',
+      'username',
+    ]);
+    const mixedCase = await maria.agent
+      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('дМиТрО')}`)
+      .expect(200);
+    expect(mixedCase.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'usr_dmytro', username: 'dmytro' }),
+    ]));
+    expect(mixedCase.body.items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'usr_maria' }),
+    ]));
+    await maria.agent
+      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=я')
+      .expect(400);
+    const unrelated = await maria.agent
+      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=zznotuser')
+      .expect(200);
+    expect(unrelated.body.items).toEqual([]);
+    const threadTitleOnly = await maria.agent
+      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=dashboard')
+      .expect(200);
+    expect(threadTitleOnly.body.items).toEqual([]);
+
+    const recommendationQuerySpies = [
+      vi.spyOn(prisma.messageThread, 'findMany'),
+      vi.spyOn(prisma.groupMember, 'findMany'),
+      vi.spyOn(prisma.task, 'findMany'),
+      vi.spyOn(prisma.userOrgAssignment, 'findMany'),
+      vi.spyOn(prisma.user, 'findMany'),
+    ];
+    const recommended = await maria.agent
+      .get('/api/v1/messages/users/recommended?company=cmp_bert_ua&limit=6')
+      .expect(200);
+    const recommendationQueryCount = recommendationQuerySpies.reduce(
+      (total, spy) => total + spy.mock.calls.length,
+      0,
+    );
+    for (const spy of recommendationQuerySpies) spy.mockRestore();
+    expect(recommendationQueryCount).toBeLessThanOrEqual(8);
+    expect(recommended.body.items.every((item: { id: string }) => item.id !== 'usr_maria')).toBe(true);
+    expect(new Set(recommended.body.items.map((item: { id: string }) => item.id)).size)
+      .toBe(recommended.body.items.length);
+    expect(recommended.body.items.every((item: { reason: string }) =>
+      ['RECENT', 'FREQUENT', 'SHARED_CONTEXT', 'TEAM'].includes(item.reason),
+    )).toBe(true);
+  });
+
   it('keeps direct chat creation, search, reply, read and mute state exact and access-safe', async () => {
     const maria = await login('maria');
     const andrii = await login('andrii');
     const dmytro = await login('dmytro');
     const prisma = app.get(PrismaService);
     const suffix = Date.now();
+    const threadCursorTimestamp = new Date('2034-07-28T12:00:00.000Z');
+    const threadCursorIds = [`thr_cursor_${suffix}_a`, `thr_cursor_${suffix}_b`];
+    await prisma.messageThread.createMany({
+      data: threadCursorIds.map((id) => ({
+        id,
+        workspaceId: 'ws_bert',
+        companyId: 'cmp_bert_ua',
+        kind: 'GROUP',
+        title: id,
+        createdById: 'usr_maria',
+        createdAt: threadCursorTimestamp,
+        lastMessageAt: threadCursorTimestamp,
+      })),
+    });
+    await prisma.threadParticipant.createMany({
+      data: threadCursorIds.map((threadId) => ({
+        id: `tpart_${threadId}`,
+        threadId,
+        userId: 'usr_maria',
+        role: 'OWNER',
+      })),
+    });
+    const firstThreadCursorPage = await maria.agent
+      .get('/api/v1/messages/threads?company=cmp_bert_ua&limit=1')
+      .expect(200);
+    expect(firstThreadCursorPage.body.items.map((item: { id: string }) => item.id))
+      .toEqual([threadCursorIds[1]]);
+    expect(firstThreadCursorPage.body.nextCursor).toEqual(expect.any(String));
+    const secondThreadCursorPage = await maria.agent
+      .get(`/api/v1/messages/threads?company=cmp_bert_ua&limit=1&cursor=${encodeURIComponent(firstThreadCursorPage.body.nextCursor as string)}`)
+      .expect(200);
+    expect(secondThreadCursorPage.body.items.map((item: { id: string }) => item.id))
+      .toEqual([threadCursorIds[0]]);
     const createKey = `chat-direct-${suffix}`;
     const created = await maria.agent
       .post('/api/v1/messages/threads')
@@ -1576,6 +1682,29 @@ describe('BERT CRM API workflows', () => {
       })
       .expect(201);
     expect(canonical.body).toMatchObject({ id: threadId, created: false });
+
+    const concurrentDirect = await Promise.all(
+      ['a', 'b'].map((attempt) => maria.agent
+        .post('/api/v1/messages/threads')
+        .set('x-csrf-token', maria.csrf)
+        .set('idempotency-key', `chat-direct-race-${suffix}-${attempt}`)
+        .send({
+          companyId: 'cmp_bert_ua',
+          kind: 'DIRECT',
+          participantIds: ['usr_dmytro'],
+        })
+        .expect(201)),
+    );
+    expect(concurrentDirect[0].body.id).toBe(concurrentDirect[1].body.id);
+    expect(await prisma.messageThread.count({
+      where: {
+        id: concurrentDirect[0].body.id as string,
+        kind: 'DIRECT',
+        participants: {
+          every: { userId: { in: ['usr_maria', 'usr_dmytro'] } },
+        },
+      },
+    })).toBe(1);
     await dmytro.agent.get(`/api/v1/messages/threads/${threadId}`).expect(404);
 
     const root = await maria.agent
@@ -1616,18 +1745,55 @@ describe('BERT CRM API workflows', () => {
       .expect(200);
     expect((unread.body as { items: Array<{ id: string; unread: boolean }> }).items)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: threadId, unread: true })]));
-    const searched = await andrii.agent
-      .get(`/api/v1/messages/threads?company=cmp_bert_ua&query=${encodeURIComponent('остаточний текст')}`)
+    const searchedUsers = await andrii.agent
+      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('остаточний текст')}`)
       .expect(200);
-    expect((searched.body as { items: Array<{ id: string }> }).items)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ id: threadId })]));
+    expect((searchedUsers.body as { items: Array<{ id: string }> }).items).toEqual([]);
+
+    const cursorTimestamp = new Date('2035-07-28T12:00:00.000Z');
+    const cursorIds = [`msg_cursor_${suffix}_a`, `msg_cursor_${suffix}_b`];
+    await prisma.message.createMany({
+      data: cursorIds.map((id, index) => ({
+        id,
+        threadId,
+        authorId: 'usr_andrii',
+        body: `Cursor message ${index}`,
+        createdAt: cursorTimestamp,
+      })),
+    });
+    const firstCursorPage = await andrii.agent
+      .get(`/api/v1/messages/threads/${threadId}/messages?limit=1`)
+      .expect(200);
+    expect((firstCursorPage.body as ChatMessagePage).items.map((item) => item.id))
+      .toEqual([cursorIds[1]]);
+    expect((firstCursorPage.body as ChatMessagePage).olderCursor).toEqual(expect.any(String));
+    const secondCursorPage = await andrii.agent
+      .get(`/api/v1/messages/threads/${threadId}/messages?limit=1&before=${encodeURIComponent(firstCursorPage.body.olderCursor as string)}`)
+      .expect(200);
+    expect((secondCursorPage.body as ChatMessagePage).items.map((item) => item.id))
+      .toEqual([cursorIds[0]]);
+
+    const messageSearch = await andrii.agent
+      .get(`/api/v1/messages/threads/${threadId}/messages/search?q=${encodeURIComponent('явним контекстом')}&limit=20`)
+      .expect(200);
+    expect(messageSearch.body).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: replyId })],
+    });
+    const anchored = await andrii.agent
+      .get(`/api/v1/messages/threads/${threadId}/messages?around=${replyId}&limit=10`)
+      .expect(200);
+    expect((anchored.body as ChatMessagePage).items.map((item) => item.id)).toContain(replyId);
 
     const detail = await andrii.agent
       .get(`/api/v1/messages/threads/${threadId}`)
       .expect(200);
+    const messagePage = await andrii.agent
+      .get(`/api/v1/messages/threads/${threadId}/messages?limit=50`)
+      .expect(200);
     const detailBody = detail.body as ChatThreadDetail;
     expect(detailBody.title).toBe('Марія Іваненко');
-    expect(detailBody.messages.at(-1)).toMatchObject({
+    expect((messagePage.body as ChatMessagePage).items.find((item) => item.id === replyId)).toMatchObject({
       id: replyId,
       replyToId: rootId,
       replyPreview: { id: rootId },
@@ -1830,9 +1996,9 @@ describe('BERT CRM API workflows', () => {
       .expect(201);
     const messageId = (posted.body as { id: string }).id;
     const withAttachment = await andrii.agent
-      .get(`/api/v1/messages/threads/${threadId}`)
+      .get(`/api/v1/messages/threads/${threadId}/messages?limit=50`)
       .expect(200);
-    const message = (withAttachment.body as ChatThreadDetail).messages.find(
+    const message = (withAttachment.body as ChatMessagePage).items.find(
       (item) => item.id === messageId,
     );
     expect(message).toMatchObject({
@@ -1879,9 +2045,9 @@ describe('BERT CRM API workflows', () => {
       .send({ expectedVersion: 2 })
       .expect(200);
     const afterDelete = await andrii.agent
-      .get(`/api/v1/messages/threads/${threadId}`)
+      .get(`/api/v1/messages/threads/${threadId}/messages?limit=50`)
       .expect(200);
-    expect((afterDelete.body as ChatThreadDetail).messages.find((item) => item.id === messageId))
+    expect((afterDelete.body as ChatMessagePage).items.find((item) => item.id === messageId))
       .toMatchObject({
         body: '',
         version: 3,
