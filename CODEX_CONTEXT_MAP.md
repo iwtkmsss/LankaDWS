@@ -25,27 +25,30 @@ The palette debounces queries of at least two characters and routes safe results
 
 Keep permission/capability gates and reuse the destination form.
 
-## Chat search
+## Messages and user search
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/pages/CommunicationPages.tsx` (`/messages?q=`) |
-| API request | `GET /api/v1/messages/threads?query=<query>` |
+| Frontend entry | `apps/web/src/features/messages/MessagesPage.tsx` (`/messages`, `/messages/:threadId`, `/messages?q=`) |
+| API request | `GET /api/v1/messages/users/search?q=<query>`; `GET /api/v1/messages/threads?cursor=&limit=`; `GET /api/v1/messages/threads/:id/messages?before\|after\|around=` |
 | Controller / service | `communication/messages.controller.ts` / `messages.service.ts` |
-| Contract / model | `packages/contracts/src/chat.ts`; `MessageThread`, `Message` |
-| Focused test | `apps/web/e2e/app.spec.ts` chat-search scenario |
+| Contract / model | `packages/contracts/src/chat.ts`; `User`, `MessageThread`, `Message` |
+| Realtime | User-scoped `GET /api/v1/messages/events`; point reads update message and thread-preview caches |
+| Focused test | `apps/web/e2e/messages.spec.ts`; feature RTL tests under `apps/web/src/features/messages` |
 
-The server matches thread title, message body, participant display name, and username subject to scope.
+The sidebar search is user-only and uses normalized Unicode display names/usernames. Thread titles
+and message bodies do not participate. Conversation history is cursor-paginated separately from
+metadata; in-thread search can open an anchored `around` window.
 
 ## Direct thread creation
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/pages/CommunicationPages.tsx` |
+| Frontend entry | `apps/web/src/features/messages/MessagesPage.tsx` |
 | API request | `POST /api/v1/messages/threads` with `idempotency-key` |
 | Controller / service | `communication/messages.controller.ts` / `messages.service.ts` |
 | Contract / model | `packages/contracts/src/chat.ts`; `MessageThread`, `Message` |
-| Focused test | `apps/web/e2e/app.spec.ts` direct-creation scenario |
+| Focused test | `apps/web/e2e/messages.spec.ts` direct/group creation scenarios |
 
 Direct threads are canonical: reuse the returned thread and navigate to `/messages/:threadId`; never create a duplicate conversation.
 

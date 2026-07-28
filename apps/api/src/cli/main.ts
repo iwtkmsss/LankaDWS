@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { allPermissionCodes } from '@bert-crm/contracts'
 import { AppModule } from '../app.module.js'
 import { hashPassword, id, randomTemporaryPassword, verifyPassword } from '../common/crypto.js'
+import { normalizeUserSearchValue } from '../common/user-search.js'
 import { getConfig } from '../config/config.js'
 import { PrismaClient } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -323,7 +324,7 @@ export async function createAdmin(prisma: PrismaService): Promise<void> {
     for (const code of allPermissionCodes) await tx.permission.upsert({ where: { code }, create: { code, domain: code.split('.')[0] ?? 'system', risk: code.includes('reset') || code.includes('security') ? 'HIGH' : 'NORMAL', description: code }, update: {} })
     await tx.role.create({ data: { id: roleId, workspaceId, name: 'Адміністратор', normalizedName: 'адміністратор', isSystem: true, isFullAdmin: true } })
     await tx.rolePermission.createMany({ data: allPermissionCodes.map((code) => ({ id: id('rp'), roleId, permissionCode: code, scope: 'ALL_COMPANIES' })) })
-    await tx.user.create({ data: { id: userId, workspaceId, primaryCompanyId: companyId, displayName, username, normalizedUsername: username, displayRole: 'Адміністратор', status: 'ACTIVE', mustChangePassword: false, mustEnroll2FA: true, timezone } })
+    await tx.user.create({ data: { id: userId, workspaceId, primaryCompanyId: companyId, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, displayRole: 'Адміністратор', status: 'ACTIVE', mustChangePassword: false, mustEnroll2FA: true, timezone } })
     await tx.usernameReservation.create({ data: { id: id('unr'), workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' } })
     await tx.userCompanyAccess.create({ data: { id: id('uca'), userId, companyId, grantedBy: userId } })
     await tx.userRole.create({ data: { id: id('ur'), userId, roleId, grantedBy: userId } })

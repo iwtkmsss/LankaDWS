@@ -3,6 +3,7 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { PrismaClient } from '../src/generated/prisma/client.js'
 import { allOrganizationCapabilityCodes, allPermissionCodes, Permission } from '@bert-crm/contracts'
 import { hashPassword } from '../src/common/crypto.js'
+import { normalizeUserSearchValue } from '../src/common/user-search.js'
 import { getConfig } from '../src/config/config.js'
 
 if (process.env.NODE_ENV === 'production') throw new Error('Demo seed is disabled in production')
@@ -47,7 +48,7 @@ async function seed(): Promise<void> {
 
   const passwordHash = await hashPassword(password)
   for (const user of users) {
-    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, displayName: user.displayName, username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, displayRole: user.role.name, status: 'ACTIVE', mustChangePassword: false, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, displayName: user.displayName, avatarAsset: user.avatar, status: 'ACTIVE' } })
+    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, displayRole: user.role.name, status: 'ACTIVE', mustChangePassword: false, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), avatarAsset: user.avatar, status: 'ACTIVE' } })
     await prisma.usernameReservation.upsert({ where: { workspaceId_normalizedUsername: { workspaceId: 'ws_bert', normalizedUsername: user.username } }, create: { id: `unr_${user.username}`, workspaceId: 'ws_bert', normalizedUsername: user.username, currentUserId: user.id, state: 'ACTIVE' }, update: {} })
     await prisma.userCompanyAccess.upsert({ where: { userId_companyId: { userId: user.id, companyId: 'cmp_bert_ua' } }, create: { id: `uca_${user.username}_cmp_bert_ua`, userId: user.id, companyId: 'cmp_bert_ua', grantedBy: 'usr_dmytro' }, update: { status: 'ACTIVE' } })
     await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: user.role.id } }, create: { id: `ur_${user.username}`, userId: user.id, roleId: user.role.id, grantedBy: 'usr_dmytro' }, update: {} })

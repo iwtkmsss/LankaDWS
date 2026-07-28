@@ -3,7 +3,10 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   addChatParticipantSchema,
+  chatMessagePageQuerySchema,
+  chatMessageSearchQuerySchema,
   chatThreadListQuerySchema,
+  chatUserSearchQuerySchema,
   convertChatMessageToEventSchema,
   convertChatMessageToTaskSchema,
   createChatThreadSchema,
@@ -12,6 +15,7 @@ import {
   markChatReadSchema,
   Permission,
   removeChatParticipantSchema,
+  recommendedChatUsersQuerySchema,
   sendChatMessageSchema,
   updateChatParticipantSchema,
   updateChatPreferenceSchema,
@@ -69,11 +73,65 @@ export class MessagesController {
   @Get('threads/:id')
   detail(@Req() request: BertRequest, @Param('id') id: string) { return this.messages.detail(principalFrom(request), id) }
 
+  @Get('threads/:id/messages')
+  messagesPage(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = chatMessagePageQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_message_query_invalid')
+    return this.messages.messagesPage(principalFrom(request), id, parsed.data)
+  }
+
+  @Get('threads/:id/messages/search')
+  searchMessages(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = chatMessageSearchQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_message_search_invalid')
+    return this.messages.searchMessages(principalFrom(request), id, parsed.data)
+  }
+
+  @Get('threads/:id/preview')
+  preview(@Req() request: BertRequest, @Param('id') id: string) {
+    return this.messages.preview(principalFrom(request), id)
+  }
+
   @Sse('threads/:id/events')
   async events(@Req() request: BertRequest, @Param('id') id: string) {
     const principal = principalFrom(request)
     if (!await this.realtime.canAccess(principal, id)) throw notFound()
     return this.realtime.stream(principal, id)
+  }
+
+  @Sse('events')
+  globalEvents(@Req() request: BertRequest) {
+    return this.realtime.userStream(principalFrom(request))
+  }
+
+  @Get('users/search')
+  @RequirePermissions(Permission.MessagesWrite)
+  searchUsers(
+    @Req() request: BertRequest,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = chatUserSearchQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_user_search_invalid')
+    return this.messages.searchUsers(principalFrom(request), parsed.data)
+  }
+
+  @Get('users/recommended')
+  @RequirePermissions(Permission.MessagesWrite)
+  recommendedUsers(
+    @Req() request: BertRequest,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = recommendedChatUsersQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_recommendations_query_invalid')
+    return this.messages.recommendedUsers(principalFrom(request), parsed.data)
   }
 
   @Post('threads/:id/attachments')
@@ -171,6 +229,11 @@ export class MessagesController {
     if (!parsed.success) throw badRequest('chat_message_invalid')
     if (!key) throw badRequest('idempotency_key_required')
     return this.messages.post(principalFrom(request), id, parsed.data, key)
+  }
+
+  @Get(':id')
+  message(@Req() request: BertRequest, @Param('id') id: string) {
+    return this.messages.message(principalFrom(request), id)
   }
 
   @Patch(':id')

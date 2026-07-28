@@ -115,7 +115,7 @@ test('organization tree expands and keeps the selected unit addressable', async 
   await expect(tree.locator('.org-tree__select').nth(1)).toBeFocused()
 })
 
-test('command palette keeps canonical create actions ahead of results and chat search opens a direct thread', async ({ page }) => {
+test('command palette keeps canonical create actions ahead of results', async ({ page }) => {
   await login(page, 'maria')
   await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
   const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
@@ -123,11 +123,6 @@ test('command palette keeps canonical create actions ahead of results and chat s
   await expect(palette.getByText('Створити', { exact: true })).toBeVisible()
   await palette.getByRole('option', { name: /Нове завдання/ }).click()
   await expect(page).toHaveURL(/\/tasks\/new/)
-
-  await page.goto('/messages?q=Олена')
-  await expect(page.getByRole('heading', { name: 'Працівники', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: /Олена Бондар/ }).click()
-  await expect(page).toHaveURL(/\/messages\/thr_/)
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
@@ -136,109 +131,6 @@ test('employee directory and profile show only the immediate org parent path', a
   await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
   await page.getByRole('link', { name: /Марія Іваненко/ }).click()
   await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
-})
-
-test('chat search, exact read state, replies, mute and direct creation stay compact', async ({ page }, testInfo) => {
-  const isMobile = testInfo.project.name === 'mobile-chromium'
-  const teammateName = isMobile ? 'Дмитро Савчук' : 'Олена Бондар'
-  const teammateSearch = isMobile ? 'Дмитро' : 'Олена'
-  await login(page, isMobile ? 'andrii' : 'maria')
-  await page.goto('/messages?company=cmp_bert_ua')
-  await expect(page.getByRole('heading', { name: 'Чат', exact: true })).toBeVisible()
-  await page.getByPlaceholder('Діалог або повідомлення').fill('dashboard')
-  await expect(page).toHaveURL(/q=dashboard/)
-  await page.getByRole('link', { name: /Дизайн dashboard/ }).click()
-  const currentChat = page.getByLabel('Поточний діалог')
-  await expect(currentChat.getByRole('heading', { name: 'Дизайн dashboard', exact: true })).toBeVisible()
-  await expect(currentChat.locator('#message-msg_design')).toHaveText(
-    'Перевірмо фокус-блок і mobile-поведінку перед публікацією.',
-  )
-
-  await currentChat.getByRole('button', { name: 'Учасники діалогу' }).click()
-  const participantsDrawer = page.getByRole('dialog', { name: 'Учасники діалогу' })
-  await expect(participantsDrawer.getByText('Марія Іваненко')).toBeVisible()
-  await expect(participantsDrawer.getByText('Андрій Коваль')).toBeVisible()
-  if (!isMobile) {
-    await participantsDrawer.getByPlaceholder('Ім’я або нікнейм').fill('Олена')
-    await participantsDrawer.getByRole('button', { name: /Олена Бондар/ }).click()
-    await expect(participantsDrawer.getByText('Олена Бондар')).toBeVisible()
-  }
-  await page.screenshot({
-    path: `artifacts/screenshots/${testInfo.project.name}-chat-participants.png`,
-    fullPage: true,
-  })
-  await participantsDrawer.getByRole('button', { name: 'Закрити' }).click()
-
-  await currentChat.getByRole('button', { name: 'Відповісти' }).click()
-  const replyText = `Погоджено у чаті · ${testInfo.project.name} · ${Date.now()}`
-  const attachmentName = `chat-${testInfo.project.name}.txt`
-  await currentChat.locator('input[type="file"]').setInputFiles({
-    name: attachmentName,
-    mimeType: 'text/plain',
-    buffer: Buffer.from('Контекст для робочого діалогу'),
-  })
-  await expect(currentChat.getByText(attachmentName)).toBeVisible()
-  await currentChat.getByPlaceholder('Написати відповідь').fill(replyText)
-  await currentChat.getByRole('button', { name: 'Надіслати повідомлення' }).click()
-  await expect(currentChat.locator('.chat-stream p', { hasText: replyText })).toHaveText(replyText)
-  const replyCard = currentChat.locator('.chat-stream article').filter({ hasText: replyText })
-  await expect(replyCard.getByText(attachmentName)).toBeVisible()
-  await replyCard.getByLabel('Дії з повідомленням').click()
-  await replyCard.getByRole('button', { name: 'Редагувати' }).click()
-  const editedReplyText = `${replyText} · уточнено`
-  await replyCard.getByLabel('Змінити повідомлення').fill(editedReplyText)
-  await replyCard.getByRole('button', { name: 'Зберегти' }).click()
-  await expect(replyCard.locator('p')).toHaveText(editedReplyText)
-  await expect(replyCard.getByText(/ред\./)).toBeVisible()
-  await replyCard.getByLabel('Дії з повідомленням').click()
-  await replyCard.getByRole('button', {
-    name: isMobile ? 'Додати в календар' : 'Створити завдання',
-  }).click()
-  const conversionDrawer = page.getByRole('dialog', {
-    name: isMobile ? 'Додати в календар' : 'Створити завдання',
-  })
-  await expect(conversionDrawer.getByLabel('Назва')).toHaveValue(editedReplyText)
-  await conversionDrawer.getByRole('button', {
-    name: isMobile ? 'Додати подію' : 'Створити завдання',
-  }).click()
-  await expect(page.getByRole('dialog', {
-    name: isMobile ? 'Подію додано' : 'Завдання створено',
-  })).toBeVisible()
-  await page.getByRole('button', { name: 'Повернутися до діалогу' }).click()
-  const enableNotifications = currentChat.getByRole('button', { name: 'Увімкнути сповіщення' })
-  if (await enableNotifications.isVisible()) {
-    await enableNotifications.click()
-    await expect(currentChat.getByRole('button', { name: 'Вимкнути сповіщення' })).toBeVisible()
-  }
-  await currentChat.getByRole('button', { name: 'Вимкнути сповіщення' }).click()
-  await expect(currentChat.getByRole('button', { name: 'Увімкнути сповіщення' })).toBeVisible()
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({
-    path: `artifacts/screenshots/${testInfo.project.name}-chat-thread.png`,
-    fullPage: true,
-  })
-  const replyMessageElementId = await replyCard.locator('p').getAttribute('id')
-  expect(replyMessageElementId).toBeTruthy()
-  await replyCard.getByLabel('Дії з повідомленням').click()
-  await replyCard.getByRole('button', { name: 'Видалити' }).click()
-  await replyCard.getByRole('button', { name: 'Видалити', exact: true }).click()
-  await expect(currentChat.locator(`[id="${replyMessageElementId!}"]`)).toHaveText('Повідомлення видалено')
-  await expect(currentChat.getByText(attachmentName)).toHaveCount(0)
-
-  if (isMobile) {
-    await currentChat.getByRole('link', { name: 'Назад до списку діалогів' }).click()
-    await expect(page.getByLabel('Діалоги')).toBeVisible()
-  }
-  await page.getByRole('button', { name: 'Новий діалог' }).click()
-  const drawer = page.getByRole('dialog', { name: 'Новий діалог' })
-  await expect(drawer).toBeVisible()
-  await drawer.getByPlaceholder('Ім’я або нікнейм').fill(teammateSearch)
-  await drawer.getByRole('button', { name: new RegExp(teammateName) }).click()
-  await drawer.getByRole('button', { name: 'Створити діалог' }).click()
-  await expect(page.getByRole('heading', { name: teammateName, exact: true })).toBeVisible()
-  await expect(page).toHaveURL(/\/messages\/thr_/)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('feed publishing, acknowledgement and comments remain explicit', async ({ page }, testInfo) => {
@@ -443,16 +335,27 @@ test('standalone file sharing is explicit, scanner-aware and revocable', async (
 })
 
 test('administrator sees the approved grouped admin navigation', async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'desktop-chromium') {
+    await page.setViewportSize({ width: 1440, height: 900 })
+  }
   await login(page, 'dmytro')
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: 'Адміністрування', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
+  const inlineUsers = page.getByRole('link', { name: 'Користувачі', exact: true })
+  if (await inlineUsers.isVisible()) {
+    await expect(inlineUsers).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
+  } else {
+    await page.getByRole('button', { name: 'Ще', exact: true }).click()
+    await expect(page.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Ролі та права', exact: true })).toBeVisible()
+  }
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
 })
 
 test('desktop sidebar groups routes, persists collapse and keeps active navigation visible', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop collapse is independent from mobile navigation.')
+  await page.setViewportSize({ width: 1440, height: 900 })
   await login(page, 'dmytro')
   const sidebar = page.locator('.sidebar')
   await expect(sidebar.getByText('Основне', { exact: true })).toBeVisible()

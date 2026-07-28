@@ -16,6 +16,7 @@ import type { FeedListQuery, FeedListResult } from '@bert-crm/contracts'
 import Database from 'better-sqlite3'
 import { PrismaClient } from '../src/generated/prisma/client.js'
 import type { AuthPrincipal } from '../src/common/request-context.js'
+import { normalizeUserSearchValue } from '../src/common/user-search.js'
 import type { PrismaService } from '../src/prisma/prisma.service.js'
 import { CapabilitiesService } from '../src/modules/authorization/capabilities.service.js'
 import { ScopeService } from '../src/modules/authorization/scope.service.js'
@@ -185,8 +186,8 @@ function seedDatabase(database: RehearsalDatabase, profile: Profile): SeedEviden
   const insertUser = database.prepare(`
     INSERT INTO User (
       id, workspaceId, primaryCompanyId, displayName, username,
-      normalizedUsername, displayRole, status, mustChangePassword, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', false, ?)
+      normalizedUsername, normalizedDisplayName, displayRole, status, mustChangePassword, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', false, ?)
   `)
   const insertCompanyAccess = database.prepare(
     'INSERT INTO UserCompanyAccess (id, userId, companyId, status) VALUES (?, ?, ?, \'ACTIVE\')',
@@ -341,13 +342,15 @@ function seedDatabase(database: RehearsalDatabase, profile: Profile): SeedEviden
     for (let index = 0; index < profile.users; index += 1) {
       const id = userId(index)
       const username = `synthetic.user.${pad(index, 4)}`
+      const displayName = `Synthetic User ${pad(index, 4)}`
       insertUser.run(
         id,
         workspaceId,
         companyId,
-        `Synthetic User ${pad(index, 4)}`,
+        displayName,
         username,
         username,
+        normalizeUserSearchValue(displayName),
         index === 0 ? 'Employee' : 'Synthetic peer',
         now,
       )

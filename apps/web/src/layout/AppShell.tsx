@@ -137,6 +137,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const mobileNavRoutes = nav
     .filter((route) => route.mobileOrder !== undefined)
     .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
+  const isMessagesRoute = location.pathname === '/messages'
+    || location.pathname.startsWith('/messages/')
+  const isMessageThreadRoute = location.pathname.startsWith('/messages/')
   const quickCreateActions: QuickCreateAction[] = [
     ...(can('tasks.create') ? [{
       path: '/tasks/new',
@@ -290,14 +293,19 @@ export function AppShell({ children }: PropsWithChildren) {
   ) {
     if (items.length === 0) return null
     return (
-      <div className={`nav-section nav-section--${className}`}>
+      <div key={className} className={`nav-section nav-section--${className}`}>
         <span className="nav-section__label">{label}</span>
         {items.map((route) => renderNavRoute(route, menuItems))}
       </div>
     )
   }
   return (
-    <div className={`app-frame ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={[
+      'app-frame',
+      sidebarCollapsed ? 'sidebar-collapsed' : '',
+      isMessagesRoute ? 'app-frame--messages' : '',
+      isMessageThreadRoute ? 'app-frame--messages-thread' : '',
+    ].filter(Boolean).join(' ')}>
       <a className="skip-link" href="#main-content">
         Перейти до вмісту
       </a>
@@ -410,7 +418,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <span>Пошук у BERT CRM</span>
             <kbd>Ctrl K</kbd>
           </button>
-          {quickCreateActions.length > 0 && (
+          {!isMessagesRoute && quickCreateActions.length > 0 && (
             <div className="quick-create">
               <button
                 className="quick-create__trigger"
@@ -464,7 +472,7 @@ export function AppShell({ children }: PropsWithChildren) {
             </IconButton>
           </div>
         </header>
-        <main id="main-content" className="main-content">
+        <main id="main-content" className={`main-content ${isMessagesRoute ? 'main-content--messages' : ''}`}>
           {children}
         </main>
       </div>

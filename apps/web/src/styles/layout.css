@@ -60,6 +60,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; background: var(--surfa
 .topbar__actions .icon-button i { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border: 1px solid #fff; border-radius: 50%; background: var(--cobalt-600); }
 .topbar-badge { position: absolute; top: 1px; right: 0; display: grid; min-width: 17px; height: 17px; place-items: center; border: 2px solid #fff; border-radius: 999px; background: var(--cobalt-600); color: #fff; padding: 0 3px; font-size: 8px; font-weight: 850; line-height: 1; }
 .main-content { width: min(1460px, 100%); margin: 0 auto; padding: 25px clamp(18px, 3vw, 40px) 80px; }
+.main-content--messages { width: 100%; height: calc(100dvh - var(--topbar)); overflow: hidden; padding: 10px; }
 .bottom-nav { display: none; }
 .nav-scrim { display: none; }
 .palette__body { overflow: hidden; padding: 0; }
@@ -125,6 +126,8 @@ kbd { border: 1px solid var(--line); border-radius: 5px; background: var(--surfa
   .quick-create__trigger span, .quick-create__trigger > svg:last-child { display: none; }
   .quick-create__menu { position: fixed; top: calc(var(--topbar) + 7px); right: 8px; left: 8px; width: auto; max-height: calc(100dvh - var(--topbar) - 90px); }
   .main-content { padding: 18px 12px 82px; }
+  .main-content--messages { height: calc(100dvh - var(--topbar)); padding: 0; }
+  .app-frame--messages-thread .bottom-nav { display: none; }
   .bottom-nav { position: fixed; z-index: 40; right: 8px; bottom: 8px; left: 8px; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .95); padding: 5px; box-shadow: 0 8px 30px rgba(13, 22, 45, .16); backdrop-filter: blur(12px); }
   .bottom-nav a, .bottom-nav button { position: relative; display: grid; min-width: 0; place-items: center; gap: 2px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-400); padding: 5px 1px; font-size: 9px; }
   .bottom-nav a.active { background: var(--cobalt-50); color: var(--cobalt-700); }

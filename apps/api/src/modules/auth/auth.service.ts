@@ -5,6 +5,7 @@ import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@bert-
 import { decryptSecret, encryptSecret, fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
+import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
@@ -158,7 +159,14 @@ export class AuthService {
 
   async updateProfile(principal: AuthPrincipal, input: { displayName: string; jobTitle: string; contactEmail: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
     try { Intl.DateTimeFormat('uk-UA', { timeZone: input.timezone }).format(new Date()) } catch { throw badRequest('timezone_invalid') }
-    const user = await this.prisma.user.update({ where: { id: principal.userId }, data: input, select: { displayName: true, jobTitle: true, contactEmail: true, timezone: true, locale: true } })
+    const user = await this.prisma.user.update({
+      where: { id: principal.userId },
+      data: {
+        ...input,
+        normalizedDisplayName: normalizeUserSearchValue(input.displayName),
+      },
+      select: { displayName: true, jobTitle: true, contactEmail: true, timezone: true, locale: true },
+    })
     await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'profile.updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     return user
   }
