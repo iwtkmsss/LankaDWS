@@ -39,7 +39,7 @@ import type { FileObject, Message, MessageThread, Prisma, ThreadParticipant, Use
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
-import { TasksService } from '../tasks/tasks.service.js'
+import { TaskCommandService } from '../tasks/task-command.service.js'
 import { scoreChatRecommendation, type ChatRecommendationSignals } from './chat-recommendations.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import {
@@ -63,7 +63,7 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly scope: ScopeService,
     private readonly files: FilesService,
-    private readonly tasks: TasksService,
+    private readonly taskCommands: TaskCommandService,
     private readonly realtime: ChatRealtimeService,
   ) {}
 
@@ -735,14 +735,14 @@ export class MessagesService {
           archivedAt: null,
           status: { notIn: ['DONE', 'CANCELLED', 'ARCHIVED'] },
           OR: [
-            { creatorId: principal.userId },
-            { assigneeId: principal.userId },
+            { createdById: principal.userId },
+            { reporterId: principal.userId },
             { participants: { some: { userId: principal.userId, removedAt: null } } },
           ],
         },
         select: {
-          creatorId: true,
-          assigneeId: true,
+          createdById: true,
+          reporterId: true,
           participants: {
             where: { removedAt: null },
             select: { userId: true },
@@ -810,8 +810,8 @@ export class MessagesService {
     for (const peer of orgPeers) ensure(peer.userId).sharedOrgUnit = true
     for (const task of relatedTasks) {
       for (const userId of [
-        task.creatorId,
-        task.assigneeId,
+        task.createdById,
+        task.reporterId,
         ...task.participants.map((participant) => participant.userId),
       ]) {
         if (userId !== principal.userId) ensure(userId).activeTaskRelationship = true
@@ -1614,16 +1614,46 @@ export class MessagesService {
       },
     })
     if (!message?.thread.companyId) throw notFound()
-    return this.tasks.create(
+    const task = await this.taskCommands.create(
       principal,
       {
-        ...input,
-        companyId: message.thread.companyId,
+        title: input.title,
         description: message.body,
-        related: { type: 'MESSAGE', id: message.id },
+        reporterId: principal.userId,
+        priority: 'MEDIUM',
+        dueAt: input.deadline,
+        participants: [{ userId: input.assigneeId, role: 'RESPONSIBLE' }],
+        checklistItems: [],
+        tagIds: [],
+        relations: [],
+        reminders: [],
+        recurrence: null,
+        attachmentIds: [],
       },
       idempotencyKey,
     )
+    await this.prisma.entityLink.upsert({
+      where: {
+        sourceType_sourceId_targetType_targetId_relation: {
+          sourceType: 'MESSAGE',
+          sourceId: message.id,
+          targetType: 'TASK',
+          targetId: task.id,
+          relation: 'RELATED',
+        },
+      },
+      create: {
+        id: id('lnk'),
+        sourceType: 'MESSAGE',
+        sourceId: message.id,
+        targetType: 'TASK',
+        targetId: task.id,
+        relation: 'RELATED',
+        createdBy: principal.userId,
+      },
+      update: {},
+    })
+    return task
   }
 
   private async readableThread(

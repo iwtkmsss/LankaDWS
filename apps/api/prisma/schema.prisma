@@ -43,18 +43,42 @@ enum Priority {
   LOW
   MEDIUM
   HIGH
-  CRITICAL
+  URGENT
 }
 
 enum TaskParticipantRole {
-  CO_EXECUTOR
-  OBSERVER
+  RESPONSIBLE
+  COLLABORATOR
+  WATCHER
 }
 
 enum TaskReminderStatus {
   ACTIVE
   SENT
   CANCELLED
+}
+
+enum TaskRelationType {
+  RELATED
+  BLOCKS
+  DUPLICATES
+}
+
+enum TaskReminderTriggerType {
+  AT
+  BEFORE_START
+  BEFORE_DUE
+}
+
+enum TaskReminderChannel {
+  IN_APP
+}
+
+enum TaskRecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
 }
 
 enum ExecutionStatus {
@@ -238,6 +262,8 @@ model Workspace {
   users                 User[]
   roles                 Role[]
   groups                Group[]
+  projects              Project[]
+  tags                  Tag[]
   orgUnits              OrgUnit[]
   feedPosts             FeedPost[]
   feedItems             FeedItem[]
@@ -271,6 +297,8 @@ model Company {
   userAccess            UserCompanyAccess[]
   capabilities          CompanyCapability[]
   groups                Group[]
+  projects              Project[]
+  tags                  Tag[]
   orgUnits              OrgUnit[]
   orgAssignments        UserOrgAssignment[]
   feedPosts             FeedPost[]
@@ -339,6 +367,10 @@ model User {
   activatedMigrations          MigrationActivation[]          @relation("MigrationActivator")
   taskParticipations           TaskParticipant[]              @relation("TaskParticipantUser")
   taskParticipantsAdded        TaskParticipant[]              @relation("TaskParticipantAdder")
+  tasksCreated                 Task[]                         @relation("TaskCreatedBy")
+  tasksReported                Task[]                         @relation("TaskReporter")
+  taskRelationsCreated         TaskRelation[]                 @relation("TaskRelationCreator")
+  taskTimeEntries              TimeEntry[]
   taskFollowers                TaskFollower[]
   taskStates                   TaskUserState[]
   taskReminders                TaskReminder[]
@@ -1188,40 +1220,56 @@ model ReauthChallenge {
 }
 
 model Task {
-  id            String              @id
-  workspaceId   String
-  companyId     String
-  groupId       String?
-  parentTaskId  String?
-  number        String              @unique
-  title         String
-  description   String              @default("")
-  creatorId     String
-  assigneeId    String
-  status        TaskStatus          @default(NEW)
-  priority      Priority            @default(MEDIUM)
-  deadline      DateTime?
-  blockReason   String?
-  completedAt   DateTime?
-  version       Int                 @default(1)
-  recurrenceKey String?             @unique
-  archivedAt    DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  checklist     TaskChecklistItem[]
-  group         Group?              @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  parent        Task?               @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: Restrict)
-  subtasks      Task[]              @relation("TaskHierarchy")
-  participants  TaskParticipant[]
-  followers     TaskFollower[]
-  userStates    TaskUserState[]
-  reminders     TaskReminder[]
+  id                     String              @id
+  workspaceId            String
+  companyId              String
+  groupId                String?
+  projectId              String?
+  parentTaskId           String?
+  number                 String              @unique
+  title                  String
+  description            String              @default("")
+  createdById            String
+  reporterId             String
+  status                 TaskStatus          @default(NEW)
+  priority               Priority            @default(MEDIUM)
+  startsAt               DateTime?
+  dueAt                  DateTime?
+  estimatedMinutes       Int?
+  blockReason            String?
+  completedAt            DateTime?
+  version                Int                 @default(1)
+  recurrenceId           String?
+  recurrenceOccurrenceAt DateTime?
+  archivedAt             DateTime?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  checklist              TaskChecklistItem[]
+  group                  Group?              @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  project                Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parent                 Task?               @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: Restrict)
+  subtasks               Task[]              @relation("TaskHierarchy")
+  createdBy              User                @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  reporter               User                @relation("TaskReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  participants           TaskParticipant[]
+  followers              TaskFollower[]
+  userStates             TaskUserState[]
+  reminders              TaskReminder[]
+  tags                   TaskTag[]
+  outgoingRelations      TaskRelation[]      @relation("TaskRelationSource")
+  incomingRelations      TaskRelation[]      @relation("TaskRelationTarget")
+  recurrence             TaskRecurrence?     @relation("TaskOccurrences", fields: [recurrenceId], references: [id], onDelete: SetNull)
+  recurrenceTemplate     TaskRecurrence?     @relation("TaskRecurrenceTemplate")
+  timeEntries            TimeEntry[]
 
-  @@index([companyId, status, deadline, id])
-  @@index([groupId, status, deadline, id])
-  @@index([parentTaskId, status, deadline, id])
-  @@index([assigneeId, status, deadline])
-  @@index([creatorId, updatedAt])
+  @@unique([recurrenceId, recurrenceOccurrenceAt])
+  @@index([companyId, status, dueAt, id])
+  @@index([groupId, status, dueAt, id])
+  @@index([projectId, status, dueAt, id])
+  @@index([parentTaskId, status, dueAt, id])
+  @@index([reporterId, status, dueAt])
+  @@index([createdById, updatedAt])
+  @@index([recurrenceId, recurrenceOccurrenceAt])
 }
 
 model TaskParticipant {
@@ -1229,13 +1277,15 @@ model TaskParticipant {
   taskId    String
   userId    String
   role      TaskParticipantRole
-  addedById String
-  addedAt   DateTime            @default(now())
+  addedById String?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
   removedAt DateTime?
   task      Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user      User                @relation("TaskParticipantUser", fields: [userId], references: [id], onDelete: Restrict)
-  addedBy   User                @relation("TaskParticipantAdder", fields: [addedById], references: [id], onDelete: Restrict)
+  addedBy   User?               @relation("TaskParticipantAdder", fields: [addedById], references: [id], onDelete: SetNull)
 
+  @@unique([taskId, userId])
   @@index([taskId, role, removedAt, userId])
   @@index([userId, role, removedAt, taskId])
 }
@@ -1271,32 +1321,138 @@ model TaskUserState {
 }
 
 model TaskReminder {
-  id        String             @id
-  taskId    String
-  userId    String
-  remindAt  DateTime
-  status    TaskReminderStatus @default(ACTIVE)
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
-  task      Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String                  @id
+  taskId        String
+  userId        String?
+  triggerType   TaskReminderTriggerType
+  remindAt      DateTime?
+  offsetMinutes Int?
+  channel       TaskReminderChannel     @default(IN_APP)
+  status        TaskReminderStatus      @default(ACTIVE)
+  sentAt        DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  task          Task                    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user          User?                   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, remindAt])
-  @@index([taskId, userId, status, remindAt])
+  @@index([taskId, status, remindAt])
 }
 
 model TaskChecklistItem {
   id            String    @id
   taskId        String
+  title         String
+  isCompleted   Boolean   @default(false)
   position      Int
-  text          String
-  isDone        Boolean   @default(false)
   completedById String?
   completedAt   DateTime?
   version       Int       @default(1)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, position])
+}
+
+model Project {
+  id             String       @id
+  workspaceId    String
+  companyId      String
+  name           String
+  normalizedName String
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  tasks          Task[]
+
+  @@unique([companyId, normalizedName])
+  @@index([workspaceId, companyId, status, name])
+}
+
+model Tag {
+  id             String    @id
+  workspaceId    String
+  companyId      String
+  name           String
+  normalizedName String
+  color          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  tasks          TaskTag[]
+
+  @@unique([companyId, normalizedName])
+  @@index([workspaceId, companyId, name])
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, tagId])
+  @@index([tagId, taskId])
+}
+
+model TaskRelation {
+  id           String           @id
+  sourceTaskId String
+  targetTaskId String
+  type         TaskRelationType
+  createdById  String
+  createdAt    DateTime         @default(now())
+  sourceTask   Task             @relation("TaskRelationSource", fields: [sourceTaskId], references: [id], onDelete: Cascade)
+  targetTask   Task             @relation("TaskRelationTarget", fields: [targetTaskId], references: [id], onDelete: Cascade)
+  createdBy    User             @relation("TaskRelationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@unique([sourceTaskId, targetTaskId])
+  @@index([targetTaskId, type, sourceTaskId])
+}
+
+model TaskRecurrence {
+  id                   String                  @id
+  templateTaskId       String                  @unique
+  frequency            TaskRecurrenceFrequency
+  interval             Int
+  daysOfWeekJson       String?
+  dayOfMonth           Int?
+  startsAt             DateTime
+  endsAt               DateTime?
+  maxOccurrences       Int?
+  generatedOccurrences Int                     @default(1)
+  nextRunAt            DateTime?
+  timezone             String
+  isActive             Boolean                 @default(true)
+  version              Int                     @default(1)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  templateTask         Task                    @relation("TaskRecurrenceTemplate", fields: [templateTaskId], references: [id], onDelete: Cascade)
+  occurrences          Task[]                  @relation("TaskOccurrences")
+
+  @@index([isActive, nextRunAt, id])
+}
+
+model TimeEntry {
+  id              String    @id
+  taskId          String
+  userId          String
+  startedAt       DateTime
+  endedAt         DateTime?
+  durationSeconds Int?
+  description     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  task            Task      @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, startedAt, id])
+  @@index([userId, endedAt, startedAt])
 }
 
 model EntityLink {
@@ -1314,35 +1470,35 @@ model EntityLink {
 }
 
 model Event {
-  id              String   @id
-  workspaceId     String
-  companyId       String
-  ownerId         String
-  title           String
-  startAt         DateTime
-  endAt           DateTime
-  sourceTimezone  String
-  allDay          Boolean  @default(false)
-  visibility      String   @default("INTERNAL")
-  version         Int      @default(1)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id
+  workspaceId    String
+  companyId      String
+  ownerId        String
+  title          String
+  startAt        DateTime
+  endAt          DateTime
+  sourceTimezone String
+  allDay         Boolean  @default(false)
+  visibility     String   @default("INTERNAL")
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@index([companyId, startAt, endAt])
   @@index([ownerId, startAt])
 }
 
 model PresenceRecord {
-  id              String   @id
-  workspaceId     String
-  companyId       String
-  userId          String
-  state           String
-  startAt         DateTime
-  endAt           DateTime
-  visibility      String   @default("PUBLIC_SAFE")
-  version         Int      @default(1)
-  createdAt       DateTime @default(now())
+  id          String   @id
+  workspaceId String
+  companyId   String
+  userId      String
+  state       String
+  startAt     DateTime
+  endAt       DateTime
+  visibility  String   @default("PUBLIC_SAFE")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
 
   @@index([companyId, startAt, endAt])
   @@index([userId, startAt])

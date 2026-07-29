@@ -52,6 +52,19 @@ export class FilesService {
     }
   }
 
+  async stageTaskUpload(principal: AuthPrincipal, file: UploadedBinary) {
+    const staged = await this.upload(principal, principal.primaryCompanyId, file)
+    await this.jobs.enqueue(
+      'file.staged.cleanup',
+      'FILE',
+      staged.id,
+      {},
+      `file-staged-cleanup:${staged.id}`,
+      new Date(Date.now() + 86_400_000),
+    )
+    return staged
+  }
+
   async status(principal: AuthPrincipal, fileId: string) {
     const file = await this.authorizedFile(principal, fileId)
     return {
@@ -98,6 +111,44 @@ export class FilesService {
       },
     })
     if (files.length !== uniqueIds.length) throw badRequest(errorCode)
+    return files
+  }
+
+  async assertTaskStagedAttachments(
+    principal: AuthPrincipal,
+    companyId: string,
+    fileIds: string[],
+  ) {
+    const uniqueIds = [...new Set(fileIds)]
+    if (!uniqueIds.length) return []
+    const stagedSince = new Date(Date.now() - 86_400_000)
+    const [files, links] = await Promise.all([
+      this.prisma.fileObject.findMany({
+        where: {
+          id: { in: uniqueIds },
+          workspaceId: principal.workspaceId,
+          companyId,
+          ownerId: principal.userId,
+          createdAt: { gte: stagedSince },
+          scanStatus: { in: ['QUARANTINED', 'SCANNING', 'CLEAN'] },
+        },
+        select: {
+          id: true,
+          safeFilename: true,
+          bytes: true,
+          detectedMime: true,
+          scanStatus: true,
+          createdAt: true,
+        },
+      }),
+      this.prisma.fileLink.findMany({
+        where: { fileId: { in: uniqueIds } },
+        select: { fileId: true },
+      }),
+    ])
+    if (files.length !== uniqueIds.length || links.length) {
+      throw badRequest('task_attachment')
+    }
     return files
   }
 

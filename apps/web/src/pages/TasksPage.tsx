@@ -1,6 +1,5 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  GroupDetailView,
   GroupListResult,
   PageResult,
   TaskActivityPage,
@@ -37,11 +36,12 @@ import {
   UserPlus,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
+import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
 import {
   Avatar,
   Button,
@@ -211,8 +211,7 @@ export default function TasksPage() {
   const canQuickComplete = role === 'RESPONSIBLE'
     || role === 'CO_EXECUTOR'
     || (role === 'ALL' && can('tasks.manage'))
-  if (location.pathname === '/tasks/new')
-    return <TaskCreate onDone={(id) => navigate(`/tasks/${id}`, { replace: true })} />
+  const isCreating = location.pathname === '/tasks/new'
   return (
     <div>
       <PageHeader
@@ -337,7 +336,7 @@ export default function TasksPage() {
                 <option value="LOW">Низький</option>
                 <option value="MEDIUM">Середній</option>
                 <option value="HIGH">Високий</option>
-                <option value="CRITICAL">Критичний</option>
+                <option value="CRITICAL">Терміновий</option>
               </select>
             </label>
             <label>
@@ -656,117 +655,16 @@ export default function TasksPage() {
           </footer>
         )}
       </Card>
+      {isCreating && (
+        <TaskCreateModal
+          groupId={params.get('groupId') ?? ''}
+          initialResponsibleId={params.get('assigneeId') ?? ''}
+          onClose={() => navigate(`/tasks${location.search}`, { replace: true })}
+          onDone={(id) => navigate(`/tasks/${id}`, { replace: true })}
+        />
+      )}
       {taskId && <TaskDrawer key={taskId} id={taskId} onClose={() => navigate(`/tasks${location.search}`)} />}
     </div>
-  )
-}
-
-function TaskCreate({ onDone }: { onDone: (id: string) => void }) {
-  const { user } = useAuth()
-  const navigate = useNavigate()
-  const [params] = useSearchParams()
-  const [error, setError] = useState('')
-  const [assigneeId, setAssigneeId] = useState(params.get('assigneeId') ?? '')
-  const companyId = user?.organization.id ?? ''
-  const groupId = params.get('groupId') ?? ''
-  const group = useQuery({
-    queryKey: ['task-create-group', groupId, companyId],
-    queryFn: () => api<GroupDetailView>(`/groups/${groupId}?company=${encodeURIComponent(companyId)}`),
-    enabled: Boolean(groupId && companyId),
-  })
-  const employees = useQuery({
-    queryKey: ['employees', 'task-form', companyId],
-    queryFn: () => api<{ items: Employee[] }>(`/employees?company=${encodeURIComponent(companyId)}`),
-    enabled: Boolean(companyId && !groupId),
-  })
-  const assignees = groupId
-    ? group.data?.members.map((member) => member.user) ?? []
-    : employees.data?.items ?? []
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError('')
-    const form = new FormData(event.currentTarget)
-    try {
-      const result = await api<{ id: string }>('/tasks', {
-        method: 'POST',
-        headers: { 'idempotency-key': idempotencyKey('task') },
-        body: jsonBody({
-          title: form.get('title'),
-          description: form.get('description'),
-          assigneeId: form.get('assigneeId'),
-          deadline: form.get('deadline') || undefined,
-          priority: form.get('priority'),
-          companyId,
-          groupId: groupId || undefined,
-        }),
-      })
-      onDone(result.id)
-    } catch {
-      setError('Не вдалося створити завдання. Перевірте поля та доступ виконавця.')
-    }
-  }
-  return (
-    <>
-      <PageHeader
-        title="Нове завдання"
-        description={groupId && group.data
-          ? `Група «${group.data.name}» · виконавця можна обрати лише серед учасників`
-          : 'Після створення завдання одразу стане доступне виконавцю'}
-      />
-      <Card className="form-card">
-        <form onSubmit={submit} className="entity-form">
-          <label className="span-2">
-            Назва
-            <input name="title" maxLength={180} required autoFocus placeholder="Що потрібно зробити?" />
-          </label>
-          <label>
-            Виконавець
-            <select
-              name="assigneeId"
-              required
-              value={assigneeId}
-              onChange={(event) => setAssigneeId(event.target.value)}
-            >
-              <option value="" disabled>
-                Оберіть людину
-              </option>
-              {assignees.map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Пріоритет
-            <select name="priority" defaultValue="MEDIUM">
-              <option value="LOW">Низький</option>
-              <option value="MEDIUM">Середній</option>
-              <option value="HIGH">Високий</option>
-              <option value="CRITICAL">Критичний</option>
-            </select>
-          </label>
-          <label>
-            Строк
-            <input type="datetime-local" name="deadline" />
-          </label>
-          <label className="span-2">
-            Опис
-            <textarea name="description" rows={6} placeholder="Контекст, очікуваний результат і критерії готовності" />
-          </label>
-          {error && <div className="form-error span-2">{error}</div>}
-          <div className="form-actions span-2">
-            <Button type="button" variant="secondary" onClick={() => navigate(`/tasks?${params.toString()}`)}>
-              Скасувати
-            </Button>
-            <Button>
-              <CirclePlus size={17} />
-              Створити
-            </Button>
-          </div>
-        </form>
-      </Card>
-    </>
   )
 }
 
@@ -880,12 +778,19 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     onError: () => setPersonalMessage('Не вдалося змінити стеження.'),
   })
   const createReminder = useMutation({
-    mutationFn: (remindAt: string) =>
-      api(`/tasks/${id}/reminders`, {
+    mutationFn: (remindAt: string) => {
+      if (!query.data || !user) throw new Error('task_reminder_context')
+      return api(`/tasks/${id}/reminders`, {
         method: 'POST',
-        headers: { 'idempotency-key': idempotencyKey('task-reminder') },
-        body: jsonBody({ remindAt }),
-      }),
+        body: jsonBody({
+          reminder: {
+            target: { type: 'USER', userId: user.id },
+            trigger: { type: 'AT', at: remindAt },
+          },
+          expectedVersion: query.data.version,
+        }),
+      })
+    },
     onSuccess: () => {
       setPersonalMessage('Нагадування заплановано.')
       void client.invalidateQueries({ queryKey: ['task', id] })
@@ -1009,42 +914,63 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     onError: () => setContentMessage('Не вдалося надіслати коментар. Перевірте текст і вкладення.'),
   })
   const addItem = useMutation({
-    mutationFn: (text: string) =>
-      api(`/tasks/${id}/checklist`, {
+    mutationFn: (text: string) => {
+      if (!query.data) throw new Error('task_checklist_context')
+      return api(`/tasks/${id}/checklist`, {
         method: 'POST',
-        body: jsonBody({ text }),
-      }),
+        body: jsonBody({ title: text, expectedVersion: query.data.version }),
+      })
+    },
     onSuccess: () => {
       setNewItem('')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
   })
   const updateItem = useMutation({
-    mutationFn: (item: { id: string; isDone: boolean; version: number }) =>
-      api(`/tasks/${id}/checklist/${item.id}`, {
+    mutationFn: (item: { id: string; isDone: boolean }) => {
+      if (!query.data) throw new Error('task_checklist_context')
+      return api(`/tasks/${id}/checklist/${item.id}`, {
         method: 'PATCH',
-        body: jsonBody({ isDone: item.isDone, expectedVersion: item.version }),
-      }),
+        body: jsonBody({ isCompleted: item.isDone, expectedVersion: query.data.version }),
+      })
+    },
     onSuccess: () => void client.invalidateQueries({ queryKey: ['task', id] }),
   })
   const recurrence = useMutation({
-    mutationFn: (input: { frequency: string; interval: number; firstOccurrenceAt: string; until?: string }) =>
-      api<{ nextOccurrenceAt: string }>(`/tasks/${id}/recurrence`, {
-        method: 'POST',
-        body: jsonBody(input),
-      }),
-    onSuccess: (result) =>
-      setRecurrenceMessage(`Наступне завдання заплановано на ${formatDateTime(result.nextOccurrenceAt)}`),
+    mutationFn: (input: { frequency: string; interval: number; firstOccurrenceAt: string; until?: string }) => {
+      if (!query.data) throw new Error('task_recurrence_context')
+      const firstOccurrence = new Date(input.firstOccurrenceAt)
+      const isoWeekday = firstOccurrence.getUTCDay() || 7
+      return api<{ version: number }>(`/tasks/${id}/recurrence`, {
+        method: 'PUT',
+        body: jsonBody({
+          recurrence: {
+            frequency: input.frequency,
+            interval: input.interval,
+            startsAt: input.firstOccurrenceAt,
+            ...(input.frequency === 'WEEKLY' ? { daysOfWeek: [isoWeekday] } : {}),
+            ...(input.until ? { endsAt: input.until } : {}),
+          },
+          expectedVersion: query.data.version,
+        }),
+      })
+    },
+    onSuccess: () => {
+      setRecurrenceMessage('Повторення налаштовано.')
+      void client.invalidateQueries({ queryKey: ['task', id] })
+    },
   })
   const addParticipant = useMutation({
     mutationFn: (input: {
       userId: string
       role: TaskParticipantRole
       expectedVersion: number
-    }) => api(`/tasks/${id}/participants`, {
-      method: 'POST',
-      headers: { 'idempotency-key': idempotencyKey('task-participant') },
-      body: jsonBody(input),
+    }) => api(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}`, {
+      method: 'PUT',
+      body: jsonBody({
+        role: input.role === 'CO_EXECUTOR' ? 'COLLABORATOR' : 'WATCHER',
+        expectedVersion: input.expectedVersion,
+      }),
     }),
     onSuccess: () => {
       setParticipantMessage('Учасника додано.')
@@ -1064,7 +990,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       userId: string
       role: TaskParticipantRole
       expectedVersion: number
-    }) => api(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}/${input.role}`, {
+    }) => api(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}`, {
       method: 'DELETE',
       body: jsonBody({ expectedVersion: input.expectedVersion }),
     }),
@@ -1234,7 +1160,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   <option value="LOW">Низький</option>
                   <option value="MEDIUM">Середній</option>
                   <option value="HIGH">Високий</option>
-                  <option value="CRITICAL">Критичний</option>
+                  <option value="CRITICAL">Терміновий</option>
                 </select>
               </label>
               <label>
@@ -1637,7 +1563,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                       <option value="LOW">Низький</option>
                       <option value="MEDIUM">Середній</option>
                       <option value="HIGH">Високий</option>
-                      <option value="CRITICAL">Критичний</option>
+                      <option value="CRITICAL">Терміновий</option>
                     </select>
                   </label>
                   <label className="span-2">
@@ -1687,7 +1613,6 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                         updateItem.mutate({
                           id: item.id,
                           isDone: !item.isDone,
-                          version: item.version,
                         })
                       }
                     />
@@ -1719,7 +1644,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               </form>
             )}
           </section>
-          {query.data.canEdit && <section>
+          {query.data.canEdit && !query.data.parentTaskId && <section>
             <details>
               <summary>Повторення завдання</summary>
               <form

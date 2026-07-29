@@ -53,8 +53,8 @@ export class SearchController {
               ? []
               : [{
                   OR: [
-                    { assigneeId: principal.userId },
-                    { creatorId: principal.userId },
+                    { createdById: principal.userId },
+                    { reporterId: principal.userId },
                     {
                       participants: {
                         some: { userId: principal.userId, removedAt: null },

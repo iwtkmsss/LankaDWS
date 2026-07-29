@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, normalize, resolve } from 'node:path'
 import { getConfig } from '../../config/config.js'
 
@@ -30,6 +30,13 @@ export async function writeCleanFile(key: string, bytes: Buffer): Promise<void> 
   const target = safePath(getConfig().FILE_STORAGE_DIR, key)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, bytes)
+}
+
+export async function deleteStoredFile(key: string): Promise<void> {
+  await Promise.all([
+    rm(safePath(getConfig().FILE_QUARANTINE_DIR, key), { force: true }),
+    rm(safePath(getConfig().FILE_STORAGE_DIR, key), { force: true }),
+  ])
 }
 
 export async function storageReady(): Promise<boolean> {

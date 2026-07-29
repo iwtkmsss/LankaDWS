@@ -12,9 +12,9 @@ const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: getCon
 const password = process.env.DEMO_SEED_PASSWORD ?? 'BertDemoPassphrase2026!'
 
 const roles = {
-  employee: { id: 'role_employee', name: 'Працівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.CalendarRead, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.EmployeesOrgRead] },
-  manager: { id: 'role_manager', name: 'Керівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
-  hr: { id: 'role_hr', name: 'HR', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.LifecycleManage, Permission.AnnouncementsRead, Permission.AnnouncementsCreate, Permission.AnnouncementsPublish, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.ConfidentialHrRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
+  employee: { id: 'role_employee', name: 'Працівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.EmployeesOrgRead] },
+  manager: { id: 'role_manager', name: 'Керівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.TasksEditAny, Permission.TasksReporterManage, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
+  hr: { id: 'role_hr', name: 'HR', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.TasksEditAny, Permission.TasksReporterManage, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.LifecycleManage, Permission.AnnouncementsRead, Permission.AnnouncementsCreate, Permission.AnnouncementsPublish, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.ConfidentialHrRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
   admin: { id: 'role_admin', name: 'Адміністратор', permissions: allPermissionCodes },
   viewer: { id: 'role_viewer', name: 'Перегляд', permissions: [Permission.TasksRead, Permission.CalendarRead, Permission.DocumentsRead, Permission.KnowledgeRead, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.NotificationsRead, Permission.FeedRead, Permission.GroupsRead, Permission.EmployeesOrgRead] },
 }
@@ -276,32 +276,55 @@ async function seed(): Promise<void> {
     })
   }
 
-  const taskData = [
-    ['tsk_design', 'TSK-2401', 'Підготувати концепцію дизайну dashboard', 'usr_andrii', 'usr_maria', 'IN_PROGRESS', 'HIGH', '2026-07-15T12:00:00Z'],
-    ['tsk_policy', 'TSK-2402', 'Оновити UI-kit компонента «Кнопка»', 'usr_maria', 'usr_andrii', 'PLANNED', 'MEDIUM', '2026-07-15T16:00:00Z'],
-    ['tsk_report', 'TSK-2403', 'Підготувати звіт за липень', 'usr_andrii', 'usr_andrii', 'BLOCKED', 'HIGH', '2026-07-14T15:00:00Z'],
-    ['tsk_onboarding', 'TSK-2404', 'Підготувати доступи нового працівника', 'usr_andrii', 'usr_olena', 'IN_PROGRESS', 'HIGH', '2026-07-17T09:00:00Z'],
-  ] as const
-  for (const [taskId, number, title, creatorId, assigneeId, status, priority, deadline] of taskData) await prisma.task.upsert({ where: { id: taskId }, create: { id: taskId, workspaceId: 'ws_bert', companyId: 'cmp_bert_ua', number, title, creatorId, assigneeId, status, priority, deadline: new Date(deadline) }, update: { creatorId, assigneeId } })
-  for (const participant of [
-    { id: 'tpart_report_maria_co', taskId: 'tsk_report', userId: 'usr_maria', role: 'CO_EXECUTOR' as const },
-    { id: 'tpart_onboarding_maria_observer', taskId: 'tsk_onboarding', userId: 'usr_maria', role: 'OBSERVER' as const },
+  await prisma.project.upsert({
+    where: { id: 'prj_website' },
+    create: { id: 'prj_website', workspaceId: 'ws_bert', companyId: 'cmp_bert_ua', name: 'Вебсайт для клієнта', normalizedName: 'вебсайт для клієнта' },
+    update: { name: 'Вебсайт для клієнта', normalizedName: 'вебсайт для клієнта', status: 'ACTIVE' },
+  })
+  for (const tag of [
+    { id: 'tag_design', name: 'Дизайн', normalizedName: 'дизайн', color: '#7656d6' },
+    { id: 'tag_important', name: 'Важливо', normalizedName: 'важливо', color: '#c43f4e' },
   ]) {
-    const active = await prisma.taskParticipant.findFirst({
-      where: {
-        taskId: participant.taskId,
-        userId: participant.userId,
-        role: participant.role,
-        removedAt: null,
-      },
-      select: { id: true },
+    await prisma.tag.upsert({
+      where: { id: tag.id },
+      create: { ...tag, workspaceId: 'ws_bert', companyId: 'cmp_bert_ua' },
+      update: { name: tag.name, normalizedName: tag.normalizedName, color: tag.color },
     })
-    if (!active) {
-      await prisma.taskParticipant.create({
-        data: { ...participant, addedById: 'usr_andrii' },
-      })
-    }
   }
+
+  const taskData = [
+    ['tsk_design', 'TSK-2401', 'Підготувати концепцію дизайну dashboard', 'usr_andrii', 'usr_maria', 'IN_PROGRESS', 'HIGH', '2026-07-15T12:00:00Z', 'prj_website'],
+    ['tsk_policy', 'TSK-2402', 'Оновити UI-kit компонента «Кнопка»', 'usr_maria', 'usr_andrii', 'PLANNED', 'MEDIUM', '2026-07-15T16:00:00Z', 'prj_website'],
+    ['tsk_report', 'TSK-2403', 'Підготувати звіт за липень', 'usr_andrii', 'usr_andrii', 'BLOCKED', 'HIGH', '2026-07-14T15:00:00Z', null],
+    ['tsk_onboarding', 'TSK-2404', 'Підготувати доступи нового працівника', 'usr_andrii', 'usr_olena', 'IN_PROGRESS', 'HIGH', '2026-07-17T09:00:00Z', null],
+  ] as const
+  for (const [taskId, number, title, createdById, responsibleId, status, priority, dueAt, projectId] of taskData) {
+    await prisma.task.upsert({
+      where: { id: taskId },
+      create: { id: taskId, workspaceId: 'ws_bert', companyId: 'cmp_bert_ua', number, title, createdById, reporterId: createdById, status, priority, dueAt: new Date(dueAt), projectId },
+      update: { createdById, reporterId: createdById, projectId },
+    })
+    await prisma.taskParticipant.upsert({
+      where: { taskId_userId: { taskId, userId: responsibleId } },
+      create: { id: `tpart_${taskId}_${responsibleId}`, taskId, userId: responsibleId, role: 'RESPONSIBLE', addedById: createdById },
+      update: { role: 'RESPONSIBLE', addedById: createdById, removedAt: null },
+    })
+  }
+  for (const participant of [
+    { id: 'tpart_report_maria_co', taskId: 'tsk_report', userId: 'usr_maria', role: 'COLLABORATOR' as const },
+    { id: 'tpart_onboarding_maria_observer', taskId: 'tsk_onboarding', userId: 'usr_maria', role: 'WATCHER' as const },
+  ]) {
+    await prisma.taskParticipant.upsert({
+      where: { taskId_userId: { taskId: participant.taskId, userId: participant.userId } },
+      create: { ...participant, addedById: 'usr_andrii' },
+      update: { role: participant.role, addedById: 'usr_andrii', removedAt: null },
+    })
+  }
+  await prisma.taskTag.upsert({
+    where: { taskId_tagId: { taskId: 'tsk_design', tagId: 'tag_design' } },
+    create: { taskId: 'tsk_design', tagId: 'tag_design' },
+    update: {},
+  })
 
   for (const [eventId, ownerId, title, start, end] of [
     ['evt_sync', 'usr_maria', 'Синхронізація проєкту', '2026-07-15T11:00:00Z', '2026-07-15T11:45:00Z'],

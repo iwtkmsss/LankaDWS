@@ -43,7 +43,28 @@ export class LifecycleService {
       await tx.lifecycleProcess.create({ data: { id: processId, workspaceId: principal.workspaceId, companyId, employeeId: employee.id, processType: input.processType, templateVersion: 1, ownerId: principal.userId, startAt, endAt: input.endAt ? new Date(input.endAt) : null, status: 'IN_PROGRESS' } })
       for (const [key, title, ownerId, offset] of definitions) {
         const taskId = id('tsk')
-        await tx.task.create({ data: { id: taskId, workspaceId: principal.workspaceId, companyId, number: `TSK-${Date.now().toString().slice(-5)}${offset}`, title, creatorId: principal.userId, assigneeId: ownerId, status: 'PLANNED', priority: offset === 0 ? 'HIGH' : 'MEDIUM', deadline: new Date(startAt.getTime() + offset * 86_400_000) } })
+        await tx.task.create({
+          data: {
+            id: taskId,
+            workspaceId: principal.workspaceId,
+            companyId,
+            number: `TSK-${Date.now().toString().slice(-5)}${offset}`,
+            title,
+            createdById: principal.userId,
+            reporterId: principal.userId,
+            status: 'PLANNED',
+            priority: offset === 0 ? 'HIGH' : 'MEDIUM',
+            dueAt: new Date(startAt.getTime() + offset * 86_400_000),
+            participants: {
+              create: {
+                id: id('tpart'),
+                userId: ownerId,
+                role: 'RESPONSIBLE',
+                addedById: principal.userId,
+              },
+            },
+          },
+        })
         await tx.lifecycleStep.create({ data: { id: id('step'), processId, sourceKey: key, linkedTaskId: taskId, ownerId, status: 'PLANNED', dueAt: new Date(startAt.getTime() + offset * 86_400_000) } })
         await tx.entityLink.create({ data: { id: id('lnk'), sourceType: 'LIFECYCLE', sourceId: processId, targetType: 'TASK', targetId: taskId, relation: 'STEP', createdBy: principal.userId } })
       }

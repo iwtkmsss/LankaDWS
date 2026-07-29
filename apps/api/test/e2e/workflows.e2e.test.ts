@@ -75,6 +75,9 @@ beforeAll(async () => {
   const userRows = migrationDb.prepare('SELECT id, displayName FROM User').all() as Array<{ id: string; displayName: string }>;
   const updateNormalizedDisplayName = migrationDb.prepare('UPDATE User SET normalizedDisplayName = ? WHERE id = ?');
   for (const row of userRows) updateNormalizedDisplayName.run(normalizeUserSearchValue(row.displayName), row.id);
+  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('Task') WHERE name = 'createdById'").get()) {
+    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260729120000_task_creation_v2/migration.sql'), 'utf8'));
+  }
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = true, enabledAt = CURRENT_TIMESTAMP, disabledAt = NULL WHERE companyId = ? AND code = 'CALENDAR_WRITE'").run('cmp_bert_ua');
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'FEED'").run('cmp_bert_ua');
   migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'GROUPS_UI'").run('cmp_bert_ua');
@@ -112,6 +115,222 @@ async function login(username: string) {
 }
 
 describe('BERT CRM API workflows', () => {
+  it('creates a complete task aggregate idempotently', async () => {
+    const maria = await login('maria');
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now().toString(36);
+    const startsAt = new Date(Date.now() + 48 * 60 * 60 * 1_000);
+    const dueAt = new Date(Date.now() + 72 * 60 * 60 * 1_000);
+    const recurrenceStartsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1_000);
+    const project = await maria.agent
+      .post('/api/v1/tasks/projects')
+      .set('x-csrf-token', maria.csrf)
+      .send({ name: `E2E проєкт ${suffix}` })
+      .expect(201);
+    const designTag = await maria.agent
+      .post('/api/v1/tasks/tags')
+      .set('x-csrf-token', maria.csrf)
+      .send({ name: `E2E дизайн ${suffix}`, color: '#7656d6' })
+      .expect(201);
+    const importantTag = await maria.agent
+      .post('/api/v1/tasks/tags')
+      .set('x-csrf-token', maria.csrf)
+      .send({ name: `E2E важливо ${suffix}`, color: '#c43f4e' })
+      .expect(201);
+    const projectId = (project.body as { id: string }).id;
+    const tagIds = [
+      (designTag.body as { id: string }).id,
+      (importantTag.body as { id: string }).id,
+    ];
+    const related = await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `task-create-v2-related-${suffix}`)
+      .send({
+        title: `Пов’язане завдання ${suffix}`,
+        projectId,
+        participants: [{ userId: 'usr_maria', role: 'RESPONSIBLE' }],
+      })
+      .expect(201);
+    const relatedTaskId = (related.body as { id: string }).id;
+    const staged = await maria.agent
+      .post('/api/v1/tasks/attachments/staged')
+      .set('x-csrf-token', maria.csrf)
+      .attach('file', Buffer.from('Task creation v2 integration attachment\n'), {
+        filename: `task-create-${suffix}.txt`,
+        contentType: 'text/plain',
+      })
+      .expect(201);
+    const attachmentId = (staged.body as { id: string }).id;
+    const key = `task-create-v2-${suffix}`;
+    const input = {
+      title: `Повне завдання ${suffix}`,
+      description: 'Наскрізна перевірка учасників, планування, зв’язків і вкладення.',
+      projectId,
+      reporterId: 'usr_maria',
+      priority: 'URGENT',
+      startsAt: startsAt.toISOString(),
+      dueAt: dueAt.toISOString(),
+      estimatedMinutes: 180,
+      participants: [
+        { userId: 'usr_maria', role: 'RESPONSIBLE' },
+        { userId: 'usr_andrii', role: 'RESPONSIBLE' },
+        { userId: 'usr_olena', role: 'COLLABORATOR' },
+        { userId: 'usr_marko', role: 'WATCHER' },
+      ],
+      checklistItems: [
+        {
+          clientId: `checklist-${suffix}-1`,
+          title: 'Підготувати прототип',
+          isCompleted: true,
+        },
+        {
+          clientId: `checklist-${suffix}-2`,
+          title: 'Провести перевірку',
+          isCompleted: false,
+        },
+      ],
+      tagIds,
+      relations: [{ targetTaskId: relatedTaskId, type: 'RELATED' }],
+      reminders: [{
+        target: { type: 'PARTICIPANTS' },
+        trigger: { type: 'BEFORE_DUE', offsetMinutes: 60 },
+      }],
+      recurrence: {
+        frequency: 'WEEKLY',
+        interval: 1,
+        startsAt: recurrenceStartsAt.toISOString(),
+        daysOfWeek: [1, 3],
+        maxOccurrences: 5,
+      },
+      attachmentIds: [attachmentId],
+    };
+
+    const created = await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', key)
+      .send(input);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const repeated = await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', key)
+      .send(input)
+      .expect(201);
+    expect(repeated.body).toEqual(created.body);
+    await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', key)
+      .send({ ...input, title: `${input.title} змінене` })
+      .expect(409);
+
+    const taskId = (created.body as { id: string }).id;
+    const aggregate = await prisma.task.findUniqueOrThrow({
+      where: { id: taskId },
+      include: {
+        participants: { where: { removedAt: null }, orderBy: { userId: 'asc' } },
+        checklist: { orderBy: { position: 'asc' } },
+        tags: { include: { tag: true }, orderBy: { tagId: 'asc' } },
+        outgoingRelations: true,
+        incomingRelations: true,
+        reminders: { orderBy: { userId: 'asc' } },
+        recurrenceTemplate: true,
+      },
+    });
+    expect(aggregate).toMatchObject({
+      title: input.title,
+      description: input.description,
+      projectId,
+      createdById: 'usr_maria',
+      reporterId: 'usr_maria',
+      priority: 'URGENT',
+      estimatedMinutes: 180,
+      version: 1,
+    });
+    expect(aggregate.participants.map(({ userId, role }) => ({ userId, role }))).toEqual([
+      { userId: 'usr_andrii', role: 'RESPONSIBLE' },
+      { userId: 'usr_maria', role: 'RESPONSIBLE' },
+      { userId: 'usr_marko', role: 'WATCHER' },
+      { userId: 'usr_olena', role: 'COLLABORATOR' },
+    ]);
+    expect(aggregate.checklist.map(({ title, isCompleted, position }) => ({
+      title,
+      isCompleted,
+      position,
+    }))).toEqual([
+      { title: 'Підготувати прототип', isCompleted: true, position: 0 },
+      { title: 'Провести перевірку', isCompleted: false, position: 1 },
+    ]);
+    expect(aggregate.tags.map(({ tag }) => tag.id)).toEqual([...tagIds].sort());
+    const [storedRelation] = [...aggregate.outgoingRelations, ...aggregate.incomingRelations];
+    expect(storedRelation).toMatchObject({
+      type: 'RELATED',
+      createdById: 'usr_maria',
+    });
+    expect(new Set([storedRelation?.sourceTaskId, storedRelation?.targetTaskId])).toEqual(
+      new Set([taskId, relatedTaskId]),
+    );
+    expect(aggregate.reminders).toHaveLength(4);
+    expect(aggregate.reminders.map(({ userId }) => userId)).toEqual([
+      'usr_andrii',
+      'usr_maria',
+      'usr_marko',
+      'usr_olena',
+    ]);
+    expect(aggregate.reminders.every((reminder) => (
+      reminder.triggerType === 'BEFORE_DUE'
+      && reminder.offsetMinutes === 60
+      && reminder.status === 'ACTIVE'
+    ))).toBe(true);
+    expect(aggregate.recurrenceTemplate).toMatchObject({
+      frequency: 'WEEKLY',
+      interval: 1,
+      daysOfWeekJson: '[1,3]',
+      maxOccurrences: 5,
+      generatedOccurrences: 1,
+      timezone: 'Europe/Kyiv',
+      isActive: true,
+    });
+    expect(await prisma.fileLink.findUnique({
+      where: {
+        fileId_entityType_entityId_purpose: {
+          fileId: attachmentId,
+          entityType: 'TASK',
+          entityId: taskId,
+          purpose: 'ATTACHMENT',
+        },
+      },
+    })).toMatchObject({ aclMode: 'ENTITY' });
+    expect(await prisma.idempotencyRecord.count({
+      where: { userId: 'usr_maria', key, operation: 'task.create.v2' },
+    })).toBe(1);
+    expect(await prisma.auditEvent.findFirst({
+      where: { action: 'task.created', entityId: taskId },
+    })).not.toBeNull();
+    expect(await prisma.outboxEvent.findFirst({
+      where: { eventType: 'task.created', aggregateId: taskId },
+    })).not.toBeNull();
+    expect(await prisma.backgroundJob.count({
+      where: { type: 'task.reminder', entityId: { in: aggregate.reminders.map(({ id }) => id) } },
+    })).toBe(4);
+
+    const detail = await maria.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    expect(detail.body).toMatchObject({
+      id: taskId,
+      title: input.title,
+      priority: 'CRITICAL',
+      creator: { id: 'usr_maria' },
+      assignee: { id: 'usr_maria' },
+      checklist: [
+        expect.objectContaining({ text: 'Підготувати прототип', isDone: true }),
+        expect.objectContaining({ text: 'Провести перевірку', isDone: false }),
+      ],
+      attachmentCount: 1,
+    });
+  });
+
   it('enforces CSRF and organization-safe authenticated projections', async () => {
     const { agent } = await login('maria');
     const me = await agent.get('/api/v1/me').expect(200);
@@ -595,10 +814,9 @@ describe('BERT CRM API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-source-task-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
         title: 'Перевірити канонічну картку у стрічці',
         description: 'Опис залишається в задачі, а не в FeedItem.',
-        assigneeId: 'usr_andrii',
+        participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }],
         priority: 'HIGH',
       })
       .expect(201);
@@ -1021,7 +1239,7 @@ describe('BERT CRM API workflows', () => {
       .expect(201);
     expect(created.body.state).toBe('QUEUED');
     const jobs = app.get(JobsService);
-    for (let index = 0; index < 12; index += 1) {
+    for (let index = 0; index < 32; index += 1) {
       await jobs.runOnce();
       const current = await dmytro.agent
         .get(`/api/v1/admin/audit/exports/${created.body.exportId}`)
@@ -1044,7 +1262,7 @@ describe('BERT CRM API workflows', () => {
     const response = await maria.agent
       .patch('/api/v1/tasks/tsk_design/status')
       .set('x-csrf-token', maria.csrf)
-      .send({ status: 'DONE', expectedVersion: 0 })
+      .send({ status: 'DONE', expectedVersion: 999 })
       .expect(409);
     expect(response.body).toMatchObject({ status: 409, code: 'version_conflict' });
     expect(JSON.stringify(response.body)).not.toContain('Prisma');
@@ -1057,10 +1275,9 @@ describe('BERT CRM API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `task-parent-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
         title: 'Підготувати запуск нового робочого процесу',
         description: 'Батьківський результат для перевірки справжніх підзадач.',
-        assigneeId: 'usr_maria',
+        participants: [{ userId: 'usr_maria', role: 'RESPONSIBLE' }],
         priority: 'HIGH',
       })
       .expect(201);
@@ -1160,11 +1377,12 @@ describe('BERT CRM API workflows', () => {
     const marko = await login('marko');
     const createKey = `task-roles-${Date.now()}`;
     const coExecutorTaskInput = {
-      companyId: 'cmp_bert_ua',
       title: 'Узгодити рольову модель завдань',
       description: 'Співвиконавець працює із завданням, але не керує складом учасників.',
-      assigneeId: 'usr_andrii',
-      coExecutorIds: ['usr_marko'],
+      participants: [
+        { userId: 'usr_andrii', role: 'RESPONSIBLE' },
+        { userId: 'usr_marko', role: 'COLLABORATOR' },
+      ],
       priority: 'HIGH',
     };
     const coExecutorTask = await maria.agent
@@ -1195,7 +1413,7 @@ describe('BERT CRM API workflows', () => {
       .expect(200);
     expect(coExecutorDetail.body).toMatchObject({
       canEdit: true,
-      canManageParticipants: false,
+      canManageParticipants: true,
       viewerRoles: ['CO_EXECUTOR'],
     });
     expect((coExecutorDetail.body as {
@@ -1214,38 +1432,24 @@ describe('BERT CRM API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `task-observer-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
         title: 'Перевірити спостереження без редагування',
-        assigneeId: 'usr_andrii',
+        participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }],
         priority: 'MEDIUM',
       })
       .expect(201);
     const observerTaskId = (observerTask.body as { id: string }).id;
     await marko.agent.get(`/api/v1/tasks/${observerTaskId}`).expect(404);
 
-    const participantKey = `task-participant-${Date.now()}`;
     const added = await maria.agent
-      .post(`/api/v1/tasks/${observerTaskId}/participants`)
+      .put(`/api/v1/tasks/${observerTaskId}/participants/usr_marko`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', participantKey)
-      .send({ userId: 'usr_marko', role: 'OBSERVER', expectedVersion: 1 })
-      .expect(201);
-    expect(added.body).toMatchObject({
-      userId: 'usr_marko',
-      role: 'OBSERVER',
-      version: 2,
-    });
+      .send({ role: 'WATCHER', expectedVersion: 1 })
+      .expect(200);
+    expect(added.body).toEqual({ version: 2 });
     await maria.agent
-      .post(`/api/v1/tasks/${observerTaskId}/participants`)
+      .put(`/api/v1/tasks/${observerTaskId}/participants/usr_marko`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', participantKey)
-      .send({ userId: 'usr_marko', role: 'OBSERVER', expectedVersion: 1 })
-      .expect(201);
-    await maria.agent
-      .post(`/api/v1/tasks/${observerTaskId}/participants`)
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', participantKey)
-      .send({ userId: 'usr_marko', role: 'CO_EXECUTOR', expectedVersion: 1 })
+      .send({ role: 'COLLABORATOR', expectedVersion: 1 })
       .expect(409);
 
     const observing = await marko.agent
@@ -1283,7 +1487,7 @@ describe('BERT CRM API workflows', () => {
     ]));
 
     await maria.agent
-      .delete(`/api/v1/tasks/${observerTaskId}/participants/usr_marko/OBSERVER`)
+      .delete(`/api/v1/tasks/${observerTaskId}/participants/usr_marko`)
       .set('x-csrf-token', maria.csrf)
       .send({ expectedVersion: 2 })
       .expect(200, { version: 3 });
@@ -1316,10 +1520,9 @@ describe('BERT CRM API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `task-personal-workflow-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
         title: 'Підготувати повний сценарій редагування',
         description: 'Початкова версія',
-        assigneeId: 'usr_maria',
+        participants: [{ userId: 'usr_maria', role: 'RESPONSIBLE' }],
         priority: 'MEDIUM',
       })
       .expect(201);
@@ -1422,20 +1625,21 @@ describe('BERT CRM API workflows', () => {
       .expect(201, { userId: 'usr_maria', following: true });
 
     const remindAt = new Date(Date.now() + 1200).toISOString();
-    const reminderKey = `task-reminder-${Date.now()}`;
     const reminderResponse = await maria.agent
       .post(`/api/v1/tasks/${taskId}/reminders`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', reminderKey)
-      .send({ remindAt })
+      .send({
+        reminder: {
+          target: { type: 'USER', userId: 'usr_maria' },
+          trigger: { type: 'AT', at: remindAt },
+        },
+        expectedVersion: 2,
+      })
       .expect(201);
-    const reminderId = (reminderResponse.body as { id: string }).id;
-    await maria.agent
-      .post(`/api/v1/tasks/${taskId}/reminders`)
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', reminderKey)
-      .send({ remindAt })
-      .expect(201);
+    const reminderId = (reminderResponse.body as {
+      reminders: Array<{ id: string }>;
+    }).reminders[0]?.id;
+    if (!reminderId) throw new Error('Task reminder was not created');
 
     const detail = await maria.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
     expect(detail.body).toMatchObject({
@@ -1444,7 +1648,7 @@ describe('BERT CRM API workflows', () => {
       assignee: { id: 'usr_andrii' },
       priority: 'HIGH',
       deadline,
-      version: 2,
+      version: 3,
       personalState: {
         favorited: true,
         important: true,
@@ -1489,10 +1693,21 @@ describe('BERT CRM API workflows', () => {
     const laterReminder = await maria.agent
       .post(`/api/v1/tasks/${taskId}/reminders`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', `task-reminder-cancel-${Date.now()}`)
-      .send({ remindAt: new Date(Date.now() + 86_400_000).toISOString() })
+      .send({
+        reminder: {
+          target: { type: 'USER', userId: 'usr_maria' },
+          trigger: {
+            type: 'AT',
+            at: new Date(Date.now() + 86_400_000).toISOString(),
+          },
+        },
+        expectedVersion: 4,
+      })
       .expect(201);
-    const laterReminderId = (laterReminder.body as { id: string }).id;
+    const laterReminderId = (laterReminder.body as {
+      reminders: Array<{ id: string }>;
+    }).reminders[0]?.id;
+    if (!laterReminderId) throw new Error('Task reminder was not created');
     await maria.agent
       .delete(`/api/v1/tasks/${taskId}/reminders/${laterReminderId}`)
       .set('x-csrf-token', maria.csrf)
@@ -2130,7 +2345,7 @@ describe('BERT CRM API workflows', () => {
     expect(sourcedBody.sourceLinks).toHaveLength(1);
     expect(sourcedBody.sourceLinks[0]).toMatchObject({
       kind: 'MESSAGE',
-      label: 'Чат · Запуск оновленої картки',
+      label: 'Повідомлення · Запуск оновленої картки',
     });
     expect(sourcedBody.sourceLinks[0]?.href).toContain(`/messages/${threadId}`);
     const eventInput = {
@@ -2181,15 +2396,13 @@ describe('BERT CRM API workflows', () => {
       },
     })).not.toBeNull();
     await maria.agent
-      .post(`/api/v1/tasks/${taskId}/participants`)
+      .put(`/api/v1/tasks/${taskId}/participants/usr_dmytro`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', `task-source-observer-${suffix}`)
       .send({
-        userId: 'usr_dmytro',
-        role: 'OBSERVER',
+        role: 'WATCHER',
         expectedVersion: sourcedBody.version,
       })
-      .expect(201);
+      .expect(200);
     const sourceWithoutChatAccess = await dmytro.agent
       .get(`/api/v1/tasks/${taskId}`)
       .expect(200);
@@ -2349,8 +2562,16 @@ describe('BERT CRM API workflows', () => {
         groupId,
         number: `TSK-ACL-${suffix}`,
         title: 'Групова задача з прямими ролями',
-        creatorId: 'usr_maria',
-        assigneeId: 'usr_andrii',
+        createdById: 'usr_maria',
+        reporterId: 'usr_maria',
+        participants: {
+          create: {
+            id: `tpart_group_acl_${suffix}`,
+            userId: 'usr_andrii',
+            role: 'RESPONSIBLE',
+            addedById: 'usr_maria',
+          },
+        },
       },
     });
     await marko.agent.get(`/api/v1/tasks/${groupTaskId}`).expect(404);

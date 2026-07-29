@@ -10,6 +10,7 @@ import { hashPassword, id, randomTemporaryPassword } from '../../common/crypto.j
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { normalizeUserSearchValue } from '../../common/user-search.js'
+import type { Prisma } from '../../generated/prisma/client.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { AuthService } from '../auth/auth.service.js'
@@ -124,14 +125,66 @@ export class AdminService {
       const fullAdminCount = await this.prisma.user.count({ where: { status: 'ACTIVE', roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true } } } } })
       if (fullAdminCount <= 1) throw forbidden('Не можна деактивувати останнього повного адміністратора.')
     }
+    const activeTaskWhere = {
+      status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] },
+      OR: [
+        { reporterId: targetId },
+        {
+          participants: {
+            some: {
+              userId: targetId,
+              role: 'RESPONSIBLE' as const,
+              removedAt: null,
+            },
+          },
+        },
+      ],
+    } satisfies Prisma.TaskWhereInput
     const [tasks, documents] = await Promise.all([
-      this.prisma.task.count({ where: { assigneeId: targetId, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } } }),
+      this.prisma.task.count({ where: activeTaskWhere }),
       this.prisma.document.count({ where: { ownerId: targetId, archivedAt: null } }),
     ])
     if ((tasks + documents) > 0 && !input.newOwnerId) return { blocked: true, impact: { tasks, documents } }
     await this.prisma.$transaction(async (tx) => {
       if (input.newOwnerId) {
-        await tx.task.updateMany({ where: { assigneeId: targetId, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } }, data: { assigneeId: input.newOwnerId } })
+        const affectedTasks = await tx.task.findMany({
+          where: activeTaskWhere,
+          select: { id: true, reporterId: true },
+        })
+        await tx.task.updateMany({
+          where: {
+            id: { in: affectedTasks.filter((task) => task.reporterId === targetId).map((task) => task.id) },
+          },
+          data: {
+            reporterId: input.newOwnerId,
+            version: { increment: 1 },
+          },
+        })
+        for (const task of affectedTasks) {
+          const responsible = await tx.taskParticipant.findUnique({
+            where: { taskId_userId: { taskId: task.id, userId: targetId } },
+          })
+          if (responsible?.role !== 'RESPONSIBLE' || responsible.removedAt) continue
+          await tx.taskParticipant.upsert({
+            where: { taskId_userId: { taskId: task.id, userId: input.newOwnerId } },
+            create: {
+              id: id('tpart'),
+              taskId: task.id,
+              userId: input.newOwnerId,
+              role: 'RESPONSIBLE',
+              addedById: principal.userId,
+            },
+            update: {
+              role: 'RESPONSIBLE',
+              removedAt: null,
+              addedById: principal.userId,
+            },
+          })
+          await tx.taskParticipant.update({
+            where: { id: responsible.id },
+            data: { removedAt: new Date() },
+          })
+        }
         await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: input.newOwnerId } })
       }
       await tx.user.update({ where: { id: targetId }, data: { status: 'DEACTIVATED', authorizationVersion: { increment: 1 } } })

@@ -249,6 +249,105 @@
         ]
       }
     },
+    "/api/v1/tasks/options": {
+      "get": {
+        "operationId": "TasksController_options",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/projects": {
+      "get": {
+        "operationId": "TasksController_projects",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "post": {
+        "operationId": "TasksController_createProject",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/tags": {
+      "get": {
+        "operationId": "TasksController_tags",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "post": {
+        "operationId": "TasksController_createTag",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/attachments/staged": {
+      "post": {
+        "operationId": "TasksController_stageAttachment",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/activity": {
       "get": {
         "operationId": "TasksController_activity",
@@ -350,21 +449,19 @@
         ]
       }
     },
-    "/api/v1/tasks/{id}/participants": {
-      "post": {
-        "operationId": "TasksController_addParticipant",
+    "/api/v1/tasks/{id}/participants/{userId}": {
+      "put": {
+        "operationId": "TasksController_putParticipant",
         "parameters": [],
         "responses": {
-          "201": {
+          "200": {
             "description": ""
           }
         },
         "tags": [
           "Tasks"
         ]
-      }
-    },
-    "/api/v1/tasks/{id}/participants/{userId}/{role}": {
+      },
       "delete": {
         "operationId": "TasksController_removeParticipant",
         "parameters": [],
@@ -502,14 +599,174 @@
         "tags": [
           "Tasks"
         ]
+      },
+      "delete": {
+        "operationId": "TasksController_removeChecklistItem",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
       }
     },
-    "/api/v1/tasks/{id}/recurrence": {
+    "/api/v1/tasks/{id}/checklist-order": {
+      "put": {
+        "operationId": "TasksController_reorderChecklist",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/relations": {
       "post": {
-        "operationId": "TasksController_recurrence",
+        "operationId": "TasksController_addRelation",
         "parameters": [],
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/relations/{relationId}": {
+      "delete": {
+        "operationId": "TasksController_removeRelation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/archive": {
+      "post": {
+        "operationId": "TasksController_archive",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/recurrence": {
+      "put": {
+        "operationId": "TasksController_setRecurrence",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_cancelRecurrence",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/time-entries": {
+      "get": {
+        "operationId": "TasksController_timeEntries",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "post": {
+        "operationId": "TasksController_addTimeEntry",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/timer/start": {
+      "post": {
+        "operationId": "TasksController_startTimer",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/timer/stop": {
+      "post": {
+        "operationId": "TasksController_stopTimer",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/time-entries/{entryId}": {
+      "patch": {
+        "operationId": "TasksController_updateTimeEntry",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_removeTimeEntry",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": ""
           }
         },

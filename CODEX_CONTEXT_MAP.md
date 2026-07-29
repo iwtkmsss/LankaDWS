@@ -89,10 +89,12 @@ Build the displayed tree from the safe flat list. Do not add another hierarchy m
 | Field | Current path |
 |---|---|
 | Frontend entry | `apps/web/src/pages/TasksPage.tsx` (`/tasks`, `/tasks/new`, `/tasks/:taskId`) |
-| API request | `GET/POST /api/v1/tasks` and task subresource routes |
-| Controller / service | `modules/tasks/tasks.controller.ts` / `tasks.service.ts` |
-| Contract / model | `packages/contracts/src/domain.ts`; `Task` (optional `groupId`) |
-| Focused test | Focused API/web test for the changed task workflow |
+| API request | `GET/POST/PATCH /api/v1/tasks`, task options/catalogs, participants, checklist, relations, reminders, recurrence, time and attachment subresources |
+| Controller / service | `modules/tasks/tasks.controller.ts`; command/query plus focused hierarchy, participant, checklist, relation, reminder, recurrence, time, catalog and attachment services |
+| Contract / model | `packages/contracts/src/tasks.ts`; `Task`, `TaskParticipant`, `TaskChecklistItem`, `TaskRelation`, `TaskReminder`, `TaskRecurrence`, `TimeEntry`, `Project`, `Tag` and shared `FileObject`/`FileLink` |
+| Focused test | `apps/api/src/modules/tasks/task-v2-services.test.ts`, `task-planning-services.test.ts`, `apps/api/test/e2e/workflows.e2e.test.ts` (complete task aggregate) and `apps/web/e2e/task-create.spec.ts` |
+
+Task creation is the canonical `/tasks/new` modal. It submits one idempotent aggregate command; staged uploads remain in the shared quarantine/file lifecycle and are linked only when that command commits. The legacy `TasksService` export is a compatibility facade for established list/detail consumers, not the owner of new task business logic.
 
 ## Documents / Drive
 

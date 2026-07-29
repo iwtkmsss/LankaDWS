@@ -18,7 +18,7 @@ export class AnalyticsController {
     const [taskTotal, taskDone, taskOverdue, lifecycle, acknowledgements] = await Promise.all([
       this.prisma.task.count({ where: { companyId: { in: companyIds }, archivedAt: null } }),
       this.prisma.task.count({ where: { companyId: { in: companyIds }, status: 'DONE' } }),
-      this.prisma.task.count({ where: { companyId: { in: companyIds }, deadline: { lt: new Date() }, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } } }),
+      this.prisma.task.count({ where: { companyId: { in: companyIds }, dueAt: { lt: new Date() }, status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] } } }),
       this.prisma.lifecycleProcess.groupBy({ by: ['processType', 'status'], where: { companyId: { in: companyIds } }, _count: { id: true }, _avg: { progress: true } }),
       this.prisma.acknowledgement.groupBy({ by: ['confirmedAt'], where: { entityType: 'ARTICLE' }, _count: { id: true } }),
     ])

@@ -29,7 +29,7 @@ export function configureApp(app: INestApplication): void {
     next()
   })
   app.use(requestObservability)
-  app.enableCors({ origin: config.FRONTEND_ORIGIN.split(',').map((value) => value.trim()), credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['content-type', 'x-csrf-token', 'x-reauth-challenge', 'idempotency-key', 'x-correlation-id'] })
+  app.enableCors({ origin: config.FRONTEND_ORIGIN.split(',').map((value) => value.trim()), credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['content-type', 'x-csrf-token', 'x-reauth-challenge', 'idempotency-key', 'x-correlation-id'] })
   if (config.TRUSTED_PROXY === 'true') {
     const server = app.getHttpAdapter().getInstance() as { set(name: string, value: number): void }
     server.set('trust proxy', 1)

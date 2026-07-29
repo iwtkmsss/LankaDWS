@@ -9,8 +9,8 @@ interface TaskProjectionSource {
   id: string
   workspaceId: string
   companyId: string
-  creatorId: string
-  assigneeId: string
+  createdById: string
+  reporterId: string
   version: number
   createdAt: Date
   updatedAt: Date
@@ -104,8 +104,8 @@ export class FeedProjectionService {
       sourceType: 'TASK',
       sourceId: task.id,
       sourceVersion: task.version,
-      actorId: actorId ?? task.creatorId,
-      recipientIds: [...new Set([task.creatorId, task.assigneeId, ...recipientIds])],
+      actorId: actorId ?? task.createdById,
+      recipientIds: [...new Set([task.createdById, task.reporterId, ...recipientIds])],
       visibility: 'PARTICIPANTS',
       occurredAt,
       ...projectionOptions,

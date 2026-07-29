@@ -116,6 +116,7 @@ export interface DialogBaseProps extends PropsWithChildren {
   closeLabel?: string
   titleVisibility?: 'visible' | 'sr-only'
   showClose?: boolean
+  className?: string
   initialFocusRef?: RefObject<HTMLElement | null>
   dialogRef?: RefObject<HTMLElement | null>
 }
@@ -133,6 +134,7 @@ export function DialogBase({
   closeLabel = 'Закрити',
   titleVisibility = 'visible',
   showClose = true,
+  className = '',
   initialFocusRef,
   dialogRef,
 }: DialogBaseProps) {
@@ -230,7 +232,7 @@ export function DialogBase({
     >
       <section
         ref={surfaceRef}
-        className={`overlay-surface overlay-surface--${variant} ${variant}`}
+        className={`overlay-surface overlay-surface--${variant} ${variant} ${className}`.trim()}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -279,6 +281,7 @@ export function Modal({
   onClose,
   closeDisabled = false,
   initialFocusRef,
+  className,
 }: PropsWithChildren<{
   title: string
   description?: string
@@ -286,6 +289,7 @@ export function Modal({
   onClose: () => void
   closeDisabled?: boolean
   initialFocusRef?: RefObject<HTMLElement | null>
+  className?: string
 }>) {
   return (
     <DialogBase
@@ -295,6 +299,7 @@ export function Modal({
       onClose={onClose}
       footer={footer}
       closeDisabled={closeDisabled}
+      className={className}
       closeOnBackdrop={!closeDisabled}
       closeOnEscape={!closeDisabled}
       initialFocusRef={initialFocusRef}

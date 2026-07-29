@@ -9,7 +9,7 @@ BERT CRM — npm-workspaces modular monolith. `apps/web` є React/Vite client, `
 ## Модулі
 
 - Identity: auth, password/TOTP lifecycle, opaque sessions, users, одна організація, рекурсивна структура підрозділів, roles та authorization.
-- Work: tasks/checklist/recurrence, calendar/presence та onboarding/offboarding.
+- Work: collaborative tasks/participants/checklist/relations/reminders/recurrence/time, calendar/presence та onboarding/offboarding.
 - Content: documents/files, knowledge, announcements, contextual chat/comments і notifications.
 - Platform: search, analytics, append-only audit/export, durable jobs/outbox, retention/legal hold, backup/restore та health/observability.
 
@@ -21,6 +21,7 @@ Cross-module effect починається з outbox/job reference, записа
 - Absence submit атомарно пише snapshot, encrypted private HR detail, approval attempt, audit та outbox.
 - Approval атомарно пише version-checked decision, audit і effect records; пізніший effect failure не відкочує рішення людини.
 - Announcement publish фіксує audience/version та materialization event; receipts створює worker.
+- Task create атомарно пише canonical task, participant roles, checklist, tags, relations, reminders, recurrence, staged file links, idempotency record, audit та outbox. Файл до commit лишається в наявному quarantine lifecycle.
 - Deactivation і credential reset відкликають sessions та змінюють authorization version у тому самому logical operation.
 - Retention purge виконується лише після dry-run/re-auth, повторно обчислює eligible rows і виключає active exact-scope legal holds.
 
@@ -39,3 +40,5 @@ List/detail/mutation/search/notification/file операції спочатку 
 `companyId` тимчасово лишається внутрішнім persistence key для сумісності з наявними таблицями та історичними міграціями. Це не продуктове поняття: API завжди резолвить його в один primary organization record, відхиляє інші legacy ID, не підтримує `company=all`, а web-клієнт не показує перемикач і не зберігає company scope в URL.
 
 Structured request logs містять correlation ID, safe route pattern, status і latency без body/query values. Detailed health/metrics захищений `system.manage`; public liveness/readiness не розкриває DB/file paths або queue payload.
+
+Task controller делегує нові write/read flows у `TaskCommandService`, `TaskQueryService` та вузькі hierarchy/participants/checklist/relations/reminders/recurrence/time/catalog/attachments services. `TaskCompatibilityService` із thin `TasksService` re-export підтримує наявні list/detail consumers під час поступової міграції, але не вводить другий task aggregate.

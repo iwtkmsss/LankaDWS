@@ -616,9 +616,28 @@ export class FeedService {
       this.prisma.task.count({
         where: {
           companyId: { in: companyIds },
-          assigneeId: principal.userId,
+          participants: {
+            some: {
+              userId: principal.userId,
+              role: 'RESPONSIBLE',
+              removedAt: null,
+            },
+          },
+          OR: [
+            { groupId: null },
+            {
+              group: {
+                members: {
+                  some: {
+                    userId: principal.userId,
+                    leftAt: null,
+                  },
+                },
+              },
+            },
+          ],
           archivedAt: null,
-          deadline: { lt: new Date() },
+          dueAt: { lt: new Date() },
           status: { notIn: ['DONE', 'CANCELLED', 'ARCHIVED'] },
         },
       }),
@@ -1643,8 +1662,8 @@ export class FeedService {
                   ? []
                   : [{
                       OR: [
-                        { creatorId: principal.userId },
-                        { assigneeId: principal.userId },
+                        { createdById: principal.userId },
+                        { reporterId: principal.userId },
                         {
                           participants: {
                             some: { userId: principal.userId, removedAt: null },
@@ -1653,6 +1672,24 @@ export class FeedService {
                       ],
                     }]),
               ],
+            },
+            include: {
+              participants: {
+                where: {
+                  role: 'RESPONSIBLE',
+                  removedAt: null,
+                },
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      displayName: true,
+                      avatarAsset: true,
+                    },
+                  },
+                },
+                orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              },
             },
           })
         : Promise.resolve([]),
@@ -1695,7 +1732,11 @@ export class FeedService {
     ])
     const userIds = new Set<string>([
       ...items.flatMap((item) => item.actorId ? [item.actorId] : []),
-      ...tasks.flatMap((task) => [task.assigneeId, task.creatorId]),
+      ...tasks.flatMap((task) => [
+        task.createdById,
+        task.reporterId,
+        ...task.participants.map((participant) => participant.userId),
+      ]),
       ...events.map((event) => event.ownerId),
       ...announcements.map((announcement) => announcement.authorId),
     ])
@@ -1717,7 +1758,7 @@ export class FeedService {
       if (item.sourceType === 'TASK') {
         const task = taskById.get(item.sourceId)
         if (!task) return []
-        const assignee = userById.get(task.assigneeId)
+        const assignee = task.participants[0]?.user
         return [{
           kind: 'SOURCE',
           id: task.id,
@@ -1733,7 +1774,7 @@ export class FeedService {
             task.number,
             this.taskStatusLabel(task.status),
             ...(assignee ? [`Відповідальна людина: ${assignee.displayName}`] : []),
-            ...(task.deadline ? [`Строк: ${this.formatFeedDate(task.deadline)}`] : []),
+            ...(task.dueAt ? [`Строк: ${this.formatFeedDate(task.dueAt)}`] : []),
           ],
           href: `/tasks/${encodeURIComponent(task.id)}?company=${encodeURIComponent(task.companyId)}`,
           actionState: 'AVAILABLE',

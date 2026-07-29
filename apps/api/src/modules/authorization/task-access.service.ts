@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { Permission } from '@bert-crm/contracts'
 import type { Task } from '../../generated/prisma/client.js'
 import { notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -11,6 +12,12 @@ export class TaskAccessService {
   async readableTask(principal: AuthPrincipal, taskId: string): Promise<Task> {
     const task = await this.findReadableTask(principal, taskId)
     if (!task) throw notFound()
+    return task
+  }
+
+  async editableTask(principal: AuthPrincipal, taskId: string): Promise<Task> {
+    const task = await this.findReadableTask(principal, taskId)
+    if (!task || !await this.canEdit(principal, task)) throw notFound()
     return task
   }
 
@@ -42,9 +49,10 @@ export class TaskAccessService {
     }
 
     if (
-      task.creatorId === principal.userId
-      || task.assigneeId === principal.userId
-      || principal.permissions.has('tasks.manage')
+      task.createdById === principal.userId
+      || task.reporterId === principal.userId
+      || principal.permissions.has(Permission.TasksManage)
+      || principal.permissions.has(Permission.TasksEditAny)
     ) {
       return task
     }
@@ -58,5 +66,26 @@ export class TaskAccessService {
       select: { id: true },
     })
     return participant ? task : null
+  }
+
+  private async canEdit(principal: AuthPrincipal, task: Task): Promise<boolean> {
+    if (
+      task.createdById === principal.userId
+      || task.reporterId === principal.userId
+      || principal.permissions.has(Permission.TasksManage)
+      || principal.permissions.has(Permission.TasksEditAny)
+    ) {
+      return true
+    }
+
+    return Boolean(await this.prisma.taskParticipant.findFirst({
+      where: {
+        taskId: task.id,
+        userId: principal.userId,
+        role: { in: ['RESPONSIBLE', 'COLLABORATOR'] },
+        removedAt: null,
+      },
+      select: { id: true },
+    }))
   }
 }

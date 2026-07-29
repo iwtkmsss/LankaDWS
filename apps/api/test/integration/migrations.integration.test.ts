@@ -3,7 +3,7 @@ import Database from 'better-sqlite3'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-const testDb = resolve('test/tmp/migrations.db')
+const testDb = resolve('test/tmp/ordered-migrations/database.db')
 let openDatabase: InstanceType<typeof Database> | undefined
 
 beforeEach(() => rmSync(dirname(testDb), { recursive: true, force: true }))

@@ -36,6 +36,7 @@ import {
   orgUnitListQuerySchema,
   shareFileToFeedSchema,
   updateOrganizationCapabilitySchema,
+  createTaskSchema,
 } from './index.js'
 
 const requiredManifestPaths = [
@@ -342,6 +343,53 @@ describe('transport schemas', () => {
       .toEqual({ lastReadMessageId: 'msg_1' })
     expect(updateChatPreferenceSchema.parse({ notificationMode: 'NONE', expectedVersion: 2 }))
       .toEqual({ notificationMode: 'NONE', expectedVersion: 2 })
+  })
+
+  it('validates a complete task create payload and participant invariants', () => {
+    expect(createTaskSchema.parse({
+      title: '  Підготувати запуск  ',
+      startsAt: '2026-08-01T09:00:00.000Z',
+      dueAt: '2026-08-02T09:00:00.000Z',
+      participants: [
+        { userId: 'usr_one', role: 'RESPONSIBLE' },
+        { userId: 'usr_two', role: 'WATCHER' },
+      ],
+      reminders: [{
+        target: { type: 'PARTICIPANTS' },
+        trigger: { type: 'BEFORE_DUE', offsetMinutes: 60 },
+      }],
+      recurrence: {
+        frequency: 'WEEKLY',
+        interval: 2,
+        startsAt: '2026-08-01T09:00:00.000Z',
+        daysOfWeek: [1, 5],
+        maxOccurrences: 10,
+      },
+    })).toMatchObject({
+      title: 'Підготувати запуск',
+      priority: 'MEDIUM',
+      participants: [
+        { userId: 'usr_one', role: 'RESPONSIBLE' },
+        { userId: 'usr_two', role: 'WATCHER' },
+      ],
+      checklistItems: [],
+      tagIds: [],
+      relations: [],
+      attachmentIds: [],
+    })
+
+    expect(() => createTaskSchema.parse({
+      title: 'Без відповідального',
+      participants: [{ userId: 'usr_one', role: 'WATCHER' }],
+    })).toThrow()
+
+    expect(() => createTaskSchema.parse({
+      title: 'Дубль ролі',
+      participants: [
+        { userId: 'usr_one', role: 'RESPONSIBLE' },
+        { userId: 'usr_one', role: 'COLLABORATOR' },
+      ],
+    })).toThrow()
   })
 
   it('keeps import states explicit and production apply separate from readiness', () => {

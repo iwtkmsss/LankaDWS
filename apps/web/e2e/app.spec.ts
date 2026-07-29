@@ -10,6 +10,26 @@ async function login(page: Page, username = 'maria') {
   await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
 }
 
+async function createTaskThroughModal(
+  page: Page,
+  title: string,
+  options: { description?: string; additionalResponsible?: string } = {},
+) {
+  await page.goto('/tasks/new')
+  const dialog = page.getByRole('dialog', { name: 'Нове завдання' })
+  await expect(dialog).toBeVisible()
+  await page.getByLabel('Назва завдання').fill(title)
+  if (options.description) await page.getByLabel('Опис').fill(options.description)
+  if (options.additionalResponsible) {
+    await page.getByLabel('Розділи форми').getByRole('button', { name: 'Учасники' }).click()
+    await dialog.getByText(options.additionalResponsible, { exact: true }).click()
+    await page.getByLabel(`Роль: ${options.additionalResponsible}`).selectOption('RESPONSIBLE')
+  }
+  await page.getByRole('button', { name: 'Створити завдання' }).click()
+  await expect(page).toHaveURL(/\/tasks\/tsk_/)
+  await expect(page.getByRole('dialog').getByRole('heading', { name: title })).toBeVisible()
+}
+
 test('employee feed and canonical navigation are accessible', async ({ page }, testInfo) => {
   await login(page)
   await page.goto('/feed')
@@ -195,12 +215,9 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   const parentTitle = `Підготувати запуск · ${testInfo.project.name}`
   const subtaskTitle = `Перевірити результат · ${testInfo.project.name}`
   await login(page, username)
-  await page.goto('/tasks/new?company=cmp_bert_ua')
-  await page.getByLabel('Назва', { exact: true }).fill(parentTitle)
-  await page.getByLabel('Виконавець').selectOption(assigneeId)
-  await page.getByLabel('Опис').fill('Один зрозумілий результат із окремою відповідальною підзадачею.')
-  await page.getByRole('button', { name: 'Створити', exact: true }).click()
-  await expect(page.getByRole('heading', { name: parentTitle })).toBeVisible()
+  await createTaskThroughModal(page, parentTitle, {
+    description: 'Один зрозумілий результат із окремою відповідальною підзадачею.',
+  })
 
   await page.getByRole('button', { name: 'Додати підзадачу' }).click()
   const subtaskForm = page.locator('.task-subtask-form')
@@ -276,11 +293,7 @@ test('task role views explain why a task is visible and participant management s
   await expect(page.getByLabel('Змінити статус')).toHaveCount(0)
 
   const title = `Перевірити керування учасниками · ${testInfo.project.name}`
-  await page.goto('/tasks/new?company=cmp_bert_ua')
-  await page.getByLabel('Назва', { exact: true }).fill(title)
-  await page.getByLabel('Виконавець').selectOption('usr_andrii')
-  await page.getByRole('button', { name: 'Створити', exact: true }).click()
-  await expect(page.getByRole('heading', { name: title })).toBeVisible()
+  await createTaskThroughModal(page, title, { additionalResponsible: 'Андрій Коваль' })
   await page.getByRole('button', { name: 'Керувати' }).click()
   const participantSection = page.locator('.task-participants')
   const participantId = testInfo.project.name === 'mobile-chromium' ? 'usr_dmytro' : 'usr_marko'
@@ -341,14 +354,16 @@ test('administrator sees the approved grouped admin navigation', async ({ page }
   await login(page, 'dmytro')
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: 'Адміністрування', exact: true })).toBeVisible()
-  const inlineUsers = page.getByRole('link', { name: 'Користувачі', exact: true })
-  if (await inlineUsers.isVisible()) {
-    await expect(inlineUsers).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
+  if (testInfo.project.name === 'mobile-chromium') {
+    await page.getByRole('button', { name: 'Відкрити меню' }).click()
+    const sidebar = page.locator('.sidebar')
+    await expect(sidebar.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
   } else {
-    await page.getByRole('button', { name: 'Ще', exact: true }).click()
-    await expect(page.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Ролі та права', exact: true })).toBeVisible()
+    await page.locator('.sidebar').getByRole('button', { name: 'Ще' }).click()
+    const overflowMenu = page.getByRole('menu', { name: 'Додаткові розділи' })
+    await expect(overflowMenu.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
+    await expect(overflowMenu.getByRole('menuitem', { name: 'Ролі та права', exact: true })).toBeVisible()
   }
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
 })
@@ -362,9 +377,15 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
   await expect(sidebar.getByText('Компанія', { exact: true })).toBeVisible()
   await expect(sidebar.getByText('Управління', { exact: true })).toBeVisible()
+  const moreButton = sidebar.getByRole('button', { name: 'Ще' })
+  await expect(moreButton).toBeVisible()
+  await moreButton.click()
+  const overflowMenu = page.getByRole('menu', { name: 'Додаткові розділи' })
   await expect(
-    sidebar.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
+    overflowMenu.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
   ).toBeVisible()
+  await expect(overflowMenu.getByRole('menuitem', { name: 'Адміністрування', exact: true })).toBeVisible()
+  await moreButton.click()
 
   await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()
   const feedLink = sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })
