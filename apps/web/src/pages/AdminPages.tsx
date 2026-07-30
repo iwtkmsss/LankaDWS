@@ -38,6 +38,8 @@ import {
   Skeleton,
   StatusBadge,
   Tabs,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
 } from '../shared/ui'
 
 interface AdminOverview {
@@ -332,6 +334,11 @@ function CreateUserDrawer({ onClose }: { onClose: () => void }) {
     expiresAt: string
   } | null>(null)
   const [error, setError] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({
+    dirty: dirty && !result,
+    onRequestClose: () => onClose(),
+  })
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
@@ -352,66 +359,69 @@ function CreateUserDrawer({ onClose }: { onClose: () => void }) {
     }
   }
   return (
-    <Drawer title="Новий користувач" onClose={onClose}>
-      {result ? (
-        <div className="credential-result">
-          <KeyRound size={28} />
-          <h3>Доступ створено</h3>
-          <p>Скопіюйте тимчасові дані зараз. Пароль більше не буде показано.</p>
-          <dl>
-            <div>
-              <dt>Нікнейм</dt>
-              <dd>@{result.username}</dd>
-            </div>
-            <div>
-              <dt>Тимчасовий пароль</dt>
-              <dd>
-                <code>{result.temporaryPassword}</code>
-                <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(result.temporaryPassword)}>
-                  <Clipboard size={16} />
-                  Копіювати
-                </Button>
-              </dd>
-            </div>
-            <div>
-              <dt>Діє до</dt>
-              <dd>{formatDateTime(result.expiresAt)}</dd>
-            </div>
-          </dl>
-          <Button onClick={onClose}>Готово</Button>
-        </div>
-      ) : (
-        <form className="entity-form" onSubmit={submit}>
-          <label className="span-2">
-            Ім’я
-            <input name="displayName" required />
-          </label>
-          <label>
-            Нікнейм
-            <input name="username" required pattern="[a-z0-9._-]{3,32}" />
-          </label>
-          <label>
-            Посада
-            <input name="jobTitle" />
-          </label>
-          <label>
-            Роль
-            <select name="roleId" required defaultValue="">
-              <option disabled value="">
-                Оберіть
-              </option>
-              {roles.data?.items.map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.name}
+    <>
+      <Drawer title="Новий користувач" onRequestClose={closeGuard.requestClose}>
+        {result ? (
+          <div className="credential-result">
+            <KeyRound size={28} />
+            <h3>Доступ створено</h3>
+            <p>Скопіюйте тимчасові дані зараз. Пароль більше не буде показано.</p>
+            <dl>
+              <div>
+                <dt>Нікнейм</dt>
+                <dd>@{result.username}</dd>
+              </div>
+              <div>
+                <dt>Тимчасовий пароль</dt>
+                <dd>
+                  <code>{result.temporaryPassword}</code>
+                  <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(result.temporaryPassword)}>
+                    <Clipboard size={16} />
+                    Копіювати
+                  </Button>
+                </dd>
+              </div>
+              <div>
+                <dt>Діє до</dt>
+                <dd>{formatDateTime(result.expiresAt)}</dd>
+              </div>
+            </dl>
+            <Button onClick={onClose}>Готово</Button>
+          </div>
+        ) : (
+          <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
+            <label className="span-2">
+              Ім’я
+              <input name="displayName" required />
+            </label>
+            <label>
+              Нікнейм
+              <input name="username" required pattern="[a-z0-9._-]{3,32}" />
+            </label>
+            <label>
+              Посада
+              <input name="jobTitle" />
+            </label>
+            <label>
+              Роль
+              <select name="roleId" required defaultValue="">
+                <option disabled value="">
+                  Оберіть
                 </option>
-              ))}
-            </select>
-          </label>
-          {error && <div className="form-error span-2">{error}</div>}
-          <Button className="span-2">Створити доступ</Button>
-        </form>
-      )}
-    </Drawer>
+                {roles.data?.items.map((item) => (
+                  <option value={item.id} key={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {error && <div className="form-error span-2">{error}</div>}
+            <Button className="span-2">Створити доступ</Button>
+          </form>
+        )}
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 
@@ -438,7 +448,7 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryFn: () => api<Detail>(`/admin/users/${id}`),
   })
   return (
-    <Drawer title="Користувач" onClose={onClose}>
+    <Drawer title="Користувач" onRequestClose={() => onClose()}>
       {query.isLoading ? (
         <Skeleton />
       ) : query.isError || !query.data ? (
@@ -482,6 +492,14 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 function RolesPage() {
   const { roleId } = useParams()
   const navigate = useNavigate()
+  const [roleDirty, setRoleDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({
+    dirty: Boolean(roleId && roleDirty),
+    onRequestClose: () => {
+      setRoleDirty(false)
+      navigate('/admin/roles')
+    },
+  })
   const query = useQuery({
     queryKey: ['admin-roles'],
     queryFn: () => api<{ items: Role[] }>('/admin/roles'),
@@ -514,14 +532,23 @@ function RolesPage() {
         )}
       </div>
       {roleId && (
-        <Drawer title="Редактор ролі" onClose={() => navigate('/admin/roles')}>
-          {selected ? <RoleDetail role={selected} /> : <Skeleton />}
+        <Drawer title="Редактор ролі" onRequestClose={closeGuard.requestClose}>
+          {selected ? (
+            <RoleDetail role={selected} onDirtyChange={setRoleDirty} />
+          ) : <Skeleton />}
         </Drawer>
       )}
+      <UnsavedChangesDialog guard={closeGuard} />
     </div>
   )
 }
-function RoleDetail({ role }: { role: Role }) {
+function RoleDetail({
+  role,
+  onDirtyChange,
+}: {
+  role: Role
+  onDirtyChange: (dirty: boolean) => void
+}) {
   const client = useQueryClient()
   const [permissions, setPermissions] = useState(
     role.permissions.map((item) => ({
@@ -535,7 +562,10 @@ function RoleDetail({ role }: { role: Role }) {
         method: 'PATCH',
         body: jsonBody({ expectedVersion: role.version, permissions }),
       }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-roles'] }),
+    onSuccess: () => {
+      onDirtyChange(false)
+      void client.invalidateQueries({ queryKey: ['admin-roles'] })
+    },
   })
   return (
     <div className="detail-stack">
@@ -559,11 +589,12 @@ function RoleDetail({ role }: { role: Role }) {
                 aria-label={`Scope для ${item.code}`}
                 value={item.scope}
                 onChange={(event) =>
-                  setPermissions((current) =>
-                    current.map((entry) =>
+                  setPermissions((current) => {
+                    onDirtyChange(true)
+                    return current.map((entry) =>
                       entry.code === item.code ? { ...entry, scope: event.target.value as RoleScope } : entry,
-                    ),
-                  )
+                    )
+                  })
                 }
               >
                 <option value="OWN">Власні</option>
@@ -749,7 +780,7 @@ function AuditPage() {
       {eventId && (
         <Drawer
           title="Подія журналу"
-          onClose={() => navigate(`/admin/audit?${params.toString()}`)}
+          onRequestClose={() => navigate(`/admin/audit?${params.toString()}`)}
         >
           {query.isLoading ? (
             <Skeleton />

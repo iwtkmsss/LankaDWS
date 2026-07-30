@@ -16,6 +16,82 @@ function futureLocalDateTime(daysFromNow: number): string {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
 
+test('shared modal shell traps focus, guards dirty closure and stays responsive', async ({ page }, testInfo) => {
+  await login(page)
+  await page.goto('/tasks/new')
+
+  const dialog = page.locator('.task-create-dialog')
+  const modalBody = dialog.locator(':scope > .overlay__body')
+  await expect(dialog).toBeVisible()
+  await expect(modalBody).toHaveCount(1)
+  await expect(page.evaluate(() => document.body.style.position)).resolves.toBe('fixed')
+  await expect(page.locator('.overlay-layer--modal')).toHaveCSS('backdrop-filter', 'none')
+
+  const verticalScrollContainers = await dialog.locator('*').evaluateAll((elements) => (
+    elements.filter((element) => {
+      if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return false
+      const overflow = getComputedStyle(element).overflowY
+      return overflow === 'auto' || overflow === 'scroll'
+    }).map((element) => element.className)
+  ))
+  expect(verticalScrollContainers).toEqual([expect.stringContaining('overlay__body')])
+  expect(await page.evaluate(() => (
+    document.documentElement.scrollWidth <= document.documentElement.clientWidth
+  ))).toBe(true)
+
+  if (testInfo.project.name === 'mobile-chromium') {
+    const box = await dialog.boundingBox()
+    const viewport = page.viewportSize()
+    expect(box).not.toBeNull()
+    expect(viewport).not.toBeNull()
+    expect(Math.abs(box!.x)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.y)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.width - viewport!.width)).toBeLessThanOrEqual(1)
+    expect(Math.abs(box!.height - viewport!.height)).toBeLessThanOrEqual(1)
+  }
+
+  const header = dialog.locator(':scope > .overlay__header')
+  const footer = dialog.locator(':scope > .overlay__footer')
+  const fixedRowsBefore = await Promise.all([header.boundingBox(), footer.boundingBox()])
+  await modalBody.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  const fixedRowsAfter = await Promise.all([header.boundingBox(), footer.boundingBox()])
+  expect(fixedRowsAfter[0]?.y).toBe(fixedRowsBefore[0]?.y)
+  expect(fixedRowsAfter[1]?.y).toBe(fixedRowsBefore[1]?.y)
+
+  const createButton = dialog.getByRole('button', { name: 'Створити завдання' })
+  await createButton.focus()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Закрити' })).toBeFocused()
+
+  await page.getByLabel('Назва завдання').fill(`Незавершена форма · ${testInfo.project.name}`)
+  await page.keyboard.press('Escape')
+  const confirmation = page.getByRole('alertdialog', { name: 'Закрити форму?' })
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation.getByRole('button', { name: 'Продовжити редагування' })).toBeFocused()
+  await expect(dialog).toHaveAttribute('aria-hidden', 'true')
+
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(page.evaluate(() => document.body.style.position)).resolves.toBe('fixed')
+
+  await dialog.getByRole('button', { name: 'Закрити' }).click()
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Продовжити редагування' }).click()
+  await expect(confirmation).toHaveCount(0)
+
+  await page.locator('.sidebar a[href="/overview"]').evaluate((element) => {
+    (element as HTMLElement).click()
+  })
+  await expect(confirmation).toBeVisible()
+  await expect(page).toHaveURL(/\/tasks\/new$/)
+  await confirmation.getByRole('button', { name: 'Закрити й зберегти' }).click()
+  await expect(page).toHaveURL(/\/overview$/)
+  await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe('')
+})
+
 test('creates a task through the complete modal workflow', async ({ page }, testInfo) => {
   await login(page)
   await page.goto('/tasks/new')

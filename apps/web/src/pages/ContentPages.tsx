@@ -6,7 +6,19 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
-import { Avatar, Button, Card, Drawer, EmptyState, ErrorState, PageHeader, Skeleton, StatusBadge } from '../shared/ui'
+import {
+  Avatar,
+  Button,
+  Card,
+  Drawer,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  StatusBadge,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
+} from '../shared/ui'
 
 interface ArticleList { id: string; slug: string; title: string; changeSummary: string; reviewAt: string | null; version: number; updatedAt: string }
 interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null }
@@ -305,35 +317,40 @@ function GroupsPage() {
 
 function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const [error, setError] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
   const create = useMutation({
     mutationFn: (input: Record<string, unknown>) => api<{ id: string }>('/groups', {
       method: 'POST',
       body: jsonBody(input),
     }),
-    onSuccess: (result) => onCreated(result.id),
+    onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
     onError: () => setError('Не вдалося створити групу. Перевірте назву й доступ.'),
   })
   return (
-    <Drawer title="Нова робоча група" onClose={onClose}>
-      <form className="entity-form" onSubmit={(event) => {
-        event.preventDefault()
-        const data = new FormData(event.currentTarget)
-        create.mutate({
-          companyId,
-          name: data.get('name'),
-          description: data.get('description') || undefined,
-          discoverability: data.get('discoverability'),
-          joinPolicy: data.get('joinPolicy'),
-        })
-      }}>
-        <label className="span-2">Назва<input name="name" required minLength={2} maxLength={120} autoFocus /></label>
-        <label className="span-2">Опис<textarea name="description" rows={4} maxLength={1000} /></label>
-        <label>Видимість<select name="discoverability" defaultValue="LISTED"><option value="LISTED">Видима всім</option><option value="HIDDEN">Прихована</option></select></label>
-        <label>Вступ<select name="joinPolicy" defaultValue="REQUEST"><option value="OPEN">Вільний</option><option value="REQUEST">За заявкою</option><option value="INVITE_ONLY">За запрошенням</option></select></label>
-        {error && <p className="form-error span-2">{error}</p>}
-        <Button className="span-2" disabled={create.isPending}>{create.isPending ? 'Створюємо…' : 'Створити групу'}</Button>
-      </form>
-    </Drawer>
+    <>
+      <Drawer title="Нова робоча група" onRequestClose={closeGuard.requestClose}>
+        <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => {
+          event.preventDefault()
+          const data = new FormData(event.currentTarget)
+          create.mutate({
+            companyId,
+            name: data.get('name'),
+            description: data.get('description') || undefined,
+            discoverability: data.get('discoverability'),
+            joinPolicy: data.get('joinPolicy'),
+          })
+        }}>
+          <label className="span-2">Назва<input name="name" required minLength={2} maxLength={120} autoFocus /></label>
+          <label className="span-2">Опис<textarea name="description" rows={4} maxLength={1000} /></label>
+          <label>Видимість<select name="discoverability" defaultValue="LISTED"><option value="LISTED">Видима всім</option><option value="HIDDEN">Прихована</option></select></label>
+          <label>Вступ<select name="joinPolicy" defaultValue="REQUEST"><option value="OPEN">Вільний</option><option value="REQUEST">За заявкою</option><option value="INVITE_ONLY">За запрошенням</option></select></label>
+          {error && <p className="form-error span-2">{error}</p>}
+          <Button className="span-2" disabled={create.isPending}>{create.isPending ? 'Створюємо…' : 'Створити групу'}</Button>
+        </form>
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 
@@ -342,6 +359,11 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
   const navigate = useNavigate()
   const { can, canUseCapability } = useAuth()
   const [settingsError, setSettingsError] = useState('')
+  const [settingsDirty, setSettingsDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({
+    dirty: settingsDirty,
+    onRequestClose: () => onClose(),
+  })
   const suffix = company ? `?company=${encodeURIComponent(company)}` : ''
   const query = useQuery({ queryKey: ['group', id, company], queryFn: () => api<GroupDetailView>(`/groups/${id}${suffix}`) })
   const refresh = () => {
@@ -359,6 +381,7 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
     mutationFn: (input: Record<string, unknown>) => api(`/groups/${id}`, { method: 'PATCH', body: jsonBody(input) }),
     onSuccess: () => {
       setSettingsError('')
+      setSettingsDirty(false)
       refresh()
     },
     onError: () => setSettingsError('Зміни не збережено. Оновіть групу й спробуйте ще раз.'),
@@ -396,8 +419,9 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
     <Button variant="secondary" disabled={leave.isPending} onClick={() => leave.mutate()}><LogOut size={17} />Вийти з групи</Button>
   ) : undefined
   return (
-    <Drawer title="Робоча група" onClose={onClose} footer={footer}>
-      {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
+    <>
+      <Drawer title="Робоча група" onRequestClose={closeGuard.requestClose} footer={footer}>
+        {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="detail-stack group-detail">
           <span className="group-icon">{query.data.discoverability === 'HIDDEN' ? <LockKeyhole size={22} /> : <UsersRound size={22} />}</span>
           <div>
@@ -472,7 +496,7 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
           {query.data.canEdit && query.data.status === 'ACTIVE' && (
             <details className="group-settings">
               <summary>Налаштування групи</summary>
-              <form onSubmit={(event) => {
+              <form onChange={() => setSettingsDirty(true)} onSubmit={(event) => {
                 event.preventDefault()
                 const data = new FormData(event.currentTarget)
                 update.mutate({
@@ -497,8 +521,10 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
           )}
           {query.data.status === 'ARCHIVED' && <p className="privacy-note"><Archive size={17} />Група доступна лише для перегляду.</p>}
         </div>
-      )}
-    </Drawer>
+        )}
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 
@@ -507,6 +533,8 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
   const selectedCompany = companyId || user?.organization.id || ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -532,7 +560,7 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
           changeSummary: data.get('summary'),
         }),
       })
-      onCreated(document.id)
+      closeGuard.closeForSuccess(() => onCreated(document.id))
     } catch {
       setError('Файл не пройшов перевірку або документ не вдалося створити.')
     } finally {
@@ -540,18 +568,25 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
     }
   }
   return (
-    <Drawer title="Новий документ" onClose={onClose}>
-      <form className="entity-form" onSubmit={submit}>
-        <label className="span-2">Назва<input name="name" required maxLength={180} /></label>
-        <label className="span-2 file-input">
-          <FilePlus2 /><span>PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ</span>
-          <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
-        </label>
-        <label className="span-2">Що у версії<input name="summary" placeholder="Перша версія" maxLength={180} /></label>
-        {error && <div className="form-error span-2">{error}</div>}
-        <Button className="span-2" disabled={busy}>{busy ? 'Перевіряємо файл…' : 'Завантажити на Диск'}</Button>
-      </form>
-    </Drawer>
+    <>
+      <Drawer
+        title="Новий документ"
+        closeDisabled={busy}
+        onRequestClose={closeGuard.requestClose}
+      >
+        <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
+          <label className="span-2">Назва<input name="name" required maxLength={180} /></label>
+          <label className="span-2 file-input">
+            <FilePlus2 /><span>PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ</span>
+            <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
+          </label>
+          <label className="span-2">Що у версії<input name="summary" placeholder="Перша версія" maxLength={180} /></label>
+          {error && <div className="form-error span-2">{error}</div>}
+          <Button className="span-2" disabled={busy}>{busy ? 'Перевіряємо файл…' : 'Завантажити на Диск'}</Button>
+        </form>
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 
@@ -570,6 +605,11 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const client = useQueryClient()
   const { can } = useAuth()
   const [versionError, setVersionError] = useState('')
+  const [versionDirty, setVersionDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({
+    dirty: versionDirty,
+    onRequestClose: () => onClose(),
+  })
   const query = useQuery({ queryKey: ['document', id], queryFn: () => api<Detail>(`/documents/${id}`) })
   const refresh = async () => {
     await Promise.all([
@@ -616,6 +656,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onSuccess: () => {
       setVersionError('')
+      setVersionDirty(false)
       void query.refetch()
       void client.invalidateQueries({ queryKey: ['documents'] })
     },
@@ -642,8 +683,9 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     </div>
   ) : undefined
   return (
-    <Drawer title={query.data?.number ?? 'Документ'} onClose={onClose} footer={footer}>
-      {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
+    <>
+      <Drawer title={query.data?.number ?? 'Документ'} onRequestClose={closeGuard.requestClose} footer={footer}>
+        {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="detail-stack">
           <div>
             <StatusBadge status={query.data.archivedAt ? 'ARCHIVED' : query.data.status} />
@@ -653,6 +695,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           {can('documents.manage') && !query.data.archivedAt && (
             <form
               className="document-version-form"
+              onChange={() => setVersionDirty(true)}
               onSubmit={(event) => {
                 event.preventDefault()
                 const data = new FormData(event.currentTarget)
@@ -692,8 +735,10 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             </div>
           </section>
         </div>
-      )}
-    </Drawer>
+        )}
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 
@@ -706,7 +751,7 @@ function KnowledgePage() {
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
   const client = useQueryClient(); const query = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`) })
   const ack = useMutation({ mutationFn: () => api(`/knowledge/articles/${slug}/acknowledge`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }) }), onSuccess: () => void client.invalidateQueries({ queryKey: ['article', slug] }) })
-  return <Drawer title="Стаття" onClose={onClose} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
+  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
 }
 
 function EmployeesPage() {
@@ -863,7 +908,7 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryFn: () => api<Employee>(`/employees/${id}`),
   })
   return (
-    <Drawer title="Профіль працівника" onClose={onClose}>
+    <Drawer title="Профіль працівника" onRequestClose={() => onClose()}>
       {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="employee-detail">
           <Avatar size="lg" name={query.data.displayName} src={query.data.avatarAsset} />

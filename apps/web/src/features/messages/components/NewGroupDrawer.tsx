@@ -2,7 +2,14 @@ import type { ChatContactUser } from '@bert-crm/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check, Plus, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, Button, Drawer, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  Button,
+  Drawer,
+  Skeleton,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
+} from '../../../shared/ui'
 import { createThread, searchChatUsers } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
 import { normalizedCodePointLength } from '../lib/messageText'
@@ -21,6 +28,10 @@ export function NewGroupDrawer({
   const [debounced, setDebounced] = useState('')
   const [selected, setSelected] = useState<ChatContactUser[]>([])
   const attemptRef = useRef({ signature: '', key: '' })
+  const closeGuard = useModalCloseGuard({
+    dirty: Boolean(title.trim() || selected.length),
+    onRequestClose: () => onClose(),
+  })
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
     return () => window.clearTimeout(timer)
@@ -48,7 +59,7 @@ export function NewGroupDrawer({
       }
       return createThread(payload, attemptRef.current.key)
     },
-    onSuccess: (thread) => onCreated(thread.id),
+    onSuccess: (thread) => closeGuard.closeForSuccess(() => onCreated(thread.id)),
   })
 
   function toggle(contact: ChatContactUser) {
@@ -60,22 +71,29 @@ export function NewGroupDrawer({
   }
 
   return (
-    <Drawer
-      title="Нова група"
-      onClose={onClose}
-      footer={(
-        <>
-          <Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>
-          <Button
-            disabled={create.isPending || title.trim().length < 2 || selected.length < 2}
-            onClick={() => create.mutate()}
-          >
-            Створити групу
-          </Button>
-        </>
-      )}
-    >
-      <div className="new-group">
+    <>
+      <Drawer
+        title="Нова група"
+        onRequestClose={closeGuard.requestClose}
+        footer={(
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => closeGuard.requestClose('cancel-button')}
+            >
+              Скасувати
+            </Button>
+            <Button
+              disabled={create.isPending || title.trim().length < 2 || selected.length < 2}
+              onClick={() => create.mutate()}
+            >
+              Створити групу
+            </Button>
+          </>
+        )}
+      >
+        <div className="new-group">
         <label>
           Назва групи
           <input
@@ -141,7 +159,9 @@ export function NewGroupDrawer({
           </div>
         )}
         {create.isError && <p className="form-error" role="alert">Не вдалося створити групу. Оновіть дані й спробуйте ще раз.</p>}
-      </div>
-    </Drawer>
+        </div>
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }

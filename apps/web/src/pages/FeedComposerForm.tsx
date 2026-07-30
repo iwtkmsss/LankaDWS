@@ -21,6 +21,7 @@ export function FeedComposerForm({
   onPostCreated,
   onFeedChanged,
   onBusyChange,
+  onDirtyChange,
   onNavigate,
 }: {
   company: string
@@ -28,6 +29,7 @@ export function FeedComposerForm({
   onPostCreated: () => void
   onFeedChanged: () => void
   onBusyChange: (busy: boolean) => void
+  onDirtyChange: (dirty: boolean) => void
   onNavigate: (path: string) => void
 }) {
   const [body, setBody] = useState('')
@@ -67,11 +69,21 @@ export function FeedComposerForm({
     },
   })
   const busy = create.isPending || uploading || sharingFile
+  const dirty = Boolean(
+    body.trim()
+    || audienceKey
+    || requiresAcknowledgement
+    || attachments.length,
+  )
 
   useEffect(() => {
     onBusyChange(busy)
     return () => onBusyChange(false)
   }, [busy, onBusyChange])
+
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
 
   const options = audiences.data?.items ?? []
   const selectedKey = audienceKey || (options[0] ? `${options[0].type}:${options[0].id}` : '')

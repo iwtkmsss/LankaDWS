@@ -60,6 +60,8 @@ import {
   PageHeader,
   Skeleton,
   Tabs,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
 } from '../shared/ui'
 import { FeedComposerForm, formatBytes } from './FeedComposerForm'
 
@@ -79,6 +81,14 @@ export function FeedPage() {
   const queryClient = useQueryClient()
   const [composerOpen, setComposerOpen] = useState(false)
   const [composerBusy, setComposerBusy] = useState(false)
+  const [composerDirty, setComposerDirty] = useState(false)
+  const composerCloseGuard = useModalCloseGuard({
+    dirty: composerOpen && composerDirty,
+    onRequestClose: () => {
+      setComposerDirty(false)
+      setComposerOpen(false)
+    },
+  })
   const readKey = useRef('')
   const company = user?.organization.id ?? ''
   const filter = parseFilter(params.get('filter'))
@@ -413,7 +423,10 @@ export function FeedPage() {
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
         action={can('feed.create') ? (
-          <Button onClick={() => setComposerOpen(true)}>
+          <Button onClick={() => {
+            setComposerDirty(false)
+            setComposerOpen(true)
+          }}>
             Створити публікацію
           </Button>
         ) : undefined}
@@ -688,21 +701,25 @@ export function FeedPage() {
           title="Створити публікацію"
           description="Поділіться важливим оновленням із потрібною аудиторією."
           closeDisabled={composerBusy}
-          onClose={() => setComposerOpen(false)}
+          onRequestClose={composerCloseGuard.requestClose}
         >
           <FeedComposerForm
             company={company}
             canShareFiles={can('documents.share')}
             onBusyChange={setComposerBusy}
+            onDirtyChange={setComposerDirty}
             onFeedChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-            onPostCreated={() => setComposerOpen(false)}
-            onNavigate={(path) => {
+            onPostCreated={() => composerCloseGuard.closeForSuccess(() => {
+              setComposerDirty(false)
               setComposerOpen(false)
+            })}
+            onNavigate={(path) => {
               navigate(withCompanyScope(path, company))
             }}
           />
         </Modal>
       )}
+      <UnsavedChangesDialog guard={composerCloseGuard} />
     </div>
   )
 }

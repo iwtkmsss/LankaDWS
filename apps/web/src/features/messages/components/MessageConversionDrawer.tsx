@@ -3,7 +3,12 @@ import { useMutation } from '@tanstack/react-query'
 import { CalendarPlus, ListTodo } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
-import { Button, Drawer } from '../../../shared/ui'
+import {
+  Button,
+  Drawer,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
+} from '../../../shared/ui'
 
 function localDateTime(value: Date): string {
   const pad = (number: number) => String(number).padStart(2, '0')
@@ -24,6 +29,8 @@ export function MessageConversionDrawer({
   onClose: () => void
 }) {
   const [error, setError] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
   const eventWindow = useMemo(() => {
     const start = new Date()
     start.setHours(start.getHours() + 1, 0, 0, 0)
@@ -38,7 +45,7 @@ export function MessageConversionDrawer({
         body: jsonBody(payload),
       },
     ),
-    onSuccess: onClose,
+    onSuccess: () => closeGuard.closeForSuccess(() => onClose()),
     onError: () => setError(`Не вдалося створити ${kind === 'task' ? 'завдання' : 'подію'}. Спробуйте ще раз.`),
   })
 
@@ -65,11 +72,12 @@ export function MessageConversionDrawer({
   }
 
   return (
-    <Drawer
-      title={kind === 'task' ? 'Створити завдання' : 'Додати подію'}
-      onClose={onClose}
-    >
-      <form className="message-conversion" onSubmit={submit}>
+    <>
+      <Drawer
+        title={kind === 'task' ? 'Створити завдання' : 'Додати подію'}
+        onRequestClose={closeGuard.requestClose}
+      >
+        <form className="message-conversion" onChange={() => setDirty(true)} onSubmit={submit}>
         <label>
           Назва
           <input name="title" required minLength={2} maxLength={180} defaultValue={message.body.slice(0, 180)} />
@@ -105,14 +113,22 @@ export function MessageConversionDrawer({
           </>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <div className="form-actions">
-          <Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>
-          <Button disabled={create.isPending}>
-            {kind === 'task' ? <ListTodo size={17} /> : <CalendarPlus size={17} />}
-            {create.isPending ? 'Створюємо…' : 'Створити'}
-          </Button>
-        </div>
-      </form>
-    </Drawer>
+          <div className="form-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => closeGuard.requestClose('cancel-button')}
+            >
+              Скасувати
+            </Button>
+            <Button disabled={create.isPending}>
+              {kind === 'task' ? <ListTodo size={17} /> : <CalendarPlus size={17} />}
+              {create.isPending ? 'Створюємо…' : 'Створити'}
+            </Button>
+          </div>
+        </form>
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }

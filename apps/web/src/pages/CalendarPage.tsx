@@ -6,7 +6,19 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { Button, Card, Drawer, EmptyState, ErrorState, PageHeader, Skeleton, Tabs } from '../shared/ui'
+import {
+  Button,
+  Card,
+  Drawer,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  Tabs,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
+  type ModalCloseGuardController,
+} from '../shared/ui'
 
 type CalendarEvent = EventListItem & {
   ownerId: string
@@ -26,7 +38,23 @@ export default function CalendarPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createDate, setCreateDate] = useState<string | null>(null)
   const [createTitle, setCreateTitle] = useState('')
+  const [createDirty, setCreateDirty] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [editDirty, setEditDirty] = useState(false)
+  const closeGuard = useModalCloseGuard({
+    dirty: (createOpen && createDirty) || (editOpen && editDirty),
+    onRequestClose: () => {
+      if (createOpen) {
+        setCreateDirty(false)
+        setCreateOpen(false)
+      } else if (editOpen) {
+        setEditDirty(false)
+        setEditOpen(false)
+      } else {
+        navigate(`/calendar?${params.toString()}`)
+      }
+    },
+  })
   const companyId = user?.organization.id ?? ''
   const rawView = params.get('view')
   const view: CalendarView = rawView === 'day' || rawView === 'week' || rawView === 'schedule' || rawView === 'list'
@@ -78,7 +106,10 @@ export default function CalendarPage() {
       }),
     }),
     onSuccess: async () => {
-      setEditOpen(false)
+      closeGuard.closeForSuccess(() => {
+        setEditDirty(false)
+        setEditOpen(false)
+      })
       await Promise.all([
         client.invalidateQueries({ queryKey: ['calendar'] }),
         client.invalidateQueries({ queryKey: ['calendar-event', eventId] }),
@@ -305,12 +336,12 @@ export default function CalendarPage() {
       {eventId && (
         <Drawer
           title={editOpen ? 'Редагувати подію' : 'Подія'}
-          onClose={() => {
-            if (editOpen) setEditOpen(false)
-            else navigate(`/calendar?${params.toString()}`)
-          }}
+          onRequestClose={closeGuard.requestClose}
           footer={selected && !editOpen && selected.ownerId === user?.id && canCreate ? (
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
+            <Button variant="secondary" onClick={() => {
+              setEditDirty(false)
+              setEditOpen(true)
+            }}>
               <Pencil size={16} />
               Редагувати
             </Button>
@@ -320,6 +351,7 @@ export default function CalendarPage() {
             editOpen ? (
               <form
                 className="entity-form calendar-create"
+                onChange={() => setEditDirty(true)}
                 onSubmit={(event) => {
                   event.preventDefault()
                   const form = new FormData(event.currentTarget)
@@ -373,7 +405,11 @@ export default function CalendarPage() {
                   </div>
                 )}
                 <div className="form-actions span-2">
-                  <Button type="button" variant="secondary" onClick={() => setEditOpen(false)}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => closeGuard.requestClose('cancel-button')}
+                  >
                     Скасувати
                   </Button>
                   <Button disabled={update.isPending}>
@@ -412,8 +448,10 @@ export default function CalendarPage() {
           organizationId={organizationId}
           initialDate={createDate}
           initialTitle={createTitle}
-          onClose={() => setCreateOpen(false)}
+          closeGuard={closeGuard}
+          onDirtyChange={setCreateDirty}
           onCreated={(id) => {
+            setCreateDirty(false)
             setCreateOpen(false)
             void client.invalidateQueries({ queryKey: ['calendar'] })
             const next = new URLSearchParams(params)
@@ -421,6 +459,7 @@ export default function CalendarPage() {
           }}
         />
       )}
+      <UnsavedChangesDialog guard={closeGuard} />
     </div>
   )
 }
@@ -484,13 +523,15 @@ function CalendarCreateDrawer({
   organizationId,
   initialDate,
   initialTitle,
-  onClose,
+  closeGuard,
+  onDirtyChange,
   onCreated,
 }: {
   organizationId: string
   initialDate: string | null
   initialTitle: string
-  onClose: () => void
+  closeGuard: ModalCloseGuardController
+  onDirtyChange: (dirty: boolean) => void
   onCreated: (id: string) => void
 }) {
   const defaults = useRef(nextEventWindow(initialDate))
@@ -516,7 +557,7 @@ function CalendarCreateDrawer({
         allDay: input.allDay,
       }),
     }),
-    onSuccess: (result) => onCreated(result.id),
+    onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
   })
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -538,38 +579,44 @@ function CalendarCreateDrawer({
   }
 
   return (
-    <Drawer title="Нова подія" onClose={onClose}>
-      <form className="entity-form calendar-create" onSubmit={submit}>
-        <input type="hidden" name="companyId" value={organizationId} />
-        <label className="span-2">
-          Назва
-          <input name="title" required minLength={2} maxLength={180} autoFocus defaultValue={initialTitle} placeholder="Наприклад, зустріч команди" />
-        </label>
-        <label>
-          Початок
-          <input type="datetime-local" name="startAt" required defaultValue={defaults.current.start} />
-        </label>
-        <label>
-          Завершення
-          <input type="datetime-local" name="endAt" required defaultValue={defaults.current.end} />
-        </label>
-        <label className="check-label span-2">
-          <input type="checkbox" name="allDay" />
-          Подія на весь день
-        </label>
-        {create.isError && (
-          <div className="form-error span-2" role="alert">
-            Не вдалося створити подію. Перевірте час початку й завершення.
+    <Drawer title="Нова подія" onRequestClose={closeGuard.requestClose}>
+        <form className="entity-form calendar-create" onChange={() => onDirtyChange(true)} onSubmit={submit}>
+          <input type="hidden" name="companyId" value={organizationId} />
+          <label className="span-2">
+            Назва
+            <input name="title" required minLength={2} maxLength={180} autoFocus defaultValue={initialTitle} placeholder="Наприклад, зустріч команди" />
+          </label>
+          <label>
+            Початок
+            <input type="datetime-local" name="startAt" required defaultValue={defaults.current.start} />
+          </label>
+          <label>
+            Завершення
+            <input type="datetime-local" name="endAt" required defaultValue={defaults.current.end} />
+          </label>
+          <label className="check-label span-2">
+            <input type="checkbox" name="allDay" />
+            Подія на весь день
+          </label>
+          {create.isError && (
+            <div className="form-error span-2" role="alert">
+              Не вдалося створити подію. Перевірте час початку й завершення.
+            </div>
+          )}
+          <div className="form-actions span-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => closeGuard.requestClose('cancel-button')}
+            >
+              Скасувати
+            </Button>
+            <Button disabled={create.isPending}>
+              <CalendarPlus size={17} />
+              {create.isPending ? 'Створюємо…' : 'Створити подію'}
+            </Button>
           </div>
-        )}
-        <div className="form-actions span-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>
-          <Button disabled={create.isPending}>
-            <CalendarPlus size={17} />
-            {create.isPending ? 'Створюємо…' : 'Створити подію'}
-          </Button>
-        </div>
-      </form>
+        </form>
     </Drawer>
   )
 }

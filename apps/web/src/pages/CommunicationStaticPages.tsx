@@ -296,7 +296,7 @@ function AnnouncementDrawer({ id, onClose }: { id: string; onClose: () => void }
   return (
     <Drawer
       title="Оголошення"
-      onClose={onClose}
+      onRequestClose={() => onClose()}
       footer={
         query.data && (
           <Button variant="secondary" onClick={() => read.mutate(Boolean(!query.data?.receipt.readAt))}>

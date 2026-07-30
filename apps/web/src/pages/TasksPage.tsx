@@ -53,6 +53,8 @@ import {
   Skeleton,
   StatusBadge,
   Tabs,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
 } from '../shared/ui'
 
 interface Employee {
@@ -691,6 +693,23 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
   const [personalMessage, setPersonalMessage] = useState('')
   const [activityOpen, setActivityOpen] = useState(false)
+  const [dirtyForms, setDirtyForms] = useState<string[]>([])
+  const markDirty = (form: string) => {
+    setDirtyForms((current) => current.includes(form) ? current : [...current, form])
+  }
+  const clearDirty = (form: string) => {
+    setDirtyForms((current) => current.filter((item) => item !== form))
+  }
+  const closeGuard = useModalCloseGuard({
+    dirty: Boolean(
+      dirtyForms.length
+      || comment.trim()
+      || replyTo
+      || commentAttachmentIds.length
+      || newItem.trim(),
+    ),
+    onRequestClose: () => onClose(),
+  })
   const statusErrorRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!statusError || !statusErrorRef.current) return
@@ -732,6 +751,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     }),
     onSuccess: () => {
       setEditMessage('')
+      clearDirty('edit')
       setEditOpen(false)
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
@@ -793,6 +813,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onSuccess: () => {
       setPersonalMessage('Нагадування заплановано.')
+      clearDirty('reminder')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
     onError: () => setPersonalMessage('Оберіть майбутні дату й час для нагадування.'),
@@ -842,6 +863,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     }),
     onSuccess: () => {
       setSubtaskError('')
+      clearDirty('subtask')
       setSubtaskFormOpen(false)
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
@@ -957,6 +979,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onSuccess: () => {
       setRecurrenceMessage('Повторення налаштовано.')
+      clearDirty('recurrence')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
   })
@@ -974,6 +997,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     }),
     onSuccess: () => {
       setParticipantMessage('Учасника додано.')
+      clearDirty('participant')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
     },
@@ -1008,34 +1032,35 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
   })
   return (
-    <Drawer
-      title={query.data?.number ?? 'Завдання'}
-      onClose={onClose}
-      footer={
-        query.data?.canEdit && (
-          <div className="drawer-actions">
-            <select
-              aria-label="Змінити статус"
-              aria-describedby={statusError ? 'task-status-error' : undefined}
-              disabled={status.isPending}
-              value={query.data.status}
-              onChange={(event) =>
-                status.mutate({
-                  status: event.target.value,
-                  expectedVersion: query.data.version,
-                })
-              }
-            >
-              <option value="NEW">Нове</option>
-              <option value="IN_PROGRESS">В роботі</option>
-              <option value="IN_REVIEW">На перевірці</option>
-              <option value="DONE">Виконано</option>
-              <option value="BLOCKED">Заблоковано</option>
-            </select>
-          </div>
-        )
-      }
-    >
+    <>
+      <Drawer
+        title={query.data?.number ?? 'Завдання'}
+        onRequestClose={closeGuard.requestClose}
+        footer={
+          query.data?.canEdit && (
+            <div className="drawer-actions">
+              <select
+                aria-label="Змінити статус"
+                aria-describedby={statusError ? 'task-status-error' : undefined}
+                disabled={status.isPending}
+                value={query.data.status}
+                onChange={(event) =>
+                  status.mutate({
+                    status: event.target.value,
+                    expectedVersion: query.data.version,
+                  })
+                }
+              >
+                <option value="NEW">Нове</option>
+                <option value="IN_PROGRESS">В роботі</option>
+                <option value="IN_REVIEW">На перевірці</option>
+                <option value="DONE">Виконано</option>
+                <option value="BLOCKED">Заблоковано</option>
+              </select>
+            </div>
+          )
+        }
+      >
       {query.isLoading ? (
         <Skeleton rows={6} />
       ) : query.isError || !query.data ? (
@@ -1064,6 +1089,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 aria-expanded={editOpen}
                 onClick={() => {
                   setEditMessage('')
+                  if (editOpen) clearDirty('edit')
                   setEditOpen((value) => !value)
                 }}
               >
@@ -1075,6 +1101,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
           {editOpen && (
             <form
               className="task-edit-form"
+              onChange={() => markDirty('edit')}
               onSubmit={(event) => {
                 event.preventDefault()
                 const form = new FormData(event.currentTarget)
@@ -1190,7 +1217,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => setEditOpen(false)}
+                  onClick={() => {
+                    clearDirty('edit')
+                    setEditOpen(false)
+                  }}
                 >
                   Скасувати
                 </Button>
@@ -1329,6 +1359,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   </ul>
                 )}
                 <form
+                  onChange={() => markDirty('reminder')}
                   onSubmit={(event) => {
                     event.preventDefault()
                     const form = new FormData(event.currentTarget)
@@ -1364,6 +1395,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   aria-expanded={participantsOpen}
                   onClick={() => {
                     setParticipantMessage('')
+                    if (participantsOpen) clearDirty('participant')
                     setParticipantsOpen((value) => !value)
                   }}
                 >
@@ -1419,6 +1451,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             {participantsOpen && (
               <form
                 className="task-participant-form"
+                onChange={() => markDirty('participant')}
                 onSubmit={(event) => {
                   event.preventDefault()
                   const form = new FormData(event.currentTarget)
@@ -1478,6 +1511,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     aria-expanded={subtaskFormOpen}
                     onClick={() => {
                       setSubtaskError('')
+                      if (subtaskFormOpen) clearDirty('subtask')
                       setSubtaskFormOpen((value) => !value)
                     }}
                   >
@@ -1510,6 +1544,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               {subtaskFormOpen && (
                 <form
                   className="task-subtask-form"
+                  onChange={() => markDirty('subtask')}
                   onSubmit={(event) => {
                     event.preventDefault()
                     if (!query.data) return
@@ -1586,7 +1621,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     <Button
                       type="button"
                       variant="ghost"
-                      onClick={() => setSubtaskFormOpen(false)}
+                      onClick={() => {
+                        clearDirty('subtask')
+                        setSubtaskFormOpen(false)
+                      }}
                     >
                       Скасувати
                     </Button>
@@ -1649,6 +1687,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <summary>Повторення завдання</summary>
               <form
                 className="recurrence-form"
+                onChange={() => markDirty('recurrence')}
                 onSubmit={(event) => {
                   event.preventDefault()
                   const form = new FormData(event.currentTarget)
@@ -1976,8 +2015,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             </form>
           </section>
         </div>
-      )}
-    </Drawer>
+        )}
+      </Drawer>
+      <UnsavedChangesDialog guard={closeGuard} />
+    </>
   )
 }
 

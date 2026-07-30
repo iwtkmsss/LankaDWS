@@ -98,7 +98,7 @@ export function ThreadInfoDrawer({
   return (
     <Drawer
       title="Інформація про діалог"
-      onClose={onClose}
+      onRequestClose={() => onClose()}
       footer={thread.canLeave ? (
         <Button
           variant="secondary"

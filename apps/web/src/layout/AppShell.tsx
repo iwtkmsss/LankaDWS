@@ -619,13 +619,16 @@ function CommandPalette({
     <DialogBase
       title="Глобальний пошук"
       variant="palette"
+      size="lg"
       titleVisibility="sr-only"
       showClose={false}
       initialFocusRef={searchInputRef}
-      onClose={onClose}
-    >
-      <div className="palette__content" ref={paletteRef}>
-        <div>
+      onRequestClose={() => onClose()}
+      bodyClassName="palette__body"
+      headerClassName="palette__header"
+      footerClassName="palette__footer"
+      header={(
+        <>
           <Search size={20} />
           <input
             ref={searchInputRef}
@@ -649,7 +652,16 @@ function CommandPalette({
           <IconButton label="Закрити пошук" onClick={onClose}>
             <X size={18} />
           </IconButton>
-        </div>
+        </>
+      )}
+      footer={(
+        <>
+          <span><kbd>↑</kbd><kbd>↓</kbd> вибір · <kbd>Enter</kbd> відкрити</span>
+          <span><kbd>Esc</kbd> закрити</span>
+        </>
+      )}
+    >
+      <div className="palette__results" ref={paletteRef}>
         {loading ? (
           <p>Шукаємо у доступних розділах…</p>
         ) : items.length ? (
@@ -678,7 +690,6 @@ function CommandPalette({
         ) : (
           <p>Нічого не знайдено</p>
         )}
-        <footer><span><kbd>↑</kbd><kbd>↓</kbd> вибір · <kbd>Enter</kbd> відкрити</span><span><kbd>Esc</kbd> закрити</span></footer>
       </div>
     </DialogBase>
   )

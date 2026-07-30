@@ -2,7 +2,31 @@ import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from 'react'
 import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle } from 'lucide-react'
 import { statusLabels } from '../lib/format'
 
-export { DialogBase, Drawer, Modal, OverlayProvider } from './Overlay'
+export {
+  ConfirmationDialog,
+  DialogBase,
+  Drawer,
+  Modal,
+  ModalBackdrop,
+  ModalBody,
+  ModalCloseButton,
+  ModalFooter,
+  ModalHeader,
+  ModalPanel,
+  ModalRoot,
+  OverlayProvider,
+  UnsavedChangesDialog,
+  useModalCloseGuard,
+} from './Overlay'
+export type {
+  DialogBaseProps,
+  ModalCloseReason,
+  ModalRootProps,
+  ModalRole,
+  ModalSize,
+  ModalVariant,
+  ModalCloseGuardController,
+} from './Overlay'
 
 export function Button({ variant = 'primary', className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }) {
   return <button className={`button button--${variant} ${className}`} {...props} />

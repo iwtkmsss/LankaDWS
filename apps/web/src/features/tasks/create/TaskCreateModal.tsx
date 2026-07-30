@@ -3,7 +3,13 @@ import { CircleCheck, LoaderCircle, RotateCcw, Save } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api, ApiProblem, idempotencyKey, jsonBody } from '../../../shared/api/client'
 import { useAuth } from '../../../shared/auth/AuthProvider'
-import { Button, Modal, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  ConfirmationDialog,
+  Modal,
+  Skeleton,
+  useModalCloseGuard,
+} from '../../../shared/ui'
 import { loadTaskCreateOptions } from './api'
 import { clearTaskDraft, loadTaskDraft, saveTaskDraft, taskDraftKey } from './draft'
 import { TaskChecklistSection } from './TaskChecklistSection'
@@ -72,14 +78,18 @@ export function TaskCreateModal({
   const [draft, setDraft] = useState<TaskCreateDraft>(() => restored ?? initial)
   const [section, setSection] = useState<TaskCreateSection>('main')
   const [message, setMessage] = useState('')
-  const [confirmClose, setConfirmClose] = useState(false)
   const [restoredVisible, setRestoredVisible] = useState(Boolean(restored))
   const titleRef = useRef<HTMLInputElement>(null)
+  const continueEditingRef = useRef<HTMLButtonElement>(null)
   const initialFocusApplied = useRef(false)
   const idempotencyRef = useRef(idempotencyKey('task'))
   const lastPayloadRef = useRef('')
   const pristineRef = useRef(JSON.stringify(initial))
   const dirty = JSON.stringify(draft) !== pristineRef.current
+  const closeGuard = useModalCloseGuard({
+    dirty,
+    onRequestClose: () => onClose(),
+  })
   const options = useQuery({
     queryKey: ['task-create-options', groupId, draft.projectId],
     queryFn: () => loadTaskCreateOptions(groupId, draft.projectId),
@@ -103,7 +113,7 @@ export function TaskCreateModal({
     onSuccess: (result) => {
       clearTaskDraft(draftKey)
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      onDone(result.id)
+      closeGuard.closeForSuccess(() => onDone(result.id))
     },
     onError: (error) => {
       setMessage(error instanceof ApiProblem
@@ -155,11 +165,6 @@ export function TaskCreateModal({
     setMessage('')
   }
 
-  function requestClose() {
-    if (dirty) setConfirmClose(true)
-    else onClose()
-  }
-
   function submit(event: FormEvent) {
     event.preventDefault()
     if (create.isPending) return
@@ -184,7 +189,7 @@ export function TaskCreateModal({
         type="button"
         variant="secondary"
         disabled={create.isPending}
-        onClick={requestClose}
+        onClick={() => closeGuard.requestClose('cancel-button')}
       >
         Скасувати
       </Button>
@@ -202,10 +207,11 @@ export function TaskCreateModal({
       <Modal
         title="Нове завдання"
         description={groupId ? 'Завдання в контексті робочої групи' : 'Повна постановка роботи в одному вікні'}
-        onClose={requestClose}
+        onRequestClose={closeGuard.requestClose}
         closeDisabled={create.isPending}
         initialFocusRef={titleRef}
         className="task-create-dialog"
+        size="xl"
         footer={footer}
       >
         <form id="task-create-form" className="task-create-form" onSubmit={submit}>
@@ -259,22 +265,26 @@ export function TaskCreateModal({
           </div>
         </form>
       </Modal>
-      {confirmClose && (
-        <Modal
+      {closeGuard.isConfirmationOpen && (
+        <ConfirmationDialog
           title="Закрити форму?"
           description="Чернетка залишиться на цьому пристрої протягом 7 днів."
-          onClose={() => setConfirmClose(false)}
+          onRequestClose={() => closeGuard.cancelClose()}
+          initialFocusRef={continueEditingRef}
           footer={(
             <>
-              <Button type="button" variant="secondary" onClick={() => setConfirmClose(false)}>
+              <button
+                ref={continueEditingRef}
+                type="button"
+                className="button button--secondary"
+                onClick={() => closeGuard.cancelClose()}
+              >
                 Продовжити редагування
-              </Button>
+              </button>
               <Button
                 type="button"
                 onClick={() => {
-                  saveTaskDraft(draftKey, draft)
-                  setConfirmClose(false)
-                  onClose()
+                  closeGuard.confirmClose(() => saveTaskDraft(draftKey, draft))
                 }}
               >
                 Закрити й зберегти
@@ -283,9 +293,7 @@ export function TaskCreateModal({
                 type="button"
                 variant="danger"
                 onClick={() => {
-                  clearTaskDraft(draftKey)
-                  setConfirmClose(false)
-                  onClose()
+                  closeGuard.confirmClose(() => clearTaskDraft(draftKey))
                 }}
               >
                 Видалити чернетку
@@ -294,7 +302,7 @@ export function TaskCreateModal({
           )}
         >
           <p>Незбережене на сервері завдання не буде створене.</p>
-        </Modal>
+        </ConfirmationDialog>
       )}
     </>
   )
