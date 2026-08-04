@@ -60,14 +60,7 @@ export function TaskPlanningSection({
   canManageRecurrence: boolean
 }) {
   return (
-    <section className="task-create-section" aria-labelledby="task-create-planning-title">
-      <header>
-        <div>
-          <span className="task-create-kicker">Крок 4</span>
-          <h3 id="task-create-planning-title">Планування</h3>
-        </div>
-        <p>Оцінка часу, нагадування та правила повторення.</p>
-      </header>
+    <div className="task-create-planning-section">
       <div className="task-create-planning-block">
         <label>
           Планова оцінка, хвилини
@@ -320,7 +313,7 @@ export function TaskPlanningSection({
           </div>
         )}
       </div>
-    </section>
+    </div>
   )
 }
 

@@ -1059,7 +1059,7 @@ function SystemTab({ tab }: { tab: string }) {
       icon: ShieldCheck,
       title: 'Бренд BERT',
       text: 'Runtime wordmark, кольори та локальні assets застосунку.',
-      items: ['Cobalt #1F5EFF', 'Onest', 'BERT CRM'],
+      items: ['Cobalt #1F5EFF', 'Roboto', 'BERT CRM'],
     },
   }
   const value = content[tab] ?? content.processes!

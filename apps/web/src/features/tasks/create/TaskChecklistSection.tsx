@@ -38,14 +38,7 @@ export function TaskChecklistSection({
   }
 
   return (
-    <section className="task-create-section" aria-labelledby="task-create-checklist-title">
-      <header>
-        <div>
-          <span className="task-create-kicker">Крок 3</span>
-          <h3 id="task-create-checklist-title">Чек-ліст</h3>
-        </div>
-        <p>Розкладіть результат на конкретні кроки.</p>
-      </header>
+    <div className="task-create-checklist-section">
       <div className="task-create-checklist-add">
         <label>
           Новий пункт
@@ -133,6 +126,6 @@ export function TaskChecklistSection({
           ))}
         </ol>
       )}
-    </section>
+    </div>
   )
 }

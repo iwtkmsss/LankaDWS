@@ -42,14 +42,7 @@ export function TaskRelationsSection({
   }
 
   return (
-    <section className="task-create-section" aria-labelledby="task-create-relations-title">
-      <header>
-        <div>
-          <span className="task-create-kicker">Крок 5</span>
-          <h3 id="task-create-relations-title">Зв’язки</h3>
-        </div>
-        <p>Підзавдання, залежності та пов’язані робочі елементи.</p>
-      </header>
+    <div className="task-create-relations-section">
       <div className="task-create-hierarchy-note">
         <GitBranch size={19} aria-hidden />
         <span>
@@ -154,6 +147,6 @@ export function TaskRelationsSection({
       <p className="task-create-help">
         Циклічні blocking-залежності та дублікати додатково перевіряються сервером.
       </p>
-    </section>
+    </div>
   )
 }

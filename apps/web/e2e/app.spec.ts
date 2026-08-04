@@ -21,9 +21,12 @@ async function createTaskThroughModal(
   await page.getByLabel('Назва завдання').fill(title)
   if (options.description) await page.getByLabel('Опис').fill(options.description)
   if (options.additionalResponsible) {
-    await page.getByLabel('Розділи форми').getByRole('button', { name: 'Учасники' }).click()
-    await dialog.getByText(options.additionalResponsible, { exact: true }).click()
-    await page.getByLabel(`Роль: ${options.additionalResponsible}`).selectOption('RESPONSIBLE')
+    const responsibleSelect = page.getByLabel('Додати відповідального')
+    const responsibleId = await responsibleSelect.locator('option').filter({
+      hasText: options.additionalResponsible,
+    }).getAttribute('value')
+    expect(responsibleId).toBeTruthy()
+    await responsibleSelect.selectOption(responsibleId!)
   }
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
