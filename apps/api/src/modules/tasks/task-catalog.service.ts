@@ -135,11 +135,14 @@ export class TaskCatalogService {
       this.prisma.user.findMany({
         where: {
           workspaceId: principal.workspaceId,
-          status: 'ACTIVE',
-          companyAccess: { some: { companyId, status: 'ACTIVE' } },
-          ...(groupId
-            ? { groupMemberships: { some: { groupId, leftAt: null } } }
-            : {}),
+          isActive: true,
+          OR: [
+            { accountType: 'ADMIN' },
+            {
+              primaryCompanyId: companyId,
+              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
+            },
+          ],
           ...(search
             ? { OR: [{ displayName: { contains: search } }, { jobTitle: { contains: search } }] }
             : {}),

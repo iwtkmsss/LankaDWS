@@ -49,7 +49,7 @@ export function Avatar({ name, src, size = 'md' }: { name: string; src?: string 
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const tone = ['DONE', 'SUCCEEDED', 'APPROVED', 'PUBLISHED', 'ACTIVE', 'READY'].includes(status) ? 'success' : ['BLOCKED', 'FAILED', 'REJECTED', 'DEACTIVATED'].includes(status) ? 'danger' : ['PENDING', 'RETURNED', 'QUEUED', 'SCHEDULED', 'PENDING_FIRST_LOGIN'].includes(status) ? 'warning' : 'info'
+  const tone = ['DONE', 'SUCCEEDED', 'APPROVED', 'PUBLISHED', 'ACTIVE', 'READY'].includes(status) ? 'success' : ['BLOCKED', 'FAILED', 'REJECTED', 'INACTIVE'].includes(status) ? 'danger' : ['PENDING', 'RETURNED', 'QUEUED', 'SCHEDULED'].includes(status) ? 'warning' : 'info'
   const Icon = tone === 'success' ? Check : tone === 'danger' ? CircleAlert : tone === 'warning' ? AlertTriangle : LoaderCircle
   return <span className={`status status--${tone}`}><Icon size={13} aria-hidden />{statusLabels[status] ?? status}</span>
 }

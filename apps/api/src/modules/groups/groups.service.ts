@@ -10,7 +10,7 @@ import {
 } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -162,8 +162,8 @@ export class GroupsService {
     const isMember = group.members.length > 0
     if ((!isMember && group.discoverability === 'HIDDEN') || (!isMember && group.status === 'ARCHIVED')) throw notFound()
     const canManageMembers = ['OWNER', 'MODERATOR'].includes(group.members[0]?.role ?? '')
-      || principal.permissions.has('groups.members.manage')
-    const canEdit = group.members[0]?.role === 'OWNER' || principal.permissions.has('groups.manage')
+      || isGlobalAdmin(principal)
+    const canEdit = group.members[0]?.role === 'OWNER' || isGlobalAdmin(principal)
     const [members, pendingRequests, currentRequest] = await Promise.all([
       this.prisma.groupMember.findMany({
         where: { groupId, leftAt: null },
@@ -207,7 +207,7 @@ export class GroupsService {
   }
 
   async update(principal: AuthPrincipal, groupId: string, input: UpdateGroupInput): Promise<{ version: number }> {
-    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId, OrganizationCapability.GroupsUi)
+    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId ?? principal.allowedCompanyIds[0], OrganizationCapability.GroupsUi)
     const group = await this.manageableGroup(principal, groupId)
     if (group.version !== input.expectedVersion || group.status !== 'ACTIVE') throw conflict()
     const changed = await this.prisma.group.updateMany({
@@ -225,7 +225,7 @@ export class GroupsService {
   }
 
   async archive(principal: AuthPrincipal, groupId: string, expectedVersion: number): Promise<{ archived: true }> {
-    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId, OrganizationCapability.GroupsUi)
+    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId ?? principal.allowedCompanyIds[0], OrganizationCapability.GroupsUi)
     const group = await this.manageableGroup(principal, groupId)
     if (group.version !== expectedVersion || group.status !== 'ACTIVE') throw conflict()
     const changed = await this.prisma.group.updateMany({
@@ -237,7 +237,7 @@ export class GroupsService {
   }
 
   async join(principal: AuthPrincipal, groupId: string): Promise<{ state: 'JOINED' | 'PENDING' }> {
-    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId, OrganizationCapability.GroupsUi)
+    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId ?? principal.allowedCompanyIds[0], OrganizationCapability.GroupsUi)
     const group = await this.prisma.group.findFirst({
       where: {
         id: groupId,
@@ -278,7 +278,7 @@ export class GroupsService {
   }
 
   async leave(principal: AuthPrincipal, groupId: string): Promise<{ left: true }> {
-    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId, OrganizationCapability.GroupsUi)
+    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId ?? principal.allowedCompanyIds[0], OrganizationCapability.GroupsUi)
     const membership = await this.prisma.groupMember.findFirst({
       where: {
         groupId,
@@ -306,11 +306,11 @@ export class GroupsService {
     requestId: string,
     decision: 'APPROVED' | 'REJECTED',
   ): Promise<{ decided: true }> {
-    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId, OrganizationCapability.GroupsUi)
+    await this.capabilities.assertEnabled(principal, principal.primaryCompanyId ?? principal.allowedCompanyIds[0], OrganizationCapability.GroupsUi)
     const manager = await this.prisma.groupMember.findFirst({
       where: { groupId, userId: principal.userId, leftAt: null, role: { in: ['OWNER', 'MODERATOR'] } },
     })
-    if (!manager && !principal.permissions.has('groups.members.manage')) throw forbidden()
+    if (!manager && !isGlobalAdmin(principal)) throw forbidden()
     const request = await this.prisma.groupJoinRequest.findFirst({
       where: {
         id: requestId,
@@ -356,7 +356,7 @@ export class GroupsService {
         },
       },
     })
-    if (!group || (group.members.length === 0 && !principal.permissions.has('groups.manage'))) throw notFound()
+    if (!group || (group.members.length === 0 && !isGlobalAdmin(principal))) throw notFound()
     return group
   }
 

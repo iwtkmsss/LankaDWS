@@ -1,13 +1,11 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common'
-import { orgUnitListQuerySchema, Permission } from '@bert-crm/contracts'
+import { orgUnitListQuerySchema } from '@bert-crm/contracts'
 import { badRequest } from '../../common/errors.js'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { OrgService } from './org.service.js'
 
 @Controller('org')
-@RequirePermissions(Permission.EmployeesOrgRead)
 export class OrgController {
   constructor(private readonly org: OrgService) {}
 

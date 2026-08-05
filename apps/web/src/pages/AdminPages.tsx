@@ -8,7 +8,6 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
-  Clipboard,
   Download,
   Database,
   FileClock,
@@ -38,16 +37,14 @@ import {
   Skeleton,
   StatusBadge,
   Tabs,
-  UnsavedChangesDialog,
-  useModalCloseGuard,
 } from '../shared/ui'
 
 interface AdminOverview {
-  users: { active: number; pending: number; deactivated: number }
+  users: { active: number; inactive: number }
   departments: number
-  roles: number
+  administrators: number
   twoFactorCoverage: number
-  attention: { pendingUsers: number; without2fa: number; failedJobs: number }
+  attention: { without2fa: number; failedJobs: number }
   recentAudit: AuditEvent[]
 }
 interface AdminUser {
@@ -55,24 +52,13 @@ interface AdminUser {
   displayName: string
   username: string
   jobTitle: string
-  status: string
-  roles: Array<{ id: string; name: string }>
-  displayRole: string
+  isActive: boolean
+  accountType: 'ADMIN' | 'USER'
+  company: { id: string; name: string } | null
   twoFactor: boolean
   activeSessionCount: number
   avatarAsset: string | null
   updatedAt: string
-}
-type RoleScope = 'OWN' | 'ALL_COMPANIES'
-interface Role {
-  id: string
-  name: string
-  description: string
-  version: number
-  isSystem: boolean
-  isFullAdmin: boolean
-  userCount: number
-  permissions: Array<{ id: string; permissionCode: string; scope: RoleScope }>
 }
 interface AuditEvent {
   id: string
@@ -99,7 +85,6 @@ export default function AdminPages() {
   const path = useLocation().pathname
   if (path === '/admin') return <AdminOverviewPage />
   if (path.startsWith('/admin/users')) return <UsersPage />
-  if (path.startsWith('/admin/roles')) return <RolesPage />
   if (path.startsWith('/admin/security')) return <SecurityPage />
   if (path.startsWith('/admin/audit')) return <AuditPage />
   if (path.startsWith('/admin/import')) return <ImportReadinessPage />
@@ -138,14 +123,6 @@ function AdminOverviewPage() {
       href: scoped('/admin/security'),
       icon: LockKeyhole,
     },
-    {
-      id: 'pending-users',
-      count: data.attention.pendingUsers,
-      label: 'Очікують першого входу',
-      action: 'Перевірити нові акаунти',
-      href: scoped('/admin/users?status=PENDING_FIRST_LOGIN'),
-      icon: KeyRound,
-    },
   ].filter((item) => item.count > 0)
   const attentionTotal = attentionItems.reduce((total, item) => total + item.count, 0)
   const primaryAttention = attentionItems[0]
@@ -167,10 +144,7 @@ function AdminOverviewPage() {
         <div className="admin-hero__next">
           <span>{primaryAttention ? 'Пріоритетна дія' : 'Наступний крок'}</span>
           <strong>{primaryAttention?.label ?? 'Перегляньте останні системні зміни'}</strong>
-          <Link
-            className="button button--primary"
-            to={primaryAttention?.href ?? scoped('/admin/audit')}
-          >
+          <Link className="button button--primary" to={primaryAttention?.href ?? scoped('/admin/audit')}>
             {primaryAttention?.action ?? 'Відкрити журнал'} <ArrowRight size={16} />
           </Link>
         </div>
@@ -178,7 +152,12 @@ function AdminOverviewPage() {
       <div className="kpi-grid">
         <Kpi icon={Users} value={data.users.active} label="Активні користувачі" href={scoped('/admin/users')} />
         <Kpi icon={Building2} value={data.departments} label="Підрозділи" href="/employees/org" />
-        <Kpi icon={UsersRound} value={data.roles} label="Активні ролі" href={scoped('/admin/roles')} />
+        <Kpi
+          icon={UsersRound}
+          value={data.administrators}
+          label="Глобальні адміністратори"
+          href={scoped('/admin/users?accountType=ADMIN')}
+        />
         <Kpi
           icon={ShieldCheck}
           value={`${data.twoFactorCoverage}%`}
@@ -193,19 +172,21 @@ function AdminOverviewPage() {
             <h2>Потребує уваги</h2>
           </header>
           <div className="attention-list">
-            {attentionItems.length ? attentionItems.map((item) => {
-              const Icon = item.icon
-              return (
-                <Link to={item.href} key={item.id}>
-                  <Icon />
-                  <span>
-                    <strong>{item.count}</strong>
-                    <small>{item.label}</small>
-                  </span>
-                  <ChevronRight />
-                </Link>
-              )
-            }) : (
+            {attentionItems.length ? (
+              attentionItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <Link to={item.href} key={item.id}>
+                    <Icon />
+                    <span>
+                      <strong>{item.count}</strong>
+                      <small>{item.label}</small>
+                    </span>
+                    <ChevronRight />
+                  </Link>
+                )
+              })
+            ) : (
               <div className="attention-list__clear">
                 <ShieldCheck size={22} />
                 <span>
@@ -231,21 +212,30 @@ function AdminOverviewPage() {
 function UsersPage() {
   const { userId } = useParams()
   const navigate = useNavigate()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
+  const filterSearch = params.toString()
   const [search, setSearch] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(params.get('new') === '1')
   const query = useQuery({
-    queryKey: ['admin-users', search, params.get('status')],
+    queryKey: ['admin-users', search, params.get('isActive'), params.get('companyId'), params.get('accountType')],
     queryFn: () =>
       api<{ items: AdminUser[] }>(
-        `/admin/users?search=${encodeURIComponent(search)}&status=${params.get('status') ?? ''}`,
+        `/admin/users?search=${encodeURIComponent(search)}&isActive=${params.get('isActive') ?? ''}&companyId=${params.get('companyId') ?? ''}&accountType=${params.get('accountType') ?? ''}`,
       ),
   })
+  function closeCreate() {
+    setCreating(false)
+    if (params.has('new')) {
+      const next = new URLSearchParams(params)
+      next.delete('new')
+      setParams(next, { replace: true })
+    }
+  }
   return (
     <div>
       <PageHeader
         title="Користувачі"
-        description="Акаунти, ролі, підрозділи та security-стан"
+        description="Глобальні адміністратори та користувачі ізольованих компаній"
         action={
           <Button onClick={() => setCreating(true)}>
             <Plus size={17} />
@@ -253,7 +243,7 @@ function UsersPage() {
           </Button>
         }
       />
-      <Card className="list-card">
+      <Card className="list-card admin-users-card">
         <div className="list-toolbar">
           <label className="search-field">
             <Search size={17} />
@@ -263,6 +253,7 @@ function UsersPage() {
               placeholder="Ім’я, нікнейм або посада"
             />
           </label>
+          <UserFilters params={params} onChange={setParams} />
         </div>
         {query.isLoading ? (
           <Skeleton rows={7} />
@@ -274,7 +265,7 @@ function UsersPage() {
               <thead>
                 <tr>
                   <th>Користувач</th>
-                  <th>Ролі</th>
+                  <th>Тип / компанія</th>
                   <th>2FA</th>
                   <th>Статус</th>
                 </tr>
@@ -283,7 +274,7 @@ function UsersPage() {
                 {query.data.items.map((user) => (
                   <tr key={user.id}>
                     <td>
-                      <Link to={`/admin/users/${user.id}`}>
+                      <Link to={`/admin/users/${user.id}${filterSearch ? `?${filterSearch}` : ''}`}>
                         <Avatar name={user.displayName} src={user.avatarAsset} />
                         <span>
                           <strong>{user.displayName}</strong>
@@ -293,7 +284,10 @@ function UsersPage() {
                         </span>
                       </Link>
                     </td>
-                    <td>{user.roles.map((role) => role.name).join(', ')}</td>
+                    <td>
+                      <strong>{user.accountType === 'ADMIN' ? 'Глобальний ADMIN' : 'USER'}</strong>
+                      <small>{user.company?.name ?? 'Без прив’язки до компанії'}</small>
+                    </td>
                     <td>
                       {user.twoFactor ? (
                         <span className="success-note">
@@ -305,7 +299,7 @@ function UsersPage() {
                       )}
                     </td>
                     <td>
-                      <StatusBadge status={user.status} />
+                      <StatusBadge status={user.isActive ? 'ACTIVE' : 'INACTIVE'} />
                     </td>
                   </tr>
                 ))}
@@ -316,112 +310,164 @@ function UsersPage() {
           <EmptyState title="Користувачів немає" description="Змініть фільтр або створіть обліковий запис." />
         )}
       </Card>
-      {userId && <UserDrawer id={userId} onClose={() => navigate('/admin/users')} />}
-      {creating && <CreateUserDrawer onClose={() => setCreating(false)} />}
+      {userId && (
+        <UserDrawer id={userId} onClose={() => navigate(`/admin/users${filterSearch ? `?${filterSearch}` : ''}`)} />
+      )}
+      {creating && <CreateUserDrawer defaultCompanyId={params.get('companyId') ?? ''} onClose={closeCreate} />}
     </div>
   )
 }
 
-function CreateUserDrawer({ onClose }: { onClose: () => void }) {
+function UserFilters({ params, onChange }: { params: URLSearchParams; onChange: (next: URLSearchParams) => void }) {
+  const companies = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
+  })
+  function set(name: string, value: string) {
+    const next = new URLSearchParams(params)
+    if (value) next.set(name, value)
+    else next.delete(name)
+    onChange(next)
+  }
+  return (
+    <div className="admin-user-filters">
+      <select
+        aria-label="Фільтр за компанією"
+        value={params.get('companyId') ?? ''}
+        onChange={(event) => set('companyId', event.target.value)}
+      >
+        <option value="">Усі компанії</option>
+        {companies.data?.items.map((company) => (
+          <option key={company.id} value={company.id}>
+            {company.name}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Фільтр за типом"
+        value={params.get('accountType') ?? ''}
+        onChange={(event) => set('accountType', event.target.value)}
+      >
+        <option value="">Усі типи</option>
+        <option value="USER">USER</option>
+        <option value="ADMIN">ADMIN</option>
+      </select>
+      <select
+        aria-label="Фільтр за станом"
+        value={params.get('isActive') ?? ''}
+        onChange={(event) => set('isActive', event.target.value)}
+      >
+        <option value="">Усі стани</option>
+        <option value="true">Активні</option>
+        <option value="false">Деактивовані</option>
+      </select>
+    </div>
+  )
+}
+
+function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => void; defaultCompanyId?: string }) {
   const client = useQueryClient()
-  const roles = useQuery({
-    queryKey: ['admin-roles'],
-    queryFn: () => api<{ items: Role[] }>('/admin/roles'),
+  const [accountType, setAccountType] = useState<'USER' | 'ADMIN'>('USER')
+  const [result, setResult] = useState<{ username: string; temporaryPassword: string; expiresAt: string } | null>(null)
+  const companies = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
   })
-  const [result, setResult] = useState<{
-    username: string
-    temporaryPassword: string
-    expiresAt: string
-  } | null>(null)
-  const [error, setError] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({
-    dirty: dirty && !result,
-    onRequestClose: () => onClose(),
-  })
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    try {
-      const created = await api<typeof result>('/admin/users', {
-        method: 'POST',
-        body: jsonBody({
-          displayName: data.get('displayName'),
-          username: data.get('username'),
-          jobTitle: data.get('jobTitle'),
-          roleId: data.get('roleId'),
-        }),
-      })
-      setResult(created)
-      void client.invalidateQueries({ queryKey: ['admin-users'] })
-    } catch {
-      setError('Не вдалося створити користувача. Перевірте унікальність нікнейма.')
-    }
+    const created = await api<typeof result>('/admin/users', {
+      method: 'POST',
+      body: jsonBody({
+        firstName: data.get('firstName'),
+        lastName: data.get('lastName'),
+        middleName: data.get('middleName') || undefined,
+        username: data.get('username'),
+        accountType,
+        companyId: accountType === 'USER' ? data.get('companyId') : undefined,
+        isActive: true,
+      }),
+    })
+    setResult(created)
+    void client.invalidateQueries({ queryKey: ['admin-users'] })
   }
+
   return (
-    <>
-      <Drawer title="Новий користувач" onRequestClose={closeGuard.requestClose}>
-        {result ? (
-          <div className="credential-result">
-            <KeyRound size={28} />
-            <h3>Доступ створено</h3>
-            <p>Скопіюйте тимчасові дані зараз. Пароль більше не буде показано.</p>
-            <dl>
-              <div>
-                <dt>Нікнейм</dt>
-                <dd>@{result.username}</dd>
-              </div>
-              <div>
-                <dt>Тимчасовий пароль</dt>
-                <dd>
-                  <code>{result.temporaryPassword}</code>
-                  <Button variant="ghost" onClick={() => void navigator.clipboard.writeText(result.temporaryPassword)}>
-                    <Clipboard size={16} />
-                    Копіювати
-                  </Button>
-                </dd>
-              </div>
-              <div>
-                <dt>Діє до</dt>
-                <dd>{formatDateTime(result.expiresAt)}</dd>
-              </div>
-            </dl>
-            <Button onClick={onClose}>Готово</Button>
+    <Drawer size="lg" title="Новий обліковий запис" onRequestClose={onClose}>
+      {result ? (
+        <div className="credential-result">
+          <KeyRound size={28} />
+          <h3>Доступ створено</h3>
+          <p>Передайте тимчасовий пароль захищеним каналом. Повторно він не показується.</p>
+          <dl>
+            <div>
+              <dt>Логін</dt>
+              <dd>@{result.username}</dd>
+            </div>
+            <div>
+              <dt>Тимчасовий пароль</dt>
+              <dd>
+                <code>{result.temporaryPassword}</code>
+              </dd>
+            </div>
+            <div>
+              <dt>Дійсний до</dt>
+              <dd>{formatDateTime(result.expiresAt)}</dd>
+            </div>
+          </dl>
+          <Button onClick={onClose}>Готово</Button>
+        </div>
+      ) : (
+        <form className="entity-form account-form" onSubmit={(event) => void submit(event)}>
+          <div className="form-section">
+            <span className="eyebrow">Основне</span>
+            <p>Лише дані, потрібні для першого входу. Контакти та посаду людина додає у своєму профілі.</p>
           </div>
-        ) : (
-          <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
+          <label>
+            Ім’я
+            <input name="firstName" required autoComplete="given-name" />
+          </label>
+          <label>
+            Прізвище
+            <input name="lastName" required autoComplete="family-name" />
+          </label>
+          <label className="span-2">
+            По батькові <small>(необов’язково)</small>
+            <input name="middleName" />
+          </label>
+          <label>
+            Логін
+            <input name="username" required pattern="[a-z0-9._-]{3,32}" autoComplete="username" />
+          </label>
+          <label>
+            Тип облікового запису
+            <select value={accountType} onChange={(event) => setAccountType(event.target.value as 'USER' | 'ADMIN')}>
+              <option value="USER">Користувач компанії</option>
+              <option value="ADMIN">Глобальний адміністратор</option>
+            </select>
+          </label>
+          {accountType === 'USER' && (
             <label className="span-2">
-              Ім’я
-              <input name="displayName" required />
-            </label>
-            <label>
-              Нікнейм
-              <input name="username" required pattern="[a-z0-9._-]{3,32}" />
-            </label>
-            <label>
-              Посада
-              <input name="jobTitle" />
-            </label>
-            <label>
-              Роль
-              <select name="roleId" required defaultValue="">
+              Компанія
+              <select name="companyId" required defaultValue={defaultCompanyId}>
                 <option disabled value="">
-                  Оберіть
+                  Оберіть компанію
                 </option>
-                {roles.data?.items.map((item) => (
-                  <option value={item.id} key={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+                {companies.data?.items
+                  .filter((company) => company.isActive)
+                  .map((company) => (
+                    <option value={company.id} key={company.id}>
+                      {company.name}
+                    </option>
+                  ))}
               </select>
             </label>
-            {error && <div className="form-error span-2">{error}</div>}
-            <Button className="span-2">Створити доступ</Button>
-          </form>
-        )}
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
-    </>
+          )}
+          <Button className="span-2">Створити доступ</Button>
+        </form>
+      )}
+    </Drawer>
   )
 }
 
@@ -431,15 +477,15 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     displayName: string
     username: string
     jobTitle: string
-    displayRole: string
-    status: string
+    isActive: boolean
     timezone: string
     version: number
-    roles: Role[]
+    accountType: 'ADMIN' | 'USER'
+    company: { id: string; name: string } | null
+    contactEmail: string | null
     security: {
       twoFactor: boolean
       activeSessions: number
-      mustChangePassword: boolean
       mustEnroll2FA: boolean
     }
   }
@@ -447,185 +493,180 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryKey: ['admin-user', id],
     queryFn: () => api<Detail>(`/admin/users/${id}`),
   })
+  const [editing, setEditing] = useState(false)
   return (
-    <Drawer title="Користувач" onRequestClose={() => onClose()}>
-      {query.isLoading ? (
-        <Skeleton />
-      ) : query.isError || !query.data ? (
-        <ErrorState />
-      ) : (
-        <div className="detail-stack">
-          <div className="user-detail-head">
-            <Avatar size="lg" name={query.data.displayName} />
-            <div>
-              <StatusBadge status={query.data.status} />
-              <h3>{query.data.displayName}</h3>
-              <p>
-                @{query.data.username} · {query.data.jobTitle}
-              </p>
+    <>
+      <Drawer title="Користувач" onRequestClose={() => onClose()}>
+        {query.isLoading ? (
+          <Skeleton />
+        ) : query.isError || !query.data ? (
+          <ErrorState />
+        ) : (
+          <div className="detail-stack">
+            <div className="user-detail-head">
+              <Avatar size="lg" name={query.data.displayName} />
+              <div>
+                <StatusBadge status={query.data.isActive ? 'ACTIVE' : 'INACTIVE'} />
+                <h3>{query.data.displayName}</h3>
+                <p>
+                  @{query.data.username} · {query.data.jobTitle}
+                </p>
+              </div>
             </div>
+            <dl className="detail-grid">
+              <div>
+                <dt>Тип доступу</dt>
+                <dd>
+                  {query.data.accountType === 'ADMIN'
+                    ? 'Глобальний ADMIN'
+                    : `USER · ${query.data.company?.name ?? '—'}`}
+                </dd>
+              </div>
+              <div>
+                <dt>2FA</dt>
+                <dd>{query.data.security.twoFactor ? 'Увімкнено' : 'Не налаштовано'}</dd>
+              </div>
+              <div>
+                <dt>Активні сесії</dt>
+                <dd>{query.data.security.activeSessions}</dd>
+              </div>
+            </dl>
+            <p className="privacy-note">
+              <ShieldCheck size={16} />
+              Перевірка доступу не створює сесію від імені користувача.
+            </p>
+            <Button variant="secondary" onClick={() => setEditing(true)}>
+              Редагувати користувача
+            </Button>
           </div>
-          <dl className="detail-grid">
-            <div>
-              <dt>Роль</dt>
-              <dd>{query.data.displayRole}</dd>
-            </div>
-            <div>
-              <dt>2FA</dt>
-              <dd>{query.data.security.twoFactor ? 'Увімкнено' : 'Не налаштовано'}</dd>
-            </div>
-            <div>
-              <dt>Активні сесії</dt>
-              <dd>{query.data.security.activeSessions}</dd>
-            </div>
-          </dl>
-          <p className="privacy-note">
-            <ShieldCheck size={16} />
-            Перевірка доступу не створює сесію від імені користувача.
-          </p>
-        </div>
+        )}
+      </Drawer>
+      {editing && query.data && (
+        <UserEditor
+          user={query.data}
+          onClose={() => {
+            setEditing(false)
+            void query.refetch()
+          }}
+        />
       )}
-    </Drawer>
+    </>
   )
 }
 
-function RolesPage() {
-  const { roleId } = useParams()
-  const navigate = useNavigate()
-  const [roleDirty, setRoleDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({
-    dirty: Boolean(roleId && roleDirty),
-    onRequestClose: () => {
-      setRoleDirty(false)
-      navigate('/admin/roles')
-    },
-  })
-  const query = useQuery({
-    queryKey: ['admin-roles'],
-    queryFn: () => api<{ items: Role[] }>('/admin/roles'),
-  })
-  const selected = query.data?.items.find((role) => role.id === roleId)
-  return (
-    <div>
-      <PageHeader title="Ролі та права" description="Permission, scope та контрольований вплив змін" />
-      <div className="role-grid">
-        {query.isLoading ? (
-          <Skeleton rows={6} />
-        ) : query.isError ? (
-          <ErrorState />
-        ) : (
-          query.data?.items.map((role) => (
-            <Link to={`/admin/roles/${role.id}`} key={role.id}>
-              <span>
-                <ShieldCheck />
-              </span>
-              <div>
-                <h2>{role.name}</h2>
-                <p>{role.description}</p>
-                <small>
-                  {role.permissions.length} прав · {role.userCount} користувачів
-                </small>
-              </div>
-              {role.isSystem && <b>Системна</b>}
-            </Link>
-          ))
-        )}
-      </div>
-      {roleId && (
-        <Drawer title="Редактор ролі" onRequestClose={closeGuard.requestClose}>
-          {selected ? (
-            <RoleDetail role={selected} onDirtyChange={setRoleDirty} />
-          ) : <Skeleton />}
-        </Drawer>
-      )}
-      <UnsavedChangesDialog guard={closeGuard} />
-    </div>
-  )
-}
-function RoleDetail({
-  role,
-  onDirtyChange,
+function UserEditor({
+  user,
+  onClose,
 }: {
-  role: Role
-  onDirtyChange: (dirty: boolean) => void
+  user: {
+    id: string
+    displayName: string
+    username: string
+    accountType: 'ADMIN' | 'USER'
+    company: { id: string; name: string } | null
+    contactEmail: string | null
+    jobTitle: string
+    isActive: boolean
+  }
+  onClose: () => void
 }) {
   const client = useQueryClient()
-  const [permissions, setPermissions] = useState(
-    role.permissions.map((item) => ({
-      code: item.permissionCode,
-      scope: (item.scope === 'OWN' ? 'OWN' : 'ALL_COMPANIES') as RoleScope,
-    })),
-  )
-  const save = useMutation({
-    mutationFn: () =>
-      api(`/admin/roles/${role.id}`, {
-        method: 'PATCH',
-        body: jsonBody({ expectedVersion: role.version, permissions }),
-      }),
+  const [accountType, setAccountType] = useState(user.accountType)
+  const companies = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
+  })
+  const mutation = useMutation({
+    mutationFn: (body: object) => api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) }),
     onSuccess: () => {
-      onDirtyChange(false)
-      void client.invalidateQueries({ queryKey: ['admin-roles'] })
+      void client.invalidateQueries({ queryKey: ['admin-users'] })
+      void client.invalidateQueries({ queryKey: ['admin-user', user.id] })
+      onClose()
     },
   })
+  const names = user.displayName.split(' ')
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const data = new FormData(event.currentTarget)
+    mutation.mutate({
+      firstName: data.get('firstName'),
+      lastName: data.get('lastName'),
+      middleName: data.get('middleName') || undefined,
+      username: data.get('username'),
+      accountType,
+      companyId: accountType === 'USER' ? data.get('companyId') : undefined,
+      isActive: data.get('isActive') === 'on',
+      contactEmail: data.get('contactEmail') || null,
+      jobTitle: data.get('jobTitle'),
+    })
+  }
   return (
-    <div className="detail-stack">
-      <div>
-        <StatusBadge status="ACTIVE" />
-        <h3>{role.name}</h3>
-        <p>{role.description}</p>
-      </div>
-      <p className="impact-note">
-        <AlertTriangle size={17} />
-        Зміна прав оновить authorization version {role.userCount} користувачів і змусить сесії перевірити права
-        повторно.
-      </p>
-      <section>
-        <h4>Дозволи й scope</h4>
-        <div className="permission-list">
-          {permissions.map((item) => (
-            <article key={item.code}>
-              <code>{item.code}</code>
-              <select
-                aria-label={`Scope для ${item.code}`}
-                value={item.scope}
-                onChange={(event) =>
-                  setPermissions((current) => {
-                    onDirtyChange(true)
-                    return current.map((entry) =>
-                      entry.code === item.code ? { ...entry, scope: event.target.value as RoleScope } : entry,
-                    )
-                  })
-                }
-              >
-                <option value="OWN">Власні</option>
-                <option value="ALL_COMPANIES">Вся організація</option>
-              </select>
-            </article>
-          ))}
-        </div>
-      </section>
-      {role.isSystem && (
-        <p className="privacy-note">
-          <ShieldCheck size={16} />
-          Критичну основу системної ролі не можна прибрати.
-        </p>
-      )}
-      <Button disabled={save.isPending} onClick={() => save.mutate()}>
-        {save.isSuccess ? <Check size={16} /> : <ShieldCheck size={16} />}
-        {save.isSuccess ? 'Збережено' : 'Зберегти scope'}
-      </Button>
-      {save.isError && (
-        <p className="form-error">
-          Роль змінилася паралельно або критичний дозвіл не можна прибрати. Оновіть сторінку.
-        </p>
-      )}
-    </div>
+    <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
+      <form className="entity-form account-form" onSubmit={submit}>
+        <label>
+          Ім’я
+          <input name="firstName" required defaultValue={names[1] ?? names[0]} />
+        </label>
+        <label>
+          Прізвище
+          <input name="lastName" required defaultValue={names.length > 1 ? names[0] : ''} />
+        </label>
+        <label className="span-2">
+          По батькові
+          <input name="middleName" defaultValue={names.slice(2).join(' ')} />
+        </label>
+        <label>
+          Логін
+          <input name="username" required defaultValue={user.username} />
+        </label>
+        <label>
+          Посада
+          <input name="jobTitle" defaultValue={user.jobTitle} />
+        </label>
+        <label className="span-2">
+          Email
+          <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
+        </label>
+        <label>
+          Тип
+          <select value={accountType} onChange={(event) => setAccountType(event.target.value as 'ADMIN' | 'USER')}>
+            <option value="USER">Користувач компанії</option>
+            <option value="ADMIN">Глобальний адміністратор</option>
+          </select>
+        </label>
+        {accountType === 'USER' && (
+          <label>
+            Компанія
+            <select name="companyId" required defaultValue={user.company?.id ?? ''}>
+              <option value="" disabled>
+                Оберіть компанію
+              </option>
+              {companies.data?.items
+                .filter((company) => company.isActive)
+                .map((company) => (
+                  <option value={company.id} key={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+        <label className="check-row span-2">
+          <input name="isActive" type="checkbox" defaultChecked={user.isActive} />
+          Обліковий запис активний
+        </label>
+        {mutation.isError && <p className="form-error span-2">Не вдалося зберегти зміни.</p>}
+        <Button className="span-2" disabled={mutation.isPending}>
+          Зберегти зміни
+        </Button>
+      </form>
+    </Drawer>
   )
 }
 
 function SecurityPage() {
   interface Policy {
-    require2faRoles: string[]
+    require2faAccountTypes: Array<'ADMIN' | 'USER'>
     temporaryPasswordHours: number
     sessionHours: number
     version: number
@@ -649,10 +690,12 @@ function SecurityPage() {
               <ShieldCheck />
             </span>
             <h2>Двофакторна автентифікація</h2>
-            <p>Обов’язкова для ролей:</p>
+            <p>Обов’язкова для типів облікових записів:</p>
             <div className="tag-list">
-              {query.data.require2faRoles.map((role) => (
-                <span key={role}>{role}</span>
+              {query.data.require2faAccountTypes.map((accountType) => (
+                <span key={accountType}>
+                  {accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'}
+                </span>
               ))}
             </div>
           </Card>
@@ -778,10 +821,7 @@ function AuditPage() {
         )}
       </Card>
       {eventId && (
-        <Drawer
-          title="Подія журналу"
-          onRequestClose={() => navigate(`/admin/audit?${params.toString()}`)}
-        >
+        <Drawer title="Подія журналу" onRequestClose={() => navigate(`/admin/audit?${params.toString()}`)}>
           {query.isLoading ? (
             <Skeleton />
           ) : query.data?.items.find((item) => item.id === eventId) ? (
@@ -824,12 +864,36 @@ function AuditList({ items }: { items: AuditEvent[] }) {
 function AuditEventDetail({ event }: { event: AuditEvent }) {
   return (
     <dl className="detail-list">
-      <div><dt>Дія</dt><dd>{event.action}</dd></div>
-      <div><dt>Сутність</dt><dd>{event.entityType} · {event.entityId ?? 'system'}</dd></div>
-      <div><dt>Результат</dt><dd><StatusBadge status={event.result} /></dd></div>
-      <div><dt>Ризик</dt><dd>{event.risk}</dd></div>
-      <div><dt>Час</dt><dd>{formatDateTime(event.createdAt)}</dd></div>
-      <div><dt>Correlation ID</dt><dd><code>{event.correlationId}</code></dd></div>
+      <div>
+        <dt>Дія</dt>
+        <dd>{event.action}</dd>
+      </div>
+      <div>
+        <dt>Сутність</dt>
+        <dd>
+          {event.entityType} · {event.entityId ?? 'system'}
+        </dd>
+      </div>
+      <div>
+        <dt>Результат</dt>
+        <dd>
+          <StatusBadge status={event.result} />
+        </dd>
+      </div>
+      <div>
+        <dt>Ризик</dt>
+        <dd>{event.risk}</dd>
+      </div>
+      <div>
+        <dt>Час</dt>
+        <dd>{formatDateTime(event.createdAt)}</dd>
+      </div>
+      <div>
+        <dt>Correlation ID</dt>
+        <dd>
+          <code>{event.correlationId}</code>
+        </dd>
+      </div>
     </dl>
   )
 }
@@ -882,8 +946,8 @@ function ImportReadinessPage() {
           </span>
           <h2>Спочатку закриваємо {blockingGates} критичних рішень</h2>
           <p>
-            Контрольна площина вже захищає маніфести, ланцюжки та журнал змін. Запуск імпорту
-            з’явиться лише після формального закриття всіх блокерів і успішної репетиції.
+            Контрольна площина вже захищає маніфести, ланцюжки та журнал змін. Запуск імпорту з’явиться лише після
+            формального закриття всіх блокерів і успішної репетиції.
           </p>
         </div>
         <StatusBadge status={data.state} />
@@ -931,11 +995,21 @@ function ImportReadinessPage() {
           <span className="eyebrow">Control plane v{data.controlPlaneVersion}</span>
           <h2>Що вже захищено</h2>
           <ul>
-            <li><Check size={16} /> Sealed-пакети не можна переписати</li>
-            <li><Check size={16} /> Delta продовжує лише сумісний ланцюжок</li>
-            <li><Check size={16} /> APPLY потребує окремого lease</li>
-            <li><Check size={16} /> Change journal працює append-only</li>
-            <li><Check size={16} /> Дані та ID maps ізольовані за workspace</li>
+            <li>
+              <Check size={16} /> Sealed-пакети не можна переписати
+            </li>
+            <li>
+              <Check size={16} /> Delta продовжує лише сумісний ланцюжок
+            </li>
+            <li>
+              <Check size={16} /> APPLY потребує окремого lease
+            </li>
+            <li>
+              <Check size={16} /> Change journal працює append-only
+            </li>
+            <li>
+              <Check size={16} /> Дані та ID maps ізольовані за workspace
+            </li>
           </ul>
           <p className="import-safety__note">
             Остання перевірка: <time dateTime={data.checkedAt}>{formatDateTime(data.checkedAt)}</time>

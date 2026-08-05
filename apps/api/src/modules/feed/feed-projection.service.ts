@@ -239,16 +239,9 @@ export class FeedProjectionService {
   }
 
   async seedHistoricalReadCursors(companyId: string, cutoverAt: Date): Promise<number> {
-    const users = await this.prisma.userCompanyAccess.findMany({
-      where: {
-        companyId,
-        status: 'ACTIVE',
-        user: { status: 'ACTIVE' },
-      },
-      select: { userId: true },
-    })
+    const users = await this.prisma.user.findMany({ where: { primaryCompanyId: companyId, isActive: true }, select: { id: true } })
     let seeded = 0
-    for (const { userId } of users) {
+    for (const { id: userId } of users) {
       const memberships = await this.prisma.groupMember.findMany({
         where: { userId, leftAt: null, group: { companyId, status: 'ACTIVE' } },
         select: { groupId: true },
@@ -389,18 +382,11 @@ export async function writeFeedProjection(
   })
   const requestedRecipients = [...new Set(input.recipientIds)]
   const activeRecipients = requestedRecipients.length > 0
-    ? await tx.userCompanyAccess.findMany({
-        where: {
-          userId: { in: requestedRecipients },
-          companyId: input.companyId,
-          status: 'ACTIVE',
-        },
-        select: { userId: true },
-      })
+    ? await tx.user.findMany({ where: { id: { in: requestedRecipients }, isActive: true, OR: [{ primaryCompanyId: input.companyId }, { accountType: 'ADMIN' }] }, select: { id: true } })
     : []
   if (activeRecipients.length > 0) {
     await tx.feedItemRecipient.createMany({
-      data: activeRecipients.map(({ userId }) => ({
+      data: activeRecipients.map(({ id: userId }) => ({
         id: id('firec'),
         itemId,
         userId,
@@ -487,15 +473,7 @@ export async function moveFeedFavorites(
       latestByUser.set(state.userId, state.favoritedAt)
     }
   }
-  const activeUsers = await tx.userCompanyAccess.findMany({
-    where: {
-      userId: { in: [...latestByUser.keys()] },
-      companyId: input.companyId,
-      status: 'ACTIVE',
-      user: { workspaceId: input.workspaceId, status: 'ACTIVE' },
-    },
-    select: { userId: true },
-  })
+  const activeUsers = await tx.user.findMany({ where: { id: { in: [...latestByUser.keys()] }, primaryCompanyId: input.companyId, workspaceId: input.workspaceId, isActive: true }, select: { id: true } })
   await tx.feedUserItemState.deleteMany({
     where: {
       feedItemId: { not: input.newItemId },
@@ -509,7 +487,7 @@ export async function moveFeedFavorites(
   })
   if (activeUsers.length === 0) return
   await tx.feedUserItemState.createMany({
-    data: activeUsers.map(({ userId }) => ({
+    data: activeUsers.map(({ id: userId }) => ({
       id: id('fstate'),
       userId,
       feedItemId: input.newItemId,

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
 import type { Request, Response } from 'express'
 import { loginInputSchema } from '@bert-crm/contracts'
 import { z } from 'zod'
@@ -7,6 +8,8 @@ import { principalFrom } from '../../common/request-context.js'
 import { badRequest } from '../../common/errors.js'
 import { AuthService } from './auth.service.js'
 import { Public, Restricted } from './auth.decorators.js'
+import { getConfig } from '../../config/config.js'
+import { FilesService, type UploadedBinary } from '../files/files.service.js'
 
 const passwordChangeSchema = z.object({ newPassword: z.string(), confirmation: z.string() })
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
@@ -86,7 +89,7 @@ export class AuthController {
 
 @Controller('me')
 export class MeController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly files: FilesService) {}
 
   @Restricted()
   @Get()
@@ -97,6 +100,30 @@ export class MeController {
   @Patch('profile')
   profile(@Body() body: unknown, @Req() request: BertRequest) {
     return this.auth.updateProfile(principalFrom(request), parse(profileSchema, body))
+  }
+
+  @Post('avatar')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: Math.min(getConfig().MAX_UPLOAD_BYTES, 2 * 1024 * 1024), files: 1 } }))
+  async uploadAvatar(@Req() request: BertRequest, @UploadedFile() file: UploadedBinary) {
+    const principal = principalFrom(request)
+    if (!file?.mimetype.startsWith('image/')) throw badRequest('avatar_type')
+    const uploaded = await this.files.uploadAvatar(principal, file)
+    return this.auth.updateAvatar(principal, uploaded.id)
+  }
+
+  @Get('avatar/:fileId')
+  async avatar(@Param('fileId') fileId: string, @Req() request: BertRequest, @Res() response: Response) {
+    const file = await this.files.download(principalFrom(request), fileId)
+    if (!file.mime.startsWith('image/')) throw badRequest('avatar_type')
+    response.setHeader('Content-Type', file.mime)
+    response.setHeader('Content-Disposition', 'inline')
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    response.send(file.bytes)
+  }
+
+  @Delete('avatar')
+  removeAvatar(@Req() request: BertRequest) {
+    return this.auth.removeAvatar(principalFrom(request))
   }
 
   @Get('notification-preferences')

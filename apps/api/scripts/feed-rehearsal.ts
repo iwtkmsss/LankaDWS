@@ -186,12 +186,9 @@ function seedDatabase(database: RehearsalDatabase, profile: Profile): SeedEviden
   const insertUser = database.prepare(`
     INSERT INTO User (
       id, workspaceId, primaryCompanyId, displayName, username,
-      normalizedUsername, normalizedDisplayName, displayRole, status, mustChangePassword, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', false, ?)
+      normalizedUsername, normalizedDisplayName, accountType, isActive, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER', true, ?)
   `)
-  const insertCompanyAccess = database.prepare(
-    'INSERT INTO UserCompanyAccess (id, userId, companyId, status) VALUES (?, ?, ?, \'ACTIVE\')',
-  )
   const insertCapability = database.prepare(`
     INSERT INTO CompanyCapability (
       id, companyId, code, enabled, enabledById, enabledAt, updatedAt
@@ -351,10 +348,8 @@ function seedDatabase(database: RehearsalDatabase, profile: Profile): SeedEviden
         username,
         username,
         normalizeUserSearchValue(displayName),
-        index === 0 ? 'Employee' : 'Synthetic peer',
         now,
       )
-      insertCompanyAccess.run(`uca_feed_${pad(index, 4)}`, id, companyId)
     }
     insertCapability.run('cap_feed_rehearsal', companyId, principalId, now, now)
 
@@ -1014,16 +1009,9 @@ const principal: AuthPrincipal = {
   workspaceId,
   username: 'synthetic.user.0000',
   displayName: 'Synthetic User 0000',
-  displayRole: 'Employee',
+  accountType: 'USER',
   primaryCompanyId: companyId,
   allowedCompanyIds: [companyId],
-  permissions: new Set([
-    'feed.read',
-    'tasks.read',
-    'calendar.read',
-    'announcements.read',
-    'documents.read',
-  ]),
   authorizationVersion: 1,
   sessionId: 'session_feed_rehearsal',
   authAssurance: 1,

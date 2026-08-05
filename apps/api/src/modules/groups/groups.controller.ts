@@ -4,17 +4,14 @@ import {
   createGroupSchema,
   decideGroupJoinRequestSchema,
   groupListQuerySchema,
-  Permission,
   updateGroupSchema,
 } from '@bert-crm/contracts'
 import { badRequest } from '../../common/errors.js'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { GroupsService } from './groups.service.js'
 
 @Controller('groups')
-@RequirePermissions(Permission.GroupsRead)
 export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
 
@@ -26,7 +23,6 @@ export class GroupsController {
   }
 
   @Post()
-  @RequirePermissions(Permission.GroupsCreate)
   create(@Req() request: BertRequest, @Body() rawBody: unknown) {
     const parsed = createGroupSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('group_invalid')

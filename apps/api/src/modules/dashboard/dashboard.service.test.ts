@@ -2,16 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { DashboardService } from './dashboard.service.js'
 
-function principal(permissions: string[] = []): AuthPrincipal {
+function principal(accountType: 'ADMIN' | 'USER' = 'USER'): AuthPrincipal {
   return {
     userId: 'usr_test',
     workspaceId: 'wrk_test',
     username: 'test',
     displayName: 'Тест Користувач',
-    displayRole: 'EMPLOYEE',
+    accountType,
     primaryCompanyId: 'cmp_test',
     allowedCompanyIds: ['cmp_test'],
-    permissions: new Set(permissions),
     authorizationVersion: 1,
     sessionId: 'ses_test',
     authAssurance: 1,
@@ -34,9 +33,9 @@ function setup() {
     notification: { count: vi.fn().mockResolvedValue(0) },
     lifecycleProcess: { findMany: vi.fn().mockResolvedValue([]) },
   }
-  const tasks = { dashboardSummary: vi.fn() }
-  const messages = { summary: vi.fn() }
-  const feed = { list: vi.fn() }
+  const tasks = { dashboardSummary: vi.fn().mockResolvedValue({ items: [], active: 0, overdue: 0, attention: 0, completedLast7Days: 0, byStatus: [] }) }
+  const messages = { summary: vi.fn().mockResolvedValue({ all: 0, unread: 0 }) }
+  const feed = { list: vi.fn().mockResolvedValue({ items: [], nextCursor: null, unreadCount: 0, attention: { pendingAcknowledgements: 0, overdueTasks: 0 }, readMarkers: [] }) }
   const service = new DashboardService(
     prisma as never,
     tasks as never,
@@ -47,34 +46,34 @@ function setup() {
 }
 
 describe('DashboardService', () => {
-  it('does not execute or expose blocks without their read permissions', async () => {
+  it('exposes standard workspace blocks without an RBAC permission matrix', async () => {
     const { service, prisma, tasks, messages, feed } = setup()
     const result = await service.get(principal())
 
     expect(result.availability).toEqual({
-      tasks: false,
-      calendar: false,
-      announcements: false,
-      messages: false,
-      notifications: false,
-      activity: false,
-      lifecycle: false,
+      tasks: true,
+      calendar: true,
+      announcements: true,
+      messages: true,
+      notifications: true,
+      activity: true,
+      lifecycle: true,
     })
     expect(result.tasks).toEqual([])
     expect(result.activity).toEqual([])
-    expect(result.taskAnalytics).toBeNull()
-    expect(result.kpis.activeTasks).toBeNull()
-    expect(tasks.dashboardSummary).not.toHaveBeenCalled()
-    expect(messages.summary).not.toHaveBeenCalled()
-    expect(feed.list).not.toHaveBeenCalled()
-    expect(prisma.event.findMany).not.toHaveBeenCalled()
-    expect(prisma.notification.count).not.toHaveBeenCalled()
+    expect(result.taskAnalytics).not.toBeNull()
+    expect(result.kpis.activeTasks).not.toBeNull()
+    expect(tasks.dashboardSummary).toHaveBeenCalled()
+    expect(messages.summary).toHaveBeenCalled()
+    expect(feed.list).toHaveBeenCalled()
+    expect(prisma.event.findMany).toHaveBeenCalled()
+    expect(prisma.notification.count).toHaveBeenCalled()
   })
 
   it('keeps employee lifecycle visibility scoped to the current user', async () => {
     const { service, prisma } = setup()
 
-    const result = await service.get(principal(['employees.read']))
+    const result = await service.get(principal())
 
     expect(result.availability.lifecycle).toBe(true)
     const lifecycleQuery = prisma.lifecycleProcess.findMany.mock.calls[0]?.[0] as {
@@ -120,12 +119,7 @@ describe('DashboardService', () => {
       readMarkers: [],
     })
 
-    const result = await service.get(principal([
-      'tasks.read',
-      'messages.read',
-      'notifications.read',
-      'feed.read',
-    ]))
+    const result = await service.get(principal())
 
     expect(result.attentionCount).toBe(9)
     expect(result.focus.nextStep).toMatchObject({

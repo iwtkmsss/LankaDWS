@@ -54,7 +54,7 @@ export default function OrganizationPage() {
   const [expandedUnitIds, setExpandedUnitIds] = useState<Set<string>>(new Set())
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedUnitId = searchParams.get('unit')
-  const organizationId = user?.organization.id
+  const organizationId = user?.company?.id
   const unitsQuery = useQuery({
     queryKey: ['org-units', organizationId],
     queryFn: () => api<{ items: OrgUnitView[] }>('/org/units'),

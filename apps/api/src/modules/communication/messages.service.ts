@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import {
-  Permission,
   type AddChatParticipantInput,
   type ChatAttachmentView,
   type ChatContactUser,
@@ -33,7 +32,7 @@ import {
 } from '@bert-crm/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { isUserSearchValueLongEnough, normalizeUserSearchValue } from '../../common/user-search.js'
 import type { FileObject, Message, MessageThread, Prisma, ThreadParticipant, User } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -355,8 +354,8 @@ export class MessagesService {
           where: {
             leftAt: null,
             user: {
-              status: 'ACTIVE',
-              companyAccess: { some: { status: 'ACTIVE' } },
+              isActive: true,
+              primaryCompanyId: { not: null },
             },
           },
           select: { userId: true },
@@ -481,7 +480,7 @@ export class MessagesService {
       || kind === 'CONTEXTUAL'
     ) && !isGroupContext && (
       currentParticipant.role === 'OWNER'
-      || principal.permissions.has(Permission.MessagesManage)
+      || isGlobalAdmin(principal)
     )
     const activeOwnerCount = thread.participants.filter(
       (participant) => participant.role === 'OWNER' && !participant.leftAt,
@@ -500,7 +499,7 @@ export class MessagesService {
         .sort((left, right) => left.displayName.localeCompare(right.displayName, 'uk')),
       lastMessageId: lastMessage?.id ?? null,
       lastReadMessageId: currentParticipant.lastReadMessageId,
-      canPost: principal.permissions.has(Permission.MessagesWrite),
+      canPost: true,
       canManageParticipants,
       canLeave: (
         kind === 'GROUP'
@@ -666,11 +665,13 @@ export class MessagesService {
       where: {
         workspaceId: principal.workspaceId,
         id: { not: principal.userId },
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId, status: 'ACTIVE' } },
-        OR: [
-          { normalizedUsername: { contains: normalized } },
-          { normalizedDisplayName: { contains: normalized } },
+        isActive: true,
+        AND: [
+          { OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }] },
+          { OR: [
+            { normalizedUsername: { contains: normalized } },
+            { normalizedDisplayName: { contains: normalized } },
+          ] },
         ],
       },
       select: {
@@ -862,7 +863,6 @@ export class MessagesService {
     input: SendChatMessageInput,
     idempotencyKey: string,
   ): Promise<{ id: string }> {
-    if (!principal.permissions.has(Permission.MessagesWrite)) throw notFound()
     const thread = await this.readableThread(principal, threadId)
     const text = input.body.trim()
     const replyToId = input.replyToId ?? null
@@ -1011,7 +1011,6 @@ export class MessagesService {
     threadId: string,
     file: UploadedBinary,
   ): Promise<ChatAttachmentView> {
-    if (!principal.permissions.has(Permission.MessagesWrite)) throw notFound()
     const thread = await this.readableThread(principal, threadId)
     const uploaded = await this.files.upload(principal, thread.companyId!, file)
     return {
@@ -1269,7 +1268,7 @@ export class MessagesService {
       (participant) => participant.userId === userId && !participant.leftAt,
     )
     if (!actor || !target) throw notFound()
-    const canManage = actor.role === 'OWNER' || principal.permissions.has(Permission.MessagesManage)
+    const canManage = actor.role === 'OWNER' || isGlobalAdmin(principal)
     if (target.userId !== principal.userId && !canManage) throw notFound()
     if (target.version !== input.expectedVersion) {
       throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
@@ -1352,7 +1351,7 @@ export class MessagesService {
     const message = await this.readableMessage(principal, messageId)
     if (
       message.authorId !== principal.userId
-      && !principal.permissions.has(Permission.MessagesManage)
+      && !isGlobalAdmin(principal)
     ) throw notFound()
     if (message.deletedAt) throw notFound()
     const body = input.body.trim()
@@ -1436,7 +1435,7 @@ export class MessagesService {
     const message = await this.readableMessage(principal, messageId)
     if (
       message.authorId !== principal.userId
-      && !principal.permissions.has(Permission.MessagesManage)
+      && !isGlobalAdmin(principal)
     ) throw notFound()
     if (message.deletedAt) {
       return {
@@ -1755,7 +1754,7 @@ export class MessagesService {
       !participant
       || (
         participant.role !== 'OWNER'
-        && !principal.permissions.has(Permission.MessagesManage)
+        && !isGlobalAdmin(principal)
       )
     ) throw notFound()
     return participant
@@ -2050,8 +2049,8 @@ export class MessagesService {
     return this.prisma.user.findMany({
       where: {
         workspaceId: principal.workspaceId,
-        companyAccess: { some: { companyId, status: 'ACTIVE' } },
-        status: 'ACTIVE',
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
         id: {
           not: principal.userId,
           ...(userIds ? { in: userIds } : {}),
@@ -2172,13 +2171,8 @@ export class MessagesService {
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: userIds },
-        status: 'ACTIVE',
-        companyAccess: {
-          some: {
-            companyId,
-            status: 'ACTIVE',
-          },
-        },
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
@@ -2309,7 +2303,7 @@ export class MessagesService {
     const reply = message.replyToId ? messagesById.get(message.replyToId) : null
     const replyAuthor = reply ? usersById.get(reply.authorId) : null
     const deleted = Boolean(message.deletedAt)
-    const canManage = principal.permissions.has(Permission.MessagesManage)
+    const canManage = isGlobalAdmin(principal)
     return {
       id: message.id,
       authorId: message.authorId,

@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -27,7 +26,6 @@ export class TaskValidationService {
     const dueAt = input.dueAt ? new Date(input.dueAt) : null
 
     this.assertDates(startsAt, dueAt)
-    this.assertReporterPermission(principal, reporterId)
 
     const userIds = [...new Set([
       reporterId,
@@ -89,11 +87,14 @@ export class TaskValidationService {
         where: {
           id: { in: userIds },
           workspaceId: principal.workspaceId,
-          status: 'ACTIVE',
-          companyAccess: { some: { companyId, status: 'ACTIVE' } },
-          ...(groupId
-            ? { groupMemberships: { some: { groupId, leftAt: null } } }
-            : {}),
+          isActive: true,
+          OR: [
+            { accountType: 'ADMIN' },
+            {
+              primaryCompanyId: companyId,
+              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
+            },
+          ],
         },
         select: { id: true },
       }),
@@ -212,11 +213,14 @@ export class TaskValidationService {
         where: {
           id: { in: userIds },
           workspaceId: principal.workspaceId,
-          status: 'ACTIVE',
-          companyAccess: { some: { companyId: task.companyId, status: 'ACTIVE' } },
-          ...(groupId
-            ? { groupMemberships: { some: { groupId, leftAt: null } } }
-            : {}),
+          isActive: true,
+          OR: [
+            { accountType: 'ADMIN' },
+            {
+              primaryCompanyId: task.companyId,
+              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
+            },
+          ],
         },
         select: { id: true },
       }),
@@ -225,16 +229,6 @@ export class TaskValidationService {
     if (projectId && !project) throw badRequest('task_project')
     if (users.length !== userIds.length) throw badRequest('task_participant_scope')
     return { groupId, projectId, reporterId }
-  }
-
-  assertReporterPermission(principal: AuthPrincipal, reporterId: string): void {
-    if (
-      reporterId !== principal.userId
-      && !principal.permissions.has(Permission.TasksReporterManage)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
-    }
   }
 
   private assertDates(startsAt: Date | null, dueAt: Date | null): void {

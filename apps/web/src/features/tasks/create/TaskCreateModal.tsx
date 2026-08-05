@@ -161,7 +161,7 @@ export function TaskCreateModal({
   onClose: () => void
   onDone: (taskId: string) => void
 }) {
-  const { user, can } = useAuth()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const userId = user?.id ?? ''
   const draftKey = taskDraftKey(userId, groupId)
@@ -491,7 +491,7 @@ export function TaskCreateModal({
                   draft={draft}
                   options={options.data}
                   update={update}
-                  canManageRecurrence={can('tasks.recurrence.manage') || can('tasks.manage')}
+                  canManageRecurrence
                 />
               ) : (
                 <OptionsSectionState

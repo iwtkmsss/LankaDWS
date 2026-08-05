@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import type { DocumentListItem } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
@@ -162,7 +162,7 @@ export class DocumentsService {
         id: documentId,
         companyId: { in: principal.allowedCompanyIds },
         archivedAt: null,
-        ...(principal.permissions.has('documents.manage') ? {} : { ownerId: principal.userId }),
+        ...(isGlobalAdmin(principal) ? {} : { ownerId: principal.userId }),
       },
       include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
     })
@@ -285,7 +285,14 @@ export class DocumentsService {
   }
 
   private async allowedDocumentIds(principal: AuthPrincipal): Promise<string[]> {
-    const acl = await this.prisma.documentAcl.findMany({ where: { OR: [{ principalType: 'USER', principalId: principal.userId }, { principalType: 'ROLE', principalId: { in: [...principal.permissions] } }] }, select: { documentId: true } })
+    if (isGlobalAdmin(principal)) {
+      const documents = await this.prisma.document.findMany({
+        where: { workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds } },
+        select: { id: true },
+      })
+      return documents.map((document) => document.id)
+    }
+    const acl = await this.prisma.documentAcl.findMany({ where: { principalType: 'USER', principalId: principal.userId }, select: { documentId: true } })
     return acl.map((entry) => entry.documentId)
   }
 }

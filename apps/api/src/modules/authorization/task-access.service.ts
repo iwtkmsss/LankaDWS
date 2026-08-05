@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { Task } from '../../generated/prisma/client.js'
 import { notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
@@ -51,8 +50,7 @@ export class TaskAccessService {
     if (
       task.createdById === principal.userId
       || task.reporterId === principal.userId
-      || principal.permissions.has(Permission.TasksManage)
-      || principal.permissions.has(Permission.TasksEditAny)
+      || isGlobalAdmin(principal)
     ) {
       return task
     }
@@ -72,8 +70,7 @@ export class TaskAccessService {
     if (
       task.createdById === principal.userId
       || task.reporterId === principal.userId
-      || principal.permissions.has(Permission.TasksManage)
-      || principal.permissions.has(Permission.TasksEditAny)
+      || isGlobalAdmin(principal)
     ) {
       return true
     }

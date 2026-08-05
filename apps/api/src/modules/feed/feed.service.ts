@@ -19,7 +19,7 @@ import {
 import type { Prisma } from '../../generated/prisma/client.js'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
@@ -242,7 +242,7 @@ export class FeedService {
     })
     if (!share) throw notFound()
     await this.capabilities.assertEnabled(principal, share.companyId, OrganizationCapability.Feed)
-    if (share.ownerId !== principal.userId && !principal.permissions.has('feed.moderate')) throw notFound()
+    if (share.ownerId !== principal.userId && !isGlobalAdmin(principal)) throw notFound()
     if (share.status === 'REVOKED') return { revoked: true, version: share.version }
     if (share.version !== expectedVersion) throw conflict()
     const now = new Date()
@@ -291,7 +291,7 @@ export class FeedService {
     if (companyIds.length === 0) return { items: [] }
     const [companies, groups] = await Promise.all([
       this.prisma.company.findMany({
-        where: { id: { in: companyIds }, workspaceId: principal.workspaceId, status: 'ACTIVE' },
+        where: { id: { in: companyIds }, workspaceId: principal.workspaceId, isActive: true },
         select: { id: true, displayName: true },
         orderBy: { displayName: 'asc' },
       }),
@@ -343,7 +343,7 @@ export class FeedService {
     const fileShareAccess = this.accessibleFileShareWhere(principal, companyIds)
     const [companies, groupRecipients, userRecipients, fileGroupShares, fileUserRecipients] = await Promise.all([
       this.prisma.company.findMany({
-        where: { id: { in: companyIds }, workspaceId: principal.workspaceId, status: 'ACTIVE' },
+        where: { id: { in: companyIds }, workspaceId: principal.workspaceId, isActive: true },
         select: { id: true, displayName: true },
         orderBy: { displayName: 'asc' },
       }),
@@ -361,8 +361,7 @@ export class FeedService {
           post: { is: { ...access, status: 'PUBLISHED' } },
         },
       }),
-      principal.permissions.has('documents.read')
-        ? this.prisma.feedFileShare.findMany({
+      this.prisma.feedFileShare.findMany({
             where: {
               ...fileShareAccess,
               audienceType: 'GROUP',
@@ -370,14 +369,11 @@ export class FeedService {
             },
             distinct: ['groupId'],
             select: { groupId: true },
-          })
-        : Promise.resolve([]),
-      principal.permissions.has('documents.read')
-        ? this.prisma.feedFileShareRecipient.groupBy({
+          }),
+      this.prisma.feedFileShareRecipient.groupBy({
             by: ['userId'],
             where: { share: { is: fileShareAccess } },
-          })
-        : Promise.resolve([]),
+          }),
     ])
     const groupRecipientIds = [...new Set([
       ...groupRecipients.map((item) => item.recipientId),
@@ -405,7 +401,7 @@ export class FeedService {
             where: {
               id: { in: userRecipientIds },
               workspaceId: principal.workspaceId,
-              status: 'ACTIVE',
+              isActive: true,
             },
             select: { id: true, displayName: true },
             orderBy: { displayName: 'asc' },
@@ -1076,8 +1072,8 @@ export class FeedService {
     const activeNotificationUsers = await this.prisma.user.findMany({
       where: {
         id: { in: [...new Set([...audienceUserIds, post.authorId])] },
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId: post.companyId, status: 'ACTIVE' } },
+        isActive: true,
+        OR: [{ primaryCompanyId: post.companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
@@ -1360,7 +1356,7 @@ export class FeedService {
 
   private async editablePost(principal: AuthPrincipal, postId: string) {
     const post = await this.accessiblePost(principal, postId)
-    if (post.authorId !== principal.userId && !principal.permissions.has('feed.moderate')) throw notFound()
+    if (post.authorId !== principal.userId && !isGlobalAdmin(principal)) throw notFound()
     return post
   }
 
@@ -1421,19 +1417,19 @@ export class FeedService {
       && !query.important
     ) {
       const actorFilter = query.authorId ?? (query.filter === 'MINE' ? principal.userId : null)
-      if (!query.groupId && !query.audienceId && allows('TASK') && principal.permissions.has('tasks.read')) {
+      if (!query.groupId && !query.audienceId && allows('TASK')) {
         branches.push({
           postId: null,
           sourceType: 'TASK',
           AND: [
             ...(actorFilter ? [{ actorId: actorFilter }] : []),
-            ...(principal.permissions.has('tasks.manage')
+            ...(isGlobalAdmin(principal)
               ? []
               : [{ recipients: { some: { userId: principal.userId } } }]),
           ],
         })
       }
-      if (!query.groupId && !query.audienceId && allows('EVENT') && principal.permissions.has('calendar.read')) {
+      if (!query.groupId && !query.audienceId && allows('EVENT')) {
         branches.push({
           postId: null,
           sourceType: 'EVENT',
@@ -1448,7 +1444,7 @@ export class FeedService {
           ],
         })
       }
-      if (!query.groupId && !query.audienceId && allows('ANNOUNCEMENT') && principal.permissions.has('announcements.read')) {
+      if (!query.groupId && !query.audienceId && allows('ANNOUNCEMENT')) {
         branches.push({
           postId: null,
           sourceType: 'ANNOUNCEMENT',
@@ -1458,7 +1454,7 @@ export class FeedService {
           ],
         })
       }
-      if (allows('FILE') && principal.permissions.has('documents.read')) {
+      if (allows('FILE')) {
         branches.push({
           postId: null,
           sourceType: 'FILE',
@@ -1542,7 +1538,7 @@ export class FeedService {
           workspaceId: principal.workspaceId,
           companyId,
           status: 'ACTIVE',
-          ...(principal.permissions.has('feed.moderate')
+          ...(isGlobalAdmin(principal)
             ? {}
             : {
                 OR: [
@@ -1567,8 +1563,8 @@ export class FeedService {
       where: {
         id: { in: audience.userIds },
         workspaceId: principal.workspaceId,
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId, status: 'ACTIVE' } },
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
@@ -1603,11 +1599,11 @@ export class FeedService {
   }
 
   private async activeCompanyUserIds(companyId: string): Promise<string[]> {
-    const access = await this.prisma.userCompanyAccess.findMany({
-      where: { companyId, status: 'ACTIVE', user: { status: 'ACTIVE' } },
-      select: { userId: true },
+    const users = await this.prisma.user.findMany({
+      where: { primaryCompanyId: companyId, isActive: true },
+      select: { id: true },
     })
-    return access.map((entry) => entry.userId)
+    return users.map((user) => user.id)
   }
 
   private assertMentions(mentionedUserIds: string[], audienceUserIds: string[], authorId: string): void {
@@ -1645,7 +1641,7 @@ export class FeedService {
       .filter((item) => item.sourceType === 'FILE')
       .map((item) => item.sourceId)
     const [tasks, events, announcements, fileShares] = await Promise.all([
-      taskIds.length > 0 && principal.permissions.has('tasks.read')
+      taskIds.length > 0
         ? this.prisma.task.findMany({
             where: {
               id: { in: taskIds },
@@ -1658,7 +1654,7 @@ export class FeedService {
                     { group: { members: { some: { userId: principal.userId, leftAt: null } } } },
                   ],
                 },
-                ...(principal.permissions.has('tasks.manage')
+                ...(isGlobalAdmin(principal)
                   ? []
                   : [{
                       OR: [
@@ -1693,7 +1689,7 @@ export class FeedService {
             },
           })
         : Promise.resolve([]),
-      eventIds.length > 0 && principal.permissions.has('calendar.read')
+      eventIds.length > 0
         ? this.prisma.event.findMany({
             where: {
               id: { in: eventIds },
@@ -1706,7 +1702,7 @@ export class FeedService {
             },
           })
         : Promise.resolve([]),
-      announcementIds.length > 0 && principal.permissions.has('announcements.read')
+      announcementIds.length > 0
         ? this.prisma.announcement.findMany({
             where: {
               id: { in: announcementIds },
@@ -1716,7 +1712,7 @@ export class FeedService {
             },
           })
         : Promise.resolve([]),
-      fileShareIds.length > 0 && principal.permissions.has('documents.read')
+      fileShareIds.length > 0
         ? this.prisma.feedFileShare.findMany({
             where: {
               id: { in: fileShareIds },
@@ -1862,8 +1858,7 @@ export class FeedService {
           historical: false,
           favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
           version: share.version,
-          canRevoke: principal.permissions.has('documents.share')
-            && (share.ownerId === principal.userId || principal.permissions.has('feed.moderate')),
+          canRevoke: share.ownerId === principal.userId || isGlobalAdmin(principal),
         } satisfies FeedSourceView]
       }
       return []
@@ -1981,8 +1976,8 @@ export class FeedService {
         publishedAt: post.publishedAt.toISOString(),
         editedAt: post.editedAt?.toISOString() ?? null,
         version: post.version,
-        canEdit: post.authorId === principal.userId || principal.permissions.has('feed.moderate'),
-        canModerate: principal.permissions.has('feed.moderate'),
+        canEdit: post.authorId === principal.userId || isGlobalAdmin(principal),
+        canModerate: isGlobalAdmin(principal),
       }]
     })
   }

@@ -9,7 +9,6 @@ interface DraftInput {
   title: string
   body: string
   companyIds: string[]
-  roleIds?: string[]
   userIds?: string[]
   isPinned?: boolean
   publishAt?: string
@@ -36,12 +35,12 @@ export class AnnouncementsService {
   }
 
   async detail(principal: AuthPrincipal, announcementId: string) {
-    const receipt = await this.prisma.announcementReceipt.findUnique({ where: { announcementId_userId: { announcementId, userId: principal.userId } }, include: { announcement: { include: { companies: true, roles: true, users: true } } } })
+    const receipt = await this.prisma.announcementReceipt.findUnique({ where: { announcementId_userId: { announcementId, userId: principal.userId } }, include: { announcement: { include: { companies: true, users: true } } } })
     if (!receipt) throw notFound()
-    return { ...receipt.announcement, receipt: { readAt: receipt.readAt, dismissedAt: receipt.dismissedAt }, audience: { companyIds: receipt.announcement.companies.map((entry) => entry.companyId), roleIds: receipt.announcement.roles.map((entry) => entry.roleId), userIds: receipt.announcement.users.map((entry) => entry.userId) } }
+    return { ...receipt.announcement, receipt: { readAt: receipt.readAt, dismissedAt: receipt.dismissedAt }, audience: { companyIds: receipt.announcement.companies.map((entry) => entry.companyId), userIds: receipt.announcement.users.map((entry) => entry.userId) } }
   }
 
-  async audiencePreview(principal: AuthPrincipal, input: Pick<DraftInput, 'companyIds' | 'roleIds' | 'userIds'>) {
+  async audiencePreview(principal: AuthPrincipal, input: Pick<DraftInput, 'companyIds' | 'userIds'>) {
     this.assertAudience(principal, input.companyIds)
     const users = await this.resolveAudience(input)
     return { recipientCount: users.length, inaccessibleRelatedDocuments: 0 }
@@ -54,14 +53,13 @@ export class AnnouncementsService {
     await this.prisma.$transaction(async (tx) => {
       await tx.announcement.create({ data: { id: announcementId, workspaceId: principal.workspaceId, authorId: principal.userId, title: input.title.trim(), body: input.body.trim(), status: 'DRAFT', isPinned: Boolean(input.isPinned), publishAt: input.publishAt ? new Date(input.publishAt) : null, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
       await tx.announcementAudienceCompany.createMany({ data: input.companyIds.map((companyId) => ({ id: id('anc'), announcementId, companyId })) })
-      if (input.roleIds?.length) await tx.announcementAudienceRole.createMany({ data: input.roleIds.map((roleId) => ({ id: id('anr'), announcementId, roleId })) })
       if (input.userIds?.length) await tx.announcementAudienceUser.createMany({ data: input.userIds.map((userId) => ({ id: id('anu'), announcementId, userId })) })
     })
     return { id: announcementId, status: 'DRAFT', version: 1 }
   }
 
   async publish(principal: AuthPrincipal, announcementId: string, expectedVersion: number) {
-    const announcement = await this.prisma.announcement.findFirst({ where: { id: announcementId, authorId: principal.userId }, include: { companies: true, roles: true, users: true } })
+    const announcement = await this.prisma.announcement.findFirst({ where: { id: announcementId, authorId: principal.userId }, include: { companies: true, users: true } })
     if (!announcement) throw notFound()
     if (announcement.version !== expectedVersion || announcement.status !== 'DRAFT') throw conflict()
     const scheduled = announcement.publishAt && announcement.publishAt > new Date()
@@ -89,7 +87,7 @@ export class AnnouncementsService {
     if (!companyIds.length || companyIds.some((companyId) => !principal.allowedCompanyIds.includes(companyId))) throw badRequest('announcement_audience')
   }
 
-  private resolveAudience(input: Pick<DraftInput, 'companyIds' | 'roleIds' | 'userIds'>) {
-    return this.prisma.user.findMany({ where: { status: 'ACTIVE', OR: [{ primaryCompanyId: { in: input.companyIds } }, { id: { in: input.userIds ?? [] } }, { roles: { some: { roleId: { in: input.roleIds ?? [] }, status: 'ACTIVE' } } }] }, select: { id: true } })
+  private resolveAudience(input: Pick<DraftInput, 'companyIds' | 'userIds'>) {
+    return this.prisma.user.findMany({ where: { isActive: true, OR: [{ primaryCompanyId: { in: input.companyIds } }, { id: { in: input.userIds ?? [] } }] }, select: { id: true } })
   }
 }

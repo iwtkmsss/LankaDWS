@@ -237,7 +237,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private async materializeAnnouncement(announcementId: string): Promise<void> {
     const announcement = await this.prisma.announcement.findUnique({
       where: { id: announcementId },
-      include: { companies: true, roles: true, users: true },
+      include: { companies: true, users: true },
     });
     if (!announcement) throw new Error('AnnouncementMissing');
     let effectiveVersion = announcement.version;
@@ -254,20 +254,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     }
     const users = await this.prisma.user.findMany({
       where: {
-        status: 'ACTIVE',
+        isActive: true,
         OR: [
           { id: { in: announcement.users.map((entry) => entry.userId) } },
           {
             primaryCompanyId: {
               in: announcement.companies.map((entry) => entry.companyId),
-            },
-          },
-          {
-            roles: {
-              some: {
-                roleId: { in: announcement.roles.map((entry) => entry.roleId) },
-                status: 'ACTIVE',
-              },
             },
           },
         ],
@@ -624,35 +616,13 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         user: {
           select: {
             id: true,
-            status: true,
-            companyAccess: {
-              select: {
-                companyId: true,
-                status: true,
-              },
-            },
+            isActive: true,
+            accountType: true,
+            primaryCompanyId: true,
             groupMemberships: {
               select: {
                 groupId: true,
                 leftAt: true,
-              },
-            },
-            roles: {
-              where: {
-                status: 'ACTIVE',
-                validFrom: { lte: new Date() },
-                OR: [{ validTo: null }, { validTo: { gt: new Date() } }],
-              },
-              select: {
-                role: {
-                  select: {
-                    status: true,
-                    permissions: {
-                      where: { permissionCode: 'tasks.manage' },
-                      select: { id: true },
-                    },
-                  },
-                },
               },
             },
           },
@@ -669,10 +639,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const reminderUserId = reminder.userId;
-    const hasCompanyAccess = reminder.user.status === 'ACTIVE'
-      && reminder.user.companyAccess.some((access) => (
-        access.companyId === task.companyId && access.status === 'ACTIVE'
-      ));
+    const hasCompanyAccess = reminder.user.isActive
+      && (reminder.user.accountType === 'ADMIN' || reminder.user.primaryCompanyId === task.companyId);
     const hasGroupAccess = !task.groupId
       || reminder.user.groupMemberships.some((membership) => (
         membership.groupId === task.groupId && !membership.leftAt
@@ -687,10 +655,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         },
         select: { id: true },
       }));
-    const canManage = reminder.user.roles.some((assignment) => (
-      assignment.role.status === 'ACTIVE'
-      && assignment.role.permissions.length > 0
-    ));
+    const canManage = reminder.user.accountType === 'ADMIN';
     if (
       task.archivedAt
       || !hasCompanyAccess
@@ -779,7 +744,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const workspaceId = payloadString(payload, 'workspaceId');
     const actorId = payloadString(payload, 'actorId');
     const companyId = payloadString(payload, 'companyId');
-    if (!workspaceId || !actorId || !companyId)
+    if (!workspaceId || !actorId)
       throw new Error('ExportPayloadInvalid');
     const events = await this.prisma.auditEvent.findMany({
       where: { workspaceId },
@@ -843,7 +808,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         create: {
           id: fileId,
           workspaceId,
-          companyId,
+          companyId: companyId || null,
           storageKey,
           safeFilename: `bert-audit-${new Date().toISOString().slice(0, 10)}.csv`,
           declaredMime: 'text/csv',
@@ -881,7 +846,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         data: {
           id: id('aud'),
           workspaceId,
-          companyId,
+          companyId: companyId || null,
           actorType: 'USER',
           actorId,
           action: 'audit.export_completed',

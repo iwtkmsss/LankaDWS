@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
 import { id, sha256 } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
@@ -44,13 +43,6 @@ export class TaskCommandService {
   }> {
     if (!idempotencyKey.trim() || idempotencyKey.length > 200) {
       throw badRequest('idempotency_key_required')
-    }
-    if (
-      input.recurrence
-      && !principal.permissions.has(Permission.TasksRecurrenceManage)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
     }
     const context = await this.validation.validateCreate(principal, input)
     const operation = 'task.create.v2'
@@ -252,7 +244,6 @@ export class TaskCommandService {
     input: UpdateTaskInput,
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.editableTask(principal, taskId)
-    if (input.reporterId) this.validation.assertReporterPermission(principal, input.reporterId)
     const dates = this.validation.validateUpdateDates(task, input)
     const scope = await this.validation.validateUpdateScope(principal, task, input)
     const nextParentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
@@ -324,8 +315,9 @@ export class TaskCommandService {
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.readableTask(principal, taskId)
     if (
-      !principal.permissions.has(Permission.TasksDelete)
-      && !principal.permissions.has(Permission.TasksManage)
+      task.createdById !== principal.userId
+      && task.reporterId !== principal.userId
+      && !isGlobalAdmin(principal)
     ) {
       throw forbidden()
     }

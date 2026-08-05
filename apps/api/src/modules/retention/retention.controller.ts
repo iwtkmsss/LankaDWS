@@ -9,15 +9,14 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { Permission } from '@bert-crm/contracts';
 import { badRequest } from '../../common/errors.js';
 import type { BertRequest } from '../../common/request-context.js';
 import { principalFrom } from '../../common/request-context.js';
-import { RequirePermissions } from '../auth/auth.decorators.js';
+import { AdminOnly } from '../auth/auth.decorators.js';
 import { RetentionService } from './retention.service.js';
 
 @Controller('admin/retention')
-@RequirePermissions(Permission.SecurityManage)
+@AdminOnly()
 export class RetentionController {
   constructor(private readonly retention: RetentionService) {}
 

@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import type { TaskDetailRecord } from './task-types.js'
 
 @Injectable()
 export class TaskResponseMapper {
   detail(principal: AuthPrincipal, task: TaskDetailRecord) {
-    const canReadTime = principal.permissions.has(Permission.TasksTimeRead)
-      || principal.permissions.has(Permission.TasksManage)
-    const canManageReminders = principal.permissions.has(Permission.TasksManage)
+    const canReadTime = true
+    const canManageReminders = true
     const activeTimer = task.timeEntries.find((entry) => entry.endedAt === null) ?? null
     const totalSeconds = task.timeEntries.reduce(
       (sum, entry) => sum + (entry.durationSeconds ?? 0),
@@ -118,21 +116,14 @@ export class TaskResponseMapper {
         : null,
       permissions: {
         canEdit: this.canEdit(principal, task),
-        canManageReporter: principal.permissions.has(Permission.TasksReporterManage)
-          || principal.permissions.has(Permission.TasksManage),
-        canManageResponsibles: principal.permissions.has(Permission.TasksResponsiblesManage)
-          || principal.permissions.has(Permission.TasksManage),
-        canManageParticipants: principal.permissions.has(Permission.TasksParticipantsManage)
-          || principal.permissions.has(Permission.TasksManage),
-        canManageRelations: principal.permissions.has(Permission.TasksRelationsManage)
-          || principal.permissions.has(Permission.TasksManage),
-        canManageRecurrence: principal.permissions.has(Permission.TasksRecurrenceManage)
-          || principal.permissions.has(Permission.TasksManage),
+        canManageReporter: true,
+        canManageResponsibles: true,
+        canManageParticipants: true,
+        canManageRelations: true,
+        canManageRecurrence: true,
         canReadTime,
-        canWriteTime: principal.permissions.has(Permission.TasksTimeWrite)
-          || principal.permissions.has(Permission.TasksManage),
-        canArchive: principal.permissions.has(Permission.TasksDelete)
-          || principal.permissions.has(Permission.TasksManage),
+        canWriteTime: true,
+        canArchive: task.createdById === principal.userId || task.reporterId === principal.userId || isGlobalAdmin(principal),
       },
     }
   }
@@ -144,8 +135,7 @@ export class TaskResponseMapper {
         participant.user.id === principal.userId
         && ['RESPONSIBLE', 'COLLABORATOR'].includes(participant.role)
       ))
-      || principal.permissions.has(Permission.TasksEditAny)
-      || principal.permissions.has(Permission.TasksManage)
+      || isGlobalAdmin(principal)
   }
 
   private parseWeekdays(value: string | null): number[] {

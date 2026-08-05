@@ -15,17 +15,9 @@ enum RecordStatus {
   ARCHIVED
 }
 
-enum UserStatus {
-  PENDING_FIRST_LOGIN
-  ACTIVE
-  SUSPENDED
-  DEACTIVATED
-}
-
-enum ScopeType {
-  OWN
-  SELECTED_COMPANIES
-  ALL_COMPANIES
+enum AccountType {
+  ADMIN
+  USER
 }
 
 enum TaskStatus {
@@ -260,7 +252,6 @@ model Workspace {
   updatedAt             DateTime               @updatedAt
   companies             Company[]
   users                 User[]
-  roles                 Role[]
   groups                Group[]
   projects              Project[]
   tags                  Tag[]
@@ -284,7 +275,7 @@ model Company {
   displayName           String
   legalName             String
   code                  String
-  status                RecordStatus           @default(ACTIVE)
+  isActive              Boolean                @default(true)
   timezone              String                 @default("Europe/Kyiv")
   locale                String                 @default("uk-UA")
   workingDaysJson       String                 @default("[1,2,3,4,5]")
@@ -294,7 +285,6 @@ model Company {
   updatedAt             DateTime               @updatedAt
   workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   primaryUsers          User[]                 @relation("PrimaryCompany")
-  userAccess            UserCompanyAccess[]
   capabilities          CompanyCapability[]
   groups                Group[]
   projects              Project[]
@@ -310,36 +300,37 @@ model Company {
   migrationActivations  MigrationActivation[]
 
   @@unique([workspaceId, code])
-  @@index([workspaceId, status])
+  @@index([workspaceId, isActive])
 }
 
 model User {
   id                           String                         @id
   workspaceId                  String
-  primaryCompanyId             String
+  primaryCompanyId             String?
+  accountType                  AccountType                    @default(USER)
+  firstName                    String                         @default("")
+  lastName                     String                         @default("")
+  middleName                   String?
+  phone                        String?
   displayName                  String
   normalizedDisplayName        String
   username                     String
   normalizedUsername           String
   contactEmail                 String?
   jobTitle                     String                         @default("")
-  displayRole                  String
   approverId                   String?
   timezone                     String                         @default("Europe/Kyiv")
   locale                       String                         @default("uk-UA")
-  status                       UserStatus                     @default(PENDING_FIRST_LOGIN)
-  mustChangePassword           Boolean                        @default(true)
+  isActive                     Boolean                        @default(true)
   mustEnroll2FA                Boolean                        @default(false)
   authorizationVersion         Int                            @default(1)
   avatarAsset                  String?
   createdAt                    DateTime                       @default(now())
   updatedAt                    DateTime                       @updatedAt
   workspace                    Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  primaryCompany               Company                        @relation("PrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: Restrict)
+  primaryCompany               Company?                       @relation("PrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: Restrict)
   approver                     User?                          @relation("UserApprover", fields: [approverId], references: [id], onDelete: SetNull)
   approverFor                  User[]                         @relation("UserApprover")
-  companyAccess                UserCompanyAccess[]
-  roles                        UserRole[]
   passwordCredential           PasswordCredential?
   totpCredential               TotpCredential?
   recoveryCodes                RecoveryCode[]
@@ -376,10 +367,10 @@ model User {
   taskReminders                TaskReminder[]
 
   @@unique([workspaceId, normalizedUsername])
-  @@index([workspaceId, status])
-  @@index([workspaceId, status, normalizedUsername, id])
-  @@index([workspaceId, status, normalizedDisplayName, id])
-  @@index([primaryCompanyId, status])
+  @@index([workspaceId, isActive])
+  @@index([workspaceId, isActive, normalizedUsername, id])
+  @@index([workspaceId, isActive, normalizedDisplayName, id])
+  @@index([primaryCompanyId, isActive])
   @@index([approverId])
 }
 
@@ -393,21 +384,6 @@ model UsernameReservation {
   reservedAt         DateTime @default(now())
 
   @@unique([workspaceId, normalizedUsername])
-}
-
-model UserCompanyAccess {
-  id        String       @id
-  userId    String
-  companyId String
-  status    RecordStatus @default(ACTIVE)
-  grantedBy String?
-  grantedAt DateTime     @default(now())
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company   Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, companyId])
-  @@index([companyId, status])
-  @@index([companyId, status, userId])
 }
 
 model CompanyCapability {
@@ -1028,78 +1004,6 @@ model MigrationActivation {
   @@index([activatedById])
 }
 
-model Role {
-  id             String           @id
-  workspaceId    String
-  name           String
-  normalizedName String
-  isSystem       Boolean          @default(false)
-  isFullAdmin    Boolean          @default(false)
-  status         RecordStatus     @default(ACTIVE)
-  version        Int              @default(1)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  permissions    RolePermission[]
-  users          UserRole[]
-
-  @@unique([workspaceId, normalizedName])
-  @@index([workspaceId, status])
-}
-
-model Permission {
-  code        String           @id
-  domain      String
-  risk        String           @default("NORMAL")
-  description String
-  roles       RolePermission[]
-}
-
-model RolePermission {
-  id             String     @id
-  roleId         String
-  permissionCode String
-  scope          ScopeType  @default(OWN)
-  companyIdsJson String     @default("[]")
-  version        Int        @default(1)
-  role           Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Restrict)
-
-  @@unique([roleId, permissionCode])
-  @@index([permissionCode])
-}
-
-model UserRole {
-  id        String       @id
-  userId    String
-  roleId    String
-  grantedBy String?
-  validFrom DateTime     @default(now())
-  validTo   DateTime?
-  status    RecordStatus @default(ACTIVE)
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role      Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
-
-  @@unique([userId, roleId])
-  @@index([roleId, status])
-}
-
-model Delegation {
-  id             String   @id
-  delegatorId    String
-  substituteId   String
-  companyIdsJson String
-  actionsJson    String
-  startsAt       DateTime
-  endsAt         DateTime
-  reason         String
-  status         String
-  createdAt      DateTime @default(now())
-
-  @@index([delegatorId, startsAt, endsAt])
-  @@index([substituteId, startsAt, endsAt])
-}
-
 model PasswordCredential {
   id                String    @id
   userId            String    @unique
@@ -1542,7 +1446,7 @@ model LifecycleStep {
 model FileObject {
   id           String          @id
   workspaceId  String
-  companyId    String
+  companyId    String?
   storageKey   String          @unique
   safeFilename String
   declaredMime String
@@ -1685,7 +1589,6 @@ model Announcement {
   createdAt   DateTime                      @default(now())
   updatedAt   DateTime                      @updatedAt
   companies   AnnouncementAudienceCompany[]
-  roles       AnnouncementAudienceRole[]
   users       AnnouncementAudienceUser[]
   receipts    AnnouncementReceipt[]
 
@@ -1699,15 +1602,6 @@ model AnnouncementAudienceCompany {
   announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
 
   @@unique([announcementId, companyId])
-}
-
-model AnnouncementAudienceRole {
-  id             String       @id
-  announcementId String
-  roleId         String
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, roleId])
 }
 
 model AnnouncementAudienceUser {

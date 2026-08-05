@@ -113,9 +113,9 @@ test('manager overview and admin access stay correctly scoped', async ({ page })
   await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
   await expect(page).not.toHaveURL(/company=/)
   await expect(page.getByText('Потребують рішення')).toHaveCount(0)
-  await page.goto('/admin/roles')
+  await page.goto('/admin/users')
   await expect(page.getByRole('heading', { name: 'У вас немає доступу' })).toBeVisible()
-  await expect(page.getByText('Ролі та права')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Користувачі' })).toHaveCount(0)
 })
 
 test('organization tree expands and keeps the selected unit addressable', async ({ page }) => {
@@ -299,8 +299,8 @@ test('task role views explain why a task is visible and participant management s
   await createTaskThroughModal(page, title, { additionalResponsible: 'Андрій Коваль' })
   await page.getByRole('button', { name: 'Керувати' }).click()
   const participantSection = page.locator('.task-participants')
-  const participantId = testInfo.project.name === 'mobile-chromium' ? 'usr_dmytro' : 'usr_marko'
-  const participantName = testInfo.project.name === 'mobile-chromium' ? 'Дмитро Савчук' : 'Марко Литвин'
+  const participantId = 'usr_marko'
+  const participantName = 'Марко Литвин'
   await participantSection.getByLabel('Людина').selectOption(participantId)
   await participantSection.getByLabel('Роль у завданні').selectOption('OBSERVER')
   await participantSection.getByRole('button', { name: 'Додати учасника' }).click()
@@ -321,7 +321,7 @@ test('task role views explain why a task is visible and participant management s
 })
 
 test('standalone file sharing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
-  await login(page, 'dmytro')
+  await login(page, 'maria')
   await page.goto('/feed')
   await page.getByRole('button', { name: 'Створити публікацію' }).click()
   const composer = page.getByRole('dialog', { name: 'Створити публікацію' })
@@ -360,13 +360,13 @@ test('administrator sees the approved grouped admin navigation', async ({ page }
   if (testInfo.project.name === 'mobile-chromium') {
     await page.getByRole('button', { name: 'Відкрити меню' }).click()
     const sidebar = page.locator('.sidebar')
+    await expect(sidebar.getByRole('link', { name: 'Компанії', exact: true })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: 'Ролі та права', exact: true })).toBeVisible()
   } else {
     await page.locator('.sidebar').getByRole('button', { name: 'Ще' }).click()
     const overflowMenu = page.getByRole('menu', { name: 'Додаткові розділи' })
+    await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
     await expect(overflowMenu.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
-    await expect(overflowMenu.getByRole('menuitem', { name: 'Ролі та права', exact: true })).toBeVisible()
   }
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
 })
@@ -387,7 +387,7 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(
     overflowMenu.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
   ).toBeVisible()
-  await expect(overflowMenu.getByRole('menuitem', { name: 'Адміністрування', exact: true })).toBeVisible()
+  await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
   await moreButton.click()
 
   await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()

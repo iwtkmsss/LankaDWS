@@ -25,7 +25,7 @@ export class LifecycleService {
 
   async start(principal: AuthPrincipal, input: StartInput) {
     const companyId = this.scope.assertCompany(principal, input.companyId)
-    const employee = await this.prisma.user.findFirst({ where: { id: input.employeeId, companyAccess: { some: { companyId, status: 'ACTIVE' } } } })
+    const employee = await this.prisma.user.findFirst({ where: { id: input.employeeId, isActive: true, primaryCompanyId: companyId } })
     if (!employee) throw badRequest('employee_invalid')
     const processId = id('life')
     const startAt = new Date(input.startAt)
@@ -83,7 +83,7 @@ export class LifecycleService {
       await tx.lifecycleProcess.update({ where: { id: process.id }, data: { status: 'DONE', progress: 100, version: { increment: 1 } } })
       if (process.processType === 'OFFBOARDING') {
         await tx.userSession.updateMany({ where: { userId: process.employeeId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'offboarding' } })
-        await tx.user.update({ where: { id: process.employeeId }, data: { status: 'DEACTIVATED', authorizationVersion: { increment: 1 } } })
+        await tx.user.update({ where: { id: process.employeeId }, data: { isActive: false, authorizationVersion: { increment: 1 } } })
       }
     })
     return { completed: true }

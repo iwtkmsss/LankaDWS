@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import {
   OrganizationCapability,
-  Permission,
   type AnnouncementListItem,
   type DashboardActivityItem,
   type DashboardLifecycleItem,
@@ -10,7 +9,7 @@ import {
   type EventListItem,
   type FeedEntryView,
 } from '@bert-crm/contracts'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { MessagesService } from '../communication/messages.service.js'
 import { FeedService } from '../feed/feed.service.js'
@@ -27,11 +26,12 @@ export class DashboardService {
 
   async get(principal: AuthPrincipal): Promise<DashboardView> {
     const generatedAt = new Date()
+    const companyId = principal.primaryCompanyId ?? principal.allowedCompanyIds[0]
     const organization = await this.prisma.company.findFirst({
       where: {
-        id: principal.primaryCompanyId,
+        id: companyId,
         workspaceId: principal.workspaceId,
-        status: 'ACTIVE',
+        isActive: true,
       },
       select: {
         timezone: true,
@@ -49,14 +49,13 @@ export class DashboardService {
     const completedSince = this.zonedDateBoundary(this.shiftDate(localDate, -6), timezone, false)
 
     const availability = {
-      tasks: principal.permissions.has(Permission.TasksRead),
-      calendar: principal.permissions.has(Permission.CalendarRead),
-      announcements: principal.permissions.has(Permission.AnnouncementsRead),
-      messages: principal.permissions.has(Permission.MessagesRead),
-      notifications: principal.permissions.has(Permission.NotificationsRead),
-      activity: principal.permissions.has(Permission.FeedRead)
-        && Boolean(organization?.capabilities[0]?.enabled),
-      lifecycle: principal.permissions.has(Permission.EmployeesRead),
+      tasks: true,
+      calendar: true,
+      announcements: true,
+      messages: true,
+      notifications: true,
+      activity: Boolean(organization?.capabilities[0]?.enabled),
+      lifecycle: true,
     }
 
     const [
@@ -69,7 +68,7 @@ export class DashboardService {
       lifecycle,
     ] = await Promise.all([
       availability.tasks
-        ? this.tasks.dashboardSummary(principal, principal.primaryCompanyId, completedSince)
+        ? this.tasks.dashboardSummary(principal, companyId, completedSince)
         : Promise.resolve<DashboardTaskSummary | null>(null),
       availability.calendar
         ? this.events(principal, generatedAt, todayStart, todayEnd)
@@ -78,14 +77,14 @@ export class DashboardService {
         ? this.announcements(principal)
         : Promise.resolve<AnnouncementListItem[]>([]),
       availability.messages
-        ? this.messages.summary(principal, principal.primaryCompanyId)
+        ? this.messages.summary(principal, companyId)
         : Promise.resolve<{ all: number; unread: number } | null>(null),
       availability.notifications
         ? this.notificationSummary(principal.userId)
         : Promise.resolve<{ action: number; unread: number } | null>(null),
       availability.activity
         ? this.feed.list(principal, {
-            company: principal.primaryCompanyId,
+            company: companyId,
             filter: 'ALL',
             type: 'ALL',
             limit: 5,
@@ -127,7 +126,7 @@ export class DashboardService {
         nextStep,
         primaryAction: nextStep
           ? { label: this.actionLabel(nextStep.kind), href: nextStep.href }
-          : this.fallbackAction(principal),
+          : this.fallbackAction(),
       },
       kpis: {
         activeTasks: taskSummary
@@ -262,7 +261,7 @@ export class DashboardService {
         companyId: { in: principal.allowedCompanyIds },
         processType: { in: ['ONBOARDING', 'OFFBOARDING'] },
         status: { notIn: ['DONE', 'CANCELLED'] },
-        ...(principal.displayRole === 'HR' || principal.permissions.has(Permission.LifecycleManage)
+        ...(isGlobalAdmin(principal)
           ? {}
           : { employeeId: principal.userId }),
       },
@@ -396,20 +395,8 @@ export class DashboardService {
     return 'Прочитати оголошення'
   }
 
-  private fallbackAction(principal: AuthPrincipal) {
-    if (principal.permissions.has(Permission.TasksCreate)) {
-      return { label: 'Створити завдання', href: '/tasks/new' }
-    }
-    if (principal.permissions.has(Permission.TasksRead)) {
-      return { label: 'Відкрити завдання', href: '/tasks' }
-    }
-    if (principal.permissions.has(Permission.CalendarRead)) {
-      return { label: 'Відкрити календар', href: '/calendar' }
-    }
-    if (principal.permissions.has(Permission.NotificationsRead)) {
-      return { label: 'Переглянути сповіщення', href: '/notifications' }
-    }
-    return { label: 'Відкрити профіль', href: '/settings/profile' }
+  private fallbackAction() {
+    return { label: 'Створити завдання', href: '/tasks/new' }
   }
 
   private localDate(value: Date, timeZone: string): string {

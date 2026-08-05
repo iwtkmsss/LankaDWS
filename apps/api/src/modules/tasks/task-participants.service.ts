@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { TaskParticipantInput, TaskParticipantRoleV2 } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, forbidden } from '../../common/errors.js'
+import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
@@ -42,7 +41,6 @@ export class TaskParticipantsService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     const task = await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal, role)
     await this.assertEligibleUser(principal, task.companyId, task.groupId, userId)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
@@ -128,7 +126,6 @@ export class TaskParticipantsService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     const task = await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     const participant = await this.prisma.taskParticipant.findUnique({
@@ -255,18 +252,6 @@ export class TaskParticipantsService {
     })
   }
 
-  private assertCanManage(principal: AuthPrincipal, role?: TaskParticipantRoleV2): void {
-    const permission = role === 'RESPONSIBLE'
-      ? Permission.TasksResponsiblesManage
-      : Permission.TasksParticipantsManage
-    if (
-      !principal.permissions.has(permission)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
-    }
-  }
-
   private async assertEligibleUser(
     principal: AuthPrincipal,
     companyId: string,
@@ -277,11 +262,14 @@ export class TaskParticipantsService {
       where: {
         id: userId,
         workspaceId: principal.workspaceId,
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId, status: 'ACTIVE' } },
-        ...(groupId
-          ? { groupMemberships: { some: { groupId, leftAt: null } } }
-          : {}),
+        isActive: true,
+        OR: [
+          { accountType: 'ADMIN' },
+          {
+            primaryCompanyId: companyId,
+            ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
+          },
+        ],
       },
       select: { id: true },
     })

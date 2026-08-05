@@ -1,12 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { KnowledgeService } from './knowledge.service.js'
 
 @Controller('knowledge/articles')
-@RequirePermissions(Permission.KnowledgeRead)
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}
 
@@ -21,7 +18,6 @@ export class KnowledgeController {
   }
 
   @Post()
-  @RequirePermissions(Permission.KnowledgeManage)
   create(@Req() request: BertRequest, @Body() body: { slug: string; title: string; body: string; companyIds: string[]; reviewAt?: string }) {
     return this.knowledge.create(principalFrom(request), body)
   }

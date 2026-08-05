@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common'
 import {
   allOrganizationCapabilityCodes,
   usernamePattern,
-  allPermissionCodes,
   type OrganizationCapabilityCode,
   type UpdateOrganizationCapability,
 } from '@bert-crm/contracts'
@@ -21,68 +20,95 @@ export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly jobQueue: JobsService) {}
 
   async overview(principal: AuthPrincipal) {
-    const [activeUsers, pendingUsers, inactiveUsers, departments, roles, without2fa, failedJobs, recentAudit] = await Promise.all([
-      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
-      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'PENDING_FIRST_LOGIN' } }),
-      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'DEACTIVATED' } }),
+    const [activeUsers, inactiveUsers, departments, roles, without2fa, failedJobs, recentAudit] = await Promise.all([
+      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: true } }),
+      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: false } }),
       this.prisma.orgUnit.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
-      this.prisma.role.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
-      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE', totpCredential: null } }),
+      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, accountType: 'ADMIN', isActive: true } }),
+      this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: true, totpCredential: null } }),
       this.prisma.backgroundJob.count({ where: { state: 'FAILED' } }),
       this.prisma.auditEvent.findMany({ where: { workspaceId: principal.workspaceId }, orderBy: { createdAt: 'desc' }, take: 8 }),
     ])
-    return { users: { active: activeUsers, pending: pendingUsers, deactivated: inactiveUsers }, departments, roles, twoFactorCoverage: activeUsers ? Math.round((activeUsers - without2fa) / activeUsers * 100) : 0, attention: { pendingUsers, without2fa, failedJobs }, recentAudit }
+    return { users: { active: activeUsers, inactive: inactiveUsers }, departments, administrators: roles, twoFactorCoverage: activeUsers ? Math.round((activeUsers - without2fa) / activeUsers * 100) : 0, attention: { without2fa, failedJobs }, recentAudit }
   }
 
-  async users(principal: AuthPrincipal, search?: string, status?: string) {
+  async users(principal: AuthPrincipal, search?: string, isActive?: string, companyId?: string, accountType?: string) {
     const rows = await this.prisma.user.findMany({ where: {
       workspaceId: principal.workspaceId,
-      ...(status ? { status: status as 'ACTIVE' } : {}),
+      ...(companyId ? { primaryCompanyId: companyId } : {}),
+      ...(isActive === 'true' || isActive === 'false' ? { isActive: isActive === 'true' } : {}),
+      ...(accountType === 'ADMIN' || accountType === 'USER' ? { accountType } : {}),
       ...(search ? { OR: [{ displayName: { contains: search } }, { username: { contains: search } }, { jobTitle: { contains: search } }] } : {}),
-    }, include: { roles: { where: { status: 'ACTIVE' }, include: { role: true } }, totpCredential: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } }, orderBy: { displayName: 'asc' } })
-    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, status: user.status, roles: user.roles.map((entry) => ({ id: entry.role.id, name: entry.role.name })), displayRole: user.displayRole, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user.sessions.length, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })) }
+    }, include: { primaryCompany: true, totpCredential: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } }, orderBy: { displayName: 'asc' } })
+    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, isActive: user.isActive, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user.sessions.length, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })) }
   }
 
   async userDetail(principal: AuthPrincipal, userId: string) {
-    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { roles: { include: { role: { include: { permissions: true } } } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
+    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
-    return { id: user.id, displayName: user.displayName, username: user.username, contactEmail: user.contactEmail, jobTitle: user.jobTitle, displayRole: user.displayRole, approverId: user.approverId, timezone: user.timezone, status: user.status, version: user.authorizationVersion, roles: user.roles.map((entry) => entry.role), security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustChangePassword: user.mustChangePassword, mustEnroll2FA: user.mustEnroll2FA } }
+    return { id: user.id, displayName: user.displayName, username: user.username, contactEmail: user.contactEmail, jobTitle: user.jobTitle, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
   }
 
-  async createUser(principal: AuthPrincipal, input: { displayName: string; username: string; roleId: string; jobTitle?: string; contactEmail?: string; approverId?: string }) {
+  async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; isActive: boolean }) {
     const username = input.username.trim().toLowerCase()
-    if (!usernamePattern.test(username) || !input.displayName.trim()) throw badRequest('user_fields')
-    const [reservation, company, role] = await Promise.all([
+    const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
+    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && input.companyId)) throw badRequest('user_fields')
+    const [reservation, company] = await Promise.all([
       this.prisma.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } }),
-      this.prisma.company.findFirst({ where: { id: principal.primaryCompanyId, workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
-      this.prisma.role.findFirst({ where: { id: input.roleId, workspaceId: principal.workspaceId, status: 'ACTIVE' } }),
+      input.companyId ? this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, isActive: true } }) : Promise.resolve(null),
     ])
     if (reservation) throw conflict('Нікнейм уже використаний або зарезервований.')
-    if (!company || !role) throw badRequest('user_assignment')
+    if (input.accountType === 'USER' && !company) throw badRequest('user_assignment')
     const userId = id('usr')
     const temporaryPassword = randomTemporaryPassword()
     const secretHash = await hashPassword(temporaryPassword)
     const expiresAt = new Date(Date.now() + getConfig().TEMPORARY_PASSWORD_HOURS * 3_600_000)
     await this.prisma.$transaction(async (tx) => {
-      const displayName = input.displayName.trim()
-      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company.id, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, contactEmail: input.contactEmail?.trim() || null, jobTitle: input.jobTitle?.trim() ?? '', displayRole: role.name, approverId: input.approverId, status: 'PENDING_FIRST_LOGIN', mustChangePassword: true, mustEnroll2FA: role.isFullAdmin } })
+      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company?.id ?? null, accountType: input.accountType, firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, jobTitle: '', isActive: input.isActive, mustEnroll2FA: false } })
       await tx.usernameReservation.create({ data: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' } })
-      await tx.userCompanyAccess.create({ data: { id: id('uca'), userId, companyId: company.id, grantedBy: principal.userId } })
-      await tx.userRole.create({ data: { id: id('ur'), userId, roleId: role.id, grantedBy: principal.userId } })
       await tx.temporaryCredential.create({ data: { id: id('tmp'), userId, secretHash, purpose: 'FIRST_LOGIN', expiresAt, createdBy: principal.userId } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company.id, actorType: 'USER', actorId: principal.userId, action: 'user.created', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ roleId: role.id, companyId: company.id }), correlationId: id('corr') } })
+      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.created', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
     })
     return { userId, username, temporaryPassword, expiresAt: expiresAt.toISOString() }
+  }
+
+  async updateUser(principal: AuthPrincipal, userId: string, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; isActive: boolean; contactEmail?: string | null; jobTitle?: string }) {
+    const username = input.username.trim().toLowerCase()
+    const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
+    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && input.companyId)) throw badRequest('user_fields')
+    const [user, company, conflictUser] = await Promise.all([
+      this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId } }),
+      input.companyId ? this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, isActive: true } }) : Promise.resolve(null),
+      this.prisma.user.findFirst({ where: { workspaceId: principal.workspaceId, normalizedUsername: username, id: { not: userId } } }),
+    ])
+    if (!user) throw notFound()
+    if (conflictUser) throw conflict('username_taken')
+    if (input.accountType === 'USER' && !company) throw badRequest('user_assignment')
+    if (
+      user.accountType === 'ADMIN'
+      && user.isActive
+      && (input.accountType !== 'ADMIN' || !input.isActive)
+    ) {
+      const admins = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, accountType: 'ADMIN', isActive: true } })
+      if (admins <= 1) throw forbidden('last_admin')
+    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
+      if (!input.isActive) await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
+      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
+      return value
+    })
+    return { id: updated.id }
   }
 
   async resetPassword(principal: AuthPrincipal, targetId: string, input: { reauthChallengeId?: string; reason: string; verificationMethod: string }) {
     await this.auth.assertRecentReauth(principal, input.reauthChallengeId)
     if (!input.reason.trim() || !input.verificationMethod.trim()) throw badRequest('reset_reason_required')
-    const target = await this.prisma.user.findFirst({ where: { id: targetId, workspaceId: principal.workspaceId }, include: { roles: { where: { status: 'ACTIVE' }, include: { role: true } } } })
+    const target = await this.prisma.user.findFirst({ where: { id: targetId, workspaceId: principal.workspaceId } })
     if (!target) throw notFound()
-    const isFullAdmin = target.roles.some((entry) => entry.role.isFullAdmin)
+    const isFullAdmin = target.accountType === 'ADMIN'
     if (isFullAdmin) {
-      const fullAdmins = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE', roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true, status: 'ACTIVE' } } } } })
+      const fullAdmins = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: true, accountType: 'ADMIN' } })
       if (fullAdmins <= 1) throw forbidden('Для останнього повного адміністратора використайте задокументовану break-glass CLI-процедуру.')
       const approvalId = id('cra')
       await this.prisma.credentialResetApproval.create({ data: { id: approvalId, targetId, initiatorId: principal.userId, resetType: 'PASSWORD', state: 'PENDING', reason: input.reason.trim(), expiresAt: new Date(Date.now() + 15 * 60_000) } })
@@ -119,10 +145,10 @@ export class AdminService {
 
   async deactivate(principal: AuthPrincipal, targetId: string, input: { newOwnerId?: string; reason: string }) {
     if (targetId === principal.userId) throw forbidden('Не можна деактивувати власний акаунт.')
-    const target = await this.prisma.user.findUnique({ where: { id: targetId }, include: { roles: { include: { role: true } } } })
+    const target = await this.prisma.user.findFirst({ where: { id: targetId, workspaceId: principal.workspaceId } })
     if (!target) throw notFound()
-    if (target.roles.some((entry) => entry.role.isFullAdmin)) {
-      const fullAdminCount = await this.prisma.user.count({ where: { status: 'ACTIVE', roles: { some: { status: 'ACTIVE', role: { isFullAdmin: true } } } } })
+    if (target.accountType === 'ADMIN' && target.isActive) {
+      const fullAdminCount = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: true, accountType: 'ADMIN' } })
       if (fullAdminCount <= 1) throw forbidden('Не можна деактивувати останнього повного адміністратора.')
     }
     const activeTaskWhere = {
@@ -187,36 +213,16 @@ export class AdminService {
         }
         await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: input.newOwnerId } })
       }
-      await tx.user.update({ where: { id: targetId }, data: { status: 'DEACTIVATED', authorizationVersion: { increment: 1 } } })
+      await tx.user.update({ where: { id: targetId }, data: { isActive: false, authorizationVersion: { increment: 1 } } })
       await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents }), correlationId: id('corr') } })
     })
     return { deactivated: true }
   }
 
-  async roles(principal: AuthPrincipal) {
-    const roles = await this.prisma.role.findMany({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE' }, include: { permissions: true, users: { where: { status: 'ACTIVE' } } }, orderBy: [{ isSystem: 'desc' }, { name: 'asc' }] })
-    return { items: roles.map((role) => ({ ...role, permissions: role.permissions, userCount: role.users.length })) }
-  }
-
-  async updateRole(principal: AuthPrincipal, roleId: string, input: { expectedVersion: number; name?: string; permissions: Array<{ code: string; scope: 'OWN' | 'SELECTED_COMPANIES' | 'ALL_COMPANIES'; companyIds?: string[] }> }) {
-    const role = await this.prisma.role.findFirst({ where: { id: roleId, workspaceId: principal.workspaceId }, include: { permissions: true, users: true } })
-    if (!role) throw notFound()
-    if (role.version !== input.expectedVersion) throw conflict()
-    if (input.permissions.some((entry) => !allPermissionCodes.includes(entry.code as never))) throw badRequest('permission_code')
-    if (role.isFullAdmin && !input.permissions.some((entry) => entry.code === 'roles.manage')) throw forbidden('Критичну основу системної ролі адміністратора не можна прибрати.')
-    await this.prisma.$transaction(async (tx) => {
-      await tx.rolePermission.deleteMany({ where: { roleId } })
-      await tx.rolePermission.createMany({ data: input.permissions.map((permission) => ({ id: id('rp'), roleId, permissionCode: permission.code, scope: permission.scope, companyIdsJson: JSON.stringify(permission.companyIds ?? []) })) })
-      await tx.role.update({ where: { id: roleId }, data: { ...(input.name && !role.isSystem ? { name: input.name.trim(), normalizedName: input.name.trim().toLowerCase() } : {}), version: { increment: 1 } } })
-      await tx.user.updateMany({ where: { roles: { some: { roleId, status: 'ACTIVE' } } }, data: { authorizationVersion: { increment: 1 } } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'role.updated', entityType: 'ROLE', entityId: roleId, result: 'SUCCESS', risk: 'CRITICAL', safeDiffJson: JSON.stringify({ before: role.permissions.map((entry) => entry.permissionCode), after: input.permissions.map((entry) => entry.code), affectedUsers: role.users.length }), correlationId: id('corr') } })
-    })
-    return { version: input.expectedVersion + 1, affectedUsers: role.users.length }
-  }
-
   async organizationCapabilities(principal: AuthPrincipal) {
-    const companyId = principal.primaryCompanyId
+    const companyId = principal.primaryCompanyId ?? principal.allowedCompanyIds[0]
+    if (!companyId) throw notFound()
     const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId }, select: { id: true } })
     if (!company) throw notFound()
     const rows = await this.prisma.companyCapability.findMany({ where: { companyId }, orderBy: { code: 'asc' } })
@@ -237,7 +243,8 @@ export class AdminService {
     code: OrganizationCapabilityCode,
     input: UpdateOrganizationCapability,
   ) {
-    const companyId = principal.primaryCompanyId
+    const companyId = principal.primaryCompanyId ?? principal.allowedCompanyIds[0]
+    if (!companyId) throw notFound()
     const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId }, select: { id: true } })
     if (!company) throw notFound()
     const current = await this.prisma.companyCapability.findUnique({ where: { companyId_code: { companyId, code } } })
@@ -325,15 +332,15 @@ export class AdminService {
 
   async securityPolicy() {
     const setting = await this.prisma.systemSetting.findFirst({ where: { key: 'security-policy', effectiveAt: { lte: new Date() } }, orderBy: { version: 'desc' } })
-    return setting ? { ...JSON.parse(setting.valueJson) as object, version: setting.version, effectiveAt: setting.effectiveAt } : { require2faRoles: ['Адміністратор'], temporaryPasswordHours: 24, sessionHours: 12, version: 0 }
+    return setting ? { ...JSON.parse(setting.valueJson) as object, version: setting.version, effectiveAt: setting.effectiveAt } : { require2faAccountTypes: ['ADMIN'], temporaryPasswordHours: 24, sessionHours: 12, version: 0 }
   }
 
-  async updateSecurityPolicy(principal: AuthPrincipal, input: { expectedVersion: number; require2faRoles: string[]; temporaryPasswordHours: number; sessionHours: number; effectiveAt: string }, reauthChallengeId?: string) {
+  async updateSecurityPolicy(principal: AuthPrincipal, input: { expectedVersion: number; require2faAccountTypes: Array<'ADMIN' | 'USER'>; temporaryPasswordHours: number; sessionHours: number; effectiveAt: string }, reauthChallengeId?: string) {
     await this.auth.assertRecentReauth(principal, reauthChallengeId)
     const current = await this.securityPolicy()
     if (current.version !== input.expectedVersion) throw conflict()
-    const affectedUsers = await this.prisma.user.count({ where: { displayRole: { in: input.require2faRoles }, status: 'ACTIVE' } })
-    await this.prisma.systemSetting.create({ data: { id: id('set'), key: 'security-policy', valueJson: JSON.stringify({ require2faRoles: input.require2faRoles, temporaryPasswordHours: input.temporaryPasswordHours, sessionHours: input.sessionHours }), version: input.expectedVersion + 1, effectiveAt: new Date(input.effectiveAt), updatedBy: principal.userId } })
+    const affectedUsers = await this.prisma.user.count({ where: { accountType: { in: input.require2faAccountTypes }, isActive: true } })
+    await this.prisma.systemSetting.create({ data: { id: id('set'), key: 'security-policy', valueJson: JSON.stringify({ require2faAccountTypes: input.require2faAccountTypes, temporaryPasswordHours: input.temporaryPasswordHours, sessionHours: input.sessionHours }), version: input.expectedVersion + 1, effectiveAt: new Date(input.effectiveAt), updatedBy: principal.userId } })
     return { version: input.expectedVersion + 1, affectedUsers }
   }
 
@@ -347,7 +354,7 @@ export class AdminService {
       await tx.temporaryCredential.updateMany({ where: { userId: targetId, consumedAt: null, invalidatedAt: null }, data: { invalidatedAt: new Date() } })
       await tx.temporaryCredential.create({ data: { id: id('tmp'), userId: targetId, secretHash, purpose: 'ADMIN_RESET', expiresAt, createdBy: principal.userId } })
       await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'admin_password_reset' } })
-      await tx.user.update({ where: { id: targetId }, data: { mustChangePassword: true, status: 'PENDING_FIRST_LOGIN', authorizationVersion: { increment: 1 } } })
+      await tx.user.update({ where: { id: targetId }, data: { authorizationVersion: { increment: 1 } } })
       await tx.credentialEvent.create({ data: { id: id('cev'), userId: targetId, actorId: principal.userId, type: 'admin_password_reset', result: 'SUCCESS', reasonCode: reason.trim(), correlationId: id('corr') } })
       await tx.notification.upsert({ where: { dedupeKey: `credential-reset:${targetId}:${expiresAt.toISOString()}` }, create: { id: id('ntf'), recipientId: targetId, category: 'SECURITY', safeTitle: 'Адміністратор скинув пароль', safeSnippet: 'Після встановлення нового пароля перевірте активні сесії.', entityType: 'USER', entityId: targetId, requiresAction: true, dedupeKey: `credential-reset:${targetId}:${expiresAt.toISOString()}` }, update: {} })
     })

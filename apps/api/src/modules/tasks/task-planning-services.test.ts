@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Permission } from '@bert-crm/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import {
   nextRecurrenceOccurrence,
@@ -15,7 +14,13 @@ const timePrincipal = {
   workspaceId: 'wrk_1',
   primaryCompanyId: 'cmp_1',
   allowedCompanyIds: ['cmp_1'],
-  permissions: new Set([Permission.TasksTimeWrite]),
+  username: 'planner',
+  displayName: 'Planner',
+  accountType: 'USER',
+  authorizationVersion: 1,
+  sessionId: 'ses_1',
+  authAssurance: 1,
+  restricted: false,
 } as AuthPrincipal
 
 describe('task recurrence calendar', () => {

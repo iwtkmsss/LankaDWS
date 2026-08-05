@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import type { TaskReminderInput } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import type { TaskTransaction } from './task-types.js'
@@ -171,7 +171,7 @@ export class TaskReminderService {
     if (!reminder) throw notFound()
     if (
       reminder.userId !== principal.userId
-      && !principal.permissions.has('tasks.manage')
+      && !isGlobalAdmin(principal)
     ) {
       throw forbidden()
     }

@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { TaskRelationInput } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, forbidden } from '../../common/errors.js'
+import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
@@ -44,7 +43,6 @@ export class TaskRelationsService {
     expectedVersion: number,
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal)
     this.assertVersion(expectedVersion)
     const row = this.normalize(taskId, relation)
     await this.assertCompatibleTarget(principal, task, relation.targetTaskId)
@@ -71,7 +69,6 @@ export class TaskRelationsService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal)
     this.assertVersion(expectedVersion)
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
@@ -137,15 +134,6 @@ export class TaskRelationsService {
         .map((relation) => relation.targetTaskId)
         .filter((taskId) => !visited.has(taskId)))]
       for (const taskId of frontier) visited.add(taskId)
-    }
-  }
-
-  private assertCanManage(principal: AuthPrincipal): void {
-    if (
-      !principal.permissions.has(Permission.TasksRelationsManage)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
     }
   }
 

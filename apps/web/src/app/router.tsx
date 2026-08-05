@@ -38,7 +38,7 @@ function ProtectedRoot() {
 
 function ProtectedPage({ route }: { route: RouteMeta }) {
   const auth = useAuth()
-  if (!auth.can(route.permission)) return <ErrorPage status={403} />
+  if (route.adminOnly && auth.user?.accountType !== 'ADMIN') return <ErrorPage status={403} />
   if (route.capability && !auth.canUseCapability(route.capability)) {
     return <ModuleUnavailablePage title={route.title} state="disabled" />
   }

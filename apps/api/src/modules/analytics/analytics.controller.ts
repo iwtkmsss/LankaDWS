@@ -1,13 +1,10 @@
 import { Controller, Get, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 
 @Controller('analytics')
-@RequirePermissions(Permission.AnalyticsRead)
 export class AnalyticsController {
   constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
 

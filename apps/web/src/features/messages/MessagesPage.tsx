@@ -48,8 +48,8 @@ export function MessagesPage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const client = useQueryClient()
-  const { user, can, canUseCapability } = useAuth()
-  const companyId = user?.organization.id ?? ''
+  const { user, canUseCapability } = useAuth()
+  const companyId = user?.company?.id ?? ''
   const unreadOnly = params.get('unread') === 'true'
   const groupOpen = params.get('new') === '1'
   const [query, setQuery] = useState(params.get('q') ?? '')
@@ -95,7 +95,7 @@ export function MessagesPage() {
   const threads = threadPages.data?.pages.flatMap((page) => page.items) ?? []
   const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
 
-  const canWrite = can('messages.write')
+  const canWrite = true
   const normalizedSearchLength = normalizedCodePointLength(debouncedQuery)
   const users = useQuery({
     queryKey: messageKeys.users(companyId, debouncedQuery),
@@ -333,8 +333,8 @@ export function MessagesPage() {
     }, { replace: true })
   }
 
-  const canConvertToTask = can('tasks.create')
-  const canConvertToEvent = can('calendar.manage')
+  const canConvertToTask = true
+  const canConvertToEvent = canUseCapability(OrganizationCapability.CalendarWrite)
     && canUseCapability(OrganizationCapability.CalendarWrite)
 
   return (

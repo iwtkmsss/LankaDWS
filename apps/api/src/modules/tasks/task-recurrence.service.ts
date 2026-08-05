@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { Temporal } from '@js-temporal/polyfill'
 import type { TaskRecurrenceInput, TaskRelationType } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
@@ -174,7 +173,6 @@ export class TaskRecurrenceService {
     expectedVersion: number,
   ) {
     const task = await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal)
     if (task.parentTaskId) throw badRequest('task_recurrence_top_level')
     const recurrence = await this.prisma.taskRecurrence.findUnique({
       where: { templateTaskId: taskId },
@@ -269,7 +267,6 @@ export class TaskRecurrenceService {
     expectedVersion: number,
   ) {
     await this.access.editableTask(principal, taskId)
-    this.assertCanManage(principal)
     const recurrence = await this.prisma.taskRecurrence.findUnique({
       where: { templateTaskId: taskId },
       select: { id: true },
@@ -355,12 +352,4 @@ export class TaskRecurrenceService {
     })
   }
 
-  private assertCanManage(principal: AuthPrincipal): void {
-    if (
-      !principal.permissions.has(Permission.TasksRecurrenceManage)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
-    }
-  }
 }

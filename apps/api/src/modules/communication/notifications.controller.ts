@@ -1,13 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 
 @Controller('notifications')
-@RequirePermissions(Permission.NotificationsRead)
 export class NotificationsController {
   constructor(private readonly prisma: PrismaService) {}
 

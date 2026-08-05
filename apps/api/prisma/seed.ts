@@ -1,7 +1,7 @@
 import '../src/config/load-env.js'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { PrismaClient } from '../src/generated/prisma/client.js'
-import { allOrganizationCapabilityCodes, allPermissionCodes, Permission } from '@bert-crm/contracts'
+import { allOrganizationCapabilityCodes } from '@bert-crm/contracts'
 import { hashPassword } from '../src/common/crypto.js'
 import { normalizeUserSearchValue } from '../src/common/user-search.js'
 import { getConfig } from '../src/config/config.js'
@@ -11,20 +11,12 @@ if (process.env.NODE_ENV === 'production') throw new Error('Demo seed is disable
 const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: getConfig().DATABASE_URL }) })
 const password = process.env.DEMO_SEED_PASSWORD ?? 'BertDemoPassphrase2026!'
 
-const roles = {
-  employee: { id: 'role_employee', name: 'Працівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.EmployeesOrgRead] },
-  manager: { id: 'role_manager', name: 'Керівник', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.TasksEditAny, Permission.TasksReporterManage, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
-  hr: { id: 'role_hr', name: 'HR', permissions: [Permission.TasksRead, Permission.TasksCreate, Permission.TasksManage, Permission.TasksEditAny, Permission.TasksReporterManage, Permission.TasksResponsiblesManage, Permission.TasksParticipantsManage, Permission.TasksRecurrenceManage, Permission.TasksTimeRead, Permission.TasksTimeWrite, Permission.TasksRelationsManage, Permission.CalendarRead, Permission.CalendarManage, Permission.DocumentsRead, Permission.DocumentsManage, Permission.KnowledgeRead, Permission.KnowledgeManage, Permission.EmployeesRead, Permission.LifecycleManage, Permission.AnnouncementsRead, Permission.AnnouncementsCreate, Permission.AnnouncementsPublish, Permission.MessagesRead, Permission.MessagesWrite, Permission.NotificationsRead, Permission.AnalyticsRead, Permission.ConfidentialHrRead, Permission.FeedRead, Permission.FeedCreate, Permission.GroupsRead, Permission.GroupsCreate, Permission.GroupsManage, Permission.GroupsMembersManage, Permission.EmployeesOrgRead] },
-  admin: { id: 'role_admin', name: 'Адміністратор', permissions: allPermissionCodes },
-  viewer: { id: 'role_viewer', name: 'Перегляд', permissions: [Permission.TasksRead, Permission.CalendarRead, Permission.DocumentsRead, Permission.KnowledgeRead, Permission.EmployeesRead, Permission.AnnouncementsRead, Permission.NotificationsRead, Permission.FeedRead, Permission.GroupsRead, Permission.EmployeesOrgRead] },
-}
-
 const users = [
-  { id: 'usr_maria', username: 'maria', displayName: 'Марія Іваненко', jobTitle: 'Продуктова дизайнерка', role: roles.employee, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-maria.webp', approverId: 'usr_andrii' },
-  { id: 'usr_andrii', username: 'andrii', displayName: 'Андрій Коваль', jobTitle: 'Операційний керівник', role: roles.manager, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-andrii.webp', approverId: 'usr_dmytro' },
-  { id: 'usr_olena', username: 'olena', displayName: 'Олена Бондар', jobTitle: 'HR-фахівчиня', role: roles.hr, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-olena.webp', approverId: 'usr_andrii' },
-  { id: 'usr_dmytro', username: 'dmytro', displayName: 'Дмитро Савчук', jobTitle: 'Системний адміністратор', role: roles.admin, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-dmytro.webp', approverId: 'usr_andrii' },
-  { id: 'usr_marko', username: 'marko', displayName: 'Марко Литвин', jobTitle: 'Дизайнер', role: roles.employee, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-marko.webp', approverId: 'usr_andrii' },
+  { id: 'usr_maria', username: 'maria', displayName: 'Марія Іваненко', jobTitle: 'Продуктова дизайнерка', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-maria.webp', approverId: 'usr_andrii' },
+  { id: 'usr_andrii', username: 'andrii', displayName: 'Андрій Коваль', jobTitle: 'Операційний керівник', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-andrii.webp', approverId: 'usr_dmytro' },
+  { id: 'usr_olena', username: 'olena', displayName: 'Олена Бондар', jobTitle: 'HR-фахівчиня', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-olena.webp', approverId: 'usr_andrii' },
+  { id: 'usr_dmytro', username: 'dmytro', displayName: 'Дмитро Савчук', jobTitle: 'Системний адміністратор', accountType: 'ADMIN' as const, companyId: null, avatar: '/assets/avatars/avatar-dmytro.webp', approverId: 'usr_andrii' },
+  { id: 'usr_marko', username: 'marko', displayName: 'Марко Литвин', jobTitle: 'Дизайнер', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-marko.webp', approverId: 'usr_andrii' },
 ]
 
 async function seed(): Promise<void> {
@@ -40,18 +32,10 @@ async function seed(): Promise<void> {
     }
   }
 
-  for (const code of allPermissionCodes) await prisma.permission.upsert({ where: { code }, create: { code, domain: code.split('.')[0] ?? 'system', risk: code.includes('reset') || code.includes('security') || code.includes('roles') ? 'HIGH' : 'NORMAL', description: code }, update: {} })
-  for (const role of Object.values(roles)) {
-    await prisma.role.upsert({ where: { id: role.id }, create: { id: role.id, workspaceId: 'ws_bert', name: role.name, normalizedName: role.name.toLowerCase(), isSystem: true, isFullAdmin: role.id === 'role_admin' }, update: { name: role.name } })
-    for (const code of role.permissions) await prisma.rolePermission.upsert({ where: { roleId_permissionCode: { roleId: role.id, permissionCode: code } }, create: { id: `rp_${role.id}_${code.replaceAll('.', '_')}`, roleId: role.id, permissionCode: code, scope: role.id === 'role_employee' ? 'OWN' : 'ALL_COMPANIES' }, update: {} })
-  }
-
   const passwordHash = await hashPassword(password)
   for (const user of users) {
-    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, displayRole: user.role.name, status: 'ACTIVE', mustChangePassword: false, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), avatarAsset: user.avatar, status: 'ACTIVE' } })
+    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, accountType: user.accountType, firstName: user.displayName.split(' ')[1] ?? user.displayName, lastName: user.displayName.split(' ')[0] ?? '', displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, isActive: true, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, accountType: user.accountType, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), avatarAsset: user.avatar, isActive: true } })
     await prisma.usernameReservation.upsert({ where: { workspaceId_normalizedUsername: { workspaceId: 'ws_bert', normalizedUsername: user.username } }, create: { id: `unr_${user.username}`, workspaceId: 'ws_bert', normalizedUsername: user.username, currentUserId: user.id, state: 'ACTIVE' }, update: {} })
-    await prisma.userCompanyAccess.upsert({ where: { userId_companyId: { userId: user.id, companyId: 'cmp_bert_ua' } }, create: { id: `uca_${user.username}_cmp_bert_ua`, userId: user.id, companyId: 'cmp_bert_ua', grantedBy: 'usr_dmytro' }, update: { status: 'ACTIVE' } })
-    await prisma.userRole.upsert({ where: { userId_roleId: { userId: user.id, roleId: user.role.id } }, create: { id: `ur_${user.username}`, userId: user.id, roleId: user.role.id, grantedBy: 'usr_dmytro' }, update: {} })
     await prisma.passwordCredential.upsert({ where: { userId: user.id }, create: { id: `pwd_${user.username}`, userId: user.id, passwordHash }, update: { passwordHash, changedAt: new Date() } })
   }
   for (const user of users) await prisma.user.update({ where: { id: user.id }, data: { approverId: user.approverId } })
@@ -403,13 +387,9 @@ async function seed(): Promise<void> {
         },
       })
     }
-    const allowedRecipients = await prisma.userCompanyAccess.findMany({
-      where: {
-        companyId: 'cmp_bert_ua',
-        status: 'ACTIVE',
-        userId: { in: [...source.recipientIds] },
-      },
-      select: { userId: true },
+    const allowedRecipients = await prisma.user.findMany({
+      where: { primaryCompanyId: 'cmp_bert_ua', isActive: true, id: { in: [...source.recipientIds] } },
+      select: { id: true },
     })
     const existingRecipientIds = new Set((await prisma.feedItemRecipient.findMany({
       where: { itemId: source.id },
@@ -417,8 +397,8 @@ async function seed(): Promise<void> {
     })).map(({ userId }) => userId))
     await prisma.feedItemRecipient.createMany({
       data: allowedRecipients
-        .filter(({ userId }) => !existingRecipientIds.has(userId))
-        .map(({ userId }) => ({
+        .filter(({ id: userId }) => !existingRecipientIds.has(userId))
+        .map(({ id: userId }) => ({
           id: `firec_${source.id}_${userId}`,
           itemId: source.id,
           userId,

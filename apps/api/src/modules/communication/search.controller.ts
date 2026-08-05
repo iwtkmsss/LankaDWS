@@ -1,6 +1,6 @@
 import { Controller, Get, Query, Req } from '@nestjs/common'
 import type { BertRequest } from '../../common/request-context.js'
-import { principalFrom } from '../../common/request-context.js'
+import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
@@ -14,42 +14,32 @@ export class SearchController {
     const q = query.trim().slice(0, 120)
     if (q.length < 2) return { items: [] }
     const companyIds = this.scope.allowedCompanies(principal, company)
-    const documentAclIds = principal.permissions.has('documents.read')
-      ? (await this.prisma.documentAcl.findMany({
-          where: {
-            OR: [
-              { principalType: 'USER', principalId: principal.userId },
-              { principalType: 'ROLE', principalId: { in: [...principal.permissions] } },
-            ],
-          },
-          select: { documentId: true },
-        })).map((entry) => entry.documentId)
-      : []
-    const articleIds = principal.permissions.has('knowledge.read')
-      ? (await this.prisma.articleAudience.findMany({
+    const documentAclIds = (await this.prisma.documentAcl.findMany({
+      where: { principalType: 'USER', principalId: principal.userId },
+      select: { documentId: true },
+    })).map((entry) => entry.documentId)
+    const articleIds = (await this.prisma.articleAudience.findMany({
           where: {
             OR: [
               { principalType: 'COMPANY', principalId: { in: companyIds } },
               { principalType: 'USER', principalId: principal.userId },
-              { principalType: 'ROLE', principalId: principal.displayRole },
             ],
           },
           select: { articleId: true },
         })).map((entry) => entry.articleId)
-      : []
     const [tasks, documents, users, articles, groups, events, threads] = await Promise.all([
-      principal.permissions.has('tasks.read') ? this.prisma.task.findMany({
+      this.prisma.task.findMany({
         where: {
           companyId: { in: companyIds },
           title: { contains: q },
           AND: [
-            {
+            ...(isGlobalAdmin(principal) ? [] : [{
               OR: [
                 { groupId: null },
                 { group: { members: { some: { userId: principal.userId, leftAt: null } } } },
               ],
-            },
-            ...(principal.permissions.has('tasks.manage')
+            }]),
+            ...(isGlobalAdmin(principal)
               ? []
               : [{
                   OR: [
@@ -66,12 +56,12 @@ export class SearchController {
         },
         select: { id: true, title: true, companyId: true, status: true },
         take: 6,
-      }) : [],
-      principal.permissions.has('documents.read') ? this.prisma.document.findMany({
+      }),
+      this.prisma.document.findMany({
         where: {
           companyId: { in: companyIds },
           name: { contains: q },
-          OR: [
+          OR: isGlobalAdmin(principal) ? undefined : [
             { ownerId: principal.userId },
             { confidentiality: { in: ['GENERAL', 'INTERNAL'] } },
             { id: { in: documentAclIds } },
@@ -79,10 +69,10 @@ export class SearchController {
         },
         select: { id: true, name: true, companyId: true, status: true, archivedAt: true },
         take: 6,
-      }) : [],
-      principal.permissions.has('employees.read') ? this.prisma.user.findMany({ where: { workspaceId: principal.workspaceId, status: 'ACTIVE', displayName: { contains: q }, companyAccess: { some: { companyId: { in: companyIds }, status: 'ACTIVE' } } }, select: { id: true, displayName: true, primaryCompanyId: true, jobTitle: true }, take: 6 }) : [],
-      principal.permissions.has('knowledge.read') ? this.prisma.knowledgeArticle.findMany({ where: { id: { in: articleIds }, workspaceId: principal.workspaceId, status: 'ACTIVE', versions: { some: { title: { contains: q } } } }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, take: 6 }) : [],
-      principal.permissions.has('groups.read') ? this.prisma.group.findMany({
+      }),
+      this.prisma.user.findMany({ where: { workspaceId: principal.workspaceId, isActive: true, displayName: { contains: q }, primaryCompanyId: { in: companyIds } }, select: { id: true, displayName: true, primaryCompanyId: true, jobTitle: true }, take: 6 }),
+      this.prisma.knowledgeArticle.findMany({ where: { id: { in: articleIds }, workspaceId: principal.workspaceId, status: 'ACTIVE', versions: { some: { title: { contains: q } } } }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, take: 6 }),
+      this.prisma.group.findMany({
         where: {
           workspaceId: principal.workspaceId,
           companyId: { in: companyIds },
@@ -104,8 +94,8 @@ export class SearchController {
           _count: { select: { members: { where: { leftAt: null } } } },
         },
         take: 6,
-      }) : [],
-      principal.permissions.has('calendar.read') ? this.prisma.event.findMany({
+      }),
+      this.prisma.event.findMany({
         where: {
           companyId: { in: companyIds },
           title: { contains: q },
@@ -114,8 +104,8 @@ export class SearchController {
         select: { id: true, title: true, companyId: true, startAt: true },
         orderBy: { startAt: 'desc' },
         take: 6,
-      }) : [],
-      principal.permissions.has('messages.read') ? this.prisma.messageThread.findMany({
+      }),
+      this.prisma.messageThread.findMany({
         where: {
           workspaceId: principal.workspaceId,
           companyId: { in: companyIds },
@@ -134,7 +124,7 @@ export class SearchController {
           _count: { select: { participants: { where: { leftAt: null } } } },
         },
         take: 6,
-      }) : [],
+      }),
     ])
     const groupContextIds = threads
       .filter((thread) => thread.entityType === 'GROUP' && thread.entityId)

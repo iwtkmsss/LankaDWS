@@ -1,11 +1,9 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import type { Response } from 'express'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { FilesService } from './files.service.js'
 import type { UploadedBinary } from './files.service.js'
 
@@ -14,7 +12,6 @@ export class FilesController {
   constructor(private readonly files: FilesService) {}
 
   @Post()
-  @RequirePermissions(Permission.DocumentsManage)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 } }))
   upload(@Req() request: BertRequest, @Query('company') company: string | undefined, @UploadedFile() file: UploadedBinary) {
     return this.files.upload(principalFrom(request), company, file)

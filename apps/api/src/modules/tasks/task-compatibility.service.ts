@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import {
-  Permission,
   type PageResult,
   type TaskActivityPage,
   type TaskAttachmentView,
@@ -18,7 +17,7 @@ import {
   notFound,
   taskCompletionBlocked,
 } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
@@ -163,7 +162,7 @@ export class TaskCompatibilityService {
     if (!Number.isInteger(page) || page < 1 || page > 100_000) throw badRequest('task_page')
     if (!legacyViewRoles.includes(role as LegacyViewRole)) throw badRequest('task_role')
     const viewRole = role as LegacyViewRole
-    if (viewRole === 'ALL' && !principal.permissions.has(Permission.TasksManage)) throw forbidden()
+    if (viewRole === 'ALL' && !isGlobalAdmin(principal)) throw forbidden()
     if (filters.status && !taskStatuses.includes(filters.status as TaskStatusValue)) {
       throw badRequest('task_status')
     }
@@ -569,7 +568,6 @@ export class TaskCompatibilityService {
       canTransferCreator: this.canManageReporter(principal, task, canEdit),
       canCreateSubtask: !task.parentTaskId
         && !this.isTerminal(task.status)
-        && principal.permissions.has(Permission.TasksCreate)
         && canEdit,
       canManageParticipants: this.canManageParticipants(principal, task, canEdit),
       canAttachFiles: true,
@@ -616,11 +614,14 @@ export class TaskCompatibilityService {
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: userIds },
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId: task.companyId, status: 'ACTIVE' } },
-        ...(task.groupId
-          ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } }
-          : {}),
+        isActive: true,
+        OR: [
+          { accountType: 'ADMIN' },
+          {
+            primaryCompanyId: task.companyId,
+            ...(task.groupId ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } } : {}),
+          },
+        ],
       },
       select: { id: true },
     })
@@ -681,8 +682,8 @@ export class TaskCompatibilityService {
       await tx.taskParticipant.updateMany({
         where: {
           taskId: task.id,
-          role: 'RESPONSIBLE',
           userId: { not: input.assigneeId },
+          role: 'RESPONSIBLE',
           removedAt: null,
         },
         data: { removedAt: new Date() },
@@ -1326,8 +1327,7 @@ export class TaskCompatibilityService {
     if (
       task.createdById === principal.userId
       || task.reporterId === principal.userId
-      || principal.permissions.has(Permission.TasksManage)
-      || principal.permissions.has(Permission.TasksEditAny)
+      || isGlobalAdmin(principal)
     ) {
       return true
     }
@@ -1345,8 +1345,7 @@ export class TaskCompatibilityService {
   private canManageReporter(principal: AuthPrincipal, task: Task, canEdit: boolean): boolean {
     return canEdit && (
       task.createdById === principal.userId
-      || principal.permissions.has(Permission.TasksReporterManage)
-      || principal.permissions.has(Permission.TasksManage)
+      || isGlobalAdmin(principal)
     )
   }
 
@@ -1354,8 +1353,7 @@ export class TaskCompatibilityService {
     return canEdit && (
       task.createdById === principal.userId
       || task.reporterId === principal.userId
-      || principal.permissions.has(Permission.TasksResponsiblesManage)
-      || principal.permissions.has(Permission.TasksManage)
+      || isGlobalAdmin(principal)
     )
   }
 
@@ -1363,8 +1361,7 @@ export class TaskCompatibilityService {
     return canEdit && (
       task.createdById === principal.userId
       || task.reporterId === principal.userId
-      || principal.permissions.has(Permission.TasksParticipantsManage)
-      || principal.permissions.has(Permission.TasksManage)
+      || isGlobalAdmin(principal)
     )
   }
 
@@ -1374,17 +1371,20 @@ export class TaskCompatibilityService {
     userId: string,
   ): Promise<void> {
     if (!userId || userId.length > 120) throw badRequest('task_follower')
-    if (userId !== principal.userId && !principal.permissions.has(Permission.TasksManage)) {
+    if (userId !== principal.userId && !isGlobalAdmin(principal)) {
       throw forbidden()
     }
     const user = await this.prisma.user.findFirst({
       where: {
         id: userId,
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId: task.companyId, status: 'ACTIVE' } },
-        ...(task.groupId
-          ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } }
-          : {}),
+        isActive: true,
+        OR: [
+          { accountType: 'ADMIN' },
+          {
+            primaryCompanyId: task.companyId,
+            ...(task.groupId ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } } : {}),
+          },
+        ],
       },
       select: { id: true },
     })
@@ -1396,7 +1396,7 @@ export class TaskCompatibilityService {
         where: { taskId: task.id, userId, removedAt: null },
         select: { id: true },
       })
-      || principal.permissions.has(Permission.TasksManage)
+      || isGlobalAdmin(principal)
     ) {
       return
     }
@@ -1436,7 +1436,7 @@ export class TaskCompatibilityService {
       .filter((reference) => reference.type === 'DOCUMENT')
       .map((reference) => reference.id)
     const [messages, lifecycle, documents] = await Promise.all([
-      principal.permissions.has(Permission.MessagesRead) && messageIds.length
+      messageIds.length
         ? this.prisma.message.findMany({
             where: {
               id: { in: messageIds },
@@ -1459,7 +1459,7 @@ export class TaskCompatibilityService {
             },
           })
         : [],
-      principal.permissions.has(Permission.EmployeesRead) && lifecycleIds.length
+      lifecycleIds.length
         ? this.prisma.lifecycleProcess.findMany({
             where: {
               id: { in: lifecycleIds },
@@ -1469,7 +1469,7 @@ export class TaskCompatibilityService {
             select: { id: true, processType: true },
           })
         : [],
-      principal.permissions.has(Permission.DocumentsRead) && documentIds.length
+      documentIds.length
         ? this.prisma.document.findMany({
             where: {
               id: { in: documentIds },

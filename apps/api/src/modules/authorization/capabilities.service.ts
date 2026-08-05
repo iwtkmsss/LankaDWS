@@ -30,6 +30,25 @@ export class CapabilitiesService {
     })
   }
 
+  async forOrganizations(organizationIds: string[]): Promise<OrganizationCapabilityView[]> {
+    if (organizationIds.length === 0) return []
+    const rows = await this.prisma.companyCapability.findMany({
+      where: { companyId: { in: organizationIds } },
+      orderBy: [{ code: 'asc' }, { version: 'desc' }],
+    })
+    return allOrganizationCapabilityCodes.map((code) => {
+      const matching = rows.filter((item) => item.code === code)
+      const latest = matching[0]
+      return {
+        code,
+        enabled: matching.some((item) => item.enabled),
+        version: latest?.version ?? 0,
+        enabledAt: latest?.enabledAt?.toISOString() ?? null,
+        disabledAt: latest?.disabledAt?.toISOString() ?? null,
+      }
+    })
+  }
+
   async effectiveOrganizationIds(
     principal: AuthPrincipal,
     requested: string | undefined,

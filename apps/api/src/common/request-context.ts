@@ -5,10 +5,9 @@ export interface AuthPrincipal {
   workspaceId: string
   username: string
   displayName: string
-  displayRole: string
-  primaryCompanyId: string
+  primaryCompanyId: string | null
+  accountType: 'ADMIN' | 'USER'
   allowedCompanyIds: string[]
-  permissions: Set<string>
   authorizationVersion: number
   sessionId: string
   authAssurance: number
@@ -23,4 +22,8 @@ export interface BertRequest extends Request {
 export function principalFrom(request: BertRequest): AuthPrincipal {
   if (!request.principal) throw new Error('Principal missing after auth guard')
   return request.principal
+}
+
+export function isGlobalAdmin(principal: AuthPrincipal): boolean {
+  return principal.accountType === 'ADMIN'
 }

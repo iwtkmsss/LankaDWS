@@ -1,15 +1,13 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { createCalendarEventSchema, Permission, updateCalendarEventSchema } from '@bert-crm/contracts'
+import { createCalendarEventSchema, updateCalendarEventSchema } from '@bert-crm/contracts'
 import { badRequest } from '../../common/errors.js'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { CalendarService } from './calendar.service.js'
 
 @Controller('calendar')
-@RequirePermissions(Permission.CalendarRead)
 export class CalendarController {
   constructor(
     private readonly prisma: PrismaService,
@@ -18,7 +16,6 @@ export class CalendarController {
   ) {}
 
   @Post('events')
-  @RequirePermissions(Permission.CalendarManage)
   createEvent(
     @Req() request: BertRequest,
     @Body() rawBody: unknown,
@@ -31,7 +28,6 @@ export class CalendarController {
   }
 
   @Patch('events/:id')
-  @RequirePermissions(Permission.CalendarManage)
   updateEvent(
     @Req() request: BertRequest,
     @Param('id') eventId: string,

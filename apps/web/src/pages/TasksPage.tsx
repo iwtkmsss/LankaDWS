@@ -84,7 +84,7 @@ export default function TasksPage() {
     pendingParams.current = next
     setParams(next)
   }
-  const { can } = useAuth()
+  const { user } = useAuth()
   const [filtersOpen, setFiltersOpen] = useState(
     Boolean(
       params.get('search')
@@ -212,7 +212,7 @@ export default function TasksPage() {
   })
   const canQuickComplete = role === 'RESPONSIBLE'
     || role === 'CO_EXECUTOR'
-    || (role === 'ALL' && can('tasks.manage'))
+    || (role === 'ALL' && user?.accountType === 'ADMIN')
   const isCreating = location.pathname === '/tasks/new'
   return (
     <div>
@@ -220,7 +220,7 @@ export default function TasksPage() {
         title="Завдання"
         description="Окремі робочі списки за вашою роллю в кожному завданні"
         action={
-          can('tasks.create') && (
+          (
             <Link className="button button--primary" to={`/tasks/new${location.search}`}>
               <Plus size={17} />
               Нове завдання
@@ -244,7 +244,7 @@ export default function TasksPage() {
               { value: 'CO_EXECUTOR', label: 'Допомагаю', count: role === 'CO_EXECUTOR' ? query.data?.total : undefined },
               { value: 'CREATOR', label: 'Доручив', count: role === 'CREATOR' ? query.data?.total : undefined },
               { value: 'OBSERVER', label: 'Спостерігаю', count: role === 'OBSERVER' ? query.data?.total : undefined },
-              ...(can('tasks.manage') ? [{ value: 'ALL', label: 'Усі доступні', count: role === 'ALL' ? query.data?.total : undefined }] : []),
+              ...(user?.accountType === 'ADMIN' ? [{ value: 'ALL', label: 'Усі доступні', count: role === 'ALL' ? query.data?.total : undefined }] : []),
             ]}
           />
           <div className="toolbar-actions">
@@ -621,7 +621,7 @@ export default function TasksPage() {
             title={taskRoleEmptyState(role).title}
             description={taskRoleEmptyState(role).description}
             action={
-              can('tasks.create') && (
+              (
                 <Link className="button button--primary" to="/tasks/new">
                   Створити завдання
                 </Link>

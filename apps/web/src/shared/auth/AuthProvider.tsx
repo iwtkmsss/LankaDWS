@@ -11,7 +11,6 @@ interface AuthContextValue {
   login(input: LoginInput): Promise<AuthNextStep>
   refresh(): Promise<void>
   logout(): Promise<void>
-  can(permission?: string): boolean
   canUseCapability(capability: OrganizationCapabilityCode): boolean
 }
 
@@ -56,7 +55,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     login,
     refresh,
     logout,
-    can: (permission) => !permission || Boolean(user?.permissions.includes(permission)),
     canUseCapability: (capability) => {
       if (!user) return false
       return user.capabilities.some(

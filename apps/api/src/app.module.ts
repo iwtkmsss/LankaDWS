@@ -7,7 +7,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module.js'
 import { AnnouncementsModule } from './modules/announcements/announcements.module.js'
 import { AuditModule } from './modules/audit/audit.module.js'
 import { AuthModule } from './modules/auth/auth.module.js'
-import { PermissionGuard, SessionAuthGuard } from './modules/auth/auth.guard.js'
+import { SessionAuthGuard } from './modules/auth/auth.guard.js'
 import { AuthorizationModule } from './modules/authorization/authorization.module.js'
 import { CalendarModule } from './modules/calendar/calendar.module.js'
 import { CommunicationModule } from './modules/communication/communication.module.js'
@@ -25,6 +25,7 @@ import { LifecycleModule } from './modules/lifecycle/lifecycle.module.js'
 import { RetentionModule } from './modules/retention/retention.module.js'
 import { OrgModule } from './modules/org/org.module.js'
 import { TasksModule } from './modules/tasks/tasks.module.js'
+import { CompaniesModule } from './modules/companies/companies.module.js'
 
 @Module({
   imports: [
@@ -50,11 +51,11 @@ import { TasksModule } from './modules/tasks/tasks.module.js'
     AnalyticsModule,
     DashboardModule,
     AdminModule,
+    CompaniesModule,
     HealthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: SessionAuthGuard },
-    { provide: APP_GUARD, useClass: PermissionGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
   ],
 })

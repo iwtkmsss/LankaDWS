@@ -7,7 +7,7 @@ import { fingerprint, secureEqual } from '../../common/crypto.js'
 import { forbidden, unauthorized } from '../../common/errors.js'
 import type { BertRequest } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
-import { PUBLIC_ROUTE, REQUIRED_PERMISSIONS, RESTRICTED_ROUTE } from './auth.decorators.js'
+import { ADMIN_ONLY, PUBLIC_ROUTE, RESTRICTED_ROUTE } from './auth.decorators.js'
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
@@ -22,19 +22,14 @@ export class SessionAuthGuard implements CanActivate {
       where: { sessionHash: fingerprint(token, 'session') },
       include: {
         user: {
-          include: {
-            companyAccess: { where: { status: 'ACTIVE' } },
-            roles: {
-              where: { status: 'ACTIVE' },
-              include: { role: { include: { permissions: { include: { permission: true } } } } },
-            },
-            totpCredential: true,
-          },
+          include: { primaryCompany: true, totpCredential: true },
         },
       },
     })
     const now = Date.now()
     if (!session || session.revokedAt || session.expiresAt.getTime() <= now) throw unauthorized()
+    if (!session.user.isActive) throw unauthorized('account_inactive')
+    if (session.user.accountType === 'USER' && (!session.user.primaryCompanyId || !session.user.primaryCompany?.isActive)) throw unauthorized('company_inactive')
     const idleLimit = getConfig().SESSION_IDLE_MINUTES * 60_000
     if (session.lastSeenAt.getTime() + idleLimit <= now) {
       await this.prisma.userSession.update({ where: { id: session.id }, data: { revokedAt: new Date(), revokeReason: 'idle_timeout' } })
@@ -42,8 +37,7 @@ export class SessionAuthGuard implements CanActivate {
     }
     if (session.authorizationVersion !== session.user.authorizationVersion) throw unauthorized()
 
-    const restricted = session.user.status !== 'ACTIVE' || session.user.mustChangePassword ||
-      (Boolean(session.user.totpCredential?.confirmedAt) && session.authAssurance < 2) ||
+    const restricted = session.authAssurance === 0 || (Boolean(session.user.totpCredential?.confirmedAt) && session.authAssurance < 2) ||
       (session.user.mustEnroll2FA && session.authAssurance < 2)
     const allowsRestricted = this.reflector.getAllAndOverride<boolean>(RESTRICTED_ROUTE, [context.getHandler(), context.getClass()])
     if (restricted && !allowsRestricted) throw unauthorized('credential_step_required')
@@ -57,17 +51,21 @@ export class SessionAuthGuard implements CanActivate {
       }
     }
 
+    const allowedCompanyIds = session.user.accountType === 'ADMIN'
+      ? (await this.prisma.company.findMany({
+          where: { workspaceId: session.user.workspaceId },
+          select: { id: true },
+        })).map((company) => company.id)
+      : session.user.primaryCompanyId ? [session.user.primaryCompanyId] : []
+
     request.principal = {
       userId: session.user.id,
       workspaceId: session.user.workspaceId,
       username: session.user.username,
       displayName: session.user.displayName,
-      displayRole: session.user.displayRole,
       primaryCompanyId: session.user.primaryCompanyId,
-      // `companyId` is retained as a storage key while the product operates as
-      // one organization. Never widen a request to legacy additional companies.
-      allowedCompanyIds: [session.user.primaryCompanyId],
-      permissions: new Set(session.user.roles.flatMap((item) => item.role.permissions.map((entry) => entry.permission.code))),
+      allowedCompanyIds,
+      accountType: session.user.accountType,
       authorizationVersion: session.user.authorizationVersion,
       sessionId: session.id,
       authAssurance: session.authAssurance,
@@ -77,19 +75,7 @@ export class SessionAuthGuard implements CanActivate {
       void this.prisma.userSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
     }
     context.switchToHttp().getResponse<Response>().setHeader('Cache-Control', 'no-store')
-    return true
-  }
-}
-
-@Injectable()
-export class PermissionGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
-
-  canActivate(context: ExecutionContext): boolean {
-    const required = this.reflector.getAllAndOverride<string[]>(REQUIRED_PERMISSIONS, [context.getHandler(), context.getClass()]) ?? []
-    if (required.length === 0) return true
-    const request = context.switchToHttp().getRequest<BertRequest>()
-    if (!request.principal || !required.every((permission) => request.principal?.permissions.has(permission))) throw forbidden()
+    if (this.reflector.getAllAndOverride<boolean>(ADMIN_ONLY, [context.getHandler(), context.getClass()]) && session.user.accountType !== 'ADMIN') throw forbidden()
     return true
   }
 }

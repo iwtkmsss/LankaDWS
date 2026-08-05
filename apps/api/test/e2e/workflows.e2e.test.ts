@@ -1,14 +1,12 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import Database from 'better-sqlite3';
-import { copyFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import request from 'supertest';
 import type { ChatMessagePage, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
-import { hashPassword } from '../../src/common/crypto.js';
-import { normalizeUserSearchValue } from '../../src/common/user-search.js';
 import { configureApp } from '../../src/bootstrap.js';
 import { FeedProjectionService } from '../../src/modules/feed/feed-projection.service.js';
 import { JobsService } from '../../src/modules/jobs/jobs.service.js';
@@ -18,74 +16,26 @@ const database = resolve('test/tmp/e2e.db');
 let app: INestApplication;
 
 beforeAll(async () => {
-  mkdirSync(dirname(database), { recursive: true });
-  copyFileSync(resolve('prisma/dev.db'), database);
-  const migrationDb = new Database(database);
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'CompanyCapability'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260722180000_company_capabilities/migration.sql'), 'utf8'));
+  rmSync(dirname(database), { recursive: true, force: true })
+  mkdirSync(dirname(database), { recursive: true })
+  const databaseUrl = `file:${database.replaceAll('\\\\', '/')}`
+  const commandEnv = {
+    ...process.env,
+    DATABASE_URL: databaseUrl,
+    DEMO_SEED_PASSWORD: 'BertDemoPassphrase2026!',
+    NODE_ENV: 'test',
+    DISABLE_JOB_WORKER: 'true',
   }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'OrgUnit'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260722193000_group_org_kernel/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ImportDataset'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723113000_import_control_plane/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'FeedPost'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723150000_feed_kernel/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'FeedItemRecipient'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723173000_feed_source_projections/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'FeedUserItemState'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723193000_feed_favorites/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'FeedFileShare'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723211500_feed_file_shares/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'FeedSourceHead'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723223000_feed_source_heads/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('FeedSourceHead') WHERE name = 'countsAsUnread'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260723224500_feed_source_head_unread/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('Task') WHERE name = 'parentTaskId'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724090000_task_hierarchy/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'TaskParticipant'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724120000_task_participants/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'TaskFollower'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724150000_task_personal_workflow/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'Comment_task_scope_guard_insert'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724180000_task_content_context/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('ThreadParticipant') WHERE name = 'notificationMode'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724210000_chat_core/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'FileLink_message_scope_guard_insert'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260724233000_chat_collaboration/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'EntityLink_event_message_scope_guard_insert'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260725090000_chat_message_conversions/migration.sql'), 'utf8'));
-  }
-  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('User') WHERE name = 'normalizedDisplayName'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260728160000_messages_workspace/migration.sql'), 'utf8'));
-  }
-  const userRows = migrationDb.prepare('SELECT id, displayName FROM User').all() as Array<{ id: string; displayName: string }>;
-  const updateNormalizedDisplayName = migrationDb.prepare('UPDATE User SET normalizedDisplayName = ? WHERE id = ?');
-  for (const row of userRows) updateNormalizedDisplayName.run(normalizeUserSearchValue(row.displayName), row.id);
-  if (!migrationDb.prepare("SELECT name FROM pragma_table_info('Task') WHERE name = 'createdById'").get()) {
-    migrationDb.exec(readFileSync(resolve('prisma/migrations/20260729120000_task_creation_v2/migration.sql'), 'utf8'));
-  }
-  migrationDb.prepare("UPDATE CompanyCapability SET enabled = true, enabledAt = CURRENT_TIMESTAMP, disabledAt = NULL WHERE companyId = ? AND code = 'CALENDAR_WRITE'").run('cmp_bert_ua');
-  migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'FEED'").run('cmp_bert_ua');
-  migrationDb.prepare("UPDATE CompanyCapability SET enabled = false, enabledById = NULL, enabledAt = NULL, disabledAt = CURRENT_TIMESTAMP WHERE companyId = ? AND code = 'GROUPS_UI'").run('cmp_bert_ua');
-  migrationDb.prepare("UPDATE User SET primaryCompanyId = ? WHERE workspaceId = ?").run('cmp_bert_ua', 'ws_bert');
-  migrationDb.prepare('DELETE FROM LoginAttempt').run();
-  migrationDb.prepare('UPDATE PasswordCredential SET passwordHash = ?').run(await hashPassword('BertDemoPassphrase2026!'));
-  migrationDb.prepare("UPDATE User SET status = 'ACTIVE', mustChangePassword = false").run();
-  migrationDb.close();
+  execFileSync(process.execPath, [resolve('node_modules/prisma/build/index.js'), 'migrate', 'deploy', '--config', 'prisma.config.ts'], {
+    cwd: resolve('.'),
+    env: commandEnv,
+    stdio: 'pipe',
+  })
+  execFileSync(process.execPath, [resolve('../../node_modules/tsx/dist/cli.mjs'), 'prisma/seed.ts'], {
+    cwd: resolve('.'),
+    env: commandEnv,
+    stdio: 'pipe',
+  })
   process.env.NODE_ENV = 'test';
   process.env.DATABASE_URL = `file:${database.replaceAll('\\', '/')}`;
   process.env.DISABLE_JOB_WORKER = 'true';
@@ -332,11 +282,15 @@ describe('BERT CRM API workflows', () => {
   });
 
   it('enforces CSRF and organization-safe authenticated projections', async () => {
+    await app.get(PrismaService).companyCapability.update({
+      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
+      data: { enabled: false, disabledAt: new Date(), version: { increment: 1 } },
+    });
     const { agent } = await login('maria');
     const me = await agent.get('/api/v1/me').expect(200);
     const principal = me.body as PrincipalView;
     expect(principal.username).toBe('maria');
-    expect(principal.permissions).toContain('tasks.read');
+    expect(principal.accountType).toBe('USER');
     const feedCapability = principal.capabilities.find((item) => item.code === 'FEED');
     expect(feedCapability).toMatchObject({ code: 'FEED', enabled: false });
     expect(typeof feedCapability?.version).toBe('number');
@@ -346,7 +300,7 @@ describe('BERT CRM API workflows', () => {
     expect(dashboardBody).toHaveProperty('tasks');
     expect(dashboardBody).toMatchObject({
       meta: {
-        timezone: principal.organization.timezone,
+        timezone: principal.company?.timezone,
       },
       availability: {
         tasks: true,
@@ -362,6 +316,10 @@ describe('BERT CRM API workflows', () => {
 
   it('rolls an organization capability out atomically with version, audit, and outbox evidence', async () => {
     const dmytro = await login('dmytro');
+    await app.get(PrismaService).companyCapability.update({
+      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
+      data: { enabled: false, disabledAt: new Date(), version: { increment: 1 } },
+    });
     const before = await dmytro.agent
       .get('/api/v1/admin/organization/capabilities')
       .expect(200);
@@ -1239,7 +1197,7 @@ describe('BERT CRM API workflows', () => {
       .expect(201);
     expect(created.body.state).toBe('QUEUED');
     const jobs = app.get(JobsService);
-    for (let index = 0; index < 32; index += 1) {
+    for (let index = 0; index < 128; index += 1) {
       await jobs.runOnce();
       const current = await dmytro.agent
         .get(`/api/v1/admin/audit/exports/${created.body.exportId}`)
@@ -1413,7 +1371,7 @@ describe('BERT CRM API workflows', () => {
       .expect(200);
     expect(coExecutorDetail.body).toMatchObject({
       canEdit: true,
-      canManageParticipants: true,
+      canManageParticipants: false,
       viewerRoles: ['CO_EXECUTOR'],
     });
     expect((coExecutorDetail.body as {

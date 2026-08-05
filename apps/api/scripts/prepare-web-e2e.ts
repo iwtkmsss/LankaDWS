@@ -1,13 +1,12 @@
-import Database from 'better-sqlite3'
 import { spawnSync } from 'node:child_process'
-import { readFile, readdir, rm } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const apiRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const nodeModules = resolve(apiRoot, '..', '..', 'node_modules')
+const prismaCli = resolve(apiRoot, 'node_modules', 'prisma', 'build', 'index.js')
 const database = resolve(apiRoot, 'prisma', 'web-e2e.db')
-const migrationsRoot = resolve(apiRoot, 'prisma', 'migrations')
 const databaseUrl = `file:${database.replaceAll('\\', '/')}`
 const environment = {
   ...process.env,
@@ -30,16 +29,5 @@ function run(entry: string, args: string[]): void {
   if (result.status !== 0) throw new Error(`Web E2E database preparation failed with exit code ${result.status ?? 1}`)
 }
 
-const migrationDatabase = new Database(database)
-try {
-  const migrations = (await readdir(migrationsRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
-    .sort((left, right) => left.name.localeCompare(right.name))
-  for (const migration of migrations) {
-    migrationDatabase.exec(await readFile(resolve(migrationsRoot, migration.name, 'migration.sql'), 'utf8'))
-  }
-} finally {
-  migrationDatabase.close()
-}
-
+run(prismaCli, ['migrate', 'deploy', '--config', 'prisma.config.ts'])
 run(resolve(nodeModules, 'tsx', 'dist', 'cli.mjs'), ['prisma/seed.ts'])

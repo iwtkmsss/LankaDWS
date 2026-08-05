@@ -1,12 +1,9 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { AnnouncementsService } from './announcements.service.js'
 
 @Controller('announcements')
-@RequirePermissions(Permission.AnnouncementsRead)
 export class AnnouncementsController {
   constructor(private readonly announcements: AnnouncementsService) {}
 
@@ -16,13 +13,11 @@ export class AnnouncementsController {
   }
 
   @Post('audience-preview')
-  @RequirePermissions(Permission.AnnouncementsCreate)
   audience(@Req() request: BertRequest, @Body() body: { companyIds: string[]; roleIds?: string[]; userIds?: string[] }) {
     return this.announcements.audiencePreview(principalFrom(request), body)
   }
 
   @Post()
-  @RequirePermissions(Permission.AnnouncementsCreate)
   create(@Req() request: BertRequest, @Body() body: { title: string; body: string; companyIds: string[]; roleIds?: string[]; userIds?: string[]; isPinned?: boolean; publishAt?: string; expiresAt?: string }) {
     return this.announcements.createDraft(principalFrom(request), body)
   }
@@ -33,7 +28,6 @@ export class AnnouncementsController {
   }
 
   @Post(':id/publish')
-  @RequirePermissions(Permission.AnnouncementsPublish)
   publish(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.announcements.publish(principalFrom(request), id, body.expectedVersion)
   }
@@ -44,7 +38,6 @@ export class AnnouncementsController {
   }
 
   @Post(':id/archive')
-  @RequirePermissions(Permission.AnnouncementsPublish)
   archive(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.announcements.archive(principalFrom(request), id, body.expectedVersion)
   }

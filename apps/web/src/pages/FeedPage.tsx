@@ -73,7 +73,7 @@ interface SavedFeedView {
 }
 
 export function FeedPage() {
-  const { user, can } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const paramsRef = useRef(params)
@@ -90,7 +90,7 @@ export function FeedPage() {
     },
   })
   const readKey = useRef('')
-  const company = user?.organization.id ?? ''
+  const company = user?.company?.id ?? ''
   const filter = parseFilter(params.get('filter'))
   const itemType = parseItemType(params.get('type'))
   const authorId = parseIdParam(params.get('authorId'))
@@ -422,14 +422,14 @@ export function FeedPage() {
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
-        action={can('feed.create') ? (
+        action={(
           <Button onClick={() => {
             setComposerDirty(false)
             setComposerOpen(true)
           }}>
             Створити публікацію
           </Button>
-        ) : undefined}
+        )}
       />
       <div className="feed-layout">
         <div className="feed-main">
@@ -705,7 +705,7 @@ export function FeedPage() {
         >
           <FeedComposerForm
             company={company}
-            canShareFiles={can('documents.share')}
+            canShareFiles
             onBusyChange={setComposerBusy}
             onDirtyChange={setComposerDirty}
             onFeedChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}

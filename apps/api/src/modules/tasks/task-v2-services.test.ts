@@ -1,21 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Permission, type CreateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput } from '@bert-crm/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { DomainError } from '../../common/errors.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskResponseMapper } from './task-response.mapper.js'
 
-function principal(permissions: string[] = []): AuthPrincipal {
+function principal(accountType: 'ADMIN' | 'USER' = 'USER'): AuthPrincipal {
   return {
     userId: 'usr_actor',
     workspaceId: 'wrk_1',
     username: 'actor',
     displayName: 'Actor',
-    displayRole: 'User',
+    accountType,
     primaryCompanyId: 'cmp_1',
     allowedCompanyIds: ['cmp_1'],
-    permissions: new Set(permissions),
     authorizationVersion: 1,
     sessionId: 'ses_1',
     authAssurance: 1,
@@ -141,7 +140,7 @@ describe('TaskCommandService', () => {
       attachmentIds: ['file_1'],
     })
     const result = await service.create(
-      principal([Permission.TasksRecurrenceManage]),
+      principal(),
       input,
       'request-1',
     )
@@ -196,7 +195,7 @@ describe('TaskAccessService', () => {
       .rejects.toBeInstanceOf(DomainError)
   })
 
-  it('supports the explicit edit-any permission', async () => {
+  it('lets a global administrator edit any task in scope', async () => {
     const task = {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
@@ -212,7 +211,7 @@ describe('TaskAccessService', () => {
     const service = new TaskAccessService(prisma as never)
 
     await expect(service.editableTask(
-      principal([Permission.TasksEditAny]),
+      principal('ADMIN'),
       'tsk_1',
     )).resolves.toBe(task)
   })
@@ -278,7 +277,7 @@ describe('TaskResponseMapper', () => {
     }
 
     const result = new TaskResponseMapper().detail(
-      principal([Permission.TasksTimeRead]),
+      principal(),
       task as never,
     )
 
@@ -292,7 +291,7 @@ describe('TaskResponseMapper', () => {
     expect(result.permissions).toMatchObject({
       canEdit: true,
       canReadTime: true,
-      canWriteTime: false,
+      canWriteTime: true,
     })
   })
 })

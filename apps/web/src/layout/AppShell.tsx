@@ -67,7 +67,7 @@ function sidebarSectionsHeight(sections: SidebarNavSection[]) {
 }
 
 export function AppShell({ children }: PropsWithChildren) {
-  const { user, can, canUseCapability, logout } = useAuth()
+  const { user, canUseCapability, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileNav, setMobileNav] = useState(false)
@@ -79,10 +79,10 @@ export function AppShell({ children }: PropsWithChildren) {
   const [moreOpen, setMoreOpen] = useState(false)
   const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
   const sidebarNavRef = useRef<HTMLElement>(null)
-  const organizationId = user?.organization.id ?? ''
+  const companyId = user?.company?.id ?? 'global-admin'
   const nav = useMemo(
-    () => navigationRoutes(can, canUseCapability),
-    [can, canUseCapability],
+    () => navigationRoutes(user?.accountType === 'ADMIN', canUseCapability),
+    [user?.accountType, canUseCapability],
   )
   const navSections = useMemo(
     () => sidebarNavGroups
@@ -141,42 +141,42 @@ export function AppShell({ children }: PropsWithChildren) {
     || location.pathname.startsWith('/messages/')
   const isMessageThreadRoute = location.pathname.startsWith('/messages/')
   const quickCreateActions: QuickCreateAction[] = [
-    ...(can('tasks.create') ? [{
+    {
       path: '/tasks/new',
       title: 'Нове завдання',
       description: 'Поставити роботу собі або колезі',
       icon: CheckSquare2,
-    }] : []),
-    ...(can('messages.write') ? [{
+    },
+    {
       path: '/messages?new=1',
       title: 'Новий діалог',
       description: 'Написати людині або команді',
       icon: MessageCircle,
-    }] : []),
-    ...(can('calendar.manage') && canUseCapability(OrganizationCapability.CalendarWrite) ? [{
+    },
+    ...(canUseCapability(OrganizationCapability.CalendarWrite) ? [{
       path: '/calendar?new=1',
       title: 'Нова подія',
       description: 'Додати зустріч або робочу подію',
       icon: CalendarDays,
     }] : []),
-    ...(can('groups.create') && canUseCapability(OrganizationCapability.GroupsUi) ? [{
+    ...(canUseCapability(OrganizationCapability.GroupsUi) ? [{
       path: '/groups?new=1',
       title: 'Нова група',
       description: 'Створити простір команди або проєкту',
       icon: Building2,
     }] : []),
-    ...(can('documents.manage') && canUseCapability(OrganizationCapability.Drive) ? [{
+    ...(canUseCapability(OrganizationCapability.Drive) ? [{
       path: '/drive?new=1',
       title: 'Завантажити файл',
       description: 'Додати робочий файл на Диск',
       icon: FileText,
     }] : []),
-    ...(can('announcements.create') ? [{
+    {
       path: '/announcements/new',
       title: 'Нове оголошення',
       description: 'Повідомити команді важливе',
       icon: Megaphone,
-    }] : []),
+    },
   ]
   const paletteShortcuts = [
     ...quickCreateActions.map((action) => ({
@@ -197,17 +197,29 @@ export function AppShell({ children }: PropsWithChildren) {
   const notificationSummary = useQuery({
     queryKey: ['notifications', 'summary'],
     queryFn: () => api<{ action: number; unread: number }>('/notifications/summary'),
-    enabled: Boolean(user && can('notifications.read')),
+    enabled: Boolean(user),
     refetchInterval: 60_000,
   })
   const chatSummary = useQuery({
-    queryKey: ['threads', 'summary', organizationId],
+    queryKey: ['threads', 'summary', companyId],
     queryFn: () => api<{ all: number; unread: number }>('/messages/summary'),
-    enabled: Boolean(user && can('messages.read')),
+    enabled: Boolean(user),
     refetchInterval: location.pathname.startsWith('/messages') ? false : 30_000,
     refetchIntervalInBackground: false,
   })
   const chatUnread = chatSummary.data?.unread ?? 0
+  const adminCompanies = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
+    enabled: user?.accountType === 'ADMIN',
+    staleTime: 30_000,
+  })
+  const selectedAdminCompanyId = useMemo(() => {
+    const queryCompanyId = new URLSearchParams(location.search).get('companyId')
+    if (queryCompanyId) return queryCompanyId
+    const detailMatch = location.pathname.match(/^\/admin\/companies\/([^/]+)$/)
+    return detailMatch?.[1] ?? ''
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
@@ -399,7 +411,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <Avatar name={user.displayName} src={user.avatarAsset} />
             <span>
               <strong>{user.displayName}</strong>
-              <small>{user.displayRole}</small>
+              <small>{user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : user.company?.name ?? 'Користувач'}</small>
             </span>
             <ChevronDown size={15} />
           </button>
@@ -418,7 +430,38 @@ export function AppShell({ children }: PropsWithChildren) {
             <span>Пошук у BERT CRM</span>
             <kbd>Ctrl K</kbd>
           </button>
-          {!isMessagesRoute && quickCreateActions.length > 0 && (
+          {user.accountType === 'ADMIN' && (
+            <label className="admin-company-context">
+              <Building2 size={16} aria-hidden="true" />
+              <span>Компанія</span>
+              <select
+                aria-label="Company selector глобального адміністратора"
+                value={selectedAdminCompanyId}
+                onChange={(event) => {
+                  const companyId = event.target.value
+                  if (!companyId) {
+                    navigate('/admin/companies')
+                    return
+                  }
+                  if (location.pathname.startsWith('/admin/users')) {
+                    const params = new URLSearchParams(location.search)
+                    params.set('companyId', companyId)
+                    navigate(`${location.pathname}?${params.toString()}`)
+                    return
+                  }
+                  navigate(`/admin/companies/${companyId}`)
+                }}
+              >
+                <option value="">Усі компанії</option>
+                {adminCompanies.data?.items.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}{company.isActive ? '' : ' · неактивна'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {!isMessagesRoute && !location.pathname.startsWith('/admin') && quickCreateActions.length > 0 && (
             <div className="quick-create">
               <button
                 className="quick-create__trigger"

@@ -6,7 +6,6 @@ import {
   createFeedPostSchema,
   feedListQuerySchema,
   markFeedReadSchema,
-  Permission,
   shareFileToFeedSchema,
   updateFeedSubscriptionSchema,
   updateFeedPostSchema,
@@ -15,12 +14,10 @@ import { badRequest } from '../../common/errors.js'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { FeedService } from './feed.service.js'
 
 @Controller('feed')
-@RequirePermissions(Permission.FeedRead)
 export class FeedController {
   constructor(private readonly feed: FeedService) {}
 
@@ -32,7 +29,6 @@ export class FeedController {
   }
 
   @Get('audiences')
-  @RequirePermissions(Permission.FeedCreate)
   audiences(@Req() request: BertRequest, @Query('company') company?: string) {
     return this.feed.audiences(principalFrom(request), company)
   }
@@ -55,7 +51,6 @@ export class FeedController {
   }
 
   @Post('attachments')
-  @RequirePermissions(Permission.FeedCreate)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 } }))
   uploadAttachment(
     @Req() request: BertRequest,
@@ -67,7 +62,6 @@ export class FeedController {
   }
 
   @Post('file-shares/:fileId')
-  @RequirePermissions(Permission.FeedCreate, Permission.DocumentsShare)
   shareFile(
     @Req() request: BertRequest,
     @Param('fileId') fileId: string,
@@ -81,7 +75,6 @@ export class FeedController {
   }
 
   @Delete('file-shares/:shareId')
-  @RequirePermissions(Permission.DocumentsShare)
   revokeFileShare(
     @Req() request: BertRequest,
     @Param('shareId') shareId: string,
@@ -104,7 +97,6 @@ export class FeedController {
   }
 
   @Post()
-  @RequirePermissions(Permission.FeedCreate)
   create(
     @Req() request: BertRequest,
     @Body() rawBody: unknown,

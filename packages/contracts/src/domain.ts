@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { OrganizationCapabilityView } from './capabilities.js'
+import type { AccountType } from './accounts.js'
 
 export const companyScopeSchema = z.union([
   z.literal('all'),
@@ -49,24 +50,30 @@ export const confidentialitySchema = z.enum([
 ])
 export type Confidentiality = z.infer<typeof confidentialitySchema>
 
-export interface OrganizationView {
+export interface CompanyView {
   id: string
-  displayName: string
+  name: string
+  slug: string
+  isActive: boolean
   timezone: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface UserSummary {
   id: string
   displayName: string
   username: string
-  displayRole: string
   jobTitle: string
   avatarAsset: string | null
 }
 
 export interface PrincipalView extends UserSummary {
-  organization: OrganizationView
-  permissions: string[]
+  accountType: AccountType
+  company: CompanyView | null
+  contactEmail: string | null
+  timezone: string
+  locale: 'uk-UA' | 'en-US'
   capabilities: OrganizationCapabilityView[]
   csrfToken: string
   mustEnroll2FA: boolean

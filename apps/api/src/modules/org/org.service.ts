@@ -32,7 +32,7 @@ export class OrgService {
         _count: {
           select: {
             children: { where: { status: 'ACTIVE' } },
-            assignments: { where: { endedAt: null, user: { status: 'ACTIVE' } } },
+            assignments: { where: { endedAt: null, user: { isActive: true } } },
           },
         },
       },
@@ -63,7 +63,7 @@ export class OrgService {
     })
     if (!unit) throw notFound()
     const assignments = await this.prisma.userOrgAssignment.findMany({
-      where: { orgUnitId: unit.id, companyId: unit.companyId, endedAt: null, user: { status: 'ACTIVE' } },
+      where: { orgUnitId: unit.id, companyId: unit.companyId, endedAt: null, user: { isActive: true } },
       select: {
         isPrimary: true,
         positionTitle: true,

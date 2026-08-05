@@ -34,7 +34,7 @@ export default function CalendarPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
   const client = useQueryClient()
-  const { user, can, canUseCapability } = useAuth()
+  const { user, canUseCapability } = useAuth()
   const [createOpen, setCreateOpen] = useState(false)
   const [createDate, setCreateDate] = useState<string | null>(null)
   const [createTitle, setCreateTitle] = useState('')
@@ -55,7 +55,7 @@ export default function CalendarPage() {
       }
     },
   })
-  const companyId = user?.organization.id ?? ''
+  const companyId = user?.company?.id ?? ''
   const rawView = params.get('view')
   const view: CalendarView = rawView === 'day' || rawView === 'week' || rawView === 'schedule' || rawView === 'list'
     ? rawView === 'list' ? 'schedule' : rawView
@@ -141,8 +141,8 @@ export default function CalendarPage() {
     return []
   }, [view, selectedDate])
   const selected = detail.data ?? query.data?.items.find((item) => item.id === eventId)
-  const organizationId = user?.organization.id ?? ''
-  const canCreate = can('calendar.manage') && canUseCapability(OrganizationCapability.CalendarWrite)
+  const organizationId = user?.company?.id ?? ''
+  const canCreate = canUseCapability(OrganizationCapability.CalendarWrite)
   useEffect(() => {
     if (!requestedCreate || !canCreate) return
     setCreateDate(null)

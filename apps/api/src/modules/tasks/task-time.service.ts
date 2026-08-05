@@ -1,9 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import type { ManualTimeEntryInput, UpdateTimeEntryInput } from '@bert-crm/contracts'
-import { Permission } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 
@@ -16,7 +15,6 @@ export class TaskTimeService {
 
   async list(principal: AuthPrincipal, taskId: string) {
     await this.access.readableTask(principal, taskId)
-    this.assertCanRead(principal)
     const entries = await this.prisma.timeEntry.findMany({
       where: { taskId },
       include: {
@@ -53,7 +51,6 @@ export class TaskTimeService {
     input: ManualTimeEntryInput,
   ) {
     const task = await this.access.readableTask(principal, taskId)
-    this.assertCanWrite(principal)
     const startedAt = new Date(input.startedAt)
     const endedAt = new Date(startedAt.getTime() + input.durationSeconds * 1000)
     if (Number.isNaN(startedAt.getTime()) || endedAt > new Date()) {
@@ -79,7 +76,6 @@ export class TaskTimeService {
 
   async start(principal: AuthPrincipal, taskId: string, description?: string) {
     const task = await this.access.readableTask(principal, taskId)
-    this.assertCanWrite(principal)
     const normalizedDescription = description?.trim() || null
     if (normalizedDescription && normalizedDescription.length > 500) {
       throw badRequest('task_time')
@@ -116,7 +112,6 @@ export class TaskTimeService {
 
   async stop(principal: AuthPrincipal, taskId: string) {
     const task = await this.access.readableTask(principal, taskId)
-    this.assertCanWrite(principal)
     const active = await this.prisma.timeEntry.findFirst({
       where: {
         taskId,
@@ -148,7 +143,6 @@ export class TaskTimeService {
     input: UpdateTimeEntryInput,
   ) {
     const task = await this.access.readableTask(principal, taskId)
-    this.assertCanWrite(principal)
     const entry = await this.prisma.timeEntry.findFirst({
       where: { id: entryId, taskId },
     })
@@ -183,7 +177,6 @@ export class TaskTimeService {
 
   async remove(principal: AuthPrincipal, taskId: string, entryId: string) {
     const task = await this.access.readableTask(principal, taskId)
-    this.assertCanWrite(principal)
     const entry = await this.prisma.timeEntry.findFirst({
       where: { id: entryId, taskId },
       select: { id: true, userId: true, endedAt: true },
@@ -198,28 +191,10 @@ export class TaskTimeService {
     return { id: entryId, deleted: true }
   }
 
-  private assertCanRead(principal: AuthPrincipal): void {
-    if (
-      !principal.permissions.has(Permission.TasksTimeRead)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
-    }
-  }
-
-  private assertCanWrite(principal: AuthPrincipal): void {
-    if (
-      !principal.permissions.has(Permission.TasksTimeWrite)
-      && !principal.permissions.has(Permission.TasksManage)
-    ) {
-      throw forbidden()
-    }
-  }
-
   private assertOwnOrManage(principal: AuthPrincipal, userId: string): void {
     if (
       userId !== principal.userId
-      && !principal.permissions.has(Permission.TasksManage)
+      && !isGlobalAdmin(principal)
     ) {
       throw forbidden()
     }

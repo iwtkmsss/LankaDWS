@@ -29,6 +29,14 @@ export class FilesService {
 
   async upload(principal: AuthPrincipal, companyInput: string | undefined, file: UploadedBinary) {
     const companyId = this.scope.assertCompany(principal, companyInput)
+    return this.persistUpload(principal, companyId, file)
+  }
+
+  async uploadAvatar(principal: AuthPrincipal, file: UploadedBinary) {
+    return this.persistUpload(principal, principal.primaryCompanyId, file)
+  }
+
+  private async persistUpload(principal: AuthPrincipal, companyId: string | null, file: UploadedBinary) {
     if (!file || file.size <= 0 || file.size > getConfig().MAX_UPLOAD_BYTES) throw badRequest('file_size')
     const detected = await fileTypeFromBuffer(file.buffer)
     const detectedMime = detected?.mime ?? (file.mimetype === 'text/plain' ? 'text/plain' : undefined)
@@ -38,7 +46,7 @@ export class FilesService {
       .map((character) => (character.codePointAt(0) ?? 0) < 32 || forbiddenFilenameCharacters.includes(character) ? '_' : character)
       .join('').slice(0, 180) || 'file'
     const fileId = id('file')
-    const storageKey = `${companyId}/${fileId.slice(-16)}`
+    const storageKey = `${companyId ?? 'workspace'}/${fileId.slice(-16)}`
     const sha256 = createHash('sha256').update(file.buffer).digest('hex')
     await writeQuarantine(storageKey, file.buffer)
     await this.prisma.fileObject.create({ data: { id: fileId, workspaceId: principal.workspaceId, companyId, storageKey, safeFilename, declaredMime: file.mimetype, detectedMime, bytes: file.size, sha256, ownerId: principal.userId } })
@@ -53,7 +61,7 @@ export class FilesService {
   }
 
   async stageTaskUpload(principal: AuthPrincipal, file: UploadedBinary) {
-    const staged = await this.upload(principal, principal.primaryCompanyId, file)
+    const staged = await this.upload(principal, principal.primaryCompanyId ?? undefined, file)
     await this.jobs.enqueue(
       'file.staged.cleanup',
       'FILE',
@@ -179,7 +187,10 @@ export class FilesService {
       where: {
         id: fileId,
         workspaceId: principal.workspaceId,
-        companyId: { in: principal.allowedCompanyIds },
+        OR: [
+          { companyId: { in: principal.allowedCompanyIds } },
+          { companyId: null, ownerId: principal.userId },
+        ],
       },
     })
     if (!file) throw notFound()
@@ -214,7 +225,7 @@ export class FilesService {
       where: { fileId },
       select: { entityType: true, entityId: true },
     })
-    if (principal.permissions.has('messages.read')) {
+    {
       const messageIds = links
         .filter((link) => link.entityType === 'MESSAGE')
         .map((link) => link.entityId)
@@ -261,7 +272,7 @@ export class FilesService {
         }
       }
     }
-    if (principal.permissions.has('tasks.read')) {
+    {
       const taskIds = links
         .filter((link) => link.entityType === 'TASK')
         .map((link) => link.entityId)
@@ -285,7 +296,7 @@ export class FilesService {
       }
     }
     const documentIds = links.filter((link) => link.entityType === 'DOCUMENT').map((link) => link.entityId)
-    if (documentIds.length > 0 && principal.permissions.has('documents.read')) {
+    if (documentIds.length > 0) {
       const document = await this.prisma.document.findFirst({
         where: {
           id: { in: documentIds },
@@ -297,7 +308,7 @@ export class FilesService {
       if (document) return file
     }
     const postIds = links.filter((link) => link.entityType === 'FEED_POST').map((link) => link.entityId)
-    if (postIds.length > 0 && principal.permissions.has('feed.read')) {
+    if (postIds.length > 0) {
       const memberships = await this.prisma.groupMember.findMany({
         where: {
           userId: principal.userId,

@@ -18,7 +18,6 @@ import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   createTaskSchema,
   manualTimeEntrySchema,
-  Permission,
   taskParticipantRoleV2Schema,
   taskRecurrenceInputSchema,
   taskReminderInputSchema,
@@ -30,7 +29,6 @@ import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
@@ -51,7 +49,6 @@ import {
 } from './tasks.service.js'
 
 @Controller('tasks')
-@RequirePermissions(Permission.TasksRead)
 export class TasksController {
   constructor(
     private readonly tasks: TasksService,
@@ -88,7 +85,6 @@ export class TasksController {
   }
 
   @Post('projects')
-  @RequirePermissions(Permission.TasksCreate)
   createProject(@Req() request: BertRequest, @Body() body: { name?: unknown }) {
     if (typeof body.name !== 'string') throw badRequest('task_project')
     return this.catalog.createProject(principalFrom(request), body.name)
@@ -100,7 +96,6 @@ export class TasksController {
   }
 
   @Post('tags')
-  @RequirePermissions(Permission.TasksCreate)
   createTag(
     @Req() request: BertRequest,
     @Body() body: { name?: unknown; color?: unknown },
@@ -115,7 +110,6 @@ export class TasksController {
   }
 
   @Post('attachments/staged')
-  @RequirePermissions(Permission.TasksCreate)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -198,7 +192,6 @@ export class TasksController {
   }
 
   @Post()
-  @RequirePermissions(Permission.TasksCreate)
   create(
     @Req() request: BertRequest,
     @Body() rawBody: unknown,
@@ -211,7 +204,6 @@ export class TasksController {
   }
 
   @Post(':id/subtasks')
-  @RequirePermissions(Permission.TasksCreate)
   createSubtask(
     @Req() request: BertRequest,
     @Param('id') taskId: string,

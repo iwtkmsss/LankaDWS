@@ -8,10 +8,9 @@ function principal(): AuthPrincipal {
     workspaceId: 'wrk_1',
     username: 'viewer',
     displayName: 'Viewer',
-    displayRole: 'User',
+    accountType: 'USER',
     primaryCompanyId: 'cmp_1',
     allowedCompanyIds: ['cmp_1'],
-    permissions: new Set(['tasks.read']),
     authorizationVersion: 1,
     sessionId: 'ses_1',
     authAssurance: 1,
@@ -116,7 +115,7 @@ describe('TaskCompatibilityService', () => {
     }))
   })
 
-  it('adds a legacy-selected responsible without removing existing responsibles', async () => {
+  it('replaces the active responsible selected through the legacy form', async () => {
     const task = {
       id: 'task_1',
       workspaceId: 'wrk_1',
@@ -136,6 +135,7 @@ describe('TaskCompatibilityService', () => {
       },
       taskParticipant: {
         upsert: vi.fn().mockResolvedValue({}),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       auditEvent: {
         create: vi.fn().mockResolvedValue({}),
@@ -203,6 +203,21 @@ describe('TaskCompatibilityService', () => {
         addedById: 'usr_viewer',
       },
     })
-    expect(tx.taskParticipant).not.toHaveProperty('updateMany')
+    const updateManyCall = tx.taskParticipant.updateMany.mock.calls[0]?.[0] as {
+      where: {
+        taskId: string
+        userId: { not: string }
+        role: string
+        removedAt: null
+      }
+      data: { removedAt: Date }
+    }
+    expect(updateManyCall.where).toEqual({
+      taskId: task.id,
+      userId: { not: 'usr_owner' },
+      role: 'RESPONSIBLE',
+      removedAt: null,
+    })
+    expect(updateManyCall.data.removedAt).toBeInstanceOf(Date)
   })
 })

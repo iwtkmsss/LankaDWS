@@ -1,11 +1,10 @@
-import { Permission } from '@bert-crm/contracts'
 import { Controller, Get } from '@nestjs/common'
 import { readFile, readdir, stat, statfs } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { requestMetrics } from '../../common/observability.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
-import { Public, RequirePermissions } from '../auth/auth.decorators.js'
+import { AdminOnly, Public } from '../auth/auth.decorators.js'
 import { storageReady } from '../files/storage.js'
 
 @Controller('health')
@@ -26,7 +25,7 @@ export class HealthController {
   }
 
   @Get('details')
-  @RequirePermissions(Permission.SystemManage)
+  @AdminOnly()
   async details() {
     const config = getConfig()
     const [jobs, outbox, oldest] = await Promise.all([

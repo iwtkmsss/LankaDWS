@@ -1,14 +1,11 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common'
-import { Permission } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 
 @Controller('employees')
-@RequirePermissions(Permission.EmployeesRead)
 export class EmployeesController {
   constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
 
@@ -22,7 +19,7 @@ export class EmployeesController {
     @Query('presence') presenceFilter?: string,
   ) {
     const principal = principalFrom(request)
-    const includeOrg = principal.permissions.has(Permission.EmployeesOrgRead)
+    const includeOrg = true
     if (orgUnitId && !includeOrg) throw badRequest('employee_filter_invalid')
     if (presenceFilter && !['AVAILABLE', 'AWAY'].includes(presenceFilter)) {
       throw badRequest('employee_filter_invalid')
@@ -30,8 +27,9 @@ export class EmployeesController {
     const companyIds = this.scope.allowedCompanies(principal, company)
     const users = await this.prisma.user.findMany({
       where: {
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId: { in: companyIds }, status: 'ACTIVE' } },
+        isActive: true,
+        accountType: 'USER',
+        primaryCompanyId: { in: companyIds },
         ...(search
           ? { OR: [{ displayName: { contains: search } }, { jobTitle: { contains: search } }, { username: { contains: search } }] }
           : {}),
@@ -39,7 +37,6 @@ export class EmployeesController {
       select: {
         id: true,
         displayName: true,
-        displayRole: true,
         jobTitle: true,
         primaryCompanyId: true,
         timezone: true,
@@ -123,17 +120,17 @@ export class EmployeesController {
   async detail(@Req() request: BertRequest, @Param('id') employeeId: string, @Query('company') company?: string) {
     const principal = principalFrom(request)
     const companyIds = this.scope.allowedCompanies(principal, company)
-    const includeOrg = principal.permissions.has(Permission.EmployeesOrgRead)
+    const includeOrg = true
     const user = await this.prisma.user.findFirst({
       where: {
         id: employeeId,
-        status: 'ACTIVE',
-        companyAccess: { some: { companyId: { in: companyIds }, status: 'ACTIVE' } },
+        isActive: true,
+        accountType: 'USER',
+        primaryCompanyId: { in: companyIds },
       },
       select: {
         id: true,
         displayName: true,
-        displayRole: true,
         jobTitle: true,
         primaryCompanyId: true,
         timezone: true,

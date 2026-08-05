@@ -9,7 +9,7 @@ export class KnowledgeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(principal: AuthPrincipal, search?: string) {
-    const audiences = await this.prisma.articleAudience.findMany({ where: { OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }, { principalType: 'ROLE', principalId: { in: [principal.displayRole] } }] }, select: { articleId: true } })
+    const audiences = await this.prisma.articleAudience.findMany({ where: { OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] }, select: { articleId: true } })
     const rows = await this.prisma.knowledgeArticle.findMany({ where: { id: { in: audiences.map((entry) => entry.articleId) }, status: 'ACTIVE', ...(search ? { versions: { some: { OR: [{ title: { contains: search } }, { body: { contains: search } }] } } } : {}) }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: { updatedAt: 'desc' } })
     return { items: rows.map((row) => ({ id: row.id, slug: row.slug, title: row.versions[0]?.title ?? row.slug, changeSummary: row.versions[0]?.changeSummary ?? '', reviewAt: row.reviewAt?.toISOString() ?? null, version: row.version, updatedAt: row.updatedAt.toISOString() })) }
   }
@@ -17,7 +17,7 @@ export class KnowledgeService {
   async detail(principal: AuthPrincipal, slug: string) {
     const resolved = await this.prisma.knowledgeArticle.findFirst({ where: { slug, status: 'ACTIVE' }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } })
     if (!resolved) throw notFound()
-    const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: resolved.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }, { principalType: 'ROLE', principalId: principal.displayRole }] } })
+    const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: resolved.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] } })
     if (!audience) throw notFound()
     const acknowledgement = await this.prisma.acknowledgement.findFirst({ where: { entityType: 'ARTICLE', entityId: resolved.id, version: resolved.version, userId: principal.userId } })
     return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement }

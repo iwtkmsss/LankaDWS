@@ -49,14 +49,14 @@ export class AuthService {
       await verifyPassword(await this.dummyHash, input.password)
     }
 
-    const validState = user && !['DEACTIVATED', 'SUSPENDED'].includes(user.status)
+    const validState = user?.isActive === true
     if (!user || !validState || (!permanentValid && !temporaryValid)) {
       await this.recordLogin(usernameFingerprint, ipHash, user?.id, 'FAILURE', 'invalid_credentials')
       throw unauthorized('invalid_credentials')
     }
     await this.recordLogin(usernameFingerprint, ipHash, user.id, 'SUCCESS', temporaryValid ? 'temporary' : 'password')
 
-    if (temporaryValid || user.mustChangePassword || user.status === 'PENDING_FIRST_LOGIN') {
+    if (temporaryValid) {
       await this.createSession(user, request, response, 0, true)
       response.cookie('bert_temp_credential', temporaryId ?? '', this.cookieOptions(true))
       return { nextStep: 'FIRST_LOGIN', csrfToken: response.locals.csrfToken as string }
@@ -86,7 +86,6 @@ export class AuthService {
         update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date() },
       })
       await tx.temporaryCredential.updateMany({ where: { userId: user.id, consumedAt: null, invalidatedAt: null }, data: { consumedAt: new Date() } })
-      await tx.user.update({ where: { id: user.id }, data: { mustChangePassword: false, status: 'ACTIVE' } })
       await tx.userSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'first_login_completed' } })
       await tx.credentialEvent.create({ data: { id: id('cev'), userId: user.id, actorId: user.id, type: 'first_login_password_changed', result: 'SUCCESS', correlationId: id('corr') } })
     })
@@ -171,6 +170,18 @@ export class AuthService {
     return user
   }
 
+  async updateAvatar(principal: AuthPrincipal, fileId: string) {
+    await this.prisma.user.update({ where: { id: principal.userId }, data: { avatarAsset: fileId } })
+    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId || null, actorType: 'USER', actorId: principal.userId, action: 'profile.avatar_updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    return { avatarAsset: `/api/v1/me/avatar/${fileId}` }
+  }
+
+  async removeAvatar(principal: AuthPrincipal) {
+    await this.prisma.user.update({ where: { id: principal.userId }, data: { avatarAsset: null } })
+    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId || null, actorType: 'USER', actorId: principal.userId, action: 'profile.avatar_removed', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    return { avatarAsset: null }
+  }
+
   async notificationPreferences(principal: AuthPrincipal) {
     const rows = await this.prisma.notificationPreference.findMany({ where: { userId: principal.userId, category: 'ALL' } })
     const email = rows.find((row) => row.channel === 'EMAIL')
@@ -202,20 +213,20 @@ export class AuthService {
       include: { primaryCompany: true },
     })
     if (!user) throw notFound()
-    const capabilities = await this.capabilities.forOrganization(user.primaryCompanyId)
+    const capabilities = user.primaryCompanyId
+      ? await this.capabilities.forOrganization(user.primaryCompanyId)
+      : await this.capabilities.forOrganizations(principal.allowedCompanyIds)
     return {
       id: user.id,
       displayName: user.displayName,
       username: user.username,
-      displayRole: user.displayRole,
       jobTitle: user.jobTitle,
-      avatarAsset: user.avatarAsset,
-      organization: {
-        id: user.primaryCompany.id,
-        displayName: user.primaryCompany.displayName,
-        timezone: user.primaryCompany.timezone,
-      },
-      permissions: [...principal.permissions],
+      avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset,
+      company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
+      accountType: user.accountType,
+      contactEmail: user.contactEmail,
+      timezone: user.timezone,
+      locale: user.locale as 'uk-UA' | 'en-US',
       capabilities,
       csrfToken,
       mustEnroll2FA: user.mustEnroll2FA,

@@ -96,7 +96,6 @@ export function AnnouncementsPage() {
   const { announcementId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { can } = useAuth()
   const [params, setParams] = useSearchParams()
   const state = params.get('tab') ?? 'active'
   const query = useQuery({
@@ -111,7 +110,7 @@ export function AnnouncementsPage() {
         title="Оголошення"
         description="Важливі новини для організації та ваших ролей"
         action={
-          can('announcements.create') && (
+          (
             <Link className="button button--primary" to="/announcements/new">
               <Plus size={17} />
               Створити
@@ -176,9 +175,9 @@ export function AnnouncementsPage() {
 }
 
 function AnnouncementCreate() {
-  const { user, can } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
-  const selectedCompanyId = user?.organization.id ?? ''
+  const selectedCompanyId = user?.company?.id ?? ''
   const [preview, setPreview] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -199,11 +198,10 @@ function AnnouncementCreate() {
         method: 'POST',
         body: jsonBody(input),
       })
-      if (can('announcements.publish'))
-        await api(`/announcements/${draft.id}/publish`, {
-          method: 'POST',
-          body: jsonBody({ expectedVersion: draft.version }),
-        })
+      await api(`/announcements/${draft.id}/publish`, {
+        method: 'POST',
+        body: jsonBody({ expectedVersion: draft.version }),
+      })
       navigate('/announcements', { replace: true })
     } catch {
       setError('Не вдалося зберегти оголошення або опублікувати його.')
@@ -263,7 +261,7 @@ function AnnouncementCreate() {
             <Button type="button" variant="secondary" onClick={() => navigate(`/announcements?company=${encodeURIComponent(selectedCompanyId)}`)}>
               Скасувати
             </Button>
-            <Button disabled={busy}>{can('announcements.publish') ? 'Опублікувати' : 'Зберегти чернетку'}</Button>
+            <Button disabled={busy}>Опублікувати</Button>
           </div>
         </form>
       </Card>

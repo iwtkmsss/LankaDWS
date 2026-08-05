@@ -143,13 +143,8 @@ export class ChatRealtimeService {
     const activeUsers = await this.prisma.user.findMany({
       where: {
         id: { in: thread.participants.map((participant) => participant.userId) },
-        status: 'ACTIVE',
-        companyAccess: {
-          some: {
-            companyId: thread.companyId,
-            status: 'ACTIVE',
-          },
-        },
+        isActive: true,
+        OR: [{ primaryCompanyId: thread.companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })

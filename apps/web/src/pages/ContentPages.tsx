@@ -25,7 +25,6 @@ interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: 
 interface Employee {
   id: string
   displayName: string
-  displayRole: string
   jobTitle: string
   positionTitle?: string
   timezone: string
@@ -72,11 +71,11 @@ export default function ContentPages() {
 function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents'; title: string }) {
   const { documentId } = useParams()
   const navigate = useNavigate()
-  const { can, canUseCapability, user } = useAuth()
+  const { canUseCapability, user } = useAuth()
   const [params, setParams] = useSearchParams()
   const [creating, setCreating] = useState(false)
   const search = params.get('q') ?? ''
-  const companyId = user?.organization.id ?? ''
+  const companyId = user?.company?.id ?? ''
   const requestedCreate = params.get('new') === '1'
   const section = (params.get('section') ?? 'ALL') as DriveSection
   const fileType = params.get('type') ?? 'ALL'
@@ -90,7 +89,7 @@ function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents';
   })
   const featureEnabled = basePath === '/documents' || canUseCapability(OrganizationCapability.Drive)
   const createCompanyId = companyId
-  const canCreate = can('documents.manage') && featureEnabled && Boolean(companyId)
+  const canCreate = featureEnabled && Boolean(companyId)
   useEffect(() => {
     if (!requestedCreate || !canCreate) return
     setCreating(true)
@@ -233,13 +232,13 @@ function formatFileSize(bytes: number | null): string {
 function GroupsPage() {
   const { groupId } = useParams()
   const navigate = useNavigate()
-  const { can, canUseCapability, user } = useAuth()
+  const { canUseCapability, user } = useAuth()
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState(params.get('q') ?? '')
   const [creating, setCreating] = useState(false)
   const requestedCreate = params.get('new') === '1'
   const status = params.get('status') === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE'
-  const company = user?.organization.id ?? ''
+  const company = user?.company?.id ?? ''
   const queryParams = new URLSearchParams({ status, limit: '50' })
   if (company) queryParams.set('company', company)
   if (search.trim()) queryParams.set('query', search.trim())
@@ -248,7 +247,7 @@ function GroupsPage() {
     queryFn: () => api<GroupListResult>(`/groups?${queryParams.toString()}`),
   })
   const createCompanyId = company
-  const canCreate = can('groups.create') && canUseCapability(OrganizationCapability.GroupsUi) && Boolean(company)
+  const canCreate = canUseCapability(OrganizationCapability.GroupsUi) && Boolean(company)
   useEffect(() => {
     if (!requestedCreate || !canCreate) return
     setCreating(true)
@@ -357,7 +356,7 @@ function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onC
 function GroupDrawer({ id, company, onClose }: { id: string; company: string; onClose: () => void }) {
   const client = useQueryClient()
   const navigate = useNavigate()
-  const { can, canUseCapability } = useAuth()
+  const { canUseCapability } = useAuth()
   const [settingsError, setSettingsError] = useState('')
   const [settingsDirty, setSettingsDirty] = useState(false)
   const closeGuard = useModalCloseGuard({
@@ -439,25 +438,25 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
             <section className="group-workspace">
               <h4>Робота групи</h4>
               <div>
-                {can('feed.read') && canUseCapability(OrganizationCapability.Feed) && (
+                {canUseCapability(OrganizationCapability.Feed) && (
                   <Link to={`/feed?groupId=${encodeURIComponent(id)}`}>
                     <Newspaper size={19} />
                     <span><strong>Стрічка</strong><small>Оновлення групи</small></span>
                   </Link>
                 )}
-                {can('tasks.read') && (
+                {(
                   <Link to={`/tasks?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
                     <CheckSquare2 size={19} />
                     <span><strong>Завдання</strong><small>Робота команди</small></span>
                   </Link>
                 )}
-                {can('tasks.create') && (
+                {(
                   <Link to={`/tasks/new?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
                     <Plus size={19} />
                     <span><strong>Нове завдання</strong><small>У контексті групи</small></span>
                   </Link>
                 )}
-                {can('messages.write') && (
+                {(
                   <button type="button" disabled={openChat.isPending} onClick={() => openChat.mutate()}>
                     <MessageCircle size={19} />
                     <span><strong>Чат</strong><small>{openChat.isPending ? 'Відкриваємо…' : 'Спільний діалог'}</small></span>
@@ -530,7 +529,7 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
 
 function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const { user } = useAuth()
-  const selectedCompany = companyId || user?.organization.id || ''
+  const selectedCompany = companyId || user?.company?.id || ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [dirty, setDirty] = useState(false)
@@ -603,7 +602,6 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     versions: Array<{ id: string; fileId: string; version: number; changeSummary: string; createdAt: string; status: string }>
   }
   const client = useQueryClient()
-  const { can } = useAuth()
   const [versionError, setVersionError] = useState('')
   const [versionDirty, setVersionDirty] = useState(false)
   const closeGuard = useModalCloseGuard({
@@ -662,7 +660,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     },
     onError: () => setVersionError('Нову версію не додано. Оновіть документ або перевірте файл.'),
   })
-  const footer = query.data && can('documents.manage') ? (
+  const footer = query.data ? (
     <div className="document-drawer-actions">
       {query.data.archivedAt ? (
         <Button variant="secondary" disabled={restore.isPending} onClick={() => restore.mutate()}>
@@ -692,7 +690,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
             <h3>{query.data.name}</h3>
             <p className="privacy-note"><ShieldCheck size={17} />Доступ перевіряється під час кожного відкриття.</p>
           </div>
-          {can('documents.manage') && !query.data.archivedAt && (
+          {!query.data.archivedAt && (
             <form
               className="document-version-form"
               onChange={() => setVersionDirty(true)}
@@ -743,9 +741,9 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function KnowledgePage() {
-  const { articleSlug } = useParams(); const navigate = useNavigate(); const { can } = useAuth(); const [search, setSearch] = useState('')
+  const { articleSlug } = useParams(); const navigate = useNavigate(); const { user } = useAuth(); const [search, setSearch] = useState('')
   const query = useQuery({ queryKey: ['knowledge', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`) })
-  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={can('knowledge.manage') && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
+  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={user?.accountType === 'ADMIN' && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
 }
 
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
@@ -758,9 +756,9 @@ function EmployeesPage() {
   const { employeeId } = useParams()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const { can, user } = useAuth()
+  const { user } = useAuth()
   const search = params.get('q') ?? ''
-  const companyId = user?.organization.id ?? ''
+  const companyId = user?.company?.id ?? ''
   const orgUnitId = params.get('orgUnit') ?? ''
   const managerId = params.get('manager') ?? ''
   const presence = params.get('presence') ?? ''
@@ -798,7 +796,7 @@ function EmployeesPage() {
       <PageHeader
         title="Працівники"
         description="Знайдіть потрібну людину, команду або керівника без зайвих переходів"
-        action={can('employees.org.read') && (
+        action={(
           <Link className="button button--secondary" to={orgUrl}>
             <Network size={17} />Структура організації
           </Link>
@@ -816,7 +814,7 @@ function EmployeesPage() {
               type="search"
             />
           </label>
-          {can('employees.org.read') && (
+          {(
             <>
               <label className="directory-filter">
                 <span>Підрозділ</span>
@@ -869,7 +867,7 @@ function EmployeesPage() {
                       </em>
                     </span>
                   </Link>
-                  {can('messages.write') && item.id !== user?.id && (
+                  {item.id !== user?.id && (
                     <Link
                       className="employee-card__chat"
                       aria-label={`Написати ${item.displayName}`}
@@ -902,7 +900,7 @@ function EmployeesPage() {
 }
 
 function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const { user, can, canUseCapability } = useAuth()
+  const { user, canUseCapability } = useAuth()
   const query = useQuery({
     queryKey: ['employee', id],
     queryFn: () => api<Employee>(`/employees/${id}`),
@@ -913,9 +911,9 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="employee-detail">
           <Avatar size="lg" name={query.data.displayName} src={query.data.avatarAsset} />
           <h3>{query.data.displayName}</h3>
-          <p>{query.data.positionTitle || query.data.jobTitle} · {query.data.displayRole}</p>
+          <p>{query.data.positionTitle || query.data.jobTitle}</p>
           <div className="employee-actions">
-            {can('messages.write') && query.data.id !== user?.id && (
+            {query.data.id !== user?.id && (
               <Link
                 className="button button--primary"
                 to={`/messages?new=1&to=${encodeURIComponent(query.data.id)}`}
@@ -924,7 +922,7 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 Написати
               </Link>
             )}
-            {can('tasks.create') && (
+            {(
               <Link
                 className="button button--secondary"
                 to={`/tasks/new?assigneeId=${encodeURIComponent(query.data.id)}`}
@@ -933,8 +931,7 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 Поставити завдання
               </Link>
             )}
-            {can('calendar.manage')
-              && canUseCapability(OrganizationCapability.CalendarWrite)
+            {canUseCapability(OrganizationCapability.CalendarWrite)
               && (
                 <Link
                   className="button button--secondary"

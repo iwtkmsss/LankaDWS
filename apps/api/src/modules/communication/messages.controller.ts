@@ -13,7 +13,6 @@ import {
   deleteChatMessageSchema,
   editChatMessageSchema,
   markChatReadSchema,
-  Permission,
   removeChatParticipantSchema,
   recommendedChatUsersQuerySchema,
   sendChatMessageSchema,
@@ -24,14 +23,12 @@ import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
-import { RequirePermissions } from '../auth/auth.decorators.js'
 import { CalendarService } from '../calendar/calendar.service.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import { MessagesService } from './messages.service.js'
 
 @Controller('messages')
-@RequirePermissions(Permission.MessagesRead)
 export class MessagesController {
   constructor(
     private readonly messages: MessagesService,
@@ -52,7 +49,6 @@ export class MessagesController {
   }
 
   @Post('threads')
-  @RequirePermissions(Permission.MessagesWrite)
   createThread(
     @Req() request: BertRequest,
     @Body() rawBody: unknown,
@@ -65,7 +61,6 @@ export class MessagesController {
   }
 
   @Post('groups/:groupId/thread')
-  @RequirePermissions(Permission.MessagesWrite)
   groupThread(@Req() request: BertRequest, @Param('groupId') groupId: string) {
     return this.messages.groupThread(principalFrom(request), groupId)
   }
@@ -113,7 +108,6 @@ export class MessagesController {
   }
 
   @Get('users/search')
-  @RequirePermissions(Permission.MessagesWrite)
   searchUsers(
     @Req() request: BertRequest,
     @Query() rawQuery: Record<string, unknown>,
@@ -124,7 +118,6 @@ export class MessagesController {
   }
 
   @Get('users/recommended')
-  @RequirePermissions(Permission.MessagesWrite)
   recommendedUsers(
     @Req() request: BertRequest,
     @Query() rawQuery: Record<string, unknown>,
@@ -135,7 +128,6 @@ export class MessagesController {
   }
 
   @Post('threads/:id/attachments')
-  @RequirePermissions(Permission.MessagesWrite)
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -156,7 +148,6 @@ export class MessagesController {
   }
 
   @Post('threads/:id/participants')
-  @RequirePermissions(Permission.MessagesWrite)
   addParticipant(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -170,7 +161,6 @@ export class MessagesController {
   }
 
   @Put('threads/:id/participants/:userId')
-  @RequirePermissions(Permission.MessagesWrite)
   updateParticipant(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -183,7 +173,6 @@ export class MessagesController {
   }
 
   @Delete('threads/:id/participants/:userId')
-  @RequirePermissions(Permission.MessagesWrite)
   removeParticipant(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -218,7 +207,6 @@ export class MessagesController {
   }
 
   @Post('threads/:id/messages')
-  @RequirePermissions(Permission.MessagesWrite)
   post(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -237,7 +225,6 @@ export class MessagesController {
   }
 
   @Patch(':id')
-  @RequirePermissions(Permission.MessagesWrite)
   editMessage(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -249,7 +236,6 @@ export class MessagesController {
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.MessagesWrite)
   deleteMessage(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -261,7 +247,6 @@ export class MessagesController {
   }
 
   @Post(':id/task')
-  @RequirePermissions(Permission.TasksCreate)
   createTask(
     @Req() request: BertRequest,
     @Param('id') id: string,
@@ -275,7 +260,6 @@ export class MessagesController {
   }
 
   @Post(':id/event')
-  @RequirePermissions(Permission.CalendarManage)
   createEvent(
     @Req() request: BertRequest,
     @Param('id') id: string,
