@@ -8,6 +8,7 @@ import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskHierarchyService } from './task-hierarchy.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
@@ -31,6 +32,7 @@ export class TaskCommandService {
     private readonly recurrence: TaskRecurrenceService,
     private readonly attachments: TaskAttachmentsService,
     private readonly feedProjection: FeedProjectionService,
+    private readonly approvals: TaskApprovalService,
   ) {}
 
   async create(
@@ -148,7 +150,17 @@ export class TaskCommandService {
             select: { userId: true },
           }),
         ])
-        const parentFeedItemId = await this.feedProjection.projectTask(tx, parent, {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          parent,
+          parent.version,
+          'SUBTASK_CREATED',
+        )
+        const versionedParent = await tx.task.findUniqueOrThrow({
+          where: { id: context.parentTaskId },
+        })
+        const parentFeedItemId = await this.feedProjection.projectTask(tx, versionedParent, {
           action: 'SUBTASK_CREATED',
           actorId: principal.userId,
           recipientIds: parentParticipants.map((participant) => participant.userId),
@@ -174,7 +186,7 @@ export class TaskCommandService {
             id: id('out'),
             aggregateType: 'TASK',
             aggregateId: context.parentTaskId,
-            aggregateVersion: parent.version,
+            aggregateVersion: versionedParent.version,
             eventType: 'task.subtask_created',
             safePayload: JSON.stringify({
               taskId: context.parentTaskId,
@@ -252,6 +264,20 @@ export class TaskCommandService {
     const dates = this.validation.validateUpdateDates(task, input)
     const scope = await this.validation.validateUpdateScope(principal, task, input)
     const nextParentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
+    const changedFields = [
+      ...(input.title !== undefined && input.title !== task.title ? ['title'] : []),
+      ...(input.description !== undefined && input.description !== task.description ? ['description'] : []),
+      ...(input.groupId !== undefined && input.groupId !== task.groupId ? ['groupId'] : []),
+      ...(input.projectId !== undefined && input.projectId !== task.projectId ? ['projectId'] : []),
+      ...(input.parentTaskId !== undefined && input.parentTaskId !== task.parentTaskId ? ['parentTaskId'] : []),
+      ...(input.reporterId !== undefined && scope.reporterId !== task.reporterId ? ['reporterId'] : []),
+      ...(input.priority !== undefined && input.priority !== task.priority ? ['priority'] : []),
+      ...(input.startsAt !== undefined && dates.startsAt?.getTime() !== task.startsAt?.getTime() ? ['startsAt'] : []),
+      ...(input.dueAt !== undefined && dates.dueAt?.getTime() !== task.dueAt?.getTime() ? ['dueAt'] : []),
+      ...(input.estimatedMinutes !== undefined && input.estimatedMinutes !== task.estimatedMinutes
+        ? ['estimatedMinutes']
+        : []),
+    ]
 
     if (input.groupId !== undefined || input.projectId !== undefined || input.parentTaskId !== undefined) {
       await this.hierarchy.assertValidParent(principal, {
@@ -282,6 +308,15 @@ export class TaskCommandService {
         },
       })
       if (!result.count) throw conflict('task_version')
+      if (changedFields.length) {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          input.expectedVersion + 1,
+          'TASK_UPDATED',
+        )
+      }
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -294,7 +329,7 @@ export class TaskCommandService {
           entityId: taskId,
           result: 'SUCCESS',
           risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ fields: Object.keys(input).filter((key) => key !== 'expectedVersion') }),
+          safeDiffJson: JSON.stringify({ fields: changedFields }),
           correlationId: id('corr'),
         },
       })
@@ -326,6 +361,7 @@ export class TaskCommandService {
     ) {
       throw forbidden()
     }
+    await this.approvals.assertNoPending(task.id)
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion, archivedAt: null },

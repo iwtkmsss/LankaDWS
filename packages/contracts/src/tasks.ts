@@ -249,6 +249,22 @@ export const updateTaskSchema = z.object({
 })
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>
 
+export const taskApprovalDecisionSchema = z.enum(['APPROVE', 'NEEDS_CHANGES'])
+export type TaskApprovalDecision = z.infer<typeof taskApprovalDecisionSchema>
+
+export const requestTaskApprovalSchema = z.object({
+  approverId: entityIdSchema,
+  expectedVersion: z.number().int().positive(),
+})
+export type RequestTaskApprovalInput = z.infer<typeof requestTaskApprovalSchema>
+
+export const decideTaskApprovalSchema = z.object({
+  decision: taskApprovalDecisionSchema,
+  expectedVersion: z.number().int().positive(),
+  note: z.string().trim().max(2_000).default(''),
+})
+export type DecideTaskApprovalInput = z.infer<typeof decideTaskApprovalSchema>
+
 export const manualTimeEntrySchema = z.object({
   startedAt: isoDateTimeSchema,
   durationSeconds: z.number().int().min(1).max(86_400),

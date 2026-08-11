@@ -303,6 +303,13 @@ model Company {
   @@index([workspaceId, isActive])
 }
 
+enum TaskApprovalStatus {
+  PENDING
+  APPROVED
+  NEEDS_CHANGES
+  INVALIDATED
+}
+
 model User {
   id                           String                         @id
   workspaceId                  String
@@ -367,7 +374,10 @@ model User {
   taskFollowers                TaskFollower[]
   taskStates                   TaskUserState[]
   taskReminders                TaskReminder[]
-  uiPreferences               UserUiPreference[]
+  taskApprovalRequests         TaskApprovalRound[]            @relation("TaskApprovalRequester")
+  taskApprovalsAssigned        TaskApprovalRound[]            @relation("TaskApprovalApprover")
+  taskApprovalInvalidations    TaskApprovalRound[]            @relation("TaskApprovalInvalidator")
+  uiPreferences                UserUiPreference[]
 
   @@unique([workspaceId, normalizedUsername])
   @@index([workspaceId, isActive])
@@ -1191,6 +1201,7 @@ model Task {
   recurrenceTemplate     TaskRecurrence?     @relation("TaskRecurrenceTemplate")
   timeEntries            TimeEntry[]
   legacyNumbers          TaskNumberAlias[]
+  approvalRounds         TaskApprovalRound[]
 
   @@unique([recurrenceId, recurrenceOccurrenceAt])
   @@index([companyId, status, dueAt, id])
@@ -1200,6 +1211,31 @@ model Task {
   @@index([reporterId, status, dueAt])
   @@index([createdById, updatedAt])
   @@index([recurrenceId, recurrenceOccurrenceAt])
+}
+
+model TaskApprovalRound {
+  id                    String             @id
+  taskId                String
+  roundNumber           Int
+  status                TaskApprovalStatus @default(PENDING)
+  approverId            String
+  requestedById         String
+  requestedTaskVersion  Int
+  resolutionTaskVersion Int?
+  requestedAt           DateTime           @default(now())
+  decisionNote          String?
+  decidedAt             DateTime?
+  invalidatedAt         DateTime?
+  invalidatedById       String?
+  task                  Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  approver              User               @relation("TaskApprovalApprover", fields: [approverId], references: [id], onDelete: Restrict)
+  requestedBy           User               @relation("TaskApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  invalidatedBy         User?              @relation("TaskApprovalInvalidator", fields: [invalidatedById], references: [id], onDelete: SetNull)
+
+  @@unique([taskId, roundNumber])
+  @@index([taskId, status, requestedAt])
+  @@index([approverId, status, requestedAt])
+  @@index([requestedById, requestedAt])
 }
 
 model TaskNumberAlias {

@@ -4,6 +4,7 @@ import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 @Injectable()
@@ -11,6 +12,7 @@ export class TaskChecklistService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
+    private readonly approvals: TaskApprovalService,
   ) {}
 
   async createMany(
@@ -39,7 +41,7 @@ export class TaskChecklistService {
     title: string,
     expectedVersion: number,
   ): Promise<{ id: string; version: number }> {
-    await this.access.editableTask(principal, taskId)
+    const task = await this.access.editableTask(principal, taskId)
     const normalizedTitle = typeof title === 'string' ? title.trim() : ''
     if (!normalizedTitle || normalizedTitle.length > 300) throw badRequest('task_checklist')
     this.assertVersion(expectedVersion)
@@ -60,6 +62,13 @@ export class TaskChecklistService {
           position: (last?.position ?? -1) + 1,
         },
       })
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        expectedVersion + 1,
+        'CHECKLIST_ITEM_ADDED',
+      )
       return { id: itemId, version: expectedVersion + 1 }
     })
   }
@@ -70,7 +79,7 @@ export class TaskChecklistService {
     itemId: string,
     input: { title?: string; isCompleted?: boolean; expectedVersion: number },
   ): Promise<{ version: number }> {
-    await this.access.editableTask(principal, taskId)
+    const task = await this.access.editableTask(principal, taskId)
     this.assertVersion(input.expectedVersion)
     if (input.title === undefined && input.isCompleted === undefined) {
       throw badRequest('task_checklist')
@@ -82,6 +91,11 @@ export class TaskChecklistService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, input.expectedVersion)
+      const existing = await tx.taskChecklistItem.findFirst({
+        where: { id: itemId, taskId },
+        select: { title: true, isCompleted: true },
+      })
+      if (!existing) throw badRequest('task_checklist')
       const updated = await tx.taskChecklistItem.updateMany({
         where: { id: itemId, taskId },
         data: {
@@ -97,6 +111,18 @@ export class TaskChecklistService {
         },
       })
       if (!updated.count) throw badRequest('task_checklist')
+      if (
+        (title !== undefined && title !== existing.title)
+        || (input.isCompleted !== undefined && input.isCompleted !== existing.isCompleted)
+      ) {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          input.expectedVersion + 1,
+          'CHECKLIST_ITEM_UPDATED',
+        )
+      }
       return { version: input.expectedVersion + 1 }
     })
   }
@@ -107,7 +133,7 @@ export class TaskChecklistService {
     itemId: string,
     expectedVersion: number,
   ): Promise<{ version: number }> {
-    await this.access.editableTask(principal, taskId)
+    const task = await this.access.editableTask(principal, taskId)
     this.assertVersion(expectedVersion)
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
@@ -121,6 +147,13 @@ export class TaskChecklistService {
         select: { id: true },
       })
       await this.reposition(tx, remaining.map((item) => item.id))
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        expectedVersion + 1,
+        'CHECKLIST_ITEM_REMOVED',
+      )
       return { version: expectedVersion + 1 }
     })
   }
@@ -131,7 +164,7 @@ export class TaskChecklistService {
     itemIds: string[],
     expectedVersion: number,
   ): Promise<{ version: number }> {
-    await this.access.editableTask(principal, taskId)
+    const task = await this.access.editableTask(principal, taskId)
     this.assertVersion(expectedVersion)
     if (
       !Array.isArray(itemIds)
@@ -143,6 +176,7 @@ export class TaskChecklistService {
     const existing = await this.prisma.taskChecklistItem.findMany({
       where: { taskId },
       select: { id: true },
+      orderBy: { position: 'asc' },
     })
     if (
       existing.length !== itemIds.length
@@ -154,6 +188,15 @@ export class TaskChecklistService {
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
       await this.reposition(tx, itemIds)
+      if (existing.some((item, position) => item.id !== itemIds[position])) {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          expectedVersion + 1,
+          'CHECKLIST_REORDERED',
+        )
+      }
       return { version: expectedVersion + 1 }
     })
   }
