@@ -67,7 +67,7 @@ async function createTaskThroughModal(
   }
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
-  await expect(page.getByRole('dialog').getByRole('heading', { name: title })).toBeVisible()
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
 }
 
 test('employee feed and canonical navigation are accessible', async ({ page }) => {
@@ -250,8 +250,8 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   await page.getByLabel('Змінити статус').selectOption('DONE')
   await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
 
+  await page.getByRole('button', { name: 'Розгорнути секцію «Матеріали»' }).click()
   const materials = page.locator('.task-materials')
-  await materials.getByText('Матеріали', { exact: true }).click()
   const fileName = `task-material-${testInfo.project.name}.txt`
   await materials.getByLabel(/Додати файл/).setInputFiles({
     name: fileName,
@@ -322,6 +322,53 @@ test('task role views explain why a task is visible and participant management s
   await expect(participantChip).toHaveCount(0)
 })
 
+test('task approval completes through the standalone detail for requester and approver', async ({ page }, testInfo) => {
+  await login(page, 'maria')
+  const title = `Погодження інтеграції · ${testInfo.project.name} · ${Date.now()}`
+  await createTaskThroughModal(page, title)
+  const taskUrl = page.url()
+  const approval = page.getByRole('region', { name: 'Погодження' })
+
+  await approval.getByLabel('Approver завдання').selectOption('usr_dmytro')
+  await approval.getByRole('button', { name: 'Запросити погодження' }).click()
+  await expect(approval.getByText('Запит на погодження надіслано.')).toBeVisible()
+  await expect(approval.getByText(/Очікуємо рішення від/)).toBeVisible()
+
+  await page.context().clearCookies()
+  await login(page, 'dmytro')
+  await page.goto(taskUrl)
+  const approverView = page.getByRole('region', { name: 'Погодження' })
+  await approverView.getByLabel('Коментар до рішення (необов’язково)').fill('Перевірено в інтеграційному E2E.')
+  await approverView.getByRole('button', { name: 'Погодити' }).click()
+
+  await expect(approverView.getByText('Завдання погоджено й завершено.')).toBeVisible()
+  await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
+  await expect(approverView.getByText(/Історія погоджень · 1/)).toBeVisible()
+})
+
+test('task list column customization persists and resets', async ({ page }, testInfo) => {
+  await login(page, 'maria')
+  await page.goto('/tasks')
+  const columns = page.locator('details.task-list-columns')
+
+  await columns.locator('summary').click()
+  await columns.getByLabel('Пріоритет').click()
+  await expect(columns.getByLabel('Пріоритет')).toBeChecked()
+  if (testInfo.project.name === 'mobile-chromium') {
+    await expect(page.locator('td[data-label="Пріоритет"]').first()).toBeVisible()
+  } else {
+    await expect(page.getByRole('columnheader', { name: 'Пріоритет' })).toBeVisible()
+  }
+  await expect(columns.getByRole('button', { name: 'За замовчуванням' })).toBeEnabled()
+
+  await page.reload()
+  await columns.locator('summary').click()
+  await expect(columns.getByLabel('Пріоритет')).toBeChecked()
+
+  await columns.getByRole('button', { name: 'За замовчуванням' }).click()
+  await expect(page.locator('th, td').filter({ hasText: /^Пріоритет$/ })).toHaveCount(0)
+})
+
 test('standalone file sharing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
   await login(page, 'maria')
   await page.goto('/feed')
@@ -338,7 +385,7 @@ test('standalone file sharing is explicit, scanner-aware and revocable', async (
   const card = page.locator('.feed-source-card').filter({ hasText: fileName })
   await expect(card).toBeVisible()
   await expect(card.getByText('Перевіряється', { exact: true })).toBeVisible()
-  await page.getByLabel('Тип події').selectOption('FILE')
+  await page.goto('/feed?type=FILE')
   await expect(page).toHaveURL(/type=FILE/)
   await expect(card).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -504,10 +551,11 @@ test('legacy company scope is removed while task filters and browser history rem
   await expect(page).toHaveURL(/\/tasks$/)
   await expect(page.getByRole('heading', { name: 'Завдання', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Пошук і фільтри' }).click()
+  const filters = page.locator('.filter-panel')
   await page.getByLabel('Пошук завдань').fill('d')
   await expect(page).toHaveURL(/search=d/)
   await page.getByLabel('Пошук завдань').fill('dashboard')
-  await page.getByLabel('Статус').selectOption('IN_PROGRESS')
+  await filters.getByLabel('Статус').selectOption('IN_PROGRESS')
   await expect(page).toHaveURL(/search=dashboard/)
   await expect(page).toHaveURL(/status=IN_PROGRESS/)
   await page.getByRole('link', { name: /Підготувати концепцію дизайну dashboard/ }).click()

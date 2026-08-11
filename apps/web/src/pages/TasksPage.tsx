@@ -1226,7 +1226,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <div className="task-detail-heading">
             <div>
               <StatusBadge status={query.data.status} />
-              <h3>{query.data.title}</h3>
+              <h2>{query.data.title}</h2>
               <p>{query.data.description || 'Опис не додано.'}</p>
             </div>
             {query.data.canEdit && (
@@ -1410,7 +1410,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-approval" aria-labelledby={`task-approval-${id}`}>
             <header>
               <div>
-                <h4 id={`task-approval-${id}`}>Погодження</h4>
+                <h3 id={`task-approval-${id}`}>Погодження</h3>
                 <p>Один approver ухвалює рішення в кожному раунді.</p>
               </div>
               {query.data.approval.current && (
@@ -1570,7 +1570,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-personal" aria-labelledby={`task-personal-${id}`}>
             <header>
               <div>
-                <h4 id={`task-personal-${id}`}>Для мене</h4>
+                <h3 id={`task-personal-${id}`}>Для мене</h3>
                 <p>Особисті позначки не змінюють доступ інших людей.</p>
               </div>
               {query.data.personalState.followerCount > 0 && (
@@ -1673,7 +1673,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-participants" aria-labelledby={`task-participants-${id}`}>
             <header>
               <div>
-                <h4 id={`task-participants-${id}`}>Учасники</h4>
+                <h3 id={`task-participants-${id}`}>Учасники</h3>
                 <p>Роль визначає робочий список і доступні дії для кожної людини.</p>
               </div>
               {query.data.canManageParticipants && (
@@ -1787,7 +1787,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <section className="task-subtasks" aria-labelledby={`task-subtasks-${id}`}>
               <header>
                 <div>
-                  <h4 id={`task-subtasks-${id}`}>Підзадачі</h4>
+                  <h3 id={`task-subtasks-${id}`}>Підзадачі</h3>
                   <p>
                     {query.data.subtaskProgress.total
                       ? `${query.data.subtaskProgress.done} із ${query.data.subtaskProgress.total} завершено`
@@ -1930,7 +1930,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           )}
           <TaskDetailSection id="checklist" label="Контрольний список">
           <section>
-            <h4>Контрольний список</h4>
+            <h3>Контрольний список</h3>
             {query.data.checklist?.length ? (
               <div className="checklist">
                 {query.data.checklist.map((item) => (
@@ -1976,7 +1976,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           </section>
           </TaskDetailSection>
           {query.data.canEdit && !query.data.parentTaskId && <TaskDetailSection id="recurrence" label="Повторення завдання"><section>
-              <h4>Повторення завдання</h4>
+              <h3>Повторення завдання</h3>
               <form
                 className="recurrence-form"
                 onChange={() => markDirty('recurrence')}
@@ -2095,7 +2095,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-history">
               <header>
                 <History size={17} />
-                <h4>Історія змін</h4>
+                <h3>Історія змін</h3>
               </header>
               <div className="task-history__body">
                 {activity.isLoading ? (
@@ -2139,7 +2139,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-discussion" aria-labelledby={`task-discussion-${id}`}>
             <header>
               <div>
-                <h4 id={`task-discussion-${id}`}>Обговорення</h4>
+                <h3 id={`task-discussion-${id}`}>Обговорення</h3>
                 <p>Рішення та уточнення залишаються поруч із завданням.</p>
               </div>
               {query.data.comments.length > 0 && (

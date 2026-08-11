@@ -1448,7 +1448,7 @@ describe('BERT CRM API workflows', () => {
       .delete(`/api/v1/tasks/${observerTaskId}/participants/usr_marko`)
       .set('x-csrf-token', maria.csrf)
       .send({ expectedVersion: 2 })
-      .expect(200, { version: 3 });
+      .expect(200, { version: 3, accessRetained: true });
     await marko.agent.get(`/api/v1/tasks/${observerTaskId}`).expect(404);
     const afterRemoval = await marko.agent
       .get('/api/v1/tasks?company=cmp_bert_ua&role=OBSERVER')
@@ -1735,9 +1735,10 @@ describe('BERT CRM API workflows', () => {
     expect(mixedCase.body.items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'usr_maria' }),
     ]));
-    await maria.agent
+    const oneSymbol = await maria.agent
       .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=я')
-      .expect(400);
+      .expect(200);
+    expect(oneSymbol.body.items).toEqual(expect.any(Array));
     const unrelated = await maria.agent
       .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=zznotuser')
       .expect(200);
@@ -2213,6 +2214,15 @@ describe('BERT CRM API workflows', () => {
       })
       .expect(201);
     const directThreadId = (direct.body as { id: string }).id;
+    await prisma.threadParticipant.update({
+      where: {
+        threadId_userId: {
+          threadId: directThreadId,
+          userId: 'usr_andrii',
+        },
+      },
+      data: { notificationMode: 'ALL' },
+    });
     const directCandidates = await maria.agent
       .get(`/api/v1/messages/threads/${directThreadId}/mention-candidates?q=`)
       .expect(200);

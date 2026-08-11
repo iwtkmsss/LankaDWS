@@ -25,7 +25,7 @@ export function AsyncTaskCombobox({
   const root = useRef<HTMLDivElement>(null)
   const { debouncedValue, isComposing, onCompositionStart, onCompositionEnd } = useDebouncedSearchValue(text)
 
-  useEffect(() => { if (!open) setText(selectedOption?.label ?? '') }, [open, selectedOption?.label])
+  useEffect(() => { if (!open) setText(selectedOption?.label ?? '') }, [open, selectedOption?.label, value])
   useEffect(() => {
     if (!open || isComposing || Array.from(debouncedValue).length < 1) { setItems([]); setState('idle'); return }
     const controller = new AbortController()

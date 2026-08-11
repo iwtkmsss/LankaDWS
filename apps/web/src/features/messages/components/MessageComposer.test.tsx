@@ -25,7 +25,7 @@ function renderComposer(onSend = vi.fn(async () => true)) {
     </QueryClientProvider>,
   )
   return {
-    input: screen.getByRole('combobox', { name: 'Повідомлення' }),
+    input: screen.getByRole('textbox', { name: 'Повідомлення' }),
     onSend,
     unmount: rendered.unmount,
   }

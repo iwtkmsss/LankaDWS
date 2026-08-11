@@ -5,7 +5,6 @@ import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@bert-
 import { decryptSecret, encryptSecret, fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
-import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'

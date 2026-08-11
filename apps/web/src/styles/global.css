@@ -1,6 +1,9 @@
 * { box-sizing: border-box; }
 html { min-width: 320px; background: var(--canvas); font-family: var(--font); color: var(--ink-900); }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--canvas); font-size: 14px; line-height: 1.5; text-rendering: optimizeLegibility; }
+@media (max-width: 320px) {
+  html, body { min-width: 0; }
+}
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; }

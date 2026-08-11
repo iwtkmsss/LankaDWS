@@ -47,7 +47,7 @@ describe('MentionTextarea', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
 
-    const textbox = screen.getByRole('combobox', { name: 'Текст' })
+    const textbox = screen.getByRole('textbox', { name: 'Текст' })
     fireEvent.change(textbox, { target: { value: '@мар', selectionStart: 4 } })
     expect(screen.getByText('[]')).toBeVisible()
     await screen.findByRole('option', { name: /Марія Іваненко/ })

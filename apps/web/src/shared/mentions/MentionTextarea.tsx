@@ -143,9 +143,8 @@ export function MentionTextarea({
           maxLength={maxLength}
           placeholder={placeholder}
           disabled={disabled}
-          role="combobox"
           aria-autocomplete="list"
-          aria-expanded={Boolean(active)}
+          aria-haspopup="listbox"
           aria-controls={active ? `${id}-mentions` : undefined}
           aria-activedescendant={active && items[activeIndex] ? `${id}-mention-${items[activeIndex]!.id}` : undefined}
           onCompositionStart={() => { composing.current = true }}

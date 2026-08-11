@@ -124,13 +124,15 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   await page.getByLabel('Назва завдання').fill(title)
   await page.getByLabel('Опис').fill('Перевірка повної форми створення завдання.')
   await page.getByLabel('Додати відповідального').selectOption('usr_andrii')
-  await page.getByLabel('Пріоритет').selectOption('URGENT')
+  await dialog.getByLabel('Пріоритет').selectOption('URGENT')
   await page.getByLabel('Дата початку').fill(futureLocalDateTime(2))
   await page.getByLabel('Кінцевий термін').fill(futureLocalDateTime(4))
 
   await contextToggle.click()
   await expect(contextToggle).toHaveAttribute('aria-expanded', 'true')
-  await dialog.getByRole('combobox', { name: /^Проєкт/ }).selectOption('prj_website')
+  const projectCombobox = dialog.getByRole('combobox', { name: /^Проєкт/ })
+  await projectCombobox.fill('Веб')
+  await dialog.getByRole('option', { name: /Вебсайт для клієнта/ }).click()
   await page.getByText('Дизайн', { exact: true }).click()
   const attachmentName = `task-create-${testInfo.project.name}.txt`
   await dialog.locator('input[type="file"]').setInputFiles({
@@ -163,7 +165,9 @@ test('creates a task through the complete modal workflow', async ({ page }, test
 
   await relationsToggle.click()
   const relationsPanel = dialog.locator('#task-create-relations-panel')
-  await relationsPanel.getByRole('combobox', { name: /^Завдання/ }).selectOption('tsk_design')
+  const relationCombobox = relationsPanel.getByRole('combobox', { name: /^Завдання/ })
+  await relationCombobox.fill('dashboard')
+  await relationsPanel.getByRole('option', { name: /2401.*Підготувати концепцію дизайну dashboard/ }).click()
   await relationsPanel.getByRole('button', { name: 'Додати зв’язок' }).click()
   await expect(relationsPanel.getByText(/2401 · Підготувати концепцію дизайну dashboard/)).toBeVisible()
 
@@ -241,7 +245,7 @@ test('sends a selected task comment mention as structured data', async ({ page }
   await login(page)
   await page.goto('/tasks/tsk_design')
 
-  const comment = page.getByRole('combobox', { name: 'Коментар до завдання' })
+  const comment = page.getByRole('textbox', { name: 'Коментар до завдання' })
   await comment.fill('@оле')
   await page.getByRole('option', { name: /Олена Бондар/ }).click()
   await comment.pressSequentially(', перевір, будь ласка.')
