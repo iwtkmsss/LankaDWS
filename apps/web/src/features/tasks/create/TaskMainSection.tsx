@@ -1,8 +1,9 @@
 import { useMutation } from '@tanstack/react-query'
 import { FilePlus2, Plus, Trash2 } from 'lucide-react'
-import { useState, type CSSProperties, type RefObject } from 'react'
+import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
 import { Button } from '../../../shared/ui'
-import { createProject, createTag, stageTaskAttachment } from './api'
+import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
+import { createProject, createTag, loadTaskCreateOptions, stageTaskAttachment } from './api'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -126,6 +127,7 @@ export function TaskContextSection({
   onRetryOptions: () => void
   onOptionsChanged: () => void
 }) {
+  const loadMatches = useCallback((search: string, signal: AbortSignal) => loadTaskCreateOptions('', draft.projectId, search, signal), [draft.projectId])
   const [projectName, setProjectName] = useState('')
   const [tagName, setTagName] = useState('')
   const [tagColor, setTagColor] = useState('#3b72ff')
@@ -198,45 +200,35 @@ export function TaskContextSection({
         {options && (
           <>
             <div className="task-create-fields">
-              <label>
-                Проєкт <span className="optional">необов’язково</span>
-                <select
-                  value={draft.projectId}
-                  onChange={(event) => update((current) => ({
+              <AsyncTaskCombobox
+                label="Проєкт"
+                value={draft.projectId}
+                placeholder="Знайти проєкт"
+                selectedOption={options.projects.find((project) => project.id === draft.projectId) ? { id: draft.projectId, label: options.projects.find((project) => project.id === draft.projectId)!.name } : null}
+                loadOptions={async (search, signal) => (await loadMatches(search, signal)).projects.map((project) => ({ id: project.id, label: project.name }))}
+                onChange={(value) => update((current) => ({
                     ...current,
-                    projectId: event.target.value,
+                    projectId: value,
                     parentTaskId: '',
                     relations: [],
                   }))}
-                >
-                  <option value="">Без проєкту</option>
-                  {options.projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Батьківське завдання <span className="optional">необов’язково</span>
-                <select
-                  value={draft.parentTaskId}
-                  onChange={(event) => {
-                    const parent = options.tasks.find((task) => task.id === event.target.value)
+              />
+              <AsyncTaskCombobox
+                label="Батьківське завдання"
+                value={draft.parentTaskId}
+                placeholder="Знайти завдання"
+                selectedOption={options.tasks.find((task) => task.id === draft.parentTaskId) ? { id: draft.parentTaskId, label: `${options.tasks.find((task) => task.id === draft.parentTaskId)!.number} · ${options.tasks.find((task) => task.id === draft.parentTaskId)!.title}` } : null}
+                loadOptions={async (search, signal) => (await loadMatches(search, signal)).tasks.map((task) => ({ id: task.id, label: `${task.number} · ${task.title}` }))}
+                onChange={(value) => {
+                    const parent = options.tasks.find((task) => task.id === value)
                     update((current) => ({
                       ...current,
-                      parentTaskId: event.target.value,
+                      parentTaskId: value,
                       projectId: parent?.projectId ?? current.projectId,
-                      recurrence: event.target.value ? null : current.recurrence,
+                      recurrence: value ? null : current.recurrence,
                     }))
-                  }}
-                >
-                  <option value="">Без батьківського завдання</option>
-                  {options.tasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.number} · {task.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                }}
+              />
             </div>
             {projectCreateOpen && (
               <div className="task-create-inline">

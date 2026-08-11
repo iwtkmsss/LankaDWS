@@ -97,6 +97,9 @@ export interface TaskListItem {
   parentTaskId: string | null
   title: string
   assignee: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  responsibles: Array<Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>>
+  reporter: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  group: { id: string; name: string } | null
   status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   deadline: string | null

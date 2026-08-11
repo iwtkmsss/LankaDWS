@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   TASK_DETAIL_PREFERENCE_SCHEMA_VERSION,
   TASK_DETAIL_SECTION_IDS,
+  TASK_LIST_COLUMNS_PREFERENCE_SCHEMA_VERSION,
   putTaskDetailPreferenceSchema,
+  putTaskListColumnsPreferenceSchema,
 } from './ui-preferences.js'
 
 const value = {
@@ -47,6 +49,29 @@ describe('Task Detail UI preference contracts', () => {
     expect(putTaskDetailPreferenceSchema.safeParse({
       schemaVersion: 1,
       value: { ...value, futureSetting: true },
+      expectedVersion: 0,
+    }).success).toBe(false)
+  })
+})
+
+describe('Task list column UI preference contracts', () => {
+  it('accepts up to five configurable columns alongside the mandatory title', () => {
+    expect(putTaskListColumnsPreferenceSchema.parse({
+      schemaVersion: TASK_LIST_COLUMNS_PREFERENCE_SCHEMA_VERSION,
+      value: { visible: ['responsibles', 'dueDate', 'status', 'priority', 'activity'] },
+      expectedVersion: 0,
+    }).value.visible).toHaveLength(5)
+  })
+
+  it('rejects duplicate columns and more than five configurable columns', () => {
+    expect(putTaskListColumnsPreferenceSchema.safeParse({
+      schemaVersion: 1,
+      value: { visible: ['status', 'status'] },
+      expectedVersion: 0,
+    }).success).toBe(false)
+    expect(putTaskListColumnsPreferenceSchema.safeParse({
+      schemaVersion: 1,
+      value: { visible: ['responsibles', 'dueDate', 'status', 'reporter', 'group', 'priority'] },
       expectedVersion: 0,
     }).success).toBe(false)
   })
