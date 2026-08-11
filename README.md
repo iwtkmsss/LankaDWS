@@ -39,6 +39,16 @@ npm run dev
 
 Web: `http://localhost:5173`. API: `http://localhost:3000/api/v1`. Swagger UI: `http://localhost:3000/api/v1/openapi`.
 
+### Local network development
+
+To open the development instance from other devices on the same local network, run:
+
+```bash
+npm run dev:lan
+```
+
+The command loads `.env.public` before it starts either process. Copy `.env.public.example` to the ignored `.env.public`, set `PUBLIC_HOST`, and use `PUBLIC_CLIENT_PORT` and `PUBLIC_SERVER_PORT` to change the default ports (`5173` and `3000`). This is intended only for a trusted local network; it is not a production deployment.
+
 `prisma:seed` дозволений тільки поза production. Development accounts: `maria`, `andrii`, `olena`, `dmytro`, `marko`; пароль задає `DEMO_SEED_PASSWORD` (у `.env.example` наведене лише development-значення). Demo містить одну організацію BERT з рекурсивною структурою підрозділів; «Сервісний відділ» є дочірнім підрозділом «Операцій». Production build не має demo fallback і не показує credentials.
 
 Жива стрічка не дублює робочі сутності: авторські публікації є `FeedPost`, а картки задач, подій, оголошень і явно поширених файлів щоразу читають і повторно авторизують канонічне джерело. Вкладення використовують спільний файловий карантин/сканер і стають доступними для завантаження лише після стану `CLEAN`. Окрема File-картка з’являється тільки після permissioned «Поширити файл», не зберігає назву/MIME в `FeedItem`, успадковує точну live audience і зникає разом із recipient download access після revoke. Історичні проєкції імпортера мають `countsAsUnread=false`, тому cutover не створює штучну хвилю непрочитаного.

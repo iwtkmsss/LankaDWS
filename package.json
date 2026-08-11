@@ -14,6 +14,8 @@
   "scripts": {
     "predev": "npm run build --workspace @bert-crm/contracts",
     "dev": "concurrently -n web,api -c cyan,green \"npm run dev --workspace @bert-crm/web\" \"npm run start:dev --workspace @bert-crm/api\"",
+    "predev:public": "npm run build --workspace @bert-crm/contracts",
+    "dev:public": "node scripts/public-runner.mjs dev",
     "dev:web": "npm run dev --workspace @bert-crm/web",
     "dev:api": "npm run start:dev --workspace @bert-crm/api",
     "build": "npm run build --workspace @bert-crm/contracts && npm run build --workspace @bert-crm/api && npm run build --workspace @bert-crm/web",

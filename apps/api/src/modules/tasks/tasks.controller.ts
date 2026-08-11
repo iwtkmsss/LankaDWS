@@ -18,6 +18,8 @@ import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   createTaskSchema,
   manualTimeEntrySchema,
+  mentionSearchQuerySchema,
+  taskCommentInputSchema,
   taskParticipantRoleV2Schema,
   taskRecurrenceInputSchema,
   taskReminderInputSchema,
@@ -43,7 +45,6 @@ import {
   TasksService,
   type CreateSubtaskInput,
   type LegacyUpdateTaskInput,
-  type TaskCommentInput,
   type TaskFollowerInput,
   type TaskUserStateInput,
 } from './tasks.service.js'
@@ -137,6 +138,17 @@ export class TasksController {
     @Query('cursor') cursor?: string,
   ) {
     return this.tasks.activity(principalFrom(request), taskId, cursor)
+  }
+
+  @Get(':id/mention-candidates')
+  mentionCandidates(
+    @Req() request: BertRequest,
+    @Param('id') taskId: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = mentionSearchQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('task_mention_query_invalid')
+    return this.participants.mentionCandidates(principalFrom(request), taskId, parsed.data)
   }
 
   @Get(':id')
@@ -321,8 +333,16 @@ export class TasksController {
   }
 
   @Post(':id/comments')
-  comment(@Req() request: BertRequest, @Param('id') taskId: string, @Body() body: TaskCommentInput) {
-    return this.tasks.addComment(principalFrom(request), taskId, body)
+  comment(
+    @Req() request: BertRequest,
+    @Param('id') taskId: string,
+    @Body() rawBody: unknown,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    const parsed = taskCommentInputSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_comment_invalid')
+    if (parsed.data.mentions.length && !key) throw badRequest('idempotency_key_required')
+    return this.tasks.addComment(principalFrom(request), taskId, parsed.data, key)
   }
 
   @Post(':id/checklist')

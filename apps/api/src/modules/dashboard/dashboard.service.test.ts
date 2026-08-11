@@ -87,7 +87,7 @@ describe('DashboardService', () => {
     tasks.dashboardSummary.mockResolvedValue({
       items: [{
         id: 'tsk_1',
-        number: 'TASK-1',
+        number: '1',
         companyId: 'cmp_test',
         parentTaskId: null,
         title: 'Усунути блокер',

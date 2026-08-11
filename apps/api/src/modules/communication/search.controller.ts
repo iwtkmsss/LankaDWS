@@ -11,8 +11,8 @@ export class SearchController {
   @Get()
   async search(@Req() request: BertRequest, @Query('q') query = '', @Query('company') company?: string) {
     const principal = principalFrom(request)
-    const q = query.trim().slice(0, 120)
-    if (q.length < 2) return { items: [] }
+    const q = [...query.trim()].slice(0, 120).join('')
+    if (!q) return { items: [] }
     const companyIds = this.scope.allowedCompanies(principal, company)
     const documentAclIds = (await this.prisma.documentAcl.findMany({
       where: { principalType: 'USER', principalId: principal.userId },
@@ -31,7 +31,11 @@ export class SearchController {
       this.prisma.task.findMany({
         where: {
           companyId: { in: companyIds },
-          title: { contains: q },
+          OR: [
+            { title: { contains: q } },
+            { number: { contains: q } },
+            { legacyNumbers: { some: { legacyNumber: { contains: q } } } },
+          ],
           AND: [
             ...(isGlobalAdmin(principal) ? [] : [{
               OR: [

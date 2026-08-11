@@ -2,9 +2,11 @@ import type { ChatMessageSearchPage } from '@bert-crm/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { useDebouncedSearchValue } from '../../../shared/lib/useDebouncedSearchValue'
 import { messageKeys } from '../api/messageKeys'
 import { searchThreadMessages } from '../api/messageApi'
 import { formatChatDay } from '../lib/chatDates'
+import { normalizedCodePointLength } from '../lib/messageText'
 
 export function ConversationSearch({
   threadId,
@@ -16,17 +18,18 @@ export function ConversationSearch({
   onOpenResult: (messageId: string) => void
 }) {
   const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
+  const {
+    debouncedValue: debounced,
+    isComposing,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useDebouncedSearchValue(query)
   const inputRef = useRef<HTMLInputElement>(null)
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
-    return () => window.clearTimeout(timer)
-  }, [query])
   useEffect(() => inputRef.current?.focus(), [])
   const results = useQuery<ChatMessageSearchPage>({
     queryKey: messageKeys.search(threadId, debounced),
     queryFn: ({ signal }) => searchThreadMessages(threadId, debounced, undefined, signal),
-    enabled: debounced.length >= 2,
+    enabled: !isComposing && normalizedCodePointLength(debounced) >= 1,
   })
 
   return (
@@ -39,6 +42,8 @@ export function ConversationSearch({
           placeholder="Пошук у діалозі"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onCompositionStart={onCompositionStart}
+          onCompositionEnd={onCompositionEnd}
           onKeyDown={(event) => {
             if (event.key === 'Escape') onClose()
           }}
@@ -47,9 +52,6 @@ export function ConversationSearch({
           <X size={18} />
         </button>
       </div>
-      {query.trim().length > 0 && query.trim().length < 2 && (
-        <p>Введіть щонайменше 2 символи.</p>
-      )}
       {results.isLoading ? (
         <p><LoaderCircle className="is-spinning" size={16} /> Шукаємо…</p>
       ) : results.isError ? (

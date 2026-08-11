@@ -3,6 +3,7 @@ import {
   type AddChatParticipantInput,
   type ChatAttachmentView,
   type ChatContactUser,
+  type ChatMentionCandidatesQuery,
   type ChatMessagePage,
   type ChatMessagePageQuery,
   type ChatMessageSearchPage,
@@ -23,10 +24,13 @@ import {
   type DeleteChatMessageInput,
   type EditChatMessageInput,
   type MarkChatReadInput,
+  type MentionCandidateView,
   type RecommendedChatUsersPage,
   type RecommendedChatUsersQuery,
   type RemoveChatParticipantInput,
   type SendChatMessageInput,
+  type StructuredMentionInput,
+  type StructuredMentionView,
   type UpdateChatParticipantInput,
   type UpdateChatPreferenceInput,
 } from '@bert-crm/contracts'
@@ -695,6 +699,49 @@ export class MessagesService {
     return { items: users.slice(0, query.limit).map((user) => this.contactUser(user)) }
   }
 
+  async mentionCandidates(
+    principal: AuthPrincipal,
+    threadId: string,
+    query: ChatMentionCandidatesQuery,
+  ): Promise<{ items: MentionCandidateView[] }> {
+    const thread = await this.readableThread(principal, threadId)
+    this.assertMentionableThread(thread)
+    const companyId = thread.companyId
+    if (!companyId) throw notFound()
+    const participantIds = thread.participants
+      .filter((participant) => !participant.leftAt)
+      .map((participant) => participant.userId)
+    const normalized = normalizeUserSearchValue(query.q)
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: participantIds },
+        workspaceId: principal.workspaceId,
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
+        ...(normalized
+          ? {
+              AND: [{
+                OR: [
+                  { normalizedDisplayName: { contains: normalized } },
+                  { normalizedUsername: { contains: normalized } },
+                ],
+              }],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        displayName: true,
+        username: true,
+        jobTitle: true,
+        avatarAsset: true,
+      },
+      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
+      take: query.limit,
+    })
+    return { items: users }
+  }
+
   async recommendedUsers(
     principal: AuthPrincipal,
     query: RecommendedChatUsersQuery,
@@ -867,6 +914,10 @@ export class MessagesService {
     const text = input.body.trim()
     const replyToId = input.replyToId ?? null
     const attachmentIds = input.attachmentIds
+    const mentionedUserIds = this.validateStructuredMentions(text, input.mentions)
+    if (input.mentions.length > 0) {
+      await this.assertMessageMentionRecipients(principal, thread, mentionedUserIds)
+    }
     if (!text || text.length > 8_000) throw badRequest('message_body')
     if (replyToId) {
       const parent = await this.prisma.message.findFirst({
@@ -885,6 +936,7 @@ export class MessagesService {
       body: text,
       replyToId,
       attachmentIds,
+      mentions: input.mentions,
     })
     const existingRequest = await this.idempotentResult(
       principal.userId,
@@ -917,6 +969,17 @@ export class MessagesService {
           })),
         })
       }
+      if (input.mentions.length > 0) {
+        await tx.contentMention.createMany({
+          data: input.mentions.map((mention) => ({
+            id: id('mnt'),
+            workspaceId: principal.workspaceId,
+            sourceType: 'MESSAGE',
+            sourceId: messageId,
+            ...mention,
+          })),
+        })
+      }
       const aggregate = await tx.messageThread.update({
         where: { id: threadId },
         data: {
@@ -937,6 +1000,7 @@ export class MessagesService {
           version: { increment: 1 },
         },
       })
+      const mentioned = new Set(mentionedUserIds)
       for (const participant of thread.participants) {
         if (
           participant.userId === principal.userId
@@ -947,9 +1011,11 @@ export class MessagesService {
           data: {
             id: id('ntf'),
             recipientId: participant.userId,
-            category: 'CHAT',
-            safeTitle: 'Нове повідомлення',
-            safeSnippet: 'У робочому діалозі є оновлення.',
+            category: mentioned.has(participant.userId) ? 'MENTION' : 'CHAT',
+            safeTitle: mentioned.has(participant.userId) ? 'Вас згадали у повідомленні' : 'Нове повідомлення',
+            safeSnippet: mentioned.has(participant.userId)
+              ? 'Відкрийте діалог, щоб переглянути згадку.'
+              : 'У робочому діалозі є оновлення.',
             entityType: 'MESSAGE_THREAD',
             entityId: threadId,
             requiresAction: false,
@@ -987,6 +1053,7 @@ export class MessagesService {
             threadId,
             hasReply: Boolean(replyToId),
             attachmentCount: attachmentIds.length,
+            mentionCount: mentionedUserIds.length,
           }),
           correlationId: id('corr'),
         },
@@ -1349,16 +1416,41 @@ export class MessagesService {
     input: EditChatMessageInput,
   ): Promise<{ id: string; body: string; editedAt: string; version: number }> {
     const message = await this.readableMessage(principal, messageId)
+    const thread = await this.readableThread(principal, message.threadId)
     if (
       message.authorId !== principal.userId
       && !isGlobalAdmin(principal)
     ) throw notFound()
     if (message.deletedAt) throw notFound()
     const body = input.body.trim()
+    const currentMentions = await this.prisma.contentMention.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        sourceType: 'MESSAGE',
+        sourceId: message.id,
+      },
+      select: { userId: true, start: true, end: true, label: true },
+      orderBy: { start: 'asc' },
+    })
+    const nextMentions = input.mentions?.toSorted((left, right) => left.start - right.start || left.end - right.end)
+    const mentionedUserIds = nextMentions
+      ? this.validateStructuredMentions(body, nextMentions)
+      : []
+    if (nextMentions?.length) {
+      await this.assertMessageMentionRecipients(
+        principal,
+        thread,
+        mentionedUserIds,
+        currentMentions.map((mention) => mention.userId),
+      )
+    }
+    const mentionsChanged = nextMentions
+      ? !this.sameStructuredMentions(currentMentions, nextMentions)
+      : currentMentions.length > 0
     if (message.version !== input.expectedVersion) {
       throw conflict('Повідомлення вже змінилося. Оновіть діалог.')
     }
-    if (message.body === body) {
+    if (message.body === body && !mentionsChanged) {
       return {
         id: message.id,
         body: message.body,
@@ -1383,11 +1475,57 @@ export class MessagesService {
       if (changed.count !== 1) {
         throw conflict('Повідомлення вже змінилося. Оновіть діалог.')
       }
+      if (mentionsChanged) {
+        await tx.contentMention.deleteMany({
+          where: {
+            workspaceId: principal.workspaceId,
+            sourceType: 'MESSAGE',
+            sourceId: message.id,
+          },
+        })
+        if (nextMentions?.length) {
+          await tx.contentMention.createMany({
+            data: nextMentions.map((mention) => ({
+              id: id('mnt'),
+              workspaceId: principal.workspaceId,
+              sourceType: 'MESSAGE',
+              sourceId: message.id,
+              ...mention,
+            })),
+          })
+        }
+      }
       const aggregate = await tx.messageThread.update({
         where: { id: message.threadId },
         data: { version: { increment: 1 } },
         select: { version: true },
       })
+      if (nextMentions) {
+        const previousMentioned = new Set(currentMentions.map((mention) => mention.userId))
+        const newlyMentioned = mentionedUserIds.filter((userId) => !previousMentioned.has(userId))
+        for (const participant of thread.participants) {
+          if (
+            participant.userId === principal.userId
+            || participant.leftAt
+            || participant.notificationMode !== 'ALL'
+            || !newlyMentioned.includes(participant.userId)
+          ) continue
+          await tx.notification.create({
+            data: {
+              id: id('ntf'),
+              recipientId: participant.userId,
+              category: 'MENTION',
+              safeTitle: 'Вас згадали у повідомленні',
+              safeSnippet: 'Відкрийте діалог, щоб переглянути згадку.',
+              entityType: 'MESSAGE_THREAD',
+              entityId: message.threadId,
+              requiresAction: false,
+              deliveredAt: editedAt,
+              dedupeKey: `chat:${message.id}:mention:v${input.expectedVersion + 1}:${participant.userId}`,
+            },
+          })
+        }
+      }
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -1400,6 +1538,9 @@ export class MessagesService {
           entityId: message.id,
           result: 'SUCCESS',
           risk: 'NORMAL',
+          safeDiffJson: JSON.stringify({
+            ...(nextMentions ? { mentionCount: mentionedUserIds.length } : {}),
+          }),
           correlationId: id('corr'),
         },
       })
@@ -1733,6 +1874,71 @@ export class MessagesService {
     if (!membership) throw notFound()
   }
 
+  private assertMentionableThread(thread: Pick<MessageThread, 'kind'>): void {
+    if (thread.kind !== 'DIRECT' && thread.kind !== 'GROUP') {
+      throw badRequest('chat_mentions_unavailable')
+    }
+  }
+
+  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
+    const ordered = mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
+    let previousEnd = 0
+    for (const mention of ordered) {
+      if (
+        mention.start < previousEnd
+        || mention.end > body.length
+        || body.slice(mention.start, mention.end) !== `@${mention.label}`
+      ) {
+        throw badRequest('chat_mention_invalid')
+      }
+      previousEnd = mention.end
+    }
+    return [...new Set(ordered.map((mention) => mention.userId))]
+  }
+
+  private async assertMessageMentionRecipients(
+    principal: AuthPrincipal,
+    thread: ThreadWithParticipants,
+    userIds: string[],
+    previousUserIds: string[] = [],
+  ): Promise<void> {
+    this.assertMentionableThread(thread)
+    const companyId = thread.companyId
+    if (!companyId) throw notFound()
+    const currentParticipantIds = new Set(thread.participants
+      .filter((participant) => !participant.leftAt)
+      .map((participant) => participant.userId))
+    const previous = new Set(previousUserIds)
+    if (userIds.some((userId) => !currentParticipantIds.has(userId) && !previous.has(userId))) {
+      throw badRequest('chat_mention_outside_thread')
+    }
+    const newlyMentioned = userIds.filter((userId) => !previous.has(userId))
+    if (!newlyMentioned.length) return
+    const activeUsers = await this.prisma.user.findMany({
+      where: {
+        id: { in: newlyMentioned },
+        workspaceId: principal.workspaceId,
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
+      },
+      select: { id: true },
+    })
+    if (activeUsers.length !== newlyMentioned.length) throw badRequest('chat_mention_outside_thread')
+  }
+
+  private sameStructuredMentions(
+    current: Array<{ userId: string; start: number; end: number; label: string }>,
+    next: StructuredMentionInput[],
+  ): boolean {
+    return current.length === next.length && current.every((mention, index) => {
+      const candidate = next[index]
+      return candidate?.userId === mention.userId
+        && candidate.start === mention.start
+        && candidate.end === mention.end
+        && candidate.label === mention.label
+    })
+  }
+
   private assertCollaborativeThread(thread: ThreadWithParticipants): void {
     if (
       (thread.kind !== 'GROUP' && thread.kind !== 'CONTEXTUAL')
@@ -1770,7 +1976,7 @@ export class MessagesService {
     const missingReplyIds = replyIds.filter(
       (replyId) => !messages.some((message) => message.id === replyId),
     )
-    const [replyMessages, attachmentLinks] = await Promise.all([
+    const [replyMessages, attachmentLinks, contentMentions] = await Promise.all([
       missingReplyIds.length
         ? this.prisma.message.findMany({
             where: { id: { in: [...new Set(missingReplyIds)] }, threadId: thread.id },
@@ -1784,6 +1990,14 @@ export class MessagesService {
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
+      this.prisma.contentMention.findMany({
+        where: {
+          workspaceId: principal.workspaceId,
+          sourceType: 'MESSAGE',
+          sourceId: { in: messages.map((message) => message.id) },
+        },
+        orderBy: { start: 'asc' },
+      }),
     ])
     const attachmentFiles = attachmentLinks.length
       ? await this.prisma.fileObject.findMany({
@@ -1794,10 +2008,39 @@ export class MessagesService {
           },
         })
       : []
+    const mentionUsers = contentMentions.length
+      ? await this.prisma.user.findMany({
+          where: {
+            id: { in: [...new Set(contentMentions.map((mention) => mention.userId))] },
+            workspaceId: principal.workspaceId,
+          },
+          select: { id: true, primaryCompanyId: true, accountType: true, isActive: true },
+        })
+      : []
     const allMessages = [...messages, ...replyMessages]
     const usersById = await this.safeUsers(allMessages.map((message) => message.authorId))
     const messagesById = new Map(allMessages.map((message) => [message.id, message]))
     const filesById = new Map(attachmentFiles.map((file) => [file.id, file]))
+    const mentionUserById = new Map(mentionUsers.map((user) => [user.id, user]))
+    const activeParticipantIds = new Set(thread.participants
+      .filter((participant) => !participant.leftAt)
+      .map((participant) => participant.userId))
+    const mentionsByMessage = new Map<string, StructuredMentionView[]>()
+    for (const mention of contentMentions) {
+      const user = mentionUserById.get(mention.userId)
+      const current = mentionsByMessage.get(mention.sourceId) ?? []
+      current.push({
+        userId: mention.userId,
+        start: mention.start,
+        end: mention.end,
+        active: Boolean(
+          activeParticipantIds.has(mention.userId)
+          && user?.isActive
+          && (user.primaryCompanyId === thread.companyId || user.accountType === 'ADMIN'),
+        ),
+      })
+      mentionsByMessage.set(mention.sourceId, current)
+    }
     const attachmentsByMessage = new Map<string, ChatAttachmentView[]>()
     for (const link of attachmentLinks) {
       const file = filesById.get(link.fileId)
@@ -1812,6 +2055,7 @@ export class MessagesService {
       messagesById,
       usersById,
       attachmentsByMessage.get(message.id) ?? [],
+      mentionsByMessage.get(message.id) ?? [],
     ))
   }
 
@@ -2298,6 +2542,7 @@ export class MessagesService {
     messagesById: Map<string, Message>,
     usersById: Map<string, SafeUser>,
     attachments: ChatAttachmentView[],
+    mentions: StructuredMentionView[],
   ): ChatMessageView {
     const author = usersById.get(message.authorId)
     const reply = message.replyToId ? messagesById.get(message.replyToId) : null
@@ -2313,6 +2558,7 @@ export class MessagesService {
       deletedAt: message.deletedAt?.toISOString() ?? null,
       version: message.version,
       replyToId: message.replyToId,
+      mentions: deleted ? [] : mentions,
       replyPreview: reply
         ? {
             id: reply.id,

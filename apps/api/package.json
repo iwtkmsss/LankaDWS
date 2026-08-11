@@ -8,6 +8,7 @@
     "build": "prisma generate && nest build",
     "start": "node dist/src/main.js",
     "start:dev": "nest start --watch",
+    "dev:public": "nest start --watch",
     "lint": "eslint \"{src,test,scripts}/**/*.ts\"",
     "typecheck": "npm run build --workspace @bert-crm/contracts && prisma generate && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude dist/** --exclude test/integration/** --exclude test/e2e/**",

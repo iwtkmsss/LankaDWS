@@ -12,11 +12,11 @@ const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: getCon
 const password = process.env.DEMO_SEED_PASSWORD ?? 'BertDemoPassphrase2026!'
 
 const users = [
-  { id: 'usr_maria', username: 'maria', displayName: 'Марія Іваненко', jobTitle: 'Продуктова дизайнерка', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-maria.webp', approverId: 'usr_andrii' },
-  { id: 'usr_andrii', username: 'andrii', displayName: 'Андрій Коваль', jobTitle: 'Операційний керівник', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-andrii.webp', approverId: 'usr_dmytro' },
-  { id: 'usr_olena', username: 'olena', displayName: 'Олена Бондар', jobTitle: 'HR-фахівчиня', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-olena.webp', approverId: 'usr_andrii' },
-  { id: 'usr_dmytro', username: 'dmytro', displayName: 'Дмитро Савчук', jobTitle: 'Системний адміністратор', accountType: 'ADMIN' as const, companyId: null, avatar: '/assets/avatars/avatar-dmytro.webp', approverId: 'usr_andrii' },
-  { id: 'usr_marko', username: 'marko', displayName: 'Марко Литвин', jobTitle: 'Дизайнер', accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-marko.webp', approverId: 'usr_andrii' },
+  { id: 'usr_maria', username: 'maria', displayName: 'Марія Іваненко', jobTitle: 'Продуктова дизайнерка', gender: 'FEMALE', birthDate: new Date('1994-05-12T00:00:00.000Z'), accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-maria.webp', approverId: 'usr_andrii' },
+  { id: 'usr_andrii', username: 'andrii', displayName: 'Андрій Коваль', jobTitle: 'Операційний керівник', gender: 'MALE', birthDate: new Date('1989-11-03T00:00:00.000Z'), accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-andrii.webp', approverId: 'usr_dmytro' },
+  { id: 'usr_olena', username: 'olena', displayName: 'Олена Бондар', jobTitle: 'HR-фахівчиня', gender: 'FEMALE', birthDate: new Date('1991-02-18T00:00:00.000Z'), accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-olena.webp', approverId: 'usr_andrii' },
+  { id: 'usr_dmytro', username: 'dmytro', displayName: 'Дмитро Савчук', jobTitle: 'Системний адміністратор', gender: 'MALE', birthDate: new Date('1987-08-21T00:00:00.000Z'), accountType: 'ADMIN' as const, companyId: null, avatar: '/assets/avatars/avatar-dmytro.webp', approverId: 'usr_andrii' },
+  { id: 'usr_marko', username: 'marko', displayName: 'Марко Литвин', jobTitle: 'Дизайнер', gender: 'MALE', birthDate: new Date('1996-06-30T00:00:00.000Z'), accountType: 'USER' as const, companyId: 'cmp_bert_ua', avatar: '/assets/avatars/avatar-marko.webp', approverId: 'usr_andrii' },
 ]
 
 async function seed(): Promise<void> {
@@ -34,7 +34,7 @@ async function seed(): Promise<void> {
 
   const passwordHash = await hashPassword(password)
   for (const user of users) {
-    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, accountType: user.accountType, firstName: user.displayName.split(' ')[1] ?? user.displayName, lastName: user.displayName.split(' ')[0] ?? '', displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, isActive: true, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, accountType: user.accountType, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), avatarAsset: user.avatar, isActive: true } })
+    await prisma.user.upsert({ where: { id: user.id }, create: { id: user.id, workspaceId: 'ws_bert', primaryCompanyId: user.companyId, accountType: user.accountType, firstName: user.displayName.split(' ')[1] ?? user.displayName, lastName: user.displayName.split(' ')[0] ?? '', displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), username: user.username, normalizedUsername: user.username, jobTitle: user.jobTitle, gender: user.gender, birthDate: user.birthDate, isActive: true, avatarAsset: user.avatar }, update: { primaryCompanyId: user.companyId, accountType: user.accountType, displayName: user.displayName, normalizedDisplayName: normalizeUserSearchValue(user.displayName), avatarAsset: user.avatar, gender: user.gender, birthDate: user.birthDate, isActive: true } })
     await prisma.usernameReservation.upsert({ where: { workspaceId_normalizedUsername: { workspaceId: 'ws_bert', normalizedUsername: user.username } }, create: { id: `unr_${user.username}`, workspaceId: 'ws_bert', normalizedUsername: user.username, currentUserId: user.id, state: 'ACTIVE' }, update: {} })
     await prisma.passwordCredential.upsert({ where: { userId: user.id }, create: { id: `pwd_${user.username}`, userId: user.id, passwordHash }, update: { passwordHash, changedAt: new Date() } })
   }
@@ -277,10 +277,10 @@ async function seed(): Promise<void> {
   }
 
   const taskData = [
-    ['tsk_design', 'TSK-2401', 'Підготувати концепцію дизайну dashboard', 'usr_andrii', 'usr_maria', 'IN_PROGRESS', 'HIGH', '2026-07-15T12:00:00Z', 'prj_website'],
-    ['tsk_policy', 'TSK-2402', 'Оновити UI-kit компонента «Кнопка»', 'usr_maria', 'usr_andrii', 'PLANNED', 'MEDIUM', '2026-07-15T16:00:00Z', 'prj_website'],
-    ['tsk_report', 'TSK-2403', 'Підготувати звіт за липень', 'usr_andrii', 'usr_andrii', 'BLOCKED', 'HIGH', '2026-07-14T15:00:00Z', null],
-    ['tsk_onboarding', 'TSK-2404', 'Підготувати доступи нового працівника', 'usr_andrii', 'usr_olena', 'IN_PROGRESS', 'HIGH', '2026-07-17T09:00:00Z', null],
+    ['tsk_design', '2401', 'Підготувати концепцію дизайну dashboard', 'usr_andrii', 'usr_maria', 'IN_PROGRESS', 'HIGH', '2026-07-15T12:00:00Z', 'prj_website'],
+    ['tsk_policy', '2402', 'Оновити UI-kit компонента «Кнопка»', 'usr_maria', 'usr_andrii', 'PLANNED', 'MEDIUM', '2026-07-15T16:00:00Z', 'prj_website'],
+    ['tsk_report', '2403', 'Підготувати звіт за липень', 'usr_andrii', 'usr_andrii', 'BLOCKED', 'HIGH', '2026-07-14T15:00:00Z', null],
+    ['tsk_onboarding', '2404', 'Підготувати доступи нового працівника', 'usr_andrii', 'usr_olena', 'IN_PROGRESS', 'HIGH', '2026-07-17T09:00:00Z', null],
   ] as const
   for (const [taskId, number, title, createdById, responsibleId, status, priority, dueAt, projectId] of taskData) {
     await prisma.task.upsert({
@@ -292,6 +292,19 @@ async function seed(): Promise<void> {
       where: { taskId_userId: { taskId, userId: responsibleId } },
       create: { id: `tpart_${taskId}_${responsibleId}`, taskId, userId: responsibleId, role: 'RESPONSIBLE', addedById: createdById },
       update: { role: 'RESPONSIBLE', addedById: createdById, removedAt: null },
+    })
+    await prisma.taskNumberAlias.upsert({
+      where: { legacyNumber: `TSK-${number}` },
+      create: { id: `tnum_alias_${taskId}`, taskId, legacyNumber: `TSK-${number}` },
+      update: { taskId },
+    })
+  }
+  const taskSequence = await prisma.taskNumberSequence.findUnique({ where: { scope: 'global' } })
+  if (!taskSequence || taskSequence.lastNumber < 2404n) {
+    await prisma.taskNumberSequence.upsert({
+      where: { scope: 'global' },
+      create: { scope: 'global', lastNumber: 2404n },
+      update: { lastNumber: 2404n },
     })
   }
   for (const participant of [

@@ -114,6 +114,14 @@ describe('TaskCommandService', () => {
     }
     const service = new TaskCommandService(
       prisma as never,
+      {
+        runInTransaction: vi.fn((
+          client: typeof prisma,
+          callback: (transaction: typeof tx, number: string) => unknown,
+        ) => (
+          client.$transaction((transaction: typeof tx) => callback(transaction, '2405'))
+        )),
+      } as never,
       {} as never,
       validation as never,
       {} as never,
@@ -146,7 +154,7 @@ describe('TaskCommandService', () => {
     )
 
     expect(result.id).toMatch(/^tsk_/)
-    expect(result.number).toMatch(/^TSK-/)
+    expect(result.number).toMatch(/^\d+$/)
     expect(prisma.$transaction).toHaveBeenCalledOnce()
     expect(participants.createMany).toHaveBeenCalledOnce()
     expect(checklist.createMany).toHaveBeenCalledOnce()
@@ -222,7 +230,7 @@ describe('TaskResponseMapper', () => {
     const date = new Date('2026-08-01T06:00:00.000Z')
     const task = {
       id: 'tsk_1',
-      number: 'TSK-1',
+      number: '1',
       title: 'Task',
       description: '',
       status: 'IN_PROGRESS',
@@ -253,7 +261,7 @@ describe('TaskResponseMapper', () => {
         id: 'rel_1',
         type: 'BLOCKS',
         createdAt: date,
-        targetTask: { id: 'tsk_2', number: 'TSK-2', title: 'Target', status: 'NEW' },
+        targetTask: { id: 'tsk_2', number: '2', title: 'Target', status: 'NEW' },
       }],
       incomingRelations: [],
       reminders: [],

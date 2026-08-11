@@ -1,7 +1,8 @@
 import type { ChatContactUser } from '@bert-crm/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check, Plus, Search, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
+import { useDebouncedSearchValue } from '../../../shared/lib/useDebouncedSearchValue'
 import {
   Avatar,
   Button,
@@ -25,22 +26,23 @@ export function NewGroupDrawer({
 }) {
   const [title, setTitle] = useState('')
   const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
+  const {
+    debouncedValue: debounced,
+    isComposing,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useDebouncedSearchValue(query)
   const [selected, setSelected] = useState<ChatContactUser[]>([])
   const attemptRef = useRef({ signature: '', key: '' })
   const closeGuard = useModalCloseGuard({
     dirty: Boolean(title.trim() || selected.length),
     onRequestClose: () => onClose(),
   })
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
-    return () => window.clearTimeout(timer)
-  }, [query])
   const normalizedLength = normalizedCodePointLength(debounced)
   const users = useQuery({
     queryKey: messageKeys.users(companyId, debounced),
     queryFn: ({ signal }) => searchChatUsers(companyId, debounced, signal),
-    enabled: normalizedLength >= 2,
+    enabled: !isComposing && normalizedLength >= 1,
   })
   const create = useMutation({
     mutationFn: () => {
@@ -112,6 +114,8 @@ export function NewGroupDrawer({
               value={query}
               placeholder="Ім’я або нікнейм"
               onChange={(event) => setQuery(event.target.value)}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
             />
             {query && (
               <button type="button" aria-label="Очистити пошук" onClick={() => setQuery('')}>
@@ -131,8 +135,8 @@ export function NewGroupDrawer({
             ))}
           </div>
         )}
-        {query && normalizedLength < 2 ? (
-          <p className="new-group__hint">Введіть щонайменше 2 символи.</p>
+        {query && !isComposing && normalizedLength < 1 ? (
+          <p className="new-group__hint">Введіть щонайменше 1 символ.</p>
         ) : users.isLoading ? (
           <Skeleton rows={5} />
         ) : (

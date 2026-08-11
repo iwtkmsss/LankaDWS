@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:public": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "oxlint src",
     "typecheck": "npm run build --workspace @bert-crm/contracts && tsc -b --pretty false",

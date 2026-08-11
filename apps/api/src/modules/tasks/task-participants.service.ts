@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common'
-import type { TaskParticipantInput, TaskParticipantRoleV2 } from '@bert-crm/contracts'
+import type {
+  MentionCandidateView,
+  MentionSearchQuery,
+  TaskParticipantInput,
+  TaskParticipantRoleV2,
+} from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
+import { normalizeUserSearchValue } from '../../common/user-search.js'
+import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
@@ -31,6 +38,114 @@ export class TaskParticipantsService {
         addedById: actorId,
       })),
     })
+  }
+
+  async mentionCandidates(
+    principal: AuthPrincipal,
+    taskId: string,
+    query: MentionSearchQuery,
+  ): Promise<{ items: MentionCandidateView[] }> {
+    const task = await this.access.readableTask(principal, taskId)
+    const normalized = normalizeUserSearchValue(query.q)
+    return {
+      items: await this.prisma.user.findMany({
+        where: {
+          ...this.eligibleUserWhere(principal, task.companyId, task.groupId),
+          ...(normalized
+            ? {
+                AND: [{
+                  OR: [
+                    { normalizedDisplayName: { contains: normalized } },
+                    { normalizedUsername: { contains: normalized } },
+                  ],
+                }],
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          displayName: true,
+          username: true,
+          jobTitle: true,
+          avatarAsset: true,
+        },
+        orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
+        take: query.limit,
+      }),
+    }
+  }
+
+  async ensureMentionWatchers(
+    tx: TaskTransaction,
+    principal: AuthPrincipal,
+    task: Pick<Task, 'id' | 'companyId' | 'groupId'>,
+    userIds: string[],
+  ): Promise<string[]> {
+    const uniqueUserIds = [...new Set(userIds)]
+    if (!uniqueUserIds.length) return []
+    const eligible = await tx.user.findMany({
+      where: this.eligibleUserWhere(principal, task.companyId, task.groupId, uniqueUserIds),
+      select: { id: true },
+    })
+    if (eligible.length !== uniqueUserIds.length) throw badRequest('task_mention_outside_scope')
+
+    const existing = await tx.taskParticipant.findMany({
+      where: { taskId: task.id, userId: { in: uniqueUserIds } },
+      select: { id: true, userId: true, removedAt: true },
+    })
+    const existingByUserId = new Map(existing.map((participant) => [participant.userId, participant]))
+    const addedUserIds: string[] = []
+    for (const userId of uniqueUserIds) {
+      const participant = existingByUserId.get(userId)
+      if (participant && !participant.removedAt) continue
+      if (participant) {
+        await tx.taskParticipant.update({
+          where: { id: participant.id },
+          data: {
+            role: 'WATCHER',
+            addedById: principal.userId,
+            removedAt: null,
+          },
+        })
+      } else {
+        await tx.taskParticipant.create({
+          data: {
+            id: id('tpart'),
+            taskId: task.id,
+            userId,
+            role: 'WATCHER',
+            addedById: principal.userId,
+          },
+        })
+      }
+      addedUserIds.push(userId)
+    }
+    return addedUserIds
+  }
+
+  async recordMentionWatchersAdded(
+    tx: TaskTransaction,
+    principal: AuthPrincipal,
+    task: Pick<Task, 'id' | 'companyId'>,
+    version: number,
+    userIds: string[],
+    feedItemId: string | null,
+  ): Promise<void> {
+    if (!userIds.length) return
+    await this.recordChange(
+      tx,
+      principal,
+      task.companyId,
+      task.id,
+      version,
+      'task.participant_added',
+      {
+        userIds,
+        role: 'WATCHER',
+        change: 'MENTION_ADDED',
+        feedItemId,
+      },
+    )
   }
 
   async put(
@@ -259,20 +374,29 @@ export class TaskParticipantsService {
     userId: string,
   ): Promise<void> {
     const user = await this.prisma.user.findFirst({
-      where: {
-        id: userId,
-        workspaceId: principal.workspaceId,
-        isActive: true,
-        OR: [
-          { accountType: 'ADMIN' },
-          {
-            primaryCompanyId: companyId,
-            ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-          },
-        ],
-      },
+      where: this.eligibleUserWhere(principal, companyId, groupId, [userId]),
       select: { id: true },
     })
     if (!user) throw badRequest('task_participant')
+  }
+
+  private eligibleUserWhere(
+    principal: AuthPrincipal,
+    companyId: string,
+    groupId: string | null,
+    userIds?: string[],
+  ): Prisma.UserWhereInput {
+    return {
+      ...(userIds ? { id: { in: userIds } } : {}),
+      workspaceId: principal.workspaceId,
+      isActive: true,
+      OR: [
+        { accountType: 'ADMIN' },
+        {
+          primaryCompanyId: companyId,
+          ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
+        },
+      ],
+    }
   }
 }

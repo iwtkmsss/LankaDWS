@@ -1,15 +1,18 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
 import { adminUserInputSchema, adminUserUpdateInputSchema, organizationCapabilityCodeSchema, updateOrganizationCapabilitySchema } from '@bert-crm/contracts'
 import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { AdminOnly } from '../auth/auth.decorators.js'
 import { badRequest } from '../../common/errors.js'
 import { AdminService } from './admin.service.js'
+import { FilesService, type UploadedBinary } from '../files/files.service.js'
+import { getConfig } from '../../config/config.js'
 
 @AdminOnly()
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(private readonly admin: AdminService, private readonly files: FilesService) {}
 
   @Get()
   overview(@Req() request: BertRequest) { return this.admin.overview(principalFrom(request)) }
@@ -25,6 +28,15 @@ export class AdminController {
     const parsed = adminUserInputSchema.safeParse(body)
     if (!parsed.success) throw badRequest('validation_failed')
     return this.admin.createUser(principalFrom(request), parsed.data)
+  }
+
+  @Post('users/:id/avatar')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: Math.min(getConfig().MAX_UPLOAD_BYTES, 2 * 1024 * 1024), files: 1 } }))
+  async uploadAvatar(@Req() request: BertRequest, @Param('id') id: string, @UploadedFile() file: UploadedBinary) {
+    const principal = principalFrom(request)
+    if (!file?.mimetype.startsWith('image/')) throw badRequest('avatar_type')
+    const uploaded = await this.files.uploadAvatar(principal, file)
+    return this.admin.updateAvatar(principal, id, uploaded.id)
   }
 
   @Patch('users/:id')

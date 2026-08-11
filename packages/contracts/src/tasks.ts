@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { structuredMentionInputSchema } from './mentions.js'
 
 const entityIdSchema = z.string().trim().min(1).max(120)
 const isoDateTimeSchema = z.string().datetime({ offset: true })
@@ -36,6 +37,14 @@ export const taskParticipantInputSchema = z.object({
   role: taskParticipantRoleV2Schema,
 })
 export type TaskParticipantInput = z.infer<typeof taskParticipantInputSchema>
+
+export const taskCommentInputSchema = z.object({
+  body: z.string().min(1).max(4_000),
+  replyToCommentId: entityIdSchema.nullable().optional(),
+  attachmentIds: z.array(entityIdSchema).max(5).default([]),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+})
+export type TaskCommentInput = z.infer<typeof taskCommentInputSchema>
 
 export const taskChecklistItemInputSchema = z.object({
   clientId: entityIdSchema,
@@ -271,7 +280,7 @@ export type TagOption = z.infer<typeof tagOptionSchema>
 
 export const taskOptionSchema = z.object({
   id: entityIdSchema,
-  number: z.string().min(1).max(80),
+  number: z.string().regex(/^\d+$/).max(80),
   title: z.string().min(1).max(200),
   status: z.string().min(1).max(40),
   groupId: entityIdSchema.nullable(),

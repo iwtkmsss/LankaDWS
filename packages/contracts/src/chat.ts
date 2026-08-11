@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { companyScopeSchema } from './domain.js'
+import { mentionSearchQuerySchema, structuredMentionInputSchema } from './mentions.js'
 
 export const chatThreadKindSchema = z.enum(['DIRECT', 'GROUP', 'CONTEXTUAL', 'COMPANY'])
 export type ChatThreadKind = z.infer<typeof chatThreadKindSchema>
@@ -32,7 +33,9 @@ export const chatMessagePageQuerySchema = z.object({
 export type ChatMessagePageQuery = z.infer<typeof chatMessagePageQuerySchema>
 
 export const chatMessageSearchQuerySchema = z.object({
-  q: z.string().trim().min(2).max(100),
+  q: z.string().trim().max(100).refine((value) => [...value].length >= 1, {
+    message: 'Search query must contain at least one Unicode character.',
+  }),
   cursor: z.string().trim().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
@@ -87,14 +90,19 @@ export const sendChatMessageSchema = z.object({
   replyToId: z.string().trim().min(1).max(120).nullable().optional(),
   attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5).default([])
     .transform((items) => [...new Set(items)].sort()),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
 })
 export type SendChatMessageInput = z.infer<typeof sendChatMessageSchema>
 
 export const editChatMessageSchema = z.object({
   body: z.string().trim().min(1).max(8_000),
   expectedVersion: z.number().int().positive(),
+  mentions: z.array(structuredMentionInputSchema).max(100).optional(),
 })
 export type EditChatMessageInput = z.infer<typeof editChatMessageSchema>
+
+export const chatMentionCandidatesQuerySchema = mentionSearchQuerySchema
+export type ChatMentionCandidatesQuery = z.infer<typeof chatMentionCandidatesQuerySchema>
 
 export const deleteChatMessageSchema = z.object({
   expectedVersion: z.number().int().positive(),
@@ -260,6 +268,12 @@ export const chatMessageViewSchema = z.object({
   deletedAt: z.string().datetime().nullable(),
   version: z.number().int().positive(),
   replyToId: z.string().nullable(),
+  mentions: z.array(z.object({
+    userId: z.string(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+    active: z.boolean(),
+  })),
   replyPreview: z.object({
     id: z.string(),
     authorName: z.string(),

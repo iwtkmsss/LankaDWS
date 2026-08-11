@@ -368,27 +368,47 @@ function UserFilters({ params, onChange }: { params: URLSearchParams; onChange: 
 function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => void; defaultCompanyId?: string }) {
   const client = useQueryClient()
   const [accountType, setAccountType] = useState<'USER' | 'ADMIN'>('USER')
-  const [result, setResult] = useState<{ username: string; temporaryPassword: string; expiresAt: string } | null>(null)
+  const [result, setResult] = useState<{ userId: string; username: string } | null>(null)
+  const [companyId, setCompanyId] = useState(defaultCompanyId)
   const companies = useQuery({
     queryKey: ['admin-companies'],
     queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
+  })
+  const units = useQuery({
+    queryKey: ['org-units', companyId],
+    queryFn: () => api<{ items: Array<{ id: string; name: string }> }>(`/org/units?company=${encodeURIComponent(companyId)}`),
+    enabled: accountType === 'USER' && Boolean(companyId),
   })
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const created = await api<typeof result>('/admin/users', {
+    const created = await api<{ userId: string; username: string }>('/admin/users', {
       method: 'POST',
       body: jsonBody({
         firstName: data.get('firstName'),
         lastName: data.get('lastName'),
         middleName: data.get('middleName') || undefined,
+        contactEmail: data.get('contactEmail'),
+        phone: data.get('phone') || undefined,
+        gender: data.get('gender') || null,
+        birthDate: data.get('birthDate') || null,
+        jobTitle: data.get('jobTitle') || undefined,
         username: data.get('username'),
+        password: data.get('password'),
+        passwordConfirmation: data.get('passwordConfirmation'),
         accountType,
-        companyId: accountType === 'USER' ? data.get('companyId') : undefined,
+        companyId: accountType === 'USER' ? companyId : undefined,
+        orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || units.data?.items[0]?.id) : undefined,
         isActive: true,
       }),
     })
+    const photo = data.get('photo')
+    if (photo instanceof File && photo.size > 0) {
+      const avatar = new FormData()
+      avatar.set('file', photo)
+      await api(`/admin/users/${created.userId}/avatar`, { method: 'POST', body: avatar })
+    }
     setResult(created)
     void client.invalidateQueries({ queryKey: ['admin-users'] })
   }
@@ -408,12 +428,12 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
             <div>
               <dt>Тимчасовий пароль</dt>
               <dd>
-                <code>{result.temporaryPassword}</code>
+                <code>Встановлено адміністратором</code>
               </dd>
             </div>
             <div>
               <dt>Дійсний до</dt>
-              <dd>{formatDateTime(result.expiresAt)}</dd>
+              <dd>Постійний пароль</dd>
             </div>
           </dl>
           <Button onClick={onClose}>Готово</Button>
@@ -422,7 +442,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
         <form className="entity-form account-form" onSubmit={(event) => void submit(event)}>
           <div className="form-section">
             <span className="eyebrow">Основне</span>
-            <p>Лише дані, потрібні для першого входу. Контакти та посаду людина додає у своєму профілі.</p>
+            <p>Адміністратор задає доступ, кадрові дані та підрозділ. Пароль не зберігається у відкритому вигляді.</p>
           </div>
           <label>
             Ім’я
@@ -441,6 +461,38 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
             <input name="username" required pattern="[a-z0-9._-]{3,32}" autoComplete="username" />
           </label>
           <label>
+            Email
+            <input name="contactEmail" type="email" required autoComplete="email" />
+          </label>
+          <label>
+            Пароль
+            <input name="password" type="password" required minLength={15} autoComplete="new-password" />
+          </label>
+          <label>
+            Підтвердження паролю
+            <input name="passwordConfirmation" type="password" required minLength={15} autoComplete="new-password" />
+          </label>
+          <label>
+            Телефон <small>(необов’язково)</small>
+            <input name="phone" type="tel" />
+          </label>
+          <label>
+            Стать <small>(необов’язково)</small>
+            <select name="gender"><option value="">Не вказувати</option><option value="FEMALE">Жінка</option><option value="MALE">Чоловік</option><option value="OTHER">Інше</option></select>
+          </label>
+          <label>
+            День народження <small>(необов’язково)</small>
+            <input name="birthDate" type="date" />
+          </label>
+          <label>
+            Фотографія <small>(необов’язково, до 2 МБ)</small>
+            <input name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+          </label>
+          <label className="span-2">
+            Посада <small>(необов’язково)</small>
+            <input name="jobTitle" />
+          </label>
+          <label>
             Тип облікового запису
             <select value={accountType} onChange={(event) => setAccountType(event.target.value as 'USER' | 'ADMIN')}>
               <option value="USER">Користувач компанії</option>
@@ -450,7 +502,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
           {accountType === 'USER' && (
             <label className="span-2">
               Компанія
-              <select name="companyId" required defaultValue={defaultCompanyId}>
+              <select name="companyId" required value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
                 <option disabled value="">
                   Оберіть компанію
                 </option>
@@ -465,6 +517,16 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
             </label>
           )}
           <Button className="span-2">Створити доступ</Button>
+          {accountType === 'USER' && (
+            <label className="span-2">
+              Підрозділ
+              <select name="orgUnitId" required disabled={!companyId || units.isLoading} defaultValue="">
+                <option disabled value="">Оберіть підрозділ</option>
+                {units.data?.items.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
+              </select>
+              {!companyId && <small>Спочатку оберіть компанію.</small>}
+            </label>
+          )}
         </form>
       )}
     </Drawer>
@@ -598,6 +660,8 @@ function UserEditor({
       isActive: data.get('isActive') === 'on',
       contactEmail: data.get('contactEmail') || null,
       jobTitle: data.get('jobTitle'),
+      password: data.get('password') || undefined,
+      passwordConfirmation: data.get('passwordConfirmation') || undefined,
     })
   }
   return (
@@ -622,6 +686,14 @@ function UserEditor({
         <label>
           Посада
           <input name="jobTitle" defaultValue={user.jobTitle} />
+        </label>
+        <label>
+          Новий пароль <small>(за потреби)</small>
+          <input name="password" type="password" minLength={15} autoComplete="new-password" />
+        </label>
+        <label>
+          Підтвердження нового паролю
+          <input name="passwordConfirmation" type="password" minLength={15} autoComplete="new-password" />
         </label>
         <label className="span-2">
           Email

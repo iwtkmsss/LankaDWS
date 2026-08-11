@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import { ArrowDown, LoaderCircle, MessageCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { usePreservedChatScroll } from '../hooks/usePreservedChatScroll'
@@ -6,6 +6,7 @@ import { chatDayKey, formatChatDay } from '../lib/chatDates'
 import { MessageBubble } from './MessageBubble'
 
 interface MessageStreamProps {
+  threadId: string
   messages: ChatMessageView[]
   currentUserId: string
   lastReadMessageId: string | null
@@ -16,7 +17,7 @@ interface MessageStreamProps {
   canConvertToEvent: boolean
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
-  onEdit: (message: ChatMessageView, body: string) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
 }
@@ -83,6 +84,7 @@ export function MessageStream(props: MessageStreamProps) {
                 <div className="message-unread-separator"><span>Непрочитані</span></div>
               )}
               <MessageBubble
+                threadId={props.threadId}
                 message={message}
                 own={message.authorId === props.currentUserId}
                 highlighted={message.id === props.highlightedMessageId}

@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import {
+  type StructuredMentionInput,
+  type StructuredMentionView,
   type PageResult,
   type TaskActivityPage,
   type TaskAttachmentView,
   type TaskDetailView,
+  type TaskCommentInput,
   type TaskListItem,
   type TaskReference,
   type TaskSourceLinkView,
@@ -24,6 +27,7 @@ import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { TaskCommandService } from './task-command.service.js'
+import { TaskParticipantsService } from './task-participants.service.js'
 
 const taskStatuses = [
   'NEW',
@@ -110,12 +114,6 @@ export interface TaskFollowerInput {
   userId?: string
 }
 
-export interface TaskCommentInput {
-  body: string
-  replyToCommentId?: string | null
-  attachmentIds?: string[]
-}
-
 export interface DashboardTaskSummary {
   items: TaskListItem[]
   active: number
@@ -134,6 +132,7 @@ export class TaskCompatibilityService {
     private readonly files: FilesService,
     private readonly commands: TaskCommandService,
     private readonly feedProjection: FeedProjectionService,
+    private readonly participants: TaskParticipantsService,
   ) {}
 
   async list(
@@ -265,7 +264,13 @@ export class TaskCompatibilityService {
             }]
           : []),
       ],
-      ...(search ? { OR: [{ title: { contains: search } }, { number: { contains: search } }] } : {}),
+      ...(search ? {
+        OR: [
+          { title: { contains: search } },
+          { number: { contains: search } },
+          { legacyNumbers: { some: { legacyNumber: { contains: search } } } },
+        ],
+      } : {}),
       ...(filters.status ? { status: filters.status as TaskStatusValue } : {}),
       ...(normalizedPriority ? { priority: normalizedPriority } : {}),
       ...(filters.groupId ? { groupId: filters.groupId } : {}),
@@ -438,23 +443,33 @@ export class TaskCompatibilityService {
         orderBy: [{ remindAt: 'asc' }, { id: 'asc' }],
       }),
     ])
-    const fileLinks = await this.prisma.fileLink.findMany({
-      where: {
-        OR: [
-          {
-            entityType: 'TASK',
-            entityId: task.id,
-            purpose: 'ATTACHMENT',
-          },
-          {
-            entityType: 'TASK_COMMENT',
-            entityId: { in: comments.map((comment) => comment.id) },
-            purpose: 'ATTACHMENT',
-          },
-        ],
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    })
+    const [fileLinks, contentMentions] = await Promise.all([
+      this.prisma.fileLink.findMany({
+        where: {
+          OR: [
+            {
+              entityType: 'TASK',
+              entityId: task.id,
+              purpose: 'ATTACHMENT',
+            },
+            {
+              entityType: 'TASK_COMMENT',
+              entityId: { in: comments.map((comment) => comment.id) },
+              purpose: 'ATTACHMENT',
+            },
+          ],
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.contentMention.findMany({
+        where: {
+          workspaceId: principal.workspaceId,
+          sourceType: 'TASK_COMMENT',
+          sourceId: { in: comments.map((comment) => comment.id) },
+        },
+        orderBy: [{ sourceId: 'asc' }, { start: 'asc' }],
+      }),
+    ])
     const [attachedFiles, commentAuthors] = await Promise.all([
       this.prisma.fileObject.findMany({
         where: {
@@ -464,8 +479,26 @@ export class TaskCompatibilityService {
         },
       }),
       this.prisma.user.findMany({
-        where: { id: { in: [...new Set(comments.map((comment) => comment.authorId))] } },
-        select: { id: true, displayName: true, avatarAsset: true },
+        where: {
+          id: {
+            in: [...new Set([
+              ...comments.map((comment) => comment.authorId),
+              ...contentMentions.map((mention) => mention.userId),
+            ])],
+          },
+        },
+        select: {
+          id: true,
+          displayName: true,
+          avatarAsset: true,
+          primaryCompanyId: true,
+          accountType: true,
+          isActive: true,
+          groupMemberships: {
+            where: { groupId: task.groupId ?? '__no_group__', leftAt: null },
+            select: { id: true },
+          },
+        },
       }),
     ])
     const filesById = new Map(attachedFiles.map((file) => [file.id, file]))
@@ -536,6 +569,26 @@ export class TaskCompatibilityService {
           avatarAsset: null,
         },
         body: comment.body,
+        mentions: contentMentions
+          .filter((mention) => mention.sourceId === comment.id)
+          .map<StructuredMentionView>((mention) => {
+            const mentionedUser = authorsById.get(mention.userId)
+            return {
+              userId: mention.userId,
+              start: mention.start,
+              end: mention.end,
+              active: Boolean(
+                mentionedUser?.isActive
+                && (
+                  mentionedUser.accountType === 'ADMIN'
+                  || (
+                    mentionedUser.primaryCompanyId === task.companyId
+                    && (!task.groupId || mentionedUser.groupMemberships.length > 0)
+                  )
+                ),
+              ),
+            }
+          }),
         createdAt: comment.createdAt.toISOString(),
         replyToCommentId: comment.replyToCommentId,
         replyPreview: (() => {
@@ -1051,10 +1104,13 @@ export class TaskCompatibilityService {
     principal: AuthPrincipal,
     taskId: string,
     input: TaskCommentInput,
+    idempotencyKey?: string,
   ) {
     const task = await this.access.readableTask(principal, taskId)
     const body = typeof input.body === 'string' ? input.body.trim() : ''
     if (!body || body.length > 4_000) throw badRequest('comment_body')
+    const mentions = input.mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
+    const mentionedUserIds = this.validateStructuredMentions(body, mentions)
     const replyToCommentId = typeof input.replyToCommentId === 'string'
       ? input.replyToCommentId.trim()
       : null
@@ -1062,6 +1118,25 @@ export class TaskCompatibilityService {
       ? [...new Set(input.attachmentIds.map((fileId) => fileId.trim()).filter(Boolean))]
       : []
     if (attachmentIds.length > 5) throw badRequest('task_comment_attachments')
+    const operation = `task.comment.create:${task.id}`
+    const requestFingerprint = sha256(JSON.stringify({
+      operation,
+      body,
+      replyToCommentId,
+      attachmentIds,
+      mentions,
+    }))
+    const existingCommentId = idempotencyKey
+      ? await this.idempotentResultId(
+          principal.userId,
+          idempotencyKey,
+          operation,
+          requestFingerprint,
+        )
+      : null
+    if (existingCommentId) {
+      return this.prisma.comment.findUniqueOrThrow({ where: { id: existingCommentId } })
+    }
     const [replyTarget, links] = await Promise.all([
       replyToCommentId
         ? this.prisma.comment.findFirst({
@@ -1093,7 +1168,13 @@ export class TaskCompatibilityService {
     if (replyToCommentId && !replyTarget) throw badRequest('task_comment_reply')
     if (links.length !== attachmentIds.length) throw badRequest('task_comment_attachments')
     const commentId = id('cmt')
-    return this.prisma.$transaction(async (tx) => {
+    const createComment = () => this.prisma.$transaction(async (tx) => {
+      const addedWatcherIds = await this.participants.ensureMentionWatchers(
+        tx,
+        principal,
+        task,
+        mentionedUserIds,
+      )
       const comment = await tx.comment.create({
         data: {
           id: commentId,
@@ -1107,6 +1188,20 @@ export class TaskCompatibilityService {
           replyToCommentId,
         },
       })
+      if (mentions.length) {
+        await tx.contentMention.createMany({
+          data: mentions.map((mention) => ({
+            id: id('cmn'),
+            workspaceId: principal.workspaceId,
+            sourceType: 'TASK_COMMENT',
+            sourceId: comment.id,
+            userId: mention.userId,
+            start: mention.start,
+            end: mention.end,
+            label: mention.label,
+          })),
+        })
+      }
       if (attachmentIds.length) {
         await tx.fileLink.createMany({
           data: attachmentIds.map((fileId) => ({
@@ -1124,9 +1219,9 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      const [participants, followers] = await Promise.all([
+      const [activeParticipants, followers] = await Promise.all([
         tx.taskParticipant.findMany({
-          where: { taskId: task.id, removedAt: null, userId: { not: principal.userId } },
+          where: { taskId: task.id, removedAt: null },
           select: { userId: true },
         }),
         tx.taskFollower.findMany({
@@ -1136,18 +1231,20 @@ export class TaskCompatibilityService {
       ])
       const recipients = [...new Set([
         task.reporterId,
-        ...participants.map((participant) => participant.userId),
+        ...activeParticipants.map((participant) => participant.userId),
         ...followers.map((follower) => follower.userId),
         ...(replyTarget?.authorId ? [replyTarget.authorId] : []),
       ])].filter((userId) => userId !== principal.userId)
+      const mentionedRecipients = new Set(mentionedUserIds)
       for (const recipientId of recipients) {
+        const isMention = mentionedRecipients.has(recipientId)
         await tx.notification.upsert({
           where: { dedupeKey: `task-comment:${comment.id}:${recipientId}` },
           create: {
             id: id('ntf'),
             recipientId,
-            category: 'TASKS',
-            safeTitle: 'Новий коментар до завдання',
+            category: isMention ? 'MENTION' : 'TASKS',
+            safeTitle: isMention ? 'Вас згадали в коментарі до завдання' : 'Новий коментар до завдання',
             safeSnippet: task.title.slice(0, 180),
             entityType: 'TASK',
             entityId: task.id,
@@ -1157,13 +1254,60 @@ export class TaskCompatibilityService {
           update: {},
         })
       }
+      let feedItemId: string | null = null
+      if (addedWatcherIds.length) {
+        const versionedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
+        feedItemId = await this.feedProjection.projectTask(tx, versionedTask, {
+          action: 'PARTICIPANT_CHANGED',
+          actorId: principal.userId,
+          recipientIds: activeParticipants.map((participant) => participant.userId),
+        })
+        await this.participants.recordMentionWatchersAdded(
+          tx,
+          principal,
+          task,
+          updated.version,
+          addedWatcherIds,
+          feedItemId,
+        )
+      }
+      if (idempotencyKey) {
+        await this.recordIdempotency(
+          tx,
+          principal.userId,
+          idempotencyKey,
+          operation,
+          requestFingerprint,
+          'TASK_COMMENT',
+          comment.id,
+        )
+      }
       await this.recordEvent(tx, principal, task, 'task.comment_created', updated.version, {
         commentId,
         reply: Boolean(replyToCommentId),
         attachmentCount: attachmentIds.length,
+        mentionCount: mentionedUserIds.length,
+        watcherAddedCount: addedWatcherIds.length,
+        feedItemId,
       })
       return comment
     })
+    try {
+      return await createComment()
+    } catch (error) {
+      if (idempotencyKey && (error as { code?: string }).code === 'P2002') {
+        const concurrentCommentId = await this.idempotentResultId(
+          principal.userId,
+          idempotencyKey,
+          operation,
+          requestFingerprint,
+        )
+        if (concurrentCommentId) {
+          return this.prisma.comment.findUniqueOrThrow({ where: { id: concurrentCommentId } })
+        }
+      }
+      throw error
+    }
   }
 
   private listInclude() {
@@ -1528,6 +1672,38 @@ export class TaskCompatibilityService {
       }
       return []
     })
+  }
+
+  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
+    let previousEnd = 0
+    for (const mention of mentions) {
+      if (
+        mention.start < previousEnd
+        || mention.end > body.length
+        || body.slice(mention.start, mention.end) !== `@${mention.label}`
+      ) {
+        throw badRequest('task_mention_invalid')
+      }
+      previousEnd = mention.end
+    }
+    return [...new Set(mentions.map((mention) => mention.userId))]
+  }
+
+  private async idempotentResultId(
+    userId: string,
+    key: string,
+    operation: string,
+    requestFingerprint: string,
+  ): Promise<string | null> {
+    if (!key || key.length > 200) throw badRequest('idempotency_key_required')
+    const existing = await this.prisma.idempotencyRecord.findUnique({
+      where: { userId_key_operation: { userId, key, operation } },
+    })
+    if (!existing) return null
+    if (existing.requestFingerprint !== requestFingerprint) {
+      throw conflict('idempotency_key_reused')
+    }
+    return existing.resultId
   }
 
   private async idempotencyHit(

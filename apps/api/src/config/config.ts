@@ -4,6 +4,7 @@ import './load-env.js'
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  HOST: z.string().trim().min(1).default('0.0.0.0'),
   FRONTEND_ORIGIN: z.string().default('http://localhost:5173'),
   FRONTEND_BASE_URL: z.string().url().default('http://localhost:5173'),
   TRUSTED_PROXY: z.enum(['true', 'false']).default('false'),

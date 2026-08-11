@@ -48,6 +48,7 @@ const message: ChatMessageView = {
   deletedAt: null,
   version: 1,
   replyToId: null,
+  mentions: [],
   replyPreview: null,
   author: {
     id: 'usr_marko',

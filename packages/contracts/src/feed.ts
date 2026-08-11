@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { companyScopeSchema } from './domain.js'
+import { mentionSearchQuerySchema, structuredMentionInputSchema, type StructuredMentionView } from './mentions.js'
 
 export const feedPostStatusSchema = z.enum(['PUBLISHED', 'ARCHIVED'])
 export type FeedPostStatus = z.infer<typeof feedPostStatusSchema>
@@ -46,6 +47,17 @@ export const feedListQuerySchema = z.object({
 })
 export type FeedListQuery = z.infer<typeof feedListQuerySchema>
 
+export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema.extend({
+  company: companyScopeSchema,
+  audienceType: z.enum(['COMPANY', 'GROUP']),
+  audienceId: z.string().trim().min(1).max(120).optional(),
+}).superRefine((value, context) => {
+  if (value.audienceType === 'GROUP' && !value.audienceId) {
+    context.addIssue({ code: 'custom', path: ['audienceId'], message: 'Group audience requires audienceId.' })
+  }
+})
+export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQuerySchema>
+
 export const feedAudienceInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('COMPANY') }),
   z.object({ type: z.literal('GROUP'), groupId: z.string().trim().min(1).max(120) }),
@@ -74,12 +86,17 @@ export const createFeedPostSchema = z.object({
   mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
     .transform((items) => [...new Set(items)])
     .default([]),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
 })
 export type CreateFeedPostInput = z.infer<typeof createFeedPostSchema>
 
 export const updateFeedPostSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   expectedVersion: z.number().int().positive(),
+  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
+    .transform((items) => [...new Set(items)])
+    .optional(),
+  mentions: z.array(structuredMentionInputSchema).max(100).optional(),
 })
 export type UpdateFeedPostInput = z.infer<typeof updateFeedPostSchema>
 
@@ -89,6 +106,7 @@ export const createFeedCommentSchema = z.object({
   mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
     .transform((items) => [...new Set(items)])
     .default([]),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
 })
 export type CreateFeedCommentInput = z.infer<typeof createFeedCommentSchema>
 
@@ -140,6 +158,7 @@ export interface FeedCommentView {
     avatarAsset: string | null
   }
   body: string
+  mentions: StructuredMentionView[]
   replyToCommentId: string | null
   createdAt: string
   editedAt: string | null
@@ -166,6 +185,7 @@ export interface FeedPostView {
   }
   audienceLabel: string
   body: string
+  mentions: StructuredMentionView[]
   status: FeedPostStatus
   requiresAcknowledgement: boolean
   acknowledgementVersion: number
@@ -214,8 +234,16 @@ export interface FeedSourceView {
 
 export type FeedEntryView = FeedPostView | FeedSourceView
 
+export interface FeedBirthdayView {
+  id: string
+  displayName: string
+  avatarAsset: string | null
+  jobTitle: string
+}
+
 export interface FeedListResult {
   items: FeedEntryView[]
+  birthdays: FeedBirthdayView[]
   nextCursor: string | null
   unreadCount: number
   attention: {

@@ -2,6 +2,7 @@ import type {
   ChatMessageView,
   ChatThreadDetail,
   ChatThreadListItem,
+  StructuredMentionInput,
 } from '@bert-crm/contracts'
 import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
 import { useState } from 'react'
@@ -35,12 +36,12 @@ interface ConversationPaneProps {
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
   onReplyCancel: () => void
-  onEdit: (message: ChatMessageView, body: string) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
-  onSend: (body: string) => Promise<boolean>
+  onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
   onRetry: () => void
 }
 
@@ -164,6 +165,7 @@ export function ConversationPane(props: ConversationPaneProps) {
       )}
 
       <MessageStream
+        threadId={props.thread.id}
         messages={props.messages}
         currentUserId={props.currentUserId}
         lastReadMessageId={props.thread.lastReadMessageId}
@@ -181,6 +183,7 @@ export function ConversationPane(props: ConversationPaneProps) {
 
       {props.thread.canPost && (
         <MessageComposer
+          threadId={props.thread.id}
           replyTo={props.replyTo}
           attachments={props.attachments}
           sending={props.sending}

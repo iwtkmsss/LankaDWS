@@ -589,7 +589,7 @@
 .message-row:not(.is-own) .message-action-menu { right: auto; left: 0; }
 .message-bubble__edit { display: grid; min-width: min(420px, 50vw); gap: 7px; }
 .message-bubble__edit textarea { min-height: 72px; resize: vertical; }
-.message-bubble__edit > div { display: flex; justify-content: flex-end; gap: 6px; }
+.message-bubble__edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .message-bubble__edit .button { min-height: 32px; padding: 6px 9px; font-size: 9px; }
 .message-attachments { display: grid; gap: 6px; margin-top: 8px; }
 .message-attachments > div {
@@ -615,6 +615,8 @@
   padding: 10px 12px max(10px, env(safe-area-inset-bottom));
 }
 .message-composer__row { display: flex; align-items: flex-end; gap: 8px; }
+.message-composer__row > .message-composer__input { min-width: 0; flex: 1; }
+.message-composer__input .mention-field__input { min-width: 0; }
 .message-composer__row > button {
   display: grid;
   width: 42px;

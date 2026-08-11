@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   FeedAttachmentView,
   FeedAudienceOption,
+  StructuredMentionInput,
 } from '@bert-crm/contracts'
 import {
   CalendarPlus2,
@@ -14,6 +15,8 @@ import {
 } from 'lucide-react'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { Button } from '../shared/ui'
+import { MentionTextarea } from '../shared/mentions/MentionTextarea'
+import { trimMentionValue } from '../shared/mentions/mentionText'
 
 export function FeedComposerForm({
   company,
@@ -33,6 +36,7 @@ export function FeedComposerForm({
   onNavigate: (path: string) => void
 }) {
   const [body, setBody] = useState('')
+  const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
   const [audienceKey, setAudienceKey] = useState('')
   const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(false)
   const [attachments, setAttachments] = useState<FeedAttachmentView[]>([])
@@ -53,6 +57,7 @@ export function FeedComposerForm({
       audience: { type: 'COMPANY' } | { type: 'GROUP'; groupId: string }
       requiresAcknowledgement: boolean
       attachmentIds: string[]
+      mentions: StructuredMentionInput[]
     }) => api('/feed', {
       method: 'POST',
       headers: { 'idempotency-key': idempotencyKey('feed-post') },
@@ -60,6 +65,7 @@ export function FeedComposerForm({
     }),
     onSuccess: () => {
       setBody('')
+      setMentions([])
       setAudienceKey('')
       setRequiresAcknowledgement(false)
       setAttachments([])
@@ -87,20 +93,30 @@ export function FeedComposerForm({
 
   const options = audiences.data?.items ?? []
   const selectedKey = audienceKey || (options[0] ? `${options[0].type}:${options[0].id}` : '')
+  const selectedAudience = options.find((item) => `${item.type}:${item.id}` === selectedKey)
+  const mentionCandidateUrl = selectedAudience
+    ? `/feed/mention-candidates?${new URLSearchParams({
+        company,
+        audienceType: selectedAudience.type,
+        ...(selectedAudience.type === 'GROUP' ? { audienceId: selectedAudience.id } : {}),
+      })}`
+    : null
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const option = options.find((item) => `${item.type}:${item.id}` === selectedKey)
-    if (!option || !body.trim()) return
+    const option = selectedAudience
+    const prepared = trimMentionValue(body, mentions)
+    if (!option || !prepared.body) return
     setMessage('')
     await create.mutateAsync({
       companyId: company,
-      body: body.trim(),
+      body: prepared.body,
       audience: option.type === 'GROUP'
         ? { type: 'GROUP', groupId: option.id }
         : { type: 'COMPANY' },
       requiresAcknowledgement,
       attachmentIds: attachments.map((attachment) => attachment.id),
+      mentions: prepared.mentions,
     }).catch(() => {
       setMessage('Не вдалося опублікувати. Перевірте дані та спробуйте ще раз.')
     })
@@ -171,18 +187,22 @@ export function FeedComposerForm({
 
   return (
     <form className="feed-composer" onSubmit={(event) => void submit(event)}>
-      <label className="feed-composer__body">
-        <span>Текст публікації</span>
-        <textarea
-          data-autofocus
-          value={body}
-          maxLength={10_000}
-          rows={5}
-          placeholder="Коротко опишіть оновлення, рішення або потрібну дію…"
-          disabled={busy}
-          onChange={(event) => setBody(event.target.value)}
-        />
-      </label>
+      <MentionTextarea
+        className="feed-composer__body"
+        label="Текст публікації"
+        value={body}
+        mentions={mentions}
+        candidateUrl={mentionCandidateUrl}
+        maxLength={10_000}
+        rows={5}
+        placeholder="Коротко опишіть оновлення, рішення або потрібну дію…"
+        disabled={busy}
+        autoFocus
+        onChange={(nextBody, nextMentions) => {
+          setBody(nextBody)
+          setMentions(nextMentions)
+        }}
+      />
       {attachments.length > 0 && (
         <div className="feed-composer__attachments" aria-label="Додані файли">
           {attachments.map((attachment) => (
@@ -211,7 +231,10 @@ export function FeedComposerForm({
           <select
             value={selectedKey}
             disabled={busy || audiences.isLoading || options.length === 0}
-            onChange={(event) => setAudienceKey(event.target.value)}
+            onChange={(event) => {
+              setAudienceKey(event.target.value)
+              setMentions([])
+            }}
           >
             {options.map((option) => (
               <option key={`${option.type}:${option.id}`} value={`${option.type}:${option.id}`}>

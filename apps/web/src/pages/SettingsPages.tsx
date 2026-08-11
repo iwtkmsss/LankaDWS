@@ -63,9 +63,10 @@ function ProfileSettings() {
       await api('/me/profile', {
         method: 'PATCH',
         body: jsonBody({
-          displayName: data.get('displayName'),
-          jobTitle: data.get('jobTitle'),
           contactEmail: data.get('contactEmail') || null,
+          phone: data.get('phone') || null,
+          gender: data.get('gender') || null,
+          birthDate: data.get('birthDate') || null,
           timezone: data.get('timezone'),
           locale: data.get('locale'),
         }),
@@ -147,7 +148,7 @@ function ProfileSettings() {
       <form className="entity-form" onSubmit={submit}>
         <label>
           Ім’я
-          <input name="displayName" defaultValue={user.displayName} required />
+          <input value={user.displayName} disabled readOnly />
         </label>
         <label>
           Нікнейм
@@ -156,7 +157,7 @@ function ProfileSettings() {
         </label>
         <label>
           Посада
-          <input name="jobTitle" defaultValue={user.jobTitle} />
+          <input value={user.jobTitle} disabled readOnly />
         </label>
         <label>
           Тип облікового запису
@@ -169,6 +170,23 @@ function ProfileSettings() {
         <label>
           Контактний email
           <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
+        </label>
+        <label>
+          Телефон
+          <input name="phone" type="tel" defaultValue={user.phone ?? ''} />
+        </label>
+        <label>
+          Стать
+          <select name="gender" defaultValue={user.gender ?? ''}>
+            <option value="">Не вказувати</option>
+            <option value="FEMALE">Жінка</option>
+            <option value="MALE">Чоловік</option>
+            <option value="OTHER">Інше</option>
+          </select>
+        </label>
+        <label>
+          Дата народження
+          <input name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
         </label>
         <label>
           Часовий пояс
@@ -302,6 +320,21 @@ function NotificationSettings() {
 }
 
 function SecuritySettings() {
+  return (
+    <div className="settings-stack">
+      <Card className="settings-card">
+        <header>
+          <span className="settings-icon"><KeyRound /></span>
+          <div>
+            <h2>Пароль керується адміністратором</h2>
+            <p>Адміністратор встановлює пароль під час створення облікового запису та може змінити його в картці користувача.</p>
+          </div>
+        </header>
+        <p className="privacy-note"><ShieldCheck size={16} />Поточний пароль не зберігається у відкритому вигляді та не може бути показаний нікому.</p>
+      </Card>
+    </div>
+  )
+
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {

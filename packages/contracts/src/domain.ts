@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { OrganizationCapabilityView } from './capabilities.js'
 import type { AccountType } from './accounts.js'
+import type { StructuredMentionView } from './mentions.js'
 
 export const companyScopeSchema = z.union([
   z.literal('all'),
@@ -72,6 +73,9 @@ export interface PrincipalView extends UserSummary {
   accountType: AccountType
   company: CompanyView | null
   contactEmail: string | null
+  phone: string | null
+  gender: 'FEMALE' | 'MALE' | 'OTHER' | null
+  birthDate: string | null
   timezone: string
   locale: 'uk-UA' | 'en-US'
   capabilities: OrganizationCapabilityView[]
@@ -179,6 +183,7 @@ export interface TaskDetailView extends TaskListItem {
     id: string
     author: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
     body: string
+    mentions: StructuredMentionView[]
     createdAt: string
     replyToCommentId: string | null
     replyPreview: {

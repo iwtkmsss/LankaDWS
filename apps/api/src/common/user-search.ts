@@ -14,5 +14,5 @@ export function userSearchCodePointLength(value: string): number {
 }
 
 export function isUserSearchValueLongEnough(value: string): boolean {
-  return userSearchCodePointLength(value) >= 2
+  return userSearchCodePointLength(value) >= 1
 }

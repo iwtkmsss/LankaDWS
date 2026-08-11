@@ -6,20 +6,27 @@ import {
   type FeedAudienceOption,
   type FeedAudienceFacetOption,
   type FeedAuthorOption,
+  type FeedBirthdayView,
   type FeedEntryView,
   type FeedListQuery,
   type FeedListResult,
+  type FeedMentionCandidatesQuery,
   type FeedPostView,
   type FeedSourceView,
   type FeedSubscriptionMode,
   type MarkFeedReadInput,
+  type MentionCandidateView,
+  type MentionSearchQuery,
   type ShareFileToFeedInput,
   type UpdateFeedPostInput,
+  type StructuredMentionInput,
+  type StructuredMentionView,
 } from '@bert-crm/contracts'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
@@ -28,6 +35,7 @@ import {
   moveFeedFavorites,
   writeFeedProjection,
 } from './feed-projection.service.js'
+import { birthdayOccursOn, calendarDateInTimeZone } from './birthday-highlight.js'
 
 interface FeedCursor {
   occurredAt: string
@@ -329,6 +337,82 @@ export class FeedService {
     }
   }
 
+  async mentionCandidates(
+    principal: AuthPrincipal,
+    query: FeedMentionCandidatesQuery,
+  ): Promise<{ items: MentionCandidateView[] }> {
+    if (query.company === 'all') throw badRequest('company_required')
+    await this.capabilities.assertEnabled(principal, query.company, OrganizationCapability.Feed)
+    const audience = await this.resolveAudience(principal, query.company, query.audienceType === 'GROUP'
+      ? { type: 'GROUP', groupId: query.audienceId! }
+      : { type: 'COMPANY' })
+    return {
+      items: await this.findMentionCandidates(
+        principal,
+        query.company,
+        [...new Set([...audience.userIds, principal.userId])],
+        query.q,
+        query.limit,
+      ),
+    }
+  }
+
+  async postMentionCandidates(
+    principal: AuthPrincipal,
+    postId: string,
+    query: MentionSearchQuery,
+  ): Promise<{ items: MentionCandidateView[] }> {
+    const post = await this.accessiblePost(principal, postId)
+    const audienceUserIds = await this.expandStoredAudience(post.companyId, post.recipients)
+    return {
+      items: await this.findMentionCandidates(
+        principal,
+        post.companyId,
+        [...new Set([...audienceUserIds, post.authorId])],
+        query.q,
+        query.limit,
+      ),
+    }
+  }
+
+  private async findMentionCandidates(
+    principal: AuthPrincipal,
+    companyId: string,
+    allowedUserIds: string[],
+    search: string,
+    limit: number,
+  ): Promise<MentionCandidateView[]> {
+    if (allowedUserIds.length === 0) return []
+    const normalized = normalizeUserSearchValue(search)
+    return this.prisma.user.findMany({
+      where: {
+        id: { in: allowedUserIds },
+        workspaceId: principal.workspaceId,
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
+        ...(normalized
+          ? {
+              AND: [{
+                OR: [
+                  { normalizedDisplayName: { contains: normalized } },
+                  { normalizedUsername: { contains: normalized } },
+                ],
+              }],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        displayName: true,
+        username: true,
+        jobTitle: true,
+        avatarAsset: true,
+      },
+      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
+      take: limit,
+    })
+  }
+
   async audienceFacets(
     principal: AuthPrincipal,
     company?: string,
@@ -510,6 +594,7 @@ export class FeedService {
     if (companyIds.length === 0) {
       return {
         items: [],
+        birthdays: [],
         nextCursor: null,
         unreadCount: 0,
         attention: { pendingAcknowledgements: 0, overdueTasks: 0 },
@@ -607,7 +692,7 @@ export class FeedService {
     const pageEntries = visibleEntries.slice(0, query.limit)
     const pageItemIds = new Set(pageEntries.map((entry) => entry.itemId))
     const page = currentItems.filter((item) => pageItemIds.has(item.id))
-    const [pendingAcknowledgements, overdueTasks, unreadCount] = await Promise.all([
+    const [pendingAcknowledgements, overdueTasks, unreadCount, birthdays] = await Promise.all([
       this.pendingAcknowledgementCount(principal, access),
       this.prisma.task.count({
         where: {
@@ -638,6 +723,7 @@ export class FeedService {
         },
       }),
       this.unreadCount(principal, companyIds, access),
+      this.birthdayHighlights(principal, companyIds, query),
     ])
     const readMarkers = new Map<string, string>()
     for (const item of page) {
@@ -656,6 +742,7 @@ export class FeedService {
         : null
     return {
       items: pageEntries,
+      birthdays,
       nextCursor: nextPosition
         ? this.encodeCursor({
             occurredAt: nextPosition.occurredAt.toISOString(),
@@ -749,7 +836,11 @@ export class FeedService {
       if (post) return post
     }
     const audience = await this.resolveAudience(principal, input.companyId, input.audience)
-    this.assertMentions(input.mentionedUserIds, audience.userIds, principal.userId)
+    const mentionedUserIds = [...new Set([
+      ...input.mentionedUserIds,
+      ...this.validateStructuredMentions(input.body, input.mentions),
+    ])]
+    this.assertMentions(mentionedUserIds, audience.userIds, principal.userId)
     await this.files.assertAttachable(principal, input.companyId, input.attachmentIds)
     const postId = id('feed')
     const itemId = id('fitem')
@@ -823,17 +914,28 @@ export class FeedService {
           })),
         })
       }
-      if (input.mentionedUserIds.length > 0) {
+      if (mentionedUserIds.length > 0) {
         await tx.feedMention.createMany({
-          data: input.mentionedUserIds.map((userId) => ({
+          data: mentionedUserIds.map((userId) => ({
             id: id('fmt'),
             postId,
             userId,
           })),
         })
       }
+      if (input.mentions.length > 0) {
+        await tx.contentMention.createMany({
+          data: input.mentions.map((mention) => ({
+            id: id('mnt'),
+            workspaceId: principal.workspaceId,
+            sourceType: 'FEED_POST',
+            sourceId: postId,
+            ...mention,
+          })),
+        })
+      }
       await tx.feedSubscription.createMany({
-        data: [...new Set([principal.userId, ...input.mentionedUserIds])].map((userId) => ({
+        data: [...new Set([principal.userId, ...mentionedUserIds])].map((userId) => ({
           id: id('fsub'),
           postId,
           userId,
@@ -843,7 +945,7 @@ export class FeedService {
       const acknowledgementUsers = new Set(acknowledgementUserIds)
       const notificationUsers = new Set([
         ...acknowledgementUserIds,
-        ...input.mentionedUserIds.filter((userId) => userId !== principal.userId),
+        ...mentionedUserIds.filter((userId) => userId !== principal.userId),
       ])
       for (const userId of notificationUsers) {
         const requiresAction = acknowledgementUsers.has(userId)
@@ -913,9 +1015,31 @@ export class FeedService {
     const nextAcknowledgementVersion = post.requiresAcknowledgement
       ? post.acknowledgementVersion + 1
       : 0
-    const audienceUserIds = post.requiresAcknowledgement
-      ? (await this.expandStoredAudience(post.companyId, post.recipients)).filter((userId) => userId !== post.authorId)
+    const synchronizesMentions = input.mentions !== undefined || input.mentionedUserIds !== undefined
+    const storedAudienceUserIds = post.requiresAcknowledgement || synchronizesMentions
+      ? await this.expandStoredAudience(post.companyId, post.recipients)
       : []
+    const audienceUserIds = post.requiresAcknowledgement
+      ? storedAudienceUserIds.filter((userId) => userId !== post.authorId)
+      : []
+    const nextStructuredMentions = input.mentions ?? []
+    const nextMentionedUserIds = synchronizesMentions
+      ? [...new Set([
+          ...(input.mentionedUserIds ?? []),
+          ...this.validateStructuredMentions(input.body, nextStructuredMentions),
+        ])]
+      : []
+    if (synchronizesMentions) {
+      this.assertMentions(nextMentionedUserIds, storedAudienceUserIds, post.authorId)
+    }
+    const previousMentionedUserIds = synchronizesMentions
+      ? await this.prisma.feedMention.findMany({
+          where: { postId, commentId: null },
+          select: { userId: true },
+        })
+      : []
+    const previousMentioned = new Set(previousMentionedUserIds.map((mention) => mention.userId))
+    const newlyMentionedUserIds = nextMentionedUserIds.filter((userId) => !previousMentioned.has(userId))
     const itemId = id('fitem')
     const now = new Date()
     await this.prisma.$transaction(async (tx) => {
@@ -968,10 +1092,66 @@ export class FeedService {
         sourceId: post.id,
         newItemId: itemId,
       })
+      await tx.contentMention.deleteMany({
+        where: { workspaceId: principal.workspaceId, sourceType: 'FEED_POST', sourceId: postId },
+      })
+      if (synchronizesMentions) {
+        await tx.feedMention.deleteMany({ where: { postId, commentId: null } })
+        if (nextMentionedUserIds.length > 0) {
+          await tx.feedMention.createMany({
+            data: nextMentionedUserIds.map((userId) => ({
+              id: id('fmt'),
+              postId,
+              userId,
+            })),
+          })
+        }
+        if (nextStructuredMentions.length > 0) {
+          await tx.contentMention.createMany({
+            data: nextStructuredMentions.map((mention) => ({
+              id: id('mnt'),
+              workspaceId: principal.workspaceId,
+              sourceType: 'FEED_POST',
+              sourceId: postId,
+              ...mention,
+            })),
+          })
+        }
+        for (const userId of nextMentionedUserIds) {
+          await tx.feedSubscription.upsert({
+            where: { postId_userId: { postId, userId } },
+            create: { id: id('fsub'), postId, userId, mode: 'MENTIONS' },
+            update: {},
+          })
+        }
+        for (const userId of newlyMentionedUserIds) {
+          if (userId === principal.userId) continue
+          const dedupeKey = `feed-post:${postId}:mention:v${nextVersion}:${userId}`
+          await tx.notification.upsert({
+            where: { dedupeKey },
+            create: {
+              id: id('ntf'),
+              recipientId: userId,
+              category: 'MENTION',
+              safeTitle: 'Вас згадали у публікації',
+              safeSnippet: 'Відкрийте стрічку, щоб переглянути згадку.',
+              entityType: 'FEED_POST',
+              entityId: postId,
+              requiresAction: false,
+              deliveredAt: now,
+              dedupeKey,
+            },
+            update: {},
+          })
+        }
+      }
       await tx.auditEvent.create({
         data: this.auditData(principal, post.companyId, 'feed.post.edited', postId, {
           version: { from: post.version, to: nextVersion },
           acknowledgementVersion: { from: post.acknowledgementVersion, to: nextAcknowledgementVersion },
+          ...(synchronizesMentions
+            ? { mentionCount: nextMentionedUserIds.length, newlyMentionedCount: newlyMentionedUserIds.length }
+            : {}),
         }),
       })
       await tx.outboxEvent.create({
@@ -1068,7 +1248,11 @@ export class FeedService {
       if (!parent || parent.replyToCommentId) throw badRequest('feed_comment_reply_depth')
     }
     const audienceUserIds = await this.expandStoredAudience(post.companyId, post.recipients)
-    this.assertMentions(input.mentionedUserIds, audienceUserIds, principal.userId)
+    const mentionedUserIds = [...new Set([
+      ...input.mentionedUserIds,
+      ...this.validateStructuredMentions(input.body, input.mentions),
+    ])]
+    this.assertMentions(mentionedUserIds, audienceUserIds, principal.userId)
     const activeNotificationUsers = await this.prisma.user.findMany({
       where: {
         id: { in: [...new Set([...audienceUserIds, post.authorId])] },
@@ -1093,13 +1277,24 @@ export class FeedService {
           replyToCommentId: parent?.id,
         },
       })
-      if (input.mentionedUserIds.length > 0) {
+      if (mentionedUserIds.length > 0) {
         await tx.feedMention.createMany({
-          data: input.mentionedUserIds.map((userId) => ({
+          data: mentionedUserIds.map((userId) => ({
             id: id('fmt'),
             postId,
             commentId,
             userId,
+          })),
+        })
+      }
+      if (input.mentions.length > 0) {
+        await tx.contentMention.createMany({
+          data: input.mentions.map((mention) => ({
+            id: id('mnt'),
+            workspaceId: principal.workspaceId,
+            sourceType: 'FEED_COMMENT',
+            sourceId: commentId,
+            ...mention,
           })),
         })
       }
@@ -1108,14 +1303,14 @@ export class FeedService {
         create: { id: id('fsub'), postId, userId: principal.userId, mode: 'ALL' },
         update: {},
       })
-      for (const userId of input.mentionedUserIds) {
+      for (const userId of mentionedUserIds) {
         await tx.feedSubscription.upsert({
           where: { postId_userId: { postId, userId } },
           create: { id: id('fsub'), postId, userId, mode: 'MENTIONS' },
           update: {},
         })
       }
-      const mentioned = new Set(input.mentionedUserIds)
+      const mentioned = new Set(mentionedUserIds)
       const subscriptions = await tx.feedSubscription.findMany({
         where: {
           postId,
@@ -1606,6 +1801,22 @@ export class FeedService {
     return users.map((user) => user.id)
   }
 
+  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
+    const ordered = mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
+    let previousEnd = 0
+    for (const mention of ordered) {
+      if (
+        mention.start < previousEnd
+        || mention.end > body.length
+        || body.slice(mention.start, mention.end) !== `@${mention.label}`
+      ) {
+        throw badRequest('feed_mention_invalid')
+      }
+      previousEnd = mention.end
+    }
+    return [...new Set(ordered.map((mention) => mention.userId))]
+  }
+
   private assertMentions(mentionedUserIds: string[], audienceUserIds: string[], authorId: string): void {
     const allowed = new Set([...audienceUserIds, authorId])
     if (mentionedUserIds.some((userId) => !allowed.has(userId))) throw badRequest('feed_mention_outside_audience')
@@ -1895,7 +2106,7 @@ export class FeedService {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     ])
-    const [commentAuthors, files] = await Promise.all([
+    const [commentAuthors, files, contentMentions] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: [...new Set(comments.map((comment) => comment.authorId))] } },
         select: { id: true, displayName: true, avatarAsset: true },
@@ -1913,10 +2124,47 @@ export class FeedService {
             },
           })
         : Promise.resolve([]),
+      this.prisma.contentMention.findMany({
+        where: {
+          workspaceId: principal.workspaceId,
+          OR: [
+            { sourceType: 'FEED_POST', sourceId: { in: postIds } },
+            { sourceType: 'FEED_COMMENT', sourceId: { in: comments.map((comment) => comment.id) } },
+          ],
+        },
+        orderBy: [{ sourceType: 'asc' }, { sourceId: 'asc' }, { start: 'asc' }],
+      }),
     ])
+    const mentionUsers = contentMentions.length > 0
+      ? await this.prisma.user.findMany({
+          where: {
+            id: { in: [...new Set(contentMentions.map((mention) => mention.userId))] },
+            workspaceId: principal.workspaceId,
+          },
+          select: { id: true, primaryCompanyId: true, accountType: true, isActive: true },
+        })
+      : []
     const authorById = new Map(commentAuthors.map((author) => [author.id, author]))
+    const mentionUserById = new Map(mentionUsers.map((user) => [user.id, user]))
     const directNameById = new Map(directUsers.map((user) => [user.id, user.displayName]))
     const fileById = new Map(files.map((file) => [file.id, file]))
+    const mentionsFor = (
+      sourceType: 'FEED_POST' | 'FEED_COMMENT',
+      sourceId: string,
+      companyId: string,
+    ): StructuredMentionView[] => contentMentions
+      .filter((mention) => mention.sourceType === sourceType && mention.sourceId === sourceId)
+      .map((mention) => {
+        const user = mentionUserById.get(mention.userId)
+        return {
+          userId: mention.userId,
+          start: mention.start,
+          end: mention.end,
+          active: Boolean(user?.isActive && (
+            user.primaryCompanyId === companyId || user.accountType === 'ADMIN'
+          )),
+        }
+      })
     return items.flatMap((item) => {
       const post = item.post
       if (!post) return []
@@ -1934,6 +2182,7 @@ export class FeedService {
         author: post.author,
         audienceLabel: this.audienceLabel(post, directNameById),
         body: post.body,
+        mentions: mentionsFor('FEED_POST', post.id, post.companyId),
         status: post.status,
         requiresAcknowledgement: post.requiresAcknowledgement,
         acknowledgementVersion: post.acknowledgementVersion,
@@ -1953,6 +2202,7 @@ export class FeedService {
             avatarAsset: null,
           },
           body: comment.body,
+          mentions: mentionsFor('FEED_COMMENT', comment.id, post.companyId),
           replyToCommentId: comment.replyToCommentId,
           createdAt: comment.createdAt.toISOString(),
           editedAt: comment.editedAt?.toISOString() ?? null,
@@ -2137,6 +2387,65 @@ export class FeedService {
         ],
       },
     })
+  }
+
+  private async birthdayHighlights(
+    principal: AuthPrincipal,
+    companyIds: string[],
+    query: FeedListQuery,
+  ): Promise<FeedBirthdayView[]> {
+    if (!this.isDefaultFeedPage(query) || companyIds.length !== 1) return []
+    const company = await this.prisma.company.findFirst({
+      where: {
+        id: companyIds[0],
+        workspaceId: principal.workspaceId,
+        isActive: true,
+      },
+      select: { id: true, timezone: true },
+    })
+    if (!company) return []
+    const today = calendarDateInTimeZone(new Date(), company.timezone)
+    const users = await this.prisma.user.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        primaryCompanyId: company.id,
+        accountType: 'USER',
+        isActive: true,
+        birthDate: { not: null },
+      },
+      select: {
+        id: true,
+        displayName: true,
+        avatarAsset: true,
+        jobTitle: true,
+        birthDate: true,
+      },
+      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
+    })
+    return users.flatMap((user) =>
+      user.birthDate && birthdayOccursOn(user.birthDate, today)
+        ? [{
+            id: user.id,
+            displayName: user.displayName,
+            avatarAsset: user.avatarAsset,
+            jobTitle: user.jobTitle,
+          }]
+        : [],
+    )
+  }
+
+  private isDefaultFeedPage(query: FeedListQuery): boolean {
+    return !query.cursor
+      && query.filter === 'ALL'
+      && query.type === 'ALL'
+      && !query.authorId
+      && !query.groupId
+      && !query.audienceId
+      && !query.dateFrom
+      && !query.dateTo
+      && !query.mentioned
+      && !query.favorite
+      && !query.important
   }
 
   private async dateAccessWhere(

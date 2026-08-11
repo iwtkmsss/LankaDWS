@@ -166,7 +166,13 @@ export class TaskCatalogService {
           projectId,
           archivedAt: null,
           ...(search
-            ? { OR: [{ number: { contains: search } }, { title: { contains: search } }] }
+            ? {
+                OR: [
+                  { number: { contains: search } },
+                  { title: { contains: search } },
+                  { legacyNumbers: { some: { legacyNumber: { contains: search } } } },
+                ],
+              }
             : {}),
         },
         select: {

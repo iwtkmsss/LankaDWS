@@ -5,7 +5,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import request from 'supertest';
-import type { ChatMessagePage, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
+import type { ChatMessagePage, ChatMessageView, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
 import { configureApp } from '../../src/bootstrap.js';
 import { FeedProjectionService } from '../../src/modules/feed/feed-projection.service.js';
@@ -2025,6 +2025,347 @@ describe('BERT CRM API workflows', () => {
     })).toBeGreaterThanOrEqual(4);
   });
 
+  it('adds task comment mentions as watchers atomically and without role downgrades', async () => {
+    const maria = await login('maria');
+    const olena = await login('olena');
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now();
+
+    const created = await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `task-mention-${suffix}`)
+      .send({
+        title: `Task mention ${suffix}`,
+        participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }],
+      })
+      .expect(201);
+    const taskId = (created.body as { id: string }).id;
+    await olena.agent.get(`/api/v1/tasks/${taskId}`).expect(404);
+    await olena.agent.get(`/api/v1/tasks/${taskId}/mention-candidates?q=марія`).expect(404);
+
+    const candidates = await maria.agent
+      .get(`/api/v1/tasks/${taskId}/mention-candidates?q=олена`)
+      .expect(200);
+    expect((candidates.body as { items: Array<{ id: string }> }).items.map((item) => item.id))
+      .toEqual(['usr_olena']);
+
+    const raw = await maria.agent
+      .post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .send({ body: 'Raw @Олена Бондар не є структурованою згадкою.' })
+      .expect(201);
+    const rawCommentId = (raw.body as { id: string }).id;
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'TASK_COMMENT', sourceId: rawCommentId },
+    })).toBe(0);
+    expect(await prisma.taskParticipant.findUnique({
+      where: { taskId_userId: { taskId, userId: 'usr_olena' } },
+    })).toBeNull();
+
+    const olenaToken = '@Олена Бондар';
+    const andriiToken = '@Андрій Коваль';
+    const body = `${olenaToken}, перевір разом із ${andriiToken}.`;
+    const andriiStart = body.indexOf(andriiToken);
+    const mentions = [
+      { userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' },
+      {
+        userId: 'usr_andrii',
+        start: andriiStart,
+        end: andriiStart + andriiToken.length,
+        label: 'Андрій Коваль',
+      },
+    ];
+    const commentKey = `task-comment-mention-${suffix}`;
+    const structured = await maria.agent
+      .post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', commentKey)
+      .send({ body, mentions })
+      .expect(201);
+    const commentId = (structured.body as { id: string }).id;
+    const retry = await maria.agent
+      .post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', commentKey)
+      .send({ body, mentions })
+      .expect(201);
+    expect((retry.body as { id: string }).id).toBe(commentId);
+
+    expect(await prisma.comment.count({ where: { id: commentId } })).toBe(1);
+    expect(await prisma.contentMention.findMany({
+      where: { sourceType: 'TASK_COMMENT', sourceId: commentId },
+      select: { userId: true, start: true, end: true },
+      orderBy: { start: 'asc' },
+    })).toEqual([
+      { userId: 'usr_olena', start: 0, end: olenaToken.length },
+      { userId: 'usr_andrii', start: andriiStart, end: andriiStart + andriiToken.length },
+    ]);
+    expect(await prisma.taskParticipant.findMany({
+      where: { taskId, userId: { in: ['usr_andrii', 'usr_olena'] }, removedAt: null },
+      select: { userId: true, role: true },
+      orderBy: { userId: 'asc' },
+    })).toEqual([
+      { userId: 'usr_andrii', role: 'RESPONSIBLE' },
+      { userId: 'usr_olena', role: 'WATCHER' },
+    ]);
+    expect(await prisma.notification.findUniqueOrThrow({
+      where: { dedupeKey: `task-comment:${commentId}:usr_olena` },
+    })).toMatchObject({ category: 'MENTION', entityType: 'TASK', entityId: taskId });
+    expect(await prisma.notification.findUniqueOrThrow({
+      where: { dedupeKey: `task-comment:${commentId}:usr_andrii` },
+    })).toMatchObject({ category: 'MENTION', entityType: 'TASK', entityId: taskId });
+
+    const concurrentBody = `${olenaToken}, повторна перевірка ідемпотентності.`;
+    const concurrentMentions = [
+      { userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' },
+    ];
+    const concurrentKey = `task-comment-concurrent-${suffix}`;
+    const [concurrentFirst, concurrentSecond] = await Promise.all([
+      maria.agent
+        .post(`/api/v1/tasks/${taskId}/comments`)
+        .set('x-csrf-token', maria.csrf)
+        .set('idempotency-key', concurrentKey)
+        .send({ body: concurrentBody, mentions: concurrentMentions }),
+      maria.agent
+        .post(`/api/v1/tasks/${taskId}/comments`)
+        .set('x-csrf-token', maria.csrf)
+        .set('idempotency-key', concurrentKey)
+        .send({ body: concurrentBody, mentions: concurrentMentions }),
+    ]);
+    expect([concurrentFirst.status, concurrentSecond.status]).toEqual([201, 201]);
+    expect((concurrentFirst.body as { id: string }).id).toBe((concurrentSecond.body as { id: string }).id);
+    expect(await prisma.comment.count({
+      where: { id: (concurrentFirst.body as { id: string }).id },
+    })).toBe(1);
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: taskId }, select: { version: true } }))
+      .toEqual({ version: 4 });
+
+    const detail = await olena.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    const mentionedComment = (detail.body as TaskDetailView).comments.find((comment) => comment.id === commentId);
+    expect(mentionedComment?.mentions).toEqual([
+      { userId: 'usr_olena', start: 0, end: olenaToken.length, active: true },
+      {
+        userId: 'usr_andrii',
+        start: andriiStart,
+        end: andriiStart + andriiToken.length,
+        active: true,
+      },
+    ]);
+
+    await maria.agent
+      .post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', commentKey)
+      .send({ body: `${body} Змінено.`, mentions })
+      .expect(409);
+
+    const grouped = await maria.agent
+      .post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `task-mention-group-${suffix}`)
+      .send({
+        title: `Grouped task mention ${suffix}`,
+        groupId: 'grp_product_design',
+        participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }],
+      })
+      .expect(201);
+    const groupedTaskId = (grouped.body as { id: string }).id;
+    const groupedCandidates = await maria.agent
+      .get(`/api/v1/tasks/${groupedTaskId}/mention-candidates?q=олена`)
+      .expect(200);
+    expect((groupedCandidates.body as { items: unknown[] }).items).toEqual([]);
+    const outsideGroup = await maria.agent
+      .post(`/api/v1/tasks/${groupedTaskId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `task-comment-outside-${suffix}`)
+      .send({
+        body: `${olenaToken}, ця групова задача недоступна.`,
+        mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
+      })
+      .expect(400);
+    expect((outsideGroup.body as { code: string }).code).toBe('task_mention_outside_scope');
+    expect(await prisma.comment.count({ where: { entityType: 'TASK', entityId: groupedTaskId } })).toBe(0);
+    expect(await prisma.taskParticipant.findUnique({
+      where: { taskId_userId: { taskId: groupedTaskId, userId: 'usr_olena' } },
+    })).toBeNull();
+    expect(await prisma.task.findUniqueOrThrow({ where: { id: groupedTaskId }, select: { version: true } }))
+      .toEqual({ version: 1 });
+  });
+
+  it('keeps structured chat mentions scoped to direct and group participants', async () => {
+    const maria = await login('maria');
+    const andrii = await login('andrii');
+    const olena = await login('olena');
+    const marko = await login('marko');
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now();
+    const taskParticipantCount = await prisma.taskParticipant.count();
+
+    const direct = await maria.agent
+      .post('/api/v1/messages/threads')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `chat-mention-direct-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        kind: 'DIRECT',
+        participantIds: ['usr_andrii'],
+      })
+      .expect(201);
+    const directThreadId = (direct.body as { id: string }).id;
+    const directCandidates = await maria.agent
+      .get(`/api/v1/messages/threads/${directThreadId}/mention-candidates?q=`)
+      .expect(200);
+    expect((directCandidates.body as { items: Array<{ id: string }> }).items.map((item) => item.id))
+      .toEqual(expect.arrayContaining(['usr_maria', 'usr_andrii']));
+    expect((directCandidates.body as { items: Array<{ id: string }> }).items.map((item) => item.id))
+      .not.toContain('usr_olena');
+    await olena.agent
+      .get(`/api/v1/messages/threads/${directThreadId}/mention-candidates?q=`)
+      .expect(404);
+
+    const raw = await maria.agent
+      .post(`/api/v1/messages/threads/${directThreadId}/messages`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `chat-mention-raw-${suffix}`)
+      .send({ body: 'Сирий текст @Олена Бондар без вибору.' })
+      .expect(201);
+    const rawMessageId = (raw.body as { id: string }).id;
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'MESSAGE', sourceId: rawMessageId },
+    })).toBe(0);
+
+    const andriiToken = '@Андрій Коваль';
+    const directMessageBody = `${andriiToken}, перевір, будь ласка.`;
+    const messageKey = `chat-mention-structured-${suffix}`;
+    const structured = await maria.agent
+      .post(`/api/v1/messages/threads/${directThreadId}/messages`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', messageKey)
+      .send({
+        body: directMessageBody,
+        mentions: [{ userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' }],
+      })
+      .expect(201);
+    const directMessageId = (structured.body as { id: string }).id;
+    const retry = await maria.agent
+      .post(`/api/v1/messages/threads/${directThreadId}/messages`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', messageKey)
+      .send({
+        body: directMessageBody,
+        mentions: [{ userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' }],
+      })
+      .expect(201);
+    expect(retry.body).toEqual({ id: directMessageId });
+    expect(await prisma.contentMention.findMany({
+      where: { sourceType: 'MESSAGE', sourceId: directMessageId },
+      select: { userId: true, start: true, end: true },
+    })).toEqual([{ userId: 'usr_andrii', start: 0, end: andriiToken.length }]);
+    expect(await prisma.notification.findUniqueOrThrow({
+      where: { dedupeKey: `chat:${directMessageId}:usr_andrii` },
+    })).toMatchObject({ category: 'MENTION', entityType: 'MESSAGE_THREAD', entityId: directThreadId });
+    const directView = await andrii.agent.get(`/api/v1/messages/${directMessageId}`).expect(200);
+    expect((directView.body as ChatMessageView).mentions).toEqual([{
+      userId: 'usr_andrii',
+      start: 0,
+      end: andriiToken.length,
+      active: true,
+    }]);
+
+    const group = await maria.agent
+      .post('/api/v1/messages/threads')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `chat-mention-group-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        kind: 'GROUP',
+        title: `Mention ${suffix}`,
+        participantIds: ['usr_andrii', 'usr_olena'],
+      })
+      .expect(201);
+    const groupThreadId = (group.body as { id: string }).id;
+    const groupCandidates = await maria.agent
+      .get(`/api/v1/messages/threads/${groupThreadId}/mention-candidates?q=`)
+      .expect(200);
+    const groupCandidateIds = (groupCandidates.body as { items: Array<{ id: string }> }).items.map((item) => item.id);
+    expect(groupCandidateIds).toEqual(expect.arrayContaining(['usr_maria', 'usr_andrii', 'usr_olena']));
+    expect(groupCandidateIds).not.toContain('usr_marko');
+    await marko.agent
+      .get(`/api/v1/messages/threads/${groupThreadId}/mention-candidates?q=`)
+      .expect(404);
+
+    const groupMessage = await maria.agent
+      .post(`/api/v1/messages/threads/${groupThreadId}/messages`)
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `chat-mention-group-message-${suffix}`)
+      .send({
+        body: `${andriiToken}, почнімо узгодження.`,
+        mentions: [{ userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' }],
+      })
+      .expect(201);
+    const groupMessageId = (groupMessage.body as { id: string }).id;
+    const olenaToken = '@Олена Бондар';
+    const editedBody = `${andriiToken}, додай ${olenaToken}.`;
+    const olenaStart = editedBody.indexOf(olenaToken);
+    await maria.agent
+      .patch(`/api/v1/messages/${groupMessageId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: editedBody,
+        expectedVersion: 1,
+        mentions: [
+          { userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' },
+          { userId: 'usr_olena', start: olenaStart, end: olenaStart + olenaToken.length, label: 'Олена Бондар' },
+        ],
+      })
+      .expect(200);
+    expect(await prisma.notification.count({
+      where: { recipientId: 'usr_andrii', category: 'MENTION', entityId: groupThreadId },
+    })).toBe(1);
+    expect(await prisma.notification.count({
+      where: { recipientId: 'usr_olena', category: 'MENTION', entityId: groupThreadId },
+    })).toBe(1);
+
+    await maria.agent
+      .patch(`/api/v1/messages/${groupMessageId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: `${editedBody} Дякую.`,
+        expectedVersion: 2,
+        mentions: [
+          { userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' },
+          { userId: 'usr_olena', start: olenaStart, end: olenaStart + olenaToken.length, label: 'Олена Бондар' },
+        ],
+      })
+      .expect(200);
+    expect(await prisma.notification.count({
+      where: { category: 'MENTION', entityType: 'MESSAGE_THREAD', entityId: groupThreadId },
+    })).toBe(2);
+    const outsideThread = await maria.agent
+      .patch(`/api/v1/messages/${groupMessageId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: '@Марко Литвин, це не ваш чат.',
+        expectedVersion: 3,
+        mentions: [{ userId: 'usr_marko', start: 0, end: 13, label: 'Марко Литвин' }],
+      })
+      .expect(400);
+    expect((outsideThread.body as { code: string }).code).toBe('chat_mention_outside_thread');
+
+    const contextualMention = await maria.agent
+      .post('/api/v1/messages/threads/thread_design/messages')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `chat-mention-contextual-${suffix}`)
+      .send({
+        body: `${andriiToken}, не змінюй учасників задачі.`,
+        mentions: [{ userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' }],
+      })
+      .expect(400);
+    expect((contextualMention.body as { code: string }).code).toBe('chat_mentions_unavailable');
+    expect(await prisma.taskParticipant.count()).toBe(taskParticipantCount);
+  });
+
   it('keeps group membership, scanner-gated attachments and own message lifecycle guarded', async () => {
     const maria = await login('maria');
     const andrii = await login('andrii');
@@ -2518,7 +2859,7 @@ describe('BERT CRM API workflows', () => {
         workspaceId: 'ws_bert',
         companyId: 'cmp_bert_ua',
         groupId,
-        number: `TSK-ACL-${suffix}`,
+        number: suffix.toString(),
         title: 'Групова задача з прямими ролями',
         createdById: 'usr_maria',
         reporterId: 'usr_maria',
@@ -2696,6 +3037,355 @@ describe('BERT CRM API workflows', () => {
     await maria.agent
       .get('/api/v1/search?q=dashboard&company=cmp_not_allowed')
       .expect(403);
+  });
+
+  it('supports canonical structured Feed mentions without weakening audience access', async () => {
+    const prisma = app.get(PrismaService);
+    await prisma.companyCapability.update({
+      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
+      data: { enabled: true, disabledAt: null },
+    });
+    const maria = await login('maria');
+    const olena = await login('olena');
+    const suffix = Date.now().toString(36);
+
+    const groupCandidates = await maria.agent
+      .get('/api/v1/feed/mention-candidates?company=cmp_bert_ua&audienceType=GROUP&audienceId=grp_product_design&q=')
+      .expect(200);
+    const groupCandidateIds = (groupCandidates.body as { items: Array<{ id: string }> }).items
+      .map((item) => item.id);
+    expect(groupCandidateIds).toEqual(expect.arrayContaining(['usr_maria', 'usr_andrii']));
+    expect(groupCandidateIds).not.toContain('usr_olena');
+
+    const olenaToken = '@Олена Бондар';
+    const outsideAudience = await maria.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-mention-outside-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: `${olenaToken}, переглянь`,
+        audience: { type: 'GROUP', groupId: 'grp_product_design' },
+        mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
+      })
+      .expect(400);
+    expect((outsideAudience.body as { code: string }).code).toBe('feed_mention_outside_audience');
+
+    const groupPost = await maria.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-mention-group-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: 'Видиме лише продуктовій групі.',
+        audience: { type: 'GROUP', groupId: 'grp_product_design' },
+      })
+      .expect(201);
+    await olena.agent
+      .get(`/api/v1/feed/${(groupPost.body as { id: string }).id}/mention-candidates?q=`)
+      .expect(404);
+
+    const rawPost = await maria.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-mention-raw-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: `Сирий текст ${olenaToken} без вибору зі списку.`,
+        audience: { type: 'COMPANY' },
+      })
+      .expect(201);
+    const rawPostId = (rawPost.body as { id: string }).id;
+    expect(await prisma.feedMention.count({ where: { postId: rawPostId } })).toBe(0);
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'FEED_POST', sourceId: rawPostId },
+    })).toBe(0);
+    expect(await prisma.notification.count({
+      where: { entityType: 'FEED_POST', entityId: rawPostId, category: 'MENTION' },
+    })).toBe(0);
+
+    const structuredPost = await maria.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-mention-structured-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: `${olenaToken}, перевір публікацію.`,
+        audience: { type: 'COMPANY' },
+        mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
+      })
+      .expect(201);
+    const structuredPostId = (structuredPost.body as { id: string }).id;
+    const initialDetail = await maria.agent
+      .get(`/api/v1/feed/${structuredPostId}`)
+      .expect(200);
+    expect((initialDetail.body as { mentions: unknown[] }).mentions).toEqual([{
+      userId: 'usr_olena',
+      start: 0,
+      end: olenaToken.length,
+      active: true,
+    }]);
+    expect(await prisma.feedMention.count({
+      where: { postId: structuredPostId, commentId: null, userId: 'usr_olena' },
+    })).toBe(1);
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'FEED_POST', sourceId: structuredPostId, userId: 'usr_olena' },
+    })).toBe(1);
+    expect(await prisma.notification.count({
+      where: {
+        recipientId: 'usr_olena',
+        category: 'MENTION',
+        entityType: 'FEED_POST',
+        entityId: structuredPostId,
+      },
+    })).toBe(1);
+
+    const andriiToken = '@Андрій Коваль';
+    const twoMentionBody = `${olenaToken}, узгодь з ${andriiToken}.`;
+    const andriiStart = twoMentionBody.indexOf(andriiToken);
+    await maria.agent
+      .patch(`/api/v1/feed/${structuredPostId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: twoMentionBody,
+        expectedVersion: 1,
+        mentions: [
+          { userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' },
+          {
+            userId: 'usr_andrii',
+            start: andriiStart,
+            end: andriiStart + andriiToken.length,
+            label: 'Андрій Коваль',
+          },
+        ],
+      })
+      .expect(200);
+    expect(await prisma.notification.count({
+      where: {
+        recipientId: 'usr_olena',
+        category: 'MENTION',
+        entityType: 'FEED_POST',
+        entityId: structuredPostId,
+      },
+    })).toBe(1);
+    expect(await prisma.notification.count({
+      where: {
+        recipientId: 'usr_andrii',
+        category: 'MENTION',
+        entityType: 'FEED_POST',
+        entityId: structuredPostId,
+      },
+    })).toBe(1);
+
+    await maria.agent
+      .patch(`/api/v1/feed/${structuredPostId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: `${twoMentionBody} Дякую.`,
+        expectedVersion: 2,
+        mentions: [
+          { userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' },
+          {
+            userId: 'usr_andrii',
+            start: andriiStart,
+            end: andriiStart + andriiToken.length,
+            label: 'Андрій Коваль',
+          },
+        ],
+      })
+      .expect(200);
+    expect(await prisma.notification.count({
+      where: {
+        category: 'MENTION',
+        entityType: 'FEED_POST',
+        entityId: structuredPostId,
+      },
+    })).toBe(2);
+
+    const andriiOnlyBody = `${andriiToken}, заверши перевірку.`;
+    await maria.agent
+      .patch(`/api/v1/feed/${structuredPostId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: andriiOnlyBody,
+        expectedVersion: 3,
+        mentions: [{
+          userId: 'usr_andrii',
+          start: 0,
+          end: andriiToken.length,
+          label: 'Андрій Коваль',
+        }],
+      })
+      .expect(200);
+    expect(await prisma.feedMention.findMany({
+      where: { postId: structuredPostId, commentId: null },
+      select: { userId: true },
+    })).toEqual([{ userId: 'usr_andrii' }]);
+    expect(await prisma.contentMention.findMany({
+      where: { sourceType: 'FEED_POST', sourceId: structuredPostId },
+      select: { userId: true, start: true, end: true },
+    })).toEqual([{ userId: 'usr_andrii', start: 0, end: andriiToken.length }]);
+
+    await maria.agent
+      .patch(`/api/v1/feed/${structuredPostId}`)
+      .set('x-csrf-token', maria.csrf)
+      .send({ body: 'Текст змінено старим клієнтом.', expectedVersion: 4 })
+      .expect(200);
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'FEED_POST', sourceId: structuredPostId },
+    })).toBe(0);
+    expect(await prisma.feedMention.findMany({
+      where: { postId: structuredPostId, commentId: null },
+      select: { userId: true },
+    })).toEqual([{ userId: 'usr_andrii' }]);
+
+    const commentBody = `${olenaToken}, коментар для тебе.`;
+    const comment = await maria.agent
+      .post(`/api/v1/feed/${structuredPostId}/comments`)
+      .set('x-csrf-token', maria.csrf)
+      .send({
+        body: commentBody,
+        mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
+      })
+      .expect(201);
+    expect(await prisma.contentMention.count({
+      where: {
+        sourceType: 'FEED_COMMENT',
+        sourceId: (comment.body as { id: string }).id,
+        userId: 'usr_olena',
+      },
+    })).toBe(1);
+    expect(await prisma.notification.findFirst({
+      where: { dedupeKey: `feed-comment:${(comment.body as { id: string }).id}:usr_olena` },
+    })).toMatchObject({ category: 'MENTION' });
+
+    const legacyPost = await maria.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-mention-legacy-${suffix}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: 'Сумісна згадка від старого клієнта.',
+        audience: { type: 'COMPANY' },
+        mentionedUserIds: ['usr_andrii'],
+      })
+      .expect(201);
+    const legacyPostId = (legacyPost.body as { id: string }).id;
+    expect(await prisma.feedMention.count({
+      where: { postId: legacyPostId, commentId: null, userId: 'usr_andrii' },
+    })).toBe(1);
+    expect(await prisma.contentMention.count({
+      where: { sourceType: 'FEED_POST', sourceId: legacyPostId },
+    })).toBe(0);
+    const legacyDetail = await maria.agent
+      .get(`/api/v1/feed/${legacyPostId}`)
+      .expect(200);
+    expect((legacyDetail.body as { mentions: unknown[] }).mentions).toEqual([]);
+  });
+
+  it('returns privacy-safe birthday highlights without creating feed activity', async () => {
+    const maria = await login('maria');
+    const prisma = app.get(PrismaService);
+    const company = await prisma.company.findUniqueOrThrow({
+      where: { id: 'cmp_bert_ua' },
+      select: { timezone: true },
+    });
+    const todayParts = Object.fromEntries(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: company.timezone,
+        calendar: 'gregory',
+        numberingSystem: 'latn',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date())
+        .filter((part) => part.type === 'month' || part.type === 'day')
+        .map((part) => [part.type, Number(part.value)]),
+    ) as { month: number; day: number };
+    const matchingBirthDate = new Date(Date.UTC(1990, todayParts.month - 1, todayParts.day));
+    const [mariaBefore, andriiBefore, feedItemCount] = await Promise.all([
+      prisma.user.findUniqueOrThrow({ where: { id: 'usr_maria' }, select: { birthDate: true } }),
+      prisma.user.findUniqueOrThrow({
+        where: { id: 'usr_andrii' },
+        select: { birthDate: true, isActive: true },
+      }),
+      prisma.feedItem.count(),
+    ]);
+    const outsiderCompanyId = `cmp_birthday_${Date.now()}`;
+    const outsiderUserId = `usr_birthday_${Date.now()}`;
+    try {
+      await prisma.company.create({
+        data: {
+          id: outsiderCompanyId,
+          workspaceId: 'ws_bert',
+          displayName: 'Birthday privacy test',
+          legalName: 'Birthday privacy test',
+          code: outsiderCompanyId,
+          timezone: company.timezone,
+        },
+      });
+      await prisma.user.create({
+        data: {
+          id: outsiderUserId,
+          workspaceId: 'ws_bert',
+          primaryCompanyId: outsiderCompanyId,
+          displayName: 'Outside Employee',
+          normalizedDisplayName: 'outside employee',
+          username: outsiderUserId,
+          normalizedUsername: outsiderUserId,
+          birthDate: matchingBirthDate,
+          isActive: true,
+        },
+      });
+      await Promise.all([
+        prisma.user.update({
+          where: { id: 'usr_maria' },
+          data: { birthDate: matchingBirthDate },
+        }),
+        prisma.user.update({
+          where: { id: 'usr_andrii' },
+          data: { birthDate: matchingBirthDate, isActive: false },
+        }),
+      ]);
+
+      const response = await maria.agent
+        .get('/api/v1/feed?company=cmp_bert_ua')
+        .expect(200);
+      const result = response.body as FeedListResult;
+      expect(result.birthdays).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'usr_maria', displayName: 'Марія Іваненко' }),
+      ]));
+      const mariaBirthday = result.birthdays.find((birthday) => birthday.id === 'usr_maria');
+      expect(Object.keys(mariaBirthday ?? {}).sort()).toEqual([
+        'avatarAsset',
+        'displayName',
+        'id',
+        'jobTitle',
+      ]);
+      expect(result.birthdays).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'usr_andrii' }),
+        expect.objectContaining({ id: outsiderUserId }),
+      ]));
+      expect(result.items.some((item) => item.id === 'usr_maria')).toBe(false);
+      expect(await prisma.feedItem.count()).toBe(feedItemCount);
+
+      const filtered = await maria.agent
+        .get('/api/v1/feed?company=cmp_bert_ua&type=POST')
+        .expect(200);
+      expect((filtered.body as FeedListResult).birthdays).toEqual([]);
+    } finally {
+      await prisma.user.deleteMany({ where: { id: outsiderUserId } });
+      await prisma.company.deleteMany({ where: { id: outsiderCompanyId } });
+      await Promise.all([
+        prisma.user.update({
+          where: { id: 'usr_maria' },
+          data: { birthDate: mariaBefore.birthDate },
+        }),
+        prisma.user.update({
+          where: { id: 'usr_andrii' },
+          data: { birthDate: andriiBefore.birthDate, isActive: andriiBefore.isActive },
+        }),
+      ]);
+    }
   });
 
   it('rate-limits repeated invalid authentication attempts without disclosing account state', async () => {

@@ -1,8 +1,11 @@
-import type { ChatAttachmentView, ChatMessageView } from '@bert-crm/contracts'
+import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import { FileText, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
+import { trimMentionValue } from '../../../shared/mentions/mentionText'
 
 interface MessageComposerProps {
+  threadId: string
   replyTo: ChatMessageView | null
   attachments: ChatAttachmentView[]
   sending: boolean
@@ -11,14 +14,14 @@ interface MessageComposerProps {
   onReplyCancel: () => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
-  onSend: (body: string) => Promise<boolean>
+  onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
 }
 
 export function MessageComposer(props: MessageComposerProps) {
   const [body, setBody] = useState('')
+  const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const composingRef = useRef(false)
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -28,10 +31,12 @@ export function MessageComposer(props: MessageComposerProps) {
   }, [body])
 
   async function submit() {
-    if (!body.trim() || props.sending) return
-    const sent = await props.onSend(body.trim())
+    const value = trimMentionValue(body, mentions)
+    if (!value.body || props.sending) return
+    const sent = await props.onSend(value)
     if (sent) {
       setBody('')
+      setMentions([])
       requestAnimationFrame(() => textareaRef.current?.focus())
     }
   }
@@ -88,18 +93,24 @@ export function MessageComposer(props: MessageComposerProps) {
             ? <LoaderCircle className="is-spinning" size={20} />
             : <Paperclip size={21} />}
         </button>
-        <textarea
-          ref={textareaRef}
+        <MentionTextarea
+          className="message-composer__input"
+          label="Повідомлення"
+          visuallyHiddenLabel
+          value={body}
+          mentions={mentions}
+          candidateUrl={`/messages/threads/${encodeURIComponent(props.threadId)}/mention-candidates`}
           rows={1}
           maxLength={8_000}
-          value={body}
-          aria-label="Повідомлення"
           placeholder="Напишіть повідомлення…"
-          onChange={(event) => setBody(event.target.value)}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
+          disabled={props.sending}
+          onTextareaRef={(element) => { textareaRef.current = element }}
+          onChange={(nextBody, nextMentions) => {
+            setBody(nextBody)
+            setMentions(nextMentions)
+          }}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || composingRef.current || event.nativeEvent.isComposing) return
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
             event.preventDefault()
             void submit()
           }}

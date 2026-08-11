@@ -26,6 +26,7 @@ import { RetentionModule } from './modules/retention/retention.module.js'
 import { OrgModule } from './modules/org/org.module.js'
 import { TasksModule } from './modules/tasks/tasks.module.js'
 import { CompaniesModule } from './modules/companies/companies.module.js'
+import { UiPreferencesModule } from './modules/preferences/ui-preferences.module.js'
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { CompaniesModule } from './modules/companies/companies.module.js'
     DashboardModule,
     AdminModule,
     CompaniesModule,
+    UiPreferencesModule,
     HealthModule,
   ],
   providers: [

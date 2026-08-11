@@ -165,7 +165,7 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   const relationsPanel = dialog.locator('#task-create-relations-panel')
   await relationsPanel.getByRole('combobox', { name: /^Завдання/ }).selectOption('tsk_design')
   await relationsPanel.getByRole('button', { name: 'Додати зв’язок' }).click()
-  await expect(relationsPanel.getByText(/TSK-2401 · Підготувати концепцію дизайну dashboard/)).toBeVisible()
+  await expect(relationsPanel.getByText(/2401 · Підготувати концепцію дизайну dashboard/)).toBeVisible()
 
   const accessibility = await new AxeBuilder({ page }).include('.task-create-dialog').analyze()
   expect(accessibility.violations).toEqual([])
@@ -208,12 +208,63 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   expect(payload.attachmentIds).toHaveLength(1)
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
   await expect(page.getByRole('dialog', { name: 'Нове завдання' })).toHaveCount(0)
-  const detailDialog = page.getByRole('dialog')
-  await expect(detailDialog.getByRole('heading', { name: title })).toBeVisible()
-  await expect(page.evaluate(() => document.body.style.overflow)).resolves.toBe('hidden')
-  await detailDialog.getByRole('button', { name: 'Закрити' }).click()
+  const detailPage = page
+  await expect(detailPage.getByRole('heading', { name: title })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.evaluate(() => document.body.style.overflow)).resolves.toBe('')
+  await detailPage.getByRole('button', { name: 'До списку' }).click()
   await expect(page).toHaveURL(/\/tasks$/)
-  await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('')
+})
+
+test('opens a task as a standalone page without fetching the task list', async ({ page }) => {
+  await login(page)
+  const listRequests: string[] = []
+  page.on('request', (request) => {
+    const url = new URL(request.url())
+    if (request.method() === 'GET' && url.pathname === '/api/v1/tasks') listRequests.push(url.toString())
+  })
+
+  await page.goto('/tasks/tsk_design?role=CREATOR&search=dashboard')
+
+  await expect(page.getByRole('heading', { name: /2401/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Підготувати концепцію дизайну dashboard' })).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('.task-detail-page')).toHaveCount(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  expect(listRequests).toEqual([])
+
+  await page.getByRole('button', { name: 'До списку' }).click()
+  await expect(page).toHaveURL(/\/tasks\?role=CREATOR&search=dashboard$/)
+})
+
+test('sends a selected task comment mention as structured data', async ({ page }) => {
+  await login(page)
+  await page.goto('/tasks/tsk_design')
+
+  const comment = page.getByRole('combobox', { name: 'Коментар до завдання' })
+  await comment.fill('@оле')
+  await page.getByRole('option', { name: /Олена Бондар/ }).click()
+  await comment.pressSequentially(', перевір, будь ласка.')
+
+  const requestPromise = page.waitForRequest((request) => (
+    request.method() === 'POST'
+    && new URL(request.url()).pathname === '/api/v1/tasks/tsk_design/comments'
+  ))
+  await page.getByRole('button', { name: /Надіслати/ }).click()
+  const request = await requestPromise
+  expect(request.headers()['idempotency-key']).toMatch(/^task-comment:/)
+  expect(request.postDataJSON()).toMatchObject({
+    body: '@Олена Бондар, перевір, будь ласка.',
+    mentions: [{
+      userId: 'usr_olena',
+      start: 0,
+      end: 13,
+      label: 'Олена Бондар',
+    }],
+  })
+
+  await expect(page.getByRole('link', { name: '@Олена Бондар' })).toBeVisible()
+  await expect(page.locator('.task-role-group').filter({ hasText: 'Олена Бондар' })).toBeVisible()
 })
 
 test('optional options failures stay local and do not block basic task creation', async ({ page }, testInfo) => {

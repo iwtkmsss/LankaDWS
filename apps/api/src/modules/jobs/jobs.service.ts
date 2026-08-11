@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { id } from '../../common/crypto.js';
 import { getConfig } from '../../config/config.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js';
 import { writeFeedProjection } from '../feed/feed-projection.service.js';
 import { deleteStoredFile, promoteFile, writeCleanFile } from '../files/storage.js';
 import {
@@ -33,7 +34,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private active = false;
   private readonly workerId = id('worker');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly taskNumbers: TaskNumberAllocator,
+  ) {}
 
   onModuleInit(): void {
     if (process.env.DISABLE_JOB_WORKER === 'true') return;
@@ -452,7 +456,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     );
     if (!existing) {
       const taskId = id('tsk');
-      await this.prisma.$transaction(async (tx) => {
+      await this.taskNumbers.runInTransaction(this.prisma, async (tx, number) => {
         const duration = source.startsAt && source.dueAt
           ? source.dueAt.getTime() - source.startsAt.getTime()
           : null;
@@ -467,7 +471,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
             companyId: source.companyId,
             groupId: source.groupId,
             projectId: source.projectId,
-            number: `TSK-R${Date.now().toString().slice(-7)}-${id('n').slice(-4).toUpperCase()}`,
+            number,
             title: source.title,
             description: source.description,
             createdById: source.createdById,

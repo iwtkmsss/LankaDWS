@@ -1,8 +1,9 @@
 import type { ChatContactUser, ChatParticipantView, ChatThreadDetail } from '@bert-crm/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, BellOff, Crown, LogOut, Plus, Search, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
+import { useDebouncedSearchValue } from '../../../shared/lib/useDebouncedSearchValue'
 import { Avatar, Button, Drawer, Skeleton } from '../../../shared/ui'
 import { searchChatUsers } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
@@ -21,16 +22,17 @@ export function ThreadInfoDrawer({
 }) {
   const client = useQueryClient()
   const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
+  const {
+    debouncedValue: debounced,
+    isComposing,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useDebouncedSearchValue(query)
   const [error, setError] = useState('')
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
-    return () => window.clearTimeout(timer)
-  }, [query])
   const users = useQuery({
     queryKey: messageKeys.users(thread.companyId, debounced),
     queryFn: ({ signal }) => searchChatUsers(thread.companyId, debounced, signal),
-    enabled: thread.canManageParticipants && normalizedCodePointLength(debounced) >= 2,
+    enabled: thread.canManageParticipants && !isComposing && normalizedCodePointLength(debounced) >= 1,
   })
   const refresh = () => Promise.all([
     client.invalidateQueries({ queryKey: messageKeys.detail(thread.id) }),
@@ -188,6 +190,8 @@ export function ThreadInfoDrawer({
                 value={query}
                 placeholder="Ім’я або нікнейм"
                 onChange={(event) => setQuery(event.target.value)}
+                onCompositionStart={onCompositionStart}
+                onCompositionEnd={onCompositionEnd}
               />
             </label>
             {users.isLoading ? <Skeleton rows={3} /> : (

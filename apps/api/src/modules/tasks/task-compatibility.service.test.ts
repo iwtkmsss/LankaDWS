@@ -26,6 +26,7 @@ function serviceWith(prisma: Record<string, unknown>, access: Record<string, unk
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
   )
 }
 
@@ -33,7 +34,7 @@ describe('TaskCompatibilityService', () => {
   it('maps the legacy collaborator list onto v2 participants, dueAt and URGENT', async () => {
     const task = {
       id: 'task_1',
-      number: 'TSK-1',
+      number: '1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
       parentTaskId: null,
@@ -51,8 +52,8 @@ describe('TaskCompatibilityService', () => {
       },
       parent: null,
       subtasks: [
-        { id: 'sub_1', number: 'TSK-2', title: 'Done', status: 'DONE' },
-        { id: 'sub_2', number: 'TSK-3', title: 'Open', status: 'NEW' },
+        { id: 'sub_1', number: '2', title: 'Done', status: 'DONE' },
+        { id: 'sub_2', number: '3', title: 'Open', status: 'NEW' },
       ],
       participants: [
         {

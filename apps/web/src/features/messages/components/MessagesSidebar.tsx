@@ -17,6 +17,7 @@ interface MessagesSidebarProps {
   unreadOnly: boolean
   query: string
   debouncedQuery: string
+  isComposing: boolean
   searchResults: ChatContactUser[]
   recommendations: RecommendedChatUser[]
   loadingThreads: boolean
@@ -27,6 +28,8 @@ interface MessagesSidebarProps {
   hasMoreThreads: boolean
   loadingMoreThreads: boolean
   onQueryChange: (value: string) => void
+  onSearchCompositionStart: () => void
+  onSearchCompositionEnd: () => void
   onUnreadChange: (value: boolean) => void
   onSelectThread: (threadId: string) => void
   onStartDirect: (userId: string) => void
@@ -64,7 +67,7 @@ function reasonLabel(reason: RecommendedChatUser['reason']): string {
 export function MessagesSidebar(props: MessagesSidebarProps) {
   const [activeResult, setActiveResult] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
-  const searching = normalizedCodePointLength(props.query) >= 2
+  const searching = !props.isComposing && normalizedCodePointLength(props.query) >= 1
   const waitingForDebounce = searching && props.query !== props.debouncedQuery
   const resultCount = props.searchResults.length
 
@@ -118,6 +121,8 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
           value={props.query}
           placeholder="Пошук користувачів"
           onChange={(event) => props.onQueryChange(event.target.value)}
+          onCompositionStart={props.onSearchCompositionStart}
+          onCompositionEnd={props.onSearchCompositionEnd}
           onKeyDown={handleSearchKeyDown}
         />
         {props.query && (
@@ -134,9 +139,9 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         )}
       </div>
 
-      {props.query && !searching && (
+      {props.query && !props.isComposing && !searching && (
         <p className="messages-sidebar__search-hint" role="status">
-          Введіть щонайменше 2 символи
+          Введіть щонайменше 1 символ
         </p>
       )}
 

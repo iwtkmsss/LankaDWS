@@ -16,7 +16,7 @@ describe('normalizeUserSearchValue', () => {
 
   it('counts Unicode code points after normalization', () => {
     expect(userSearchCodePointLength('  ї ')).toBe(1)
-    expect(isUserSearchValueLongEnough(' ї ')).toBe(false)
-    expect(isUserSearchValueLongEnough(' їв ')).toBe(true)
+    expect(isUserSearchValueLongEnough(' ї ')).toBe(true)
+    expect(isUserSearchValueLongEnough('   ')).toBe(false)
   })
 })

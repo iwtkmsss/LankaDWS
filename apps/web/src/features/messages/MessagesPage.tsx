@@ -3,6 +3,7 @@ import type {
   ChatAttachmentView,
   ChatMessagePage,
   ChatMessageView,
+  StructuredMentionInput,
 } from '@bert-crm/contracts'
 import {
   useInfiniteQuery,
@@ -16,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../../shared/api/client'
 import { useAuth } from '../../shared/auth/AuthProvider'
+import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { EmptyState } from '../../shared/ui'
 import {
   createThread,
@@ -53,7 +55,12 @@ export function MessagesPage() {
   const unreadOnly = params.get('unread') === 'true'
   const groupOpen = params.get('new') === '1'
   const [query, setQuery] = useState(params.get('q') ?? '')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const {
+    debouncedValue: debouncedQuery,
+    isComposing: isSearchComposing,
+    onCompositionStart: onSearchCompositionStart,
+    onCompositionEnd: onSearchCompositionEnd,
+  } = useDebouncedSearchValue(query)
   const [startingUserId, setStartingUserId] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null)
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
@@ -69,10 +76,6 @@ export function MessagesPage() {
   const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
   const realtimeConnected = useMessageRealtime()
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 200)
-    return () => window.clearTimeout(timer)
-  }, [query])
   useEffect(() => {
     setParams((current) => {
       const next = new URLSearchParams(current)
@@ -100,7 +103,7 @@ export function MessagesPage() {
   const users = useQuery({
     queryKey: messageKeys.users(companyId, debouncedQuery),
     queryFn: ({ signal }) => searchChatUsers(companyId, debouncedQuery, signal),
-    enabled: Boolean(companyId && canWrite && normalizedSearchLength >= 2),
+    enabled: Boolean(companyId && canWrite && !isSearchComposing && normalizedSearchLength >= 1),
   })
   const recommendations = useQuery({
     queryKey: messageKeys.recommended(companyId),
@@ -160,6 +163,7 @@ export function MessagesPage() {
       body: string
       reply: ChatMessageView | null
       attachments: ChatAttachmentView[]
+      mentions: StructuredMentionInput[]
       signature: string
       key: string
       tempId: string
@@ -168,6 +172,7 @@ export function MessagesPage() {
         body: input.body,
         replyToId: input.reply?.id ?? null,
         attachmentIds: input.attachments.map((attachment) => attachment.id),
+        mentions: input.mentions,
       }, input.key)
       return { ...result, tempId: input.tempId }
     },
@@ -233,10 +238,10 @@ export function MessagesPage() {
     sendAttemptRef.current = { signature: '', key: '', tempId: '' }
   }, [threadId])
 
-  async function editMessage(message: ChatMessageView, body: string) {
+  async function editMessage(message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) {
     await api(`/messages/${message.id}`, {
       method: 'PATCH',
-      body: jsonBody({ body, expectedVersion: message.version }),
+      body: jsonBody({ body, mentions, expectedVersion: message.version }),
     })
     upsertMessageCache(client, threadId!, await getMessage(message.id))
   }
@@ -263,11 +268,12 @@ export function MessagesPage() {
     await client.resetQueries({ queryKey: messageKeys.pages(threadId!), exact: true })
   }
 
-  async function submitMessage(body: string): Promise<boolean> {
+  async function submitMessage(input: { body: string; mentions: StructuredMentionInput[] }): Promise<boolean> {
     if (!threadId || !user) return false
     const signature = JSON.stringify({
       threadId,
-      body,
+      body: input.body,
+      mentions: input.mentions,
       replyToId: replyTo?.id ?? null,
       attachmentIds: attachments.map((attachment) => attachment.id),
     })
@@ -282,12 +288,18 @@ export function MessagesPage() {
     const optimistic: ChatMessageView = {
       id: attempt.tempId,
       authorId: user.id,
-      body,
+      body: input.body,
       createdAt: new Date().toISOString(),
       editedAt: null,
       deletedAt: null,
       version: 1,
       replyToId: replyTo?.id ?? null,
+      mentions: input.mentions.map((mention) => ({
+        userId: mention.userId,
+        start: mention.start,
+        end: mention.end,
+        active: true,
+      })),
       replyPreview: replyTo ? {
         id: replyTo.id,
         authorName: replyTo.author.displayName,
@@ -305,7 +317,8 @@ export function MessagesPage() {
     addOptimisticMessage(client, threadId, optimistic)
     try {
       await send.mutateAsync({
-        body,
+        body: input.body,
+        mentions: input.mentions,
         reply: replyTo,
         attachments,
         ...attempt,
@@ -344,8 +357,9 @@ export function MessagesPage() {
         counts={counts}
         selectedThreadId={threadId}
         unreadOnly={unreadOnly}
-        query={query}
-        debouncedQuery={debouncedQuery}
+          query={query}
+          debouncedQuery={debouncedQuery}
+          isComposing={isSearchComposing}
         searchResults={users.data?.items ?? []}
         recommendations={recommendations.data?.items ?? []}
         loadingThreads={threadPages.isLoading}
@@ -355,7 +369,9 @@ export function MessagesPage() {
         startingUserId={startingUserId}
         hasMoreThreads={Boolean(threadPages.hasNextPage)}
         loadingMoreThreads={threadPages.isFetchingNextPage}
-        onQueryChange={setQuery}
+          onQueryChange={setQuery}
+          onSearchCompositionStart={onSearchCompositionStart}
+          onSearchCompositionEnd={onSearchCompositionEnd}
         onUnreadChange={updateUnread}
         onSelectThread={(id) => navigate(`/messages/${id}?${params}`)}
         onStartDirect={(id) => direct.mutate(id)}

@@ -30,6 +30,7 @@ import type { RouteMeta } from '../app/routes'
 import { navigationRoutes, routes } from '../app/routes'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
+import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
 import { Avatar, BrandMark, DialogBase, IconButton } from '../shared/ui'
 
 interface QuickCreateAction {
@@ -593,31 +594,40 @@ function CommandPalette({
   const paletteRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const {
+    debouncedValue: debouncedQuery,
+    isComposing,
+    onCompositionStart,
+    onCompositionEnd,
+  } = useDebouncedSearchValue(query, 220)
+  const hasSearchQuery = Boolean(query.trim()) && !isComposing
 
   useEffect(() => {
-    const value = query.trim()
+    const value = debouncedQuery
     setActiveIndex(0)
-    if (value.length < 2) {
+    if (!value || isComposing) {
       setResults([])
       setLoading(false)
       return
     }
+    const controller = new AbortController()
     let cancelled = false
     setLoading(true)
-    const timeout = window.setTimeout(async () => {
-      const data = await api<{ items: PaletteItem[] }>(
-        `/search?q=${encodeURIComponent(value)}`,
-      ).catch(() => ({ items: [] }))
-      if (!cancelled) {
-        setResults(data.items)
-        setLoading(false)
-      }
-    }, 220)
+    void api<{ items: PaletteItem[] }>(
+      `/search?q=${encodeURIComponent(value)}`,
+      { signal: controller.signal },
+    ).then((data) => {
+      if (!cancelled) setResults(data.items)
+    }).catch(() => {
+      if (!cancelled) setResults([])
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
     return () => {
       cancelled = true
-      window.clearTimeout(timeout)
+      controller.abort()
     }
-  }, [query])
+  }, [debouncedQuery, isComposing])
 
   useEffect(() => {
     paletteRef.current?.querySelector<HTMLElement>('button.is-active')?.scrollIntoView({ block: 'nearest' })
@@ -636,7 +646,7 @@ function CommandPalette({
     item.title.toLocaleLowerCase('uk').includes(normalizedQuery)
     || item.safeSnippet.toLocaleLowerCase('uk').includes(normalizedQuery)
   ))
-  const items: PaletteItem[] = query.trim().length < 2 ? shortcutItems : [...createItems, ...results]
+  const items: PaletteItem[] = hasSearchQuery ? [...createItems, ...results] : shortcutItems
 
   function open(item: PaletteItem) {
     navigate(item.route)
@@ -677,6 +687,8 @@ function CommandPalette({
             ref={searchInputRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onCompositionStart={onCompositionStart}
+            onCompositionEnd={onCompositionEnd}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown' && items.length) {
                 event.preventDefault()
@@ -708,7 +720,7 @@ function CommandPalette({
         {loading ? (
           <p>Шукаємо у доступних розділах…</p>
         ) : items.length ? (
-          <ul role="listbox" aria-label={query.trim().length < 2 ? 'Швидкі переходи' : 'Результати пошуку'}>
+          <ul role="listbox" aria-label={hasSearchQuery ? 'Результати пошуку' : 'Швидкі переходи'}>
             {items.map((item, index) => {
               const previous = items[index - 1]
               return (

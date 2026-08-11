@@ -4,6 +4,7 @@ import { id, sha256 } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
@@ -19,6 +20,7 @@ import { TaskValidationService } from './task-validation.service.js'
 export class TaskCommandService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly taskNumbers: TaskNumberAllocator,
     private readonly access: TaskAccessService,
     private readonly validation: TaskValidationService,
     private readonly hierarchy: TaskHierarchyService,
@@ -66,8 +68,9 @@ export class TaskCommandService {
     ])
 
     const taskId = id('tsk')
-    const number = this.taskNumber()
-    await this.prisma.$transaction(async (tx) => {
+    const number = await this.taskNumbers.runInTransaction(
+      this.prisma,
+      async (tx, allocatedNumber) => {
       const task = await tx.task.create({
         data: {
           id: taskId,
@@ -76,7 +79,7 @@ export class TaskCommandService {
           groupId: context.groupId,
           projectId: context.projectId,
           parentTaskId: context.parentTaskId,
-          number,
+          number: allocatedNumber,
           title: input.title,
           description: input.description,
           createdById: principal.userId,
@@ -234,7 +237,9 @@ export class TaskCommandService {
           }),
         },
       })
-    })
+        return allocatedNumber
+      },
+    )
     return { id: taskId, number, version: 1 }
   }
 
@@ -378,9 +383,5 @@ export class TaskCommandService {
       where: { id: existing.resultId },
       select: { id: true, number: true, version: true },
     })
-  }
-
-  private taskNumber(): string {
-    return `TSK-${Date.now().toString(36).toUpperCase()}-${id('n').slice(-4).toUpperCase()}`
   }
 }

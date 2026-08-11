@@ -4,7 +4,9 @@ import {
   acknowledgeFeedPostSchema,
   createFeedCommentSchema,
   createFeedPostSchema,
+  feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
+  mentionSearchQuerySchema,
   markFeedReadSchema,
   shareFileToFeedSchema,
   updateFeedSubscriptionSchema,
@@ -41,6 +43,24 @@ export class FeedController {
   @Get('facets/audiences')
   audienceFacets(@Req() request: BertRequest, @Query('company') company?: string) {
     return this.feed.audienceFacets(principalFrom(request), company)
+  }
+
+  @Get('mention-candidates')
+  mentionCandidates(@Req() request: BertRequest, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = feedMentionCandidatesQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('feed_mention_query_invalid')
+    return this.feed.mentionCandidates(principalFrom(request), parsed.data)
+  }
+
+  @Get(':id/mention-candidates')
+  postMentionCandidates(
+    @Req() request: BertRequest,
+    @Param('id') postId: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = mentionSearchQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('feed_mention_query_invalid')
+    return this.feed.postMentionCandidates(principalFrom(request), postId, parsed.data)
   }
 
   @Post('read')

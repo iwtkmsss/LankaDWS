@@ -8,6 +8,7 @@ import {
   companyScopeSchema,
   chatThreadListQuerySchema,
   chatMessagePageQuerySchema,
+  chatMentionCandidatesQuerySchema,
   chatMessageSearchQuerySchema,
   chatThreadPageSchema,
   chatUserSearchQuerySchema,
@@ -24,8 +25,10 @@ import {
   updateChatPreferenceSchema,
   createFeedCommentSchema,
   createFeedPostSchema,
+  feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
   updateFeedSubscriptionSchema,
+  updateFeedPostSchema,
   groupListQuerySchema,
   importDatasetKindSchema,
   importDatasetRelativePathSchema,
@@ -36,6 +39,8 @@ import {
   orgUnitListQuerySchema,
   shareFileToFeedSchema,
   updateOrganizationCapabilitySchema,
+  taskCommentInputSchema,
+  taskOptionSchema,
   createTaskSchema,
 } from './index.js'
 
@@ -218,6 +223,35 @@ describe('transport schemas', () => {
       body: ' Відповідь ',
       replyToCommentId: 'cmt_parent',
     })).toMatchObject({ body: 'Відповідь', replyToCommentId: 'cmt_parent' })
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_bert',
+      body: '@Марія перевір, будь ласка',
+      audience: { type: 'COMPANY' },
+      mentions: [{ userId: 'usr_maria', start: 0, end: 7, label: 'Марія' }],
+    }).mentions).toEqual([{ userId: 'usr_maria', start: 0, end: 7, label: 'Марія' }])
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_bert',
+      body: 'Raw @Марія без вибору',
+      audience: { type: 'COMPANY' },
+    }).mentions).toEqual([])
+    expect(updateFeedPostSchema.parse({
+      body: 'Сумісне редагування старим клієнтом',
+      expectedVersion: 2,
+    }).mentions).toBeUndefined()
+    expect(() => updateFeedPostSchema.parse({
+      body: '@Марія',
+      expectedVersion: 2,
+      mentions: [{ userId: 'usr_maria', start: 4, end: 2, label: 'Марія' }],
+    })).toThrow()
+    expect(feedMentionCandidatesQuerySchema.parse({
+      company: 'cmp_bert',
+      audienceType: 'COMPANY',
+      q: 'м',
+    })).toMatchObject({ q: 'м', limit: 8 })
+    expect(() => feedMentionCandidatesQuerySchema.parse({
+      company: 'cmp_bert',
+      audienceType: 'GROUP',
+    })).toThrow()
     expect(() => createFeedPostSchema.parse({
       companyId: 'cmp_bert',
       body: '',
@@ -245,7 +279,9 @@ describe('transport schemas', () => {
     expect(chatMessagePageQuerySchema.parse({ before: 'cursor', limit: '50' }))
       .toEqual({ before: 'cursor', limit: 50 })
     expect(() => chatMessagePageQuerySchema.parse({ before: 'a', after: 'b' })).toThrow()
-    expect(() => chatMessageSearchQuerySchema.parse({ q: 'x' })).toThrow()
+    expect(chatMessageSearchQuerySchema.parse({ q: 'x' })).toMatchObject({ q: 'x', limit: 20 })
+    expect(chatMessageSearchQuerySchema.parse({ q: '😀' })).toMatchObject({ q: '😀', limit: 20 })
+    expect(() => chatMessageSearchQuerySchema.parse({ q: ' ' })).toThrow()
     expect(chatUserSearchQuerySchema.parse({ company: 'cmp_bert', q: 'ОЛЕНА' }))
       .toEqual({ company: 'cmp_bert', q: 'ОЛЕНА', limit: 20 })
     expect(chatThreadPageSchema.parse({
@@ -281,7 +317,14 @@ describe('transport schemas', () => {
       body: 'Готово',
       replyToId: null,
       attachmentIds: ['file_one', 'file_two'],
+      mentions: [],
     })
+    expect(sendChatMessageSchema.parse({
+      body: '@Олена Бондар, перевірте',
+      mentions: [{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }],
+    }).mentions).toEqual([{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }])
+    expect(chatMentionCandidatesQuerySchema.parse({ q: 'о', limit: '8' }))
+      .toEqual({ q: 'о', limit: 8 })
     expect(() => sendChatMessageSchema.parse({
       body: 'Файли',
       attachmentIds: ['1', '2', '3', '4', '5', '6'],
@@ -345,6 +388,16 @@ describe('transport schemas', () => {
       .toEqual({ notificationMode: 'NONE', expectedVersion: 2 })
   })
 
+  it('keeps task comment mentions structured and defaults legacy comments safely', () => {
+    expect(taskCommentInputSchema.parse({ body: 'Без згадок' }).mentions).toEqual([])
+    expect(taskCommentInputSchema.parse({
+      body: '@Олена Бондар, перевір, будь ласка.',
+      mentions: [{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }],
+    }).mentions).toEqual([
+      { userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' },
+    ])
+  })
+
   it('validates a complete task create payload and participant invariants', () => {
     expect(createTaskSchema.parse({
       title: '  Підготувати запуск  ',
@@ -390,6 +443,20 @@ describe('transport schemas', () => {
         { userId: 'usr_one', role: 'COLLABORATOR' },
       ],
     })).toThrow()
+  })
+
+  it('keeps task display numbers as numeric strings', () => {
+    const option = {
+      id: 'tsk_one',
+      number: '2401',
+      title: 'Task',
+      status: 'NEW',
+      groupId: null,
+      projectId: null,
+      parentTaskId: null,
+    }
+    expect(taskOptionSchema.parse(option).number).toBe('2401')
+    expect(() => taskOptionSchema.parse({ ...option, number: 'TSK-2401' })).toThrow()
   })
 
   it('keeps import states explicit and production apply separate from readiness', () => {

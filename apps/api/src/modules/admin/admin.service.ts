@@ -13,6 +13,7 @@ import type { Prisma } from '../../generated/prisma/client.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { AuthService } from '../auth/auth.service.js'
+import { assertPasswordPolicy } from '../auth/password-policy.js'
 import { JobsService } from '../jobs/jobs.service.js'
 
 @Injectable()
@@ -44,46 +45,50 @@ export class AdminService {
   }
 
   async userDetail(principal: AuthPrincipal, userId: string) {
-    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
+    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, orgAssignments: { where: { endedAt: null, isPrimary: true }, include: { orgUnit: true } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
-    return { id: user.id, displayName: user.displayName, username: user.username, contactEmail: user.contactEmail, jobTitle: user.jobTitle, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
+    const assignment = user.orgAssignments[0]
+    return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
   }
 
-  async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; isActive: boolean }) {
+  async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; password: string; contactEmail: string; phone?: string; gender?: string | null; birthDate?: string | null; jobTitle?: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean }) {
     const username = input.username.trim().toLowerCase()
     const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
-    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && input.companyId)) throw badRequest('user_fields')
-    const [reservation, company] = await Promise.all([
+    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && (!input.companyId || !input.orgUnitId)) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
+    assertPasswordPolicy(input.password, username, false)
+    const [reservation, company, orgUnit] = await Promise.all([
       this.prisma.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } }),
       input.companyId ? this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, isActive: true } }) : Promise.resolve(null),
+      input.orgUnitId ? this.prisma.orgUnit.findFirst({ where: { id: input.orgUnitId, workspaceId: principal.workspaceId, companyId: input.companyId, status: 'ACTIVE' } }) : Promise.resolve(null),
     ])
     if (reservation) throw conflict('Нікнейм уже використаний або зарезервований.')
-    if (input.accountType === 'USER' && !company) throw badRequest('user_assignment')
+    if (input.accountType === 'USER' && (!company || !orgUnit)) throw badRequest('user_assignment')
     const userId = id('usr')
-    const temporaryPassword = randomTemporaryPassword()
-    const secretHash = await hashPassword(temporaryPassword)
-    const expiresAt = new Date(Date.now() + getConfig().TEMPORARY_PASSWORD_HOURS * 3_600_000)
+    const passwordHash = await hashPassword(input.password)
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company?.id ?? null, accountType: input.accountType, firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, jobTitle: '', isActive: input.isActive, mustEnroll2FA: false } })
+      await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company?.id ?? null, accountType: input.accountType, firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, contactEmail: input.contactEmail.trim(), phone: input.phone?.trim() || null, gender: input.gender ?? null, birthDate: input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? '', isActive: input.isActive, mustEnroll2FA: false } })
       await tx.usernameReservation.create({ data: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' } })
-      await tx.temporaryCredential.create({ data: { id: id('tmp'), userId, secretHash, purpose: 'FIRST_LOGIN', expiresAt, createdBy: principal.userId } })
+      await tx.passwordCredential.create({ data: { id: id('pwd'), userId, passwordHash } })
+      if (orgUnit && company) await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.created', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
     })
-    return { userId, username, temporaryPassword, expiresAt: expiresAt.toISOString() }
+    return { userId, username }
   }
 
-  async updateUser(principal: AuthPrincipal, userId: string, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; isActive: boolean; contactEmail?: string | null; jobTitle?: string }) {
+  async updateUser(principal: AuthPrincipal, userId: string, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean; contactEmail?: string | null; phone?: string | null; gender?: string | null; birthDate?: string | null; jobTitle?: string; password?: string }) {
     const username = input.username.trim().toLowerCase()
     const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
-    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && input.companyId)) throw badRequest('user_fields')
-    const [user, company, conflictUser] = await Promise.all([
+    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
+    const [user, company, orgUnit, conflictUser] = await Promise.all([
       this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId } }),
       input.companyId ? this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, isActive: true } }) : Promise.resolve(null),
+      input.orgUnitId ? this.prisma.orgUnit.findFirst({ where: { id: input.orgUnitId, workspaceId: principal.workspaceId, companyId: input.companyId, status: 'ACTIVE' } }) : Promise.resolve(null),
       this.prisma.user.findFirst({ where: { workspaceId: principal.workspaceId, normalizedUsername: username, id: { not: userId } } }),
     ])
     if (!user) throw notFound()
     if (conflictUser) throw conflict('username_taken')
     if (input.accountType === 'USER' && !company) throw badRequest('user_assignment')
+    if (input.password) assertPasswordPolicy(input.password, username, false)
     if (
       user.accountType === 'ADMIN'
       && user.isActive
@@ -93,12 +98,32 @@ export class AdminService {
       if (admins <= 1) throw forbidden('last_admin')
     }
     const updated = await this.prisma.$transaction(async (tx) => {
-      const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
+      const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, phone: input.phone === undefined ? user.phone : input.phone?.trim() || null, gender: input.gender === undefined ? user.gender : input.gender, birthDate: input.birthDate === undefined ? user.birthDate : input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
+      if (orgUnit && company) {
+        await tx.userOrgAssignment.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), isPrimary: false } })
+        await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
+      }
+      if (input.password) {
+        const passwordHash = await hashPassword(input.password)
+        await tx.passwordCredential.upsert({ where: { userId }, create: { id: id('pwd'), userId, passwordHash }, update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date() } })
+        await tx.temporaryCredential.updateMany({ where: { userId, consumedAt: null, invalidatedAt: null }, data: { invalidatedAt: new Date() } })
+        await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'admin_password_changed' } })
+      }
       if (!input.isActive) await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
       return value
     })
     return { id: updated.id }
+  }
+
+  async updateAvatar(principal: AuthPrincipal, userId: string, fileId: string) {
+    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId } })
+    if (!user) throw notFound()
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: userId }, data: { avatarAsset: fileId } }),
+      this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: user.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.avatar_updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } }),
+    ])
+    return { avatarAsset: `/api/v1/me/avatar/${fileId}` }
   }
 
   async resetPassword(principal: AuthPrincipal, targetId: string, input: { reauthChallengeId?: string; reason: string; verificationMethod: string }) {

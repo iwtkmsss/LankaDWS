@@ -15,8 +15,7 @@ const passwordChangeSchema = z.object({ newPassword: z.string(), confirmation: z
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
 const recoverySchema = z.object({ code: z.string().min(8).max(64) })
 const reauthSchema = z.object({ password: z.string().min(1), code: z.string().regex(/^\d{6}$/).optional() })
-const personalPasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(1).max(128), confirmation: z.string().min(1).max(128) })
-const profileSchema = z.object({ displayName: z.string().trim().min(2).max(120), jobTitle: z.string().trim().max(120), contactEmail: z.string().email().max(254).nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
+const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
 const notificationPreferenceSchema = z.object({ emailEnabled: z.boolean(), inAppEnabled: z.literal(true), digest: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']), quietStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), quietEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) })
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -71,13 +70,6 @@ export class AuthController {
   reauth(@Body() body: unknown, @Req() request: BertRequest) {
     const value = parse(reauthSchema, body)
     return this.auth.reauthenticate(principalFrom(request), value.password, value.code)
-  }
-
-  @Post('password')
-  async changePassword(@Body() body: unknown, @Req() request: BertRequest) {
-    const value = parse(personalPasswordSchema, body)
-    await this.auth.changePassword(principalFrom(request), value)
-    return { changed: true }
   }
 
   @Post('logout')

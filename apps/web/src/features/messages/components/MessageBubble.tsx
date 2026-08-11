@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import {
   CalendarPlus,
   FileText,
@@ -11,16 +11,20 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { Avatar, Button } from '../../../shared/ui'
+import { MentionText } from '../../../shared/mentions/MentionRenderer'
+import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
+import { editableMentions, trimMentionValue } from '../../../shared/mentions/mentionText'
 import { formatChatTime } from '../lib/chatDates'
 
 interface MessageBubbleProps {
+  threadId: string
   message: ChatMessageView
   own: boolean
   highlighted?: boolean
   canConvertToTask: boolean
   canConvertToEvent: boolean
   onReply: (message: ChatMessageView) => void
-  onEdit: (message: ChatMessageView, body: string) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
 }
@@ -32,6 +36,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function MessageBubble({
+  threadId,
   message,
   own,
   highlighted,
@@ -45,6 +50,8 @@ export function MessageBubble({
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(message.body)
+  const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
+    editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
 
   if (message.deletedAt) {
@@ -93,20 +100,28 @@ export function MessageBubble({
             className="message-bubble__edit"
             onSubmit={(event) => {
               event.preventDefault()
-              if (!editBody.trim()) return
+              const value = trimMentionValue(editBody, editMentions)
+              if (!value.body) return
               setBusy(true)
-              void onEdit(message, editBody.trim())
+              void onEdit(message, value.body, value.mentions)
                 .then(() => setEditing(false))
                 .finally(() => setBusy(false))
             }}
           >
-            <textarea
-              autoFocus
+            <MentionTextarea
+              label="Текст повідомлення"
               value={editBody}
+              mentions={editMentions}
+              candidateUrl={`/messages/threads/${encodeURIComponent(threadId)}/mention-candidates`}
+              autoFocus
+              rows={3}
               maxLength={8_000}
-              onChange={(event) => setEditBody(event.target.value)}
+              onChange={(body, mentions) => {
+                setEditBody(body)
+                setEditMentions(mentions)
+              }}
             />
-            <div>
+            <div className="message-bubble__edit-actions">
               <Button
                 type="button"
                 variant="ghost"
@@ -114,6 +129,7 @@ export function MessageBubble({
                 onClick={() => {
                   setEditing(false)
                   setEditBody(message.body)
+                  setEditMentions(editableMentions(message.body, message.mentions))
                 }}
               >
                 Скасувати
@@ -122,7 +138,7 @@ export function MessageBubble({
             </div>
           </form>
         ) : (
-          <p>{message.body}</p>
+          <p><MentionText body={message.body} mentions={message.mentions} /></p>
         )}
 
         {message.attachments.length > 0 && (
@@ -167,6 +183,8 @@ export function MessageBubble({
                     type="button"
                     onClick={() => {
                       setMenuOpen(false)
+                      setEditBody(message.body)
+                      setEditMentions(editableMentions(message.body, message.mentions))
                       setEditing(true)
                     }}
                   >

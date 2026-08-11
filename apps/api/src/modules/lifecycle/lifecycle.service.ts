@@ -3,13 +3,18 @@ import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
 interface StartInput { companyId?: string; employeeId: string; processType: 'ONBOARDING' | 'OFFBOARDING'; startAt: string; endAt?: string }
 
 @Injectable()
 export class LifecycleService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: ScopeService,
+    private readonly taskNumbers: TaskNumberAllocator,
+  ) {}
 
   async list(principal: AuthPrincipal, company?: string) {
     const rows = await this.prisma.lifecycleProcess.findMany({ where: { companyId: { in: this.scope.allowedCompanies(principal, company) } }, include: { steps: true }, orderBy: { updatedAt: 'desc' } })
@@ -39,16 +44,19 @@ export class LifecycleService {
       ['IT', 'Завершити сесії та доступи', principal.userId, 1],
       ['HR', 'Оформити фінальні документи', principal.userId, 2],
     ] as const
-    await this.prisma.$transaction(async (tx) => {
+    await this.taskNumbers.runInTransaction(this.prisma, async (tx, firstNumber) => {
       await tx.lifecycleProcess.create({ data: { id: processId, workspaceId: principal.workspaceId, companyId, employeeId: employee.id, processType: input.processType, templateVersion: 1, ownerId: principal.userId, startAt, endAt: input.endAt ? new Date(input.endAt) : null, status: 'IN_PROGRESS' } })
-      for (const [key, title, ownerId, offset] of definitions) {
+      for (const [index, [key, title, ownerId, offset]] of definitions.entries()) {
         const taskId = id('tsk')
+        const number = index === 0
+          ? firstNumber
+          : await this.taskNumbers.allocateAdditional(tx)
         await tx.task.create({
           data: {
             id: taskId,
             workspaceId: principal.workspaceId,
             companyId,
-            number: `TSK-${Date.now().toString().slice(-5)}${offset}`,
+            number,
             title,
             createdById: principal.userId,
             reporterId: principal.userId,

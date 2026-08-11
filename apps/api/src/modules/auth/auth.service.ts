@@ -156,15 +156,19 @@ export class AuthService {
     })
   }
 
-  async updateProfile(principal: AuthPrincipal, input: { displayName: string; jobTitle: string; contactEmail: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
+  async updateProfile(principal: AuthPrincipal, input: { contactEmail: string | null; phone: string | null; gender: 'FEMALE' | 'MALE' | 'OTHER' | null; birthDate: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
     try { Intl.DateTimeFormat('uk-UA', { timeZone: input.timezone }).format(new Date()) } catch { throw badRequest('timezone_invalid') }
     const user = await this.prisma.user.update({
       where: { id: principal.userId },
       data: {
-        ...input,
-        normalizedDisplayName: normalizeUserSearchValue(input.displayName),
+        contactEmail: input.contactEmail,
+        phone: input.phone?.trim() || null,
+        gender: input.gender,
+        birthDate: input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null,
+        timezone: input.timezone,
+        locale: input.locale,
       },
-      select: { displayName: true, jobTitle: true, contactEmail: true, timezone: true, locale: true },
+      select: { contactEmail: true, phone: true, gender: true, birthDate: true, timezone: true, locale: true },
     })
     await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'profile.updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     return user
@@ -225,6 +229,9 @@ export class AuthService {
       company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
       accountType: user.accountType,
       contactEmail: user.contactEmail,
+      phone: user.phone,
+      gender: user.gender as 'FEMALE' | 'MALE' | 'OTHER' | null,
+      birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null,
       timezone: user.timezone,
       locale: user.locale as 'uk-UA' | 'en-US',
       capabilities,

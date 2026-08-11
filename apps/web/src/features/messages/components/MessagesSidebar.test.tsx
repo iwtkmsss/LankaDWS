@@ -47,6 +47,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
     unreadOnly: false,
     query: '',
     debouncedQuery: '',
+    isComposing: false,
     searchResults: [],
     recommendations: [],
     loadingThreads: false,
@@ -57,6 +58,8 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
     hasMoreThreads: false,
     loadingMoreThreads: false,
     onQueryChange: vi.fn(),
+    onSearchCompositionStart: vi.fn(),
+    onSearchCompositionEnd: vi.fn(),
     onUnreadChange: vi.fn(),
     onSelectThread: vi.fn(),
     onStartDirect: vi.fn(),
@@ -81,12 +84,12 @@ describe('MessagesSidebar', () => {
     expect(screen.queryByRole('button', { name: /дзвін/i })).not.toBeInTheDocument()
   })
 
-  it('shows the two-character hint without entering the results-only state', () => {
+  it('enters the results-only state for one Unicode character', () => {
     renderSidebar({ query: 'м', debouncedQuery: 'м' })
 
-    expect(screen.getByRole('status')).toHaveTextContent('щонайменше 2 символи')
-    expect(screen.getByRole('button', { name: /Марко Литвин/ })).toBeInTheDocument()
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Марко Литвин/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Результати пошуку' })).toBeInTheDocument()
   })
 
   it('supports keyboard selection and Escape in the user-only results state', () => {

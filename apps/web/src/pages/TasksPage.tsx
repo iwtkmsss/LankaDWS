@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import type {
   GroupListResult,
   PageResult,
+  StructuredMentionInput,
   TaskActivityPage,
   TaskAttachmentView,
   TaskDetailView,
@@ -36,17 +37,25 @@ import {
   UserPlus,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
 import {
+  TaskDetailCustomization,
+  TaskDetailSection,
+  TaskDetailSections,
+  useTaskDetailPreference,
+} from '../features/tasks/detail/TaskDetailPreferences'
+import { MentionText } from '../shared/mentions/MentionRenderer'
+import { MentionTextarea } from '../shared/mentions/MentionTextarea'
+import { trimMentionValue } from '../shared/mentions/mentionText'
+import {
   Avatar,
   Button,
   Card,
-  Drawer,
   EmptyState,
   ErrorState,
   PageHeader,
@@ -66,6 +75,10 @@ interface Employee {
 
 export default function TasksPage() {
   const { taskId } = useParams()
+  return taskId ? <TaskDetailPage id={taskId} /> : <TasksListPage />
+}
+
+function TasksListPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const client = useQueryClient()
@@ -665,16 +678,24 @@ export default function TasksPage() {
           onDone={(id) => navigate(`/tasks/${id}`, { replace: true })}
         />
       )}
-      {taskId && <TaskDrawer key={taskId} id={taskId} onClose={() => navigate(`/tasks${location.search}`)} />}
     </div>
   )
 }
 
-function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+function TaskDetailPage({ id }: { id: string }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  return <TaskDetailSurface id={id} onBack={() => navigate(`/tasks${location.search}`)} />
+}
+
+function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const client = useQueryClient()
   const location = useLocation()
   const { user } = useAuth()
   const [comment, setComment] = useState('')
+  const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
+  const commentAttemptRef = useRef({ signature: '', key: '' })
   const [replyTo, setReplyTo] = useState<{
     id: string
     authorName: string
@@ -708,7 +729,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       || commentAttachmentIds.length
       || newItem.trim(),
     ),
-    onRequestClose: () => onClose(),
+    onRequestClose: onBack,
   })
   const statusErrorRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -720,6 +741,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryKey: ['task', id],
     queryFn: () => api<TaskDetailView>(`/tasks/${id}`),
   })
+  const detailPreference = useTaskDetailPreference()
   const employees = useQuery({
     queryKey: ['employees', 'task-form'],
     queryFn: () => api<{ items: Employee[] }>('/employees'),
@@ -735,6 +757,12 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: activityOpen,
   })
+  useEffect(() => {
+    setActivityOpen(
+      !detailPreference.value.hidden.includes('history')
+      && !detailPreference.value.collapsed.includes('history'),
+    )
+  }, [detailPreference.value.collapsed, detailPreference.value.hidden])
   const updateTask = useMutation({
     mutationFn: (input: {
       title: string
@@ -919,13 +947,20 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       body: string
       replyToCommentId: string | null
       attachmentIds: string[]
-    }) =>
-      api(`/tasks/${id}/comments`, {
+      mentions: StructuredMentionInput[]
+      key: string
+    }) => {
+      const { key, ...body } = input
+      return api(`/tasks/${id}/comments`, {
         method: 'POST',
-        body: jsonBody(input),
-      }),
+        headers: { 'idempotency-key': key },
+        body: jsonBody(body),
+      })
+    },
     onSuccess: () => {
       setComment('')
+      setCommentMentions([])
+      commentAttemptRef.current = { signature: '', key: '' }
       setReplyTo(null)
       setCommentAttachmentIds([])
       setContentMessage('')
@@ -1033,9 +1068,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   })
   return (
     <>
-      <Drawer
+      <TaskDetailLayout
         title={query.data?.number ?? 'Завдання'}
-        onRequestClose={closeGuard.requestClose}
+        onRequestClose={() => closeGuard.requestClose('close-button')}
         footer={
           query.data?.canEdit && (
             <div className="drawer-actions">
@@ -1281,6 +1316,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <dd>{query.data.creator?.displayName}</dd>
             </div>
           </dl>
+          <TaskDetailCustomization controller={detailPreference} />
+          <TaskDetailSections controller={detailPreference}>
+          <TaskDetailSection id="personal" label="Для мене">
           <section className="task-personal" aria-labelledby={`task-personal-${id}`}>
             <header>
               <div>
@@ -1382,6 +1420,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <p className="task-personal-message" aria-live="polite">{personalMessage}</p>
             )}
           </section>
+          </TaskDetailSection>
+          <TaskDetailSection id="participants" label="Учасники">
           <section className="task-participants" aria-labelledby={`task-participants-${id}`}>
             <header>
               <div>
@@ -1493,7 +1533,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <p className="task-participant-message" aria-live="polite">{participantMessage}</p>
             )}
           </section>
+          </TaskDetailSection>
           {!query.data.parentTaskId && (
+            <TaskDetailSection id="subtasks" label="Підзадачі">
             <section className="task-subtasks" aria-labelledby={`task-subtasks-${id}`}>
               <header>
                 <div>
@@ -1636,7 +1678,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 </form>
               )}
             </section>
+            </TaskDetailSection>
           )}
+          <TaskDetailSection id="checklist" label="Контрольний список">
           <section>
             <h4>Контрольний список</h4>
             {query.data.checklist?.length ? (
@@ -1682,9 +1726,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               </form>
             )}
           </section>
-          {query.data.canEdit && !query.data.parentTaskId && <section>
-            <details>
-              <summary>Повторення завдання</summary>
+          </TaskDetailSection>
+          {query.data.canEdit && !query.data.parentTaskId && <TaskDetailSection id="recurrence" label="Повторення завдання"><section>
+              <h4>Повторення завдання</h4>
               <form
                 className="recurrence-form"
                 onChange={() => markDirty('recurrence')}
@@ -1724,11 +1768,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 </Button>
                 {recurrenceMessage && <p className="success-note">{recurrenceMessage}</p>}
               </form>
-            </details>
-          </section>}
+          </section></TaskDetailSection>}
+          <TaskDetailSection id="materials" label="Матеріали">
           <section className="task-materials">
-            <details>
-              <summary>
+              <header>
                 <span>
                   <Paperclip size={17} />
                   Матеріали
@@ -1736,7 +1779,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 <small>
                   {query.data.attachments.length + query.data.sourceLinks.length || 'Немає'}
                 </small>
-              </summary>
+              </header>
               <div className="task-materials__body">
                 {query.data.sourceLinks.length > 0 && (
                   <div className="task-source-links">
@@ -1798,17 +1841,15 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   <p className="task-content-message" aria-live="polite">{contentMessage}</p>
                 )}
               </div>
-            </details>
           </section>
+          </TaskDetailSection>
+          <TaskDetailSection id="history" label="Історія змін">
           <section className="task-history">
-            <details
-              onToggle={(event) => setActivityOpen(event.currentTarget.open)}
-            >
-              <summary>
+              <header>
                 <History size={17} />
-                Історія змін
-              </summary>
-              <div>
+                <h4>Історія змін</h4>
+              </header>
+              <div className="task-history__body">
                 {activity.isLoading ? (
                   <Skeleton rows={3} />
                 ) : activity.isError ? (
@@ -1844,8 +1885,9 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   <p className="muted">Історія ще порожня.</p>
                 )}
               </div>
-            </details>
           </section>
+          </TaskDetailSection>
+          <TaskDetailSection id="discussion" label="Обговорення">
           <section className="task-discussion" aria-labelledby={`task-discussion-${id}`}>
             <header>
               <div>
@@ -1876,7 +1918,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                           <span>{item.replyPreview.body}</span>
                         </blockquote>
                       )}
-                      <p>{item.body}</p>
+                      <p><MentionText body={item.body} mentions={item.mentions} /></p>
                       {item.attachments.length > 0 && (
                         <div className="task-comment-attachments">
                           {item.attachments.map((attachment) => (
@@ -1911,11 +1953,27 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               className="task-comment-form"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (comment.trim()) {
-                  post.mutate({
-                    body: comment,
+                const trimmed = trimMentionValue(comment, commentMentions)
+                if (trimmed.body) {
+                  const signature = JSON.stringify({
+                    taskId: id,
+                    body: trimmed.body,
+                    mentions: trimmed.mentions,
                     replyToCommentId: replyTo?.id ?? null,
                     attachmentIds: commentAttachmentIds,
+                  })
+                  if (commentAttemptRef.current.signature !== signature) {
+                    commentAttemptRef.current = {
+                      signature,
+                      key: idempotencyKey('task-comment'),
+                    }
+                  }
+                  post.mutate({
+                    body: trimmed.body,
+                    mentions: trimmed.mentions,
+                    replyToCommentId: replyTo?.id ?? null,
+                    attachmentIds: commentAttachmentIds,
+                    key: commentAttemptRef.current.key,
                   })
                 }
               }}
@@ -1936,11 +1994,18 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   </button>
                 </div>
               )}
-              <textarea
+              <MentionTextarea
+                label="Коментар до завдання"
                 value={comment}
-                onChange={(event) => setComment(event.target.value)}
+                mentions={commentMentions}
+                candidateUrl={`/tasks/${id}/mention-candidates`}
+                onChange={(value, mentions) => {
+                  setComment(value)
+                  setCommentMentions(mentions)
+                }}
                 rows={2}
                 maxLength={4000}
+                visuallyHiddenLabel
                 placeholder={replyTo ? 'Напишіть коротку відповідь…' : 'Додати корисний коментар…'}
               />
               {commentAttachmentIds.length > 0 && (
@@ -2014,11 +2079,43 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               )}
             </form>
           </section>
+          </TaskDetailSection>
+          </TaskDetailSections>
         </div>
         )}
-      </Drawer>
+      </TaskDetailLayout>
       <UnsavedChangesDialog guard={closeGuard} />
     </>
+  )
+}
+
+function TaskDetailLayout({
+  title,
+  onRequestClose,
+  footer,
+  children,
+}: {
+  title: string
+  onRequestClose: () => void
+  footer?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div className="task-detail-page">
+      <PageHeader
+        title={title}
+        action={
+          <div className="task-detail-page__actions">
+            {footer}
+            <Button type="button" variant="secondary" onClick={onRequestClose}>
+              <ArrowLeft size={16} />
+              До списку
+            </Button>
+          </div>
+        }
+      />
+      <Card className="task-detail-surface">{children}</Card>
+    </div>
   )
 }
 

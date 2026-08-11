@@ -9,7 +9,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
   configureApp(app)
   app.enableShutdownHooks()
-  await app.listen(config.PORT)
+  await app.listen(config.PORT, config.HOST)
 }
 
 void bootstrap()

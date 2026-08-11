@@ -312,6 +312,8 @@ model User {
   lastName                     String                         @default("")
   middleName                   String?
   phone                        String?
+  gender                       String?
+  birthDate                    DateTime?
   displayName                  String
   normalizedDisplayName        String
   username                     String
@@ -365,6 +367,7 @@ model User {
   taskFollowers                TaskFollower[]
   taskStates                   TaskUserState[]
   taskReminders                TaskReminder[]
+  uiPreferences               UserUiPreference[]
 
   @@unique([workspaceId, normalizedUsername])
   @@index([workspaceId, isActive])
@@ -715,6 +718,22 @@ model FeedMention {
   user      User     @relation("FeedMentionUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, commentId, userId])
+  @@index([userId, createdAt])
+}
+
+model ContentMention {
+  id          String   @id
+  workspaceId String
+  sourceType  String
+  sourceId    String
+  userId      String
+  start       Int
+  end         Int
+  label       String
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceType, sourceId, start])
+  @@index([workspaceId, sourceType, sourceId, start])
   @@index([userId, createdAt])
 }
 
@@ -1123,6 +1142,12 @@ model ReauthChallenge {
   @@index([sessionId, purpose, expiresAt])
 }
 
+model TaskNumberSequence {
+  scope      String   @id
+  lastNumber BigInt
+  updatedAt  DateTime @updatedAt
+}
+
 model Task {
   id                     String              @id
   workspaceId            String
@@ -1165,6 +1190,7 @@ model Task {
   recurrence             TaskRecurrence?     @relation("TaskOccurrences", fields: [recurrenceId], references: [id], onDelete: SetNull)
   recurrenceTemplate     TaskRecurrence?     @relation("TaskRecurrenceTemplate")
   timeEntries            TimeEntry[]
+  legacyNumbers          TaskNumberAlias[]
 
   @@unique([recurrenceId, recurrenceOccurrenceAt])
   @@index([companyId, status, dueAt, id])
@@ -1174,6 +1200,17 @@ model Task {
   @@index([reporterId, status, dueAt])
   @@index([createdById, updatedAt])
   @@index([recurrenceId, recurrenceOccurrenceAt])
+}
+
+model TaskNumberAlias {
+  id           String   @id
+  taskId       String
+  legacyNumber String   @unique
+  createdAt    DateTime @default(now())
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, legacyNumber])
+  @@index([taskId])
 }
 
 model TaskParticipant {
@@ -1742,6 +1779,22 @@ model SavedView {
   updatedAt  DateTime @updatedAt
 
   @@unique([userId, module, name])
+}
+
+model UserUiPreference {
+  id            String   @id
+  userId        String
+  module        String
+  key           String
+  schemaVersion Int
+  valueJson     String
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, key])
+  @@index([userId, updatedAt])
 }
 
 model AuditEvent {

@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   addChatParticipantSchema,
+  chatMentionCandidatesQuerySchema,
   chatMessagePageQuerySchema,
   chatMessageSearchQuerySchema,
   chatThreadListQuerySchema,
@@ -67,6 +68,17 @@ export class MessagesController {
 
   @Get('threads/:id')
   detail(@Req() request: BertRequest, @Param('id') id: string) { return this.messages.detail(principalFrom(request), id) }
+
+  @Get('threads/:id/mention-candidates')
+  mentionCandidates(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = chatMentionCandidatesQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_mention_query_invalid')
+    return this.messages.mentionCandidates(principalFrom(request), id, parsed.data)
+  }
 
   @Get('threads/:id/messages')
   messagesPage(

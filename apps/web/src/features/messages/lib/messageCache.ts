@@ -14,6 +14,8 @@ function isMatchingOptimisticMessage(
   return candidate.authorId === serverMessage.authorId
     && candidate.body === serverMessage.body
     && candidate.replyToId === serverMessage.replyToId
+    && candidate.mentions.map((mention) => `${mention.userId}:${mention.start}:${mention.end}`).join('|')
+      === serverMessage.mentions.map((mention) => `${mention.userId}:${mention.start}:${mention.end}`).join('|')
     && candidate.attachments.map((attachment) => attachment.id).join(':')
       === serverMessage.attachments.map((attachment) => attachment.id).join(':')
     && Number.isFinite(candidateCreatedAt)

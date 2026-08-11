@@ -44,8 +44,6 @@ test('messages workspace covers user-only search, direct history and real chat a
 
   const search = page.getByRole('combobox', { name: 'Пошук користувачів' })
   await search.fill('о')
-  await expect(page.getByRole('status')).toContainText('щонайменше 2 символи')
-  await search.fill('оЛеНА')
   await expect(page.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
   await expect(page.locator('.messages-thread-list')).toHaveCount(0)
   await screenshot(page, testInfo.project.name, 'user-search')
