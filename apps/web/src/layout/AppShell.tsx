@@ -27,7 +27,7 @@ import {
 } from 'lucide-react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import type { RouteMeta } from '../app/routes'
-import { navigationRoutes, routes } from '../app/routes'
+import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes } from '../app/routes'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
@@ -78,8 +78,11 @@ export function AppShell({ children }: PropsWithChildren) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
   const sidebarNavRef = useRef<HTMLElement>(null)
+  const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
+  const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
   const nav = useMemo(
     () => navigationRoutes(user?.accountType === 'ADMIN', canUseCapability),
@@ -135,9 +138,16 @@ export function AppShell({ children }: PropsWithChildren) {
   const overflowHasActiveRoute = overflowRoutes.some((route) =>
     location.pathname === route.path
     || (route.path !== '/admin' && location.pathname.startsWith(`${route.path}/`)))
-  const mobileNavRoutes = nav
-    .filter((route) => route.mobileOrder !== undefined)
-    .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
+  const mobilePrimaryRoutes = mobileNavigation.primary.flatMap((path) => {
+    const route = nav.find((candidate) => candidate.path === path)
+    return route ? [route] : []
+  })
+  const mobileMoreRoutes = mobileNavigation.more.flatMap((path) => {
+    const route = nav.find((candidate) => candidate.path === path)
+    return route ? [route] : []
+  })
+  const mobileMoreHasActiveRoute = mobileMoreRoutes.some((route) =>
+    location.pathname === route.path || location.pathname.startsWith(`${route.path}/`))
   const isMessagesRoute = location.pathname === '/messages'
     || location.pathname.startsWith('/messages/')
   const isMessageThreadRoute = location.pathname.startsWith('/messages/')
@@ -249,7 +259,16 @@ export function AppShell({ children }: PropsWithChildren) {
 
   useEffect(() => {
     setMoreOpen(false)
+    setMobileMoreOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return
+    const frame = window.requestAnimationFrame(() => {
+      mobileMoreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    })
+    return () => { window.cancelAnimationFrame(frame) }
+  }, [mobileMoreOpen])
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
@@ -260,6 +279,7 @@ export function AppShell({ children }: PropsWithChildren) {
         setProfileOpen(false)
         setCreateOpen(false)
         setMoreOpen(false)
+        setMobileMoreOpen(false)
       }
     }
     window.addEventListener('keydown', handle)
@@ -526,10 +546,11 @@ export function AppShell({ children }: PropsWithChildren) {
           onClose={() => setPaletteOpen(false)}
         />
       )}
+      {mobileMoreOpen && <button className="bottom-nav__scrim" aria-label="Закрити додаткову навігацію" onClick={() => setMobileMoreOpen(false)} />}
       <nav className="bottom-nav" aria-label="Мобільна навігація">
-        {mobileNavRoutes.map((route) => {
+        {mobilePrimaryRoutes.map((route) => {
           const Icon = route.navIcon ?? Gauge
-          const title = route.title
+          const title = mobileNavigationLabels[route.path] ?? route.title
           return (
             <NavLink key={route.path} to={scopedPath(route.path)}>
               <Icon size={19} />
@@ -542,10 +563,52 @@ export function AppShell({ children }: PropsWithChildren) {
             </NavLink>
           )
         })}
-        <button onClick={() => setMobileNav(true)}>
+        <button
+          ref={mobileMoreTriggerRef}
+          type="button"
+          className={mobileMoreHasActiveRoute ? 'active' : ''}
+          aria-haspopup="menu"
+          aria-expanded={mobileMoreOpen}
+          aria-controls="mobile-more-menu"
+          onClick={() => setMobileMoreOpen((value) => !value)}
+        >
           <Menu size={19} />
           <span>Ще</span>
         </button>
+        {mobileMoreOpen && (
+          <div
+            ref={mobileMoreMenuRef}
+            id="mobile-more-menu"
+            className="bottom-nav__menu"
+            role="menu"
+            aria-label="Ще"
+            onKeyDown={(event) => {
+              const items = Array.from(mobileMoreMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+              const index = items.indexOf(document.activeElement as HTMLElement)
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                setMobileMoreOpen(false)
+                mobileMoreTriggerRef.current?.focus()
+              } else if (items.length > 0 && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                event.preventDefault()
+                const nextIndex = event.key === 'Home' ? 0
+                  : event.key === 'End' ? items.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+                items[nextIndex]?.focus()
+              }
+            }}
+          >
+            {mobileMoreRoutes.map((route) => {
+              const Icon = route.navIcon ?? Gauge
+              return (
+                <NavLink key={route.path} to={scopedPath(route.path)} role="menuitem" onClick={() => setMobileMoreOpen(false)}>
+                  <Icon size={18} />
+                  <span>{mobileNavigationLabels[route.path] ?? route.title}</span>
+                </NavLink>
+              )
+            })}
+          </div>
+        )}
       </nav>
     </div>
   )
@@ -564,20 +627,7 @@ const paletteTypeLabels: Record<string, string> = {
   CREATE: 'Створити',
   QUICK: 'Швидкі переходи',
   TASK: 'Завдання',
-  GROUP: 'Групи',
-  CHAT: 'Чати',
-  DOCUMENT: 'Файли',
   EMPLOYEE: 'Працівники',
-  EVENT: 'Календар',
-  ARTICLE: 'База знань',
-}
-
-function paletteSnippet(item: PaletteItem) {
-  if (item.type !== 'EVENT' || !item.safeSnippet) return item.safeSnippet
-  const date = new Date(item.safeSnippet)
-  return Number.isNaN(date.getTime())
-    ? item.safeSnippet
-    : new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
 function CommandPalette({
@@ -701,7 +751,7 @@ function CommandPalette({
                 open(items[activeIndex])
               }
             }}
-            placeholder="Завдання, люди, групи, чати, файли…"
+            placeholder="Завдання або люди…"
             aria-label="Знайти або перейти"
           />
           <IconButton label="Закрити пошук" onClick={onClose}>
@@ -718,7 +768,7 @@ function CommandPalette({
     >
       <div className="palette__results" ref={paletteRef}>
         {loading ? (
-          <p>Шукаємо у доступних розділах…</p>
+          <p>Шукаємо доступні завдання та людей…</p>
         ) : items.length ? (
           <ul role="listbox" aria-label={hasSearchQuery ? 'Результати пошуку' : 'Швидкі переходи'}>
             {items.map((item, index) => {
@@ -736,7 +786,7 @@ function CommandPalette({
                     onClick={() => open(item)}
                   >
                     <i>{itemIcon(item.type, item.route)}</i>
-                    <span><strong>{item.title}</strong><small>{paletteSnippet(item)}</small></span>
+                    <span><strong>{item.title}</strong><small>{item.safeSnippet}</small></span>
                   </button>
                 </li>
               )

@@ -133,9 +133,13 @@ kbd { border: 1px solid var(--line); border-radius: 5px; background: var(--surfa
   .main-content { padding: 18px 12px 82px; }
   .main-content--messages { height: calc(100dvh - var(--topbar)); padding: 0; }
   .app-frame--messages-thread .bottom-nav { display: none; }
-  .bottom-nav { position: fixed; z-index: 40; right: 8px; bottom: 8px; left: 8px; display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .95); padding: 5px; box-shadow: 0 8px 30px rgba(13, 22, 45, .16); backdrop-filter: blur(12px); }
-  .bottom-nav a, .bottom-nav button { position: relative; display: grid; min-width: 0; place-items: center; gap: 2px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-400); padding: 5px 1px; font-size: 9px; }
-  .bottom-nav a.active { background: var(--cobalt-50); color: var(--cobalt-700); }
+  .bottom-nav { position: fixed; z-index: 40; right: 8px; bottom: 8px; left: 8px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .95); padding: 5px; box-shadow: 0 8px 30px rgba(13, 22, 45, .16); backdrop-filter: blur(12px); }
+  .bottom-nav a, .bottom-nav button { position: relative; display: grid; min-width: 0; min-height: 44px; place-items: center; gap: 2px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-400); padding: 5px 1px; font-size: clamp(8px, 2.4vw, 10px); line-height: 1.15; text-align: center; white-space: nowrap; }
+  .bottom-nav a.active, .bottom-nav button.active { background: var(--cobalt-50); color: var(--cobalt-700); }
+  .bottom-nav__scrim { position: fixed; z-index: 39; inset: 0; border: 0; background: transparent; }
+  .bottom-nav__menu { position: fixed; z-index: 41; right: 8px; bottom: 68px; left: 8px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, .98); padding: 5px; box-shadow: 0 8px 30px rgba(13, 22, 45, .16); }
+  .bottom-nav__menu a { display: grid; min-height: 44px; place-items: center; gap: 3px; border-radius: 8px; color: var(--ink-600); padding: 5px; font-size: 10px; line-height: 1.15; text-align: center; }
+  .bottom-nav__menu a.active, .bottom-nav__menu a:hover { background: var(--cobalt-50); color: var(--cobalt-700); }
   .bottom-nav__badge { position: absolute; top: 1px; left: calc(50% + 7px); display: grid; min-width: 16px; height: 16px; place-items: center; border: 2px solid #fff; border-radius: 999px; background: var(--cobalt-600); color: #fff; padding: 0 3px; font-size: 7px; line-height: 1; }
   .page-header { min-height: auto; align-items: center; margin-bottom: 15px; }
   .page-header > :last-child:not(:first-child) { flex: 0 0 auto; }

@@ -13,12 +13,12 @@ export function LoginPage() {
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  if (auth.state === 'authenticated') return <Navigate to="/overview" replace />
+  if (auth.state === 'authenticated') return <Navigate to="/" replace />
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(''); setBusy(true)
     try {
       const step = await auth.login({ username, password })
-      navigate(step === 'AUTHENTICATED' ? '/overview' : step === 'FIRST_LOGIN' ? '/first-login' : step === 'TWO_FACTOR' ? '/access/challenge' : '/access/setup', { replace: true })
+      navigate(step === 'AUTHENTICATED' ? '/' : step === 'FIRST_LOGIN' ? '/first-login' : step === 'TWO_FACTOR' ? '/access/challenge' : '/access/setup', { replace: true })
     } catch { setError('Перевірте нікнейм і пароль та спробуйте ще раз.') } finally { setBusy(false) }
   }
   return <main className="auth-page">
@@ -43,8 +43,8 @@ export function RestrictedAccessPage({ mode }: { mode: 'first-login' | 'password
     try { await api('/auth/first-login/password', { method: 'POST', body: jsonBody({ newPassword: password, confirmation }) }); navigate('/password-changed', { replace: true }) } catch { setError('Пароль не відповідає політиці або значення не збігаються.') }
   }
   async function startSetup() { const data = await api<{ secret: string; uri: string }>('/auth/2fa/setup', { method: 'POST' }); setSetup(data) }
-  async function confirm(event: FormEvent) { event.preventDefault(); try { await api('/auth/2fa/confirm', { method: 'POST', body: jsonBody({ code }) }); await refresh(); navigate('/overview', { replace: true }) } catch { setError('Код не підтверджено. Перевірте час на пристрої.') } }
-  async function challenge(event: FormEvent) { event.preventDefault(); try { await api('/auth/2fa/challenge', { method: 'POST', body: jsonBody({ code }) }); await refresh(); navigate('/overview', { replace: true }) } catch { setError('Код не підтверджено. Перевірте час на пристрої.') } }
+  async function confirm(event: FormEvent) { event.preventDefault(); try { await api('/auth/2fa/confirm', { method: 'POST', body: jsonBody({ code }) }); await refresh(); navigate('/', { replace: true }) } catch { setError('Код не підтверджено. Перевірте час на пристрої.') } }
+  async function challenge(event: FormEvent) { event.preventDefault(); try { await api('/auth/2fa/challenge', { method: 'POST', body: jsonBody({ code }) }); await refresh(); navigate('/', { replace: true }) } catch { setError('Код не підтверджено. Перевірте час на пристрої.') } }
   if (mode === 'password-changed') return <AccessCard icon={<CheckCircle2 />} title="Пароль змінено" text="Тимчасову сесію завершено. Увійдіть ще раз із власним паролем."><Button onClick={() => navigate('/login', { replace: true })}>До входу</Button></AccessCard>
   if (mode === 'help') return <AccessCard variant="help" icon={<KeyRound />} title="Допомога з доступом" text="У BERT CRM немає відновлення через email. Зверніться до уповноваженого адміністратора організації — він запустить контрольоване відновлення."><div className="access-card-actions"><Button onClick={() => navigate('/login')}>До входу</Button></div></AccessCard>
   if (mode === 'challenge') return <AccessCard icon={<ShieldCheck />} title="Підтвердьте вхід" text="Введіть одноразовий код із застосунку-автентифікатора."><form onSubmit={challenge} className="compact-form"><label>6-значний код<input autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required /></label>{error && <div className="form-error">{error}</div>}<Button>Підтвердити</Button></form></AccessCard>

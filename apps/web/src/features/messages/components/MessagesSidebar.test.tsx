@@ -63,7 +63,7 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
     onUnreadChange: vi.fn(),
     onSelectThread: vi.fn(),
     onStartDirect: vi.fn(),
-    onOpenGroup: vi.fn(),
+    onOpenCompose: vi.fn(),
     onLoadMore: vi.fn(),
     onRetryThreads: vi.fn(),
     ...overrides,
@@ -72,13 +72,13 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
 }
 
 describe('MessagesSidebar', () => {
-  it('keeps the local group action icon-only and renders only real tabs', () => {
+  it('opens the explicit new-chat composer and renders only real tabs', () => {
     const { props } = renderSidebar()
 
-    const groupButton = screen.getByRole('button', { name: 'Нова група' })
-    expect(groupButton).toHaveTextContent('')
-    fireEvent.click(groupButton)
-    expect(props.onOpenGroup).toHaveBeenCalledOnce()
+    const newChatButton = screen.getByRole('button', { name: 'Новий чат' })
+    expect(newChatButton).toHaveTextContent('Новий чат')
+    fireEvent.click(newChatButton)
+    expect(props.onOpenCompose).toHaveBeenCalledOnce()
     expect(screen.getAllByRole('tab')).toHaveLength(2)
     expect(screen.queryByRole('tab', { name: /Згадки/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /дзвін/i })).not.toBeInTheDocument()

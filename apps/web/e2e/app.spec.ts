@@ -6,9 +6,46 @@ async function login(page: Page, username = 'maria') {
   await page.getByLabel('Нікнейм').fill(username)
   await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
-  await expect(page).toHaveURL(/\/overview$/)
-  await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/feed$/)
 }
+
+test('home landing follows FEED capability while explicit overview stays addressable', async ({ page, request }) => {
+  await login(page)
+  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/feed$/)
+  await page.goto('/overview')
+  await expect(page).toHaveURL(/\/overview$/)
+
+  const adminLogin = await request.post('/api/v1/auth/login', {
+    data: { username: 'dmytro', password: 'BertDemoPassphrase2026!' },
+  })
+  expect(adminLogin.ok()).toBeTruthy()
+  const csrfToken = (await adminLogin.json() as { csrfToken: string }).csrfToken
+  const capabilities = await request.get('/api/v1/admin/organization/capabilities')
+  const feed = (await capabilities.json() as { items: Array<{ code: string; enabled: boolean; version: number }> }).items
+    .find((capability) => capability.code === 'FEED')
+  expect(feed).toBeDefined()
+
+  await request.patch('/api/v1/admin/organization/capabilities/FEED', {
+    data: { enabled: false, expectedVersion: feed!.version },
+    headers: { 'x-csrf-token': csrfToken },
+  })
+
+  try {
+    await page.context().clearCookies()
+    await page.goto('/login')
+    await page.getByLabel('Нікнейм').fill('maria')
+    await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+    await page.getByRole('button', { name: 'Увійти' }).click()
+    await expect(page).toHaveURL(/\/overview$/)
+  } finally {
+    await request.patch('/api/v1/admin/organization/capabilities/FEED', {
+      data: { enabled: feed!.enabled, expectedVersion: feed!.version + 1 },
+      headers: { 'x-csrf-token': csrfToken },
+    })
+  }
+})
 
 async function createTaskThroughModal(
   page: Page,
@@ -99,6 +136,14 @@ test('command palette keeps canonical create actions ahead of results', async ({
   await login(page, 'maria')
   await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
   const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
+  await palette.getByRole('textbox').fill('Ｍ')
+  await expect(palette.getByRole('option', { name: /Марія Іваненко.*@maria/ })).toBeVisible()
+  await expect(palette.locator('.palette__group')).toHaveText(['Працівники'])
+
+  await palette.getByRole('textbox').fill('TSK-2401')
+  await expect(palette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard.*№2401/ })).toBeVisible()
+  await expect(palette.locator('.palette__group')).toHaveText(['Завдання'])
+
   await palette.getByRole('textbox').fill('завдання')
   await expect(palette.getByText('Створити', { exact: true })).toBeVisible()
   await palette.getByRole('option', { name: /Нове завдання/ }).click()
@@ -362,6 +407,79 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveClass(/active/)
   await page.getByRole('button', { name: 'Розгорнути бічну панель' }).click()
   await expect(page.getByRole('button', { name: 'Згорнути бічну панель' })).toBeVisible()
+})
+
+test('approved mobile footer keeps its order, overflow and capability gates accessible', async ({ page, request }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'The approved footer is mobile-only.')
+  await login(page)
+
+  for (const width of [320, 375, 390, 412]) {
+    await page.setViewportSize({ width, height: 820 })
+    await page.goto('/feed')
+    const footer = page.getByRole('navigation', { name: 'Мобільна навігація' })
+    await expect(footer).toBeVisible()
+    await expect.poll(() => footer.locator(':scope > a, :scope > button').evaluateAll((elements) =>
+      elements.map((element) => element.querySelector('span')?.textContent))).toEqual([
+      'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Ще',
+    ])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    for (const control of await footer.locator(':scope > a, :scope > button').all()) {
+      expect((await control.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    }
+  }
+
+  const footer = page.getByRole('navigation', { name: 'Мобільна навігація' })
+  await footer.getByRole('link', { name: 'Завдання', exact: true }).click()
+  await expect(page).toHaveURL(/\/tasks$/)
+  await expect(footer.getByRole('link', { name: 'Завдання', exact: true })).toHaveClass(/active/)
+
+  const more = footer.getByRole('button', { name: 'Ще' })
+  await more.click()
+  const menu = page.getByRole('menu', { name: 'Ще' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Календар', 'Співробітники', 'Огляд'])
+  await expect(menu.getByRole('menuitem').first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem').nth(1)).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(more).toBeFocused()
+
+  await more.click()
+  await menu.getByRole('menuitem', { name: 'Огляд', exact: true }).click()
+  await expect(page).toHaveURL(/\/overview$/)
+  await expect(more).toHaveClass(/active/)
+
+  const adminLogin = await request.post('/api/v1/auth/login', {
+    data: { username: 'dmytro', password: 'BertDemoPassphrase2026!' },
+  })
+  const csrfToken = (await adminLogin.json() as { csrfToken: string }).csrfToken
+  const capabilities = await request.get('/api/v1/admin/organization/capabilities')
+  const feed = (await capabilities.json() as { items: Array<{ code: string; enabled: boolean; version: number }> }).items
+    .find((capability) => capability.code === 'FEED')
+  expect(feed).toBeDefined()
+  await request.patch('/api/v1/admin/organization/capabilities/FEED', {
+    data: { enabled: false, expectedVersion: feed!.version },
+    headers: { 'x-csrf-token': csrfToken },
+  })
+
+  try {
+    await page.context().clearCookies()
+    await page.goto('/login')
+    await page.getByLabel('Нікнейм').fill('maria')
+    await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+    await page.getByRole('button', { name: 'Увійти' }).click()
+    await expect(page).toHaveURL(/\/overview$/)
+    await expect.poll(() => footer.locator(':scope > a, :scope > button').evaluateAll((elements) =>
+      elements.map((element) => element.querySelector('span')?.textContent))).toEqual(['Завдання', 'Чат', 'Диск', 'Ще'])
+    await expect(footer.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveCount(0)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  } finally {
+    await request.patch('/api/v1/admin/organization/capabilities/FEED', {
+      data: { enabled: feed!.enabled, expectedVersion: feed!.version + 1 },
+      headers: { 'x-csrf-token': csrfToken },
+    })
+  }
 })
 
 test('unknown route preserves URL and renders branded 404', async ({ page }) => {

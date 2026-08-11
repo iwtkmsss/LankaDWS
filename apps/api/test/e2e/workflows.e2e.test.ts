@@ -3039,6 +3039,108 @@ describe('BERT CRM API workflows', () => {
       .expect(403);
   });
 
+  it('limits global search to permission-safe people and tasks from one Unicode symbol', async () => {
+    const prisma = app.get(PrismaService);
+    const maria = await login('maria');
+    const olena = await login('olena');
+    const dmytro = await login('dmytro');
+    const suffix = Date.now().toString(36);
+    const numberSeed = Date.now().toString();
+    const roleCanaryId = `tsk_search_role_${suffix}`;
+    const groupCanaryId = `tsk_search_group_${suffix}`;
+    const roleCanaryTitle = `S6-role-canary-${suffix}`;
+    const groupCanaryTitle = `S6-group-canary-${suffix}`;
+
+    await prisma.task.create({
+      data: {
+        id: roleCanaryId,
+        workspaceId: 'ws_bert',
+        companyId: 'cmp_bert_ua',
+        number: `91${numberSeed}`,
+        title: roleCanaryTitle,
+        createdById: 'usr_olena',
+        reporterId: 'usr_olena',
+        participants: {
+          create: {
+            id: `tpart_search_role_${suffix}`,
+            userId: 'usr_olena',
+            role: 'RESPONSIBLE',
+            addedById: 'usr_olena',
+          },
+        },
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: groupCanaryId,
+        workspaceId: 'ws_bert',
+        companyId: 'cmp_bert_ua',
+        groupId: 'grp_people_private',
+        number: `92${numberSeed}`,
+        title: groupCanaryTitle,
+        createdById: 'usr_olena',
+        reporterId: 'usr_olena',
+        participants: {
+          create: {
+            id: `tpart_search_group_${suffix}`,
+            userId: 'usr_maria',
+            role: 'WATCHER',
+            addedById: 'usr_olena',
+          },
+        },
+      },
+    });
+
+    try {
+      const oneSymbol = await maria.agent
+        .get(`/api/v1/search?q=${encodeURIComponent('Ｍ')}`)
+        .expect(200);
+      expect(oneSymbol.body.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'EMPLOYEE', id: 'usr_maria' }),
+      ]));
+      expect(oneSymbol.body.items.every((item: { type: string }) =>
+        item.type === 'EMPLOYEE' || item.type === 'TASK')).toBe(true);
+
+      const username = await maria.agent.get('/api/v1/search?q=olen').expect(200);
+      expect(username.body.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: 'EMPLOYEE', id: 'usr_olena' }),
+      ]));
+
+      for (const query of ['2401', 'TSK-2401']) {
+        const taskNumber = await maria.agent
+          .get(`/api/v1/search?q=${encodeURIComponent(query)}`)
+          .expect(200);
+        expect(taskNumber.body.items).toEqual(expect.arrayContaining([
+          expect.objectContaining({ type: 'TASK', id: 'tsk_design' }),
+        ]));
+      }
+
+      const formerArticleResult = await maria.agent
+        .get(`/api/v1/search?q=${encodeURIComponent('Безпечна робота з даними')}`)
+        .expect(200);
+      expect(formerArticleResult.body.items).toEqual([]);
+
+      const unrelatedTask = await olena.agent.get('/api/v1/search?q=dashboard').expect(200);
+      expect(unrelatedTask.body.items).toEqual([]);
+
+      for (const title of [roleCanaryTitle, groupCanaryTitle]) {
+        const hidden = await maria.agent
+          .get(`/api/v1/search?q=${encodeURIComponent(title)}`)
+          .expect(200);
+        expect(hidden.body.items).toEqual([]);
+
+        const adminVisible = await dmytro.agent
+          .get(`/api/v1/search?q=${encodeURIComponent(title)}`)
+          .expect(200);
+        expect(adminVisible.body.items).toEqual([
+          expect.objectContaining({ type: 'TASK' }),
+        ]);
+      }
+    } finally {
+      await prisma.task.deleteMany({ where: { id: { in: [roleCanaryId, groupCanaryId] } } });
+    }
+  });
+
   it('supports canonical structured Feed mentions without weakening audience access', async () => {
     const prisma = app.get(PrismaService);
     await prisma.companyCapability.update({

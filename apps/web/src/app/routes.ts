@@ -14,7 +14,6 @@ export interface RouteMeta {
   nav?: boolean
   navGroup?: 'primary' | 'communication' | 'company' | 'management' | 'administration'
   navOrder?: number
-  mobileOrder?: number
   navIcon?: LucideIcon
   capability?: OrganizationCapabilityCode
   releaseState?: 'planned' | 'released'
@@ -35,11 +34,11 @@ const Organization = lazy(() => import('../pages/OrganizationPage'))
 const Companies = lazy(() => import('../pages/CompaniesPage'))
 
 export const routes: RouteMeta[] = [
-  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 1, mobileOrder: 1, navIcon: Gauge, component: Overview },
-  { path: '/tasks', title: 'Завдання', nav: true, navGroup: 'management', navOrder: 1, mobileOrder: 2, navIcon: CheckSquare2, component: Tasks },
+  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 1, navIcon: Gauge, component: Overview },
+  { path: '/tasks', title: 'Завдання', nav: true, navGroup: 'management', navOrder: 1, navIcon: CheckSquare2, component: Tasks },
   { path: '/tasks/new', title: 'Нове завдання', component: Tasks },
   { path: '/tasks/:taskId', title: 'Деталі завдання', component: Tasks },
-  { path: '/calendar', title: 'Календар', nav: true, navGroup: 'communication', navOrder: 3, mobileOrder: 4, navIcon: CalendarDays, component: Calendar },
+  { path: '/calendar', title: 'Календар', nav: true, navGroup: 'communication', navOrder: 3, navIcon: CalendarDays, component: Calendar },
   { path: '/calendar/events/:eventId', title: 'Подія календаря', component: Calendar },
   { path: '/documents', title: 'Документи', component: Content },
   { path: '/documents/:documentId', title: 'Документ', component: Content },
@@ -54,7 +53,7 @@ export const routes: RouteMeta[] = [
   { path: '/announcements/:announcementId', title: 'Оголошення', component: Communication },
   { path: '/notifications', title: 'Сповіщення', nav: true, navGroup: 'communication', navOrder: 4, navIcon: Bell, component: Communication },
   { path: '/feed', title: 'Жива стрічка', capability: 'FEED', nav: true, navGroup: 'communication', navOrder: 1, navIcon: Newspaper, component: Feed },
-  { path: '/messages', title: 'Чат', nav: true, navGroup: 'communication', navOrder: 2, mobileOrder: 3, navIcon: MessageCircle, component: Communication },
+  { path: '/messages', title: 'Чат', nav: true, navGroup: 'communication', navOrder: 2, navIcon: MessageCircle, component: Communication },
   { path: '/messages/:threadId', title: 'Діалог', component: Communication },
   { path: '/groups', title: 'Робочі групи', capability: 'GROUPS_UI', nav: true, navGroup: 'company', navOrder: 2, navIcon: Building2, releaseState: 'released', component: Content },
   { path: '/groups/:groupId', title: 'Робоча група', capability: 'GROUPS_UI', releaseState: 'released', component: Content },
@@ -77,6 +76,15 @@ export const routes: RouteMeta[] = [
   { path: '/admin/import', title: 'Імпорт даних', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 6, navIcon: Database, adminChild: true, component: Admin },
   { path: '/admin/system', title: 'Система', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 7, navIcon: SettingsIcon, adminChild: true, component: Admin },
 ]
+
+export const mobileNavigation = {
+  primary: ['/feed', '/tasks', '/messages', '/drive'],
+  more: ['/calendar', '/employees', '/overview'],
+} as const
+
+export const mobileNavigationLabels: Record<string, string> = {
+  '/employees': 'Співробітники',
+}
 
 export function navigationRoutes(
   isAdmin: boolean,

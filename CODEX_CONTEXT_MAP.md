@@ -12,7 +12,7 @@ Read only the flow relevant to the request. This is a navigation map, not an arc
 | Contract / model | `packages/contracts/src/domain.ts`; permission-safe projections from existing domain models |
 | Focused test | `apps/web/e2e/app.spec.ts` (global search scenario) |
 
-The palette debounces queries of at least two characters and routes safe results. Do not duplicate creation forms there.
+The palette debounces queries from one Unicode character and returns only permission-safe People and Tasks. Local quick actions stay separate; do not duplicate creation forms there.
 
 ## Quick create
 
