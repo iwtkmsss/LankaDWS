@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { navigationRoutes, routes, routeTitle } from './routes'
+import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes, routeTitle } from './routes'
 
 describe('canonical route registry', () => {
   it('contains unique browser-history paths and account-type metadata for protected domains', () => {
@@ -33,12 +33,13 @@ describe('canonical route registry', () => {
     expect(routeTitle('/does-not-exist')).toBe('Сторінку не знайдено')
   })
 
-  it('keeps the daily mobile workflow explicit instead of depending on sidebar groups', () => {
-    const core = routes
-      .filter((route) => route.mobileOrder !== undefined)
-      .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
-      .map((route) => route.path)
-    expect(core).toEqual(['/overview', '/tasks', '/messages', '/calendar'])
+  it('keeps the approved mobile footer and overflow order explicit', () => {
+    expect(mobileNavigation.primary).toEqual(['/feed', '/tasks', '/messages', '/drive'])
+    expect(mobileNavigation.more).toEqual(['/calendar', '/employees', '/overview'])
+    expect(mobileNavigationLabels['/employees']).toBe('Співробітники')
+    const configuredRoutes = [...mobileNavigation.primary, ...mobileNavigation.more]
+    expect(new Set(configuredRoutes).size).toBe(configuredRoutes.length)
+    expect(configuredRoutes.every((path) => routes.some((route) => route.path === path && route.nav))).toBe(true)
   })
 
   it('groups each sidebar destination once in the requested information architecture', () => {

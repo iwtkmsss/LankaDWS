@@ -34,6 +34,7 @@ import { messageKeys } from './api/messageKeys'
 import { ConversationPane } from './components/ConversationPane'
 import { MessageConversionDrawer } from './components/MessageConversionDrawer'
 import { MessagesSidebar } from './components/MessagesSidebar'
+import { NewChatDrawer } from './components/NewChatDrawer'
 import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useMessageRealtime } from './hooks/useMessageRealtime'
@@ -53,7 +54,9 @@ export function MessagesPage() {
   const { user, canUseCapability } = useAuth()
   const companyId = user?.company?.id ?? ''
   const unreadOnly = params.get('unread') === 'true'
-  const groupOpen = params.get('new') === '1'
+  const composeOpen = params.get('new') === '1' || Boolean(params.get('to'))
+  const groupOpen = params.get('group') === '1'
+  const targetUserId = params.get('to')
   const [query, setQuery] = useState(params.get('q') ?? '')
   const {
     debouncedValue: debouncedQuery,
@@ -152,6 +155,12 @@ export function MessagesPage() {
       directAttemptRef.current = { userId: '', key: '' }
       setStartingUserId(null)
       setQuery('')
+      setParams((current) => {
+        const next = new URLSearchParams(current)
+        next.delete('new')
+        next.delete('to')
+        return next
+      }, { replace: true })
       void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
       navigate(`/messages/${thread.id}`)
     },
@@ -338,12 +347,40 @@ export function MessagesPage() {
     }, { replace: true })
   }
 
-  function closeGroup() {
+  function closeCompose() {
     setParams((current) => {
       const next = new URLSearchParams(current)
       next.delete('new')
+      next.delete('to')
       return next
     }, { replace: true })
+  }
+
+  function closeGroup() {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('group')
+      return next
+    }, { replace: true })
+  }
+
+  function openCompose() {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('new', '1')
+      next.delete('to')
+      return next
+    })
+  }
+
+  function openGroup() {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('new')
+      next.delete('to')
+      next.set('group', '1')
+      return next
+    })
   }
 
   const canConvertToTask = true
@@ -375,13 +412,7 @@ export function MessagesPage() {
         onUnreadChange={updateUnread}
         onSelectThread={(id) => navigate(`/messages/${id}?${params}`)}
         onStartDirect={(id) => direct.mutate(id)}
-        onOpenGroup={() => {
-          setParams((current) => {
-            const next = new URLSearchParams(current)
-            next.set('new', '1')
-            return next
-          })
-        }}
+        onOpenCompose={openCompose}
         onLoadMore={() => void threadPages.fetchNextPage()}
         onRetryThreads={() => void threadPages.refetch()}
       />
@@ -442,6 +473,16 @@ export function MessagesPage() {
         </section>
       )}
 
+      {composeOpen && companyId && (
+        <NewChatDrawer
+          companyId={companyId}
+          targetUserId={targetUserId}
+          startingUserId={startingUserId}
+          onClose={closeCompose}
+          onStartDirect={(id) => direct.mutate(id)}
+          onOpenGroup={openGroup}
+        />
+      )}
       {groupOpen && companyId && (
         <NewGroupDrawer
           companyId={companyId}

@@ -2,6 +2,7 @@ import { Suspense, useEffect } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { AppShell } from '../layout/AppShell'
 import { useAuth } from '../shared/auth/AuthProvider'
+import { resolveHomePath } from '../shared/auth/home'
 import { OverlayProvider, Skeleton } from '../shared/ui'
 import { routes, routeTitle, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
@@ -47,8 +48,16 @@ function ProtectedPage({ route }: { route: RouteMeta }) {
   return <Suspense fallback={<div className="route-loading"><Skeleton rows={5} /></div>}><Component /></Suspense>
 }
 
+function HomeRedirect() {
+  const auth = useAuth()
+  if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
+  if (auth.state === 'anonymous') return <Navigate to="/login" replace />
+  if (auth.state === 'restricted') return <Navigate to="/access/setup" replace />
+  return <Navigate to={resolveHomePath(auth.user)} replace />
+}
+
 export const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/overview" replace /> },
+  { path: '/', element: <HomeRedirect /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/first-login', element: <RestrictedAccessPage mode="first-login" /> },
   { path: '/password-changed', element: <RestrictedAccessPage mode="password-changed" /> },

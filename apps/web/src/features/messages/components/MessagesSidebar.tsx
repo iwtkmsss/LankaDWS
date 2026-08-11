@@ -4,9 +4,9 @@ import type {
   ChatThreadListItem,
   RecommendedChatUser,
 } from '@bert-crm/contracts'
-import { LoaderCircle, MessageCircle, Plus, Search, UsersRound, X } from 'lucide-react'
+import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
+import { Avatar, Button, ErrorState, Skeleton } from '../../../shared/ui'
 import { formatChatTime } from '../lib/chatDates'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
 
@@ -33,7 +33,7 @@ interface MessagesSidebarProps {
   onUnreadChange: (value: boolean) => void
   onSelectThread: (threadId: string) => void
   onStartDirect: (userId: string) => void
-  onOpenGroup: () => void
+  onOpenCompose: () => void
   onLoadMore: () => void
   onRetryThreads: () => void
 }
@@ -98,10 +98,9 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
     <aside className="messages-sidebar" aria-label="Повідомлення">
       <header className="messages-sidebar__header">
         <h1>Повідомлення</h1>
-        <IconButton label="Нова група" onClick={props.onOpenGroup}>
-          <UsersRound size={20} />
-          <Plus className="messages-sidebar__plus" size={12} />
-        </IconButton>
+        <Button type="button" className="messages-sidebar__new-chat" onClick={props.onOpenCompose}>
+          <MessageCircle size={16} /> Новий чат
+        </Button>
       </header>
 
       <div className="messages-sidebar__search">

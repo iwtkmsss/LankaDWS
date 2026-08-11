@@ -36,22 +36,7 @@
   letter-spacing: -.025em;
 }
 
-.messages-sidebar__header .icon-button {
-  position: relative;
-  width: 42px;
-  height: 42px;
-  color: var(--cobalt-700);
-}
-
-.messages-sidebar__plus {
-  position: absolute;
-  right: 7px;
-  bottom: 7px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--cobalt-600);
-  color: #fff;
-}
+.messages-sidebar__new-chat { min-height: 36px; padding-inline: 12px; font-size: 11px; }
 
 .messages-sidebar__search {
   display: flex;
@@ -674,12 +659,17 @@
 .messages-no-thread .empty-state { max-width: 340px; }
 .messages-no-thread .empty-state > svg { color: var(--cobalt-500); }
 
+.new-chat,
 .new-group,
 .thread-info,
 .message-conversion { display: grid; gap: 18px; }
+.new-chat > p { margin: 0; color: var(--ink-500); font-size: 12px; line-height: 1.5; }
+.new-chat > .button { justify-self: start; }
+.new-chat > label,
 .new-group > label,
 .message-conversion > label { display: grid; gap: 7px; color: var(--ink-600); font-size: 10px; font-weight: 750; }
 .new-group > label > span { float: right; color: var(--ink-400); }
+.new-chat__search,
 .new-group__search,
 .thread-info__add > label {
   display: flex;
@@ -690,14 +680,20 @@
   border-radius: 9px;
   padding: 0 10px;
 }
+.new-chat__search input,
 .new-group__search input,
 .thread-info__add input { min-width: 0; flex: 1; border: 0; box-shadow: none; }
+.new-chat__search button,
 .new-group__search button { border: 0; background: transparent; }
+.new-chat__status { display: flex; align-items: center; gap: 7px; }
+.new-chat__hint { margin: 0; color: var(--ink-400); font-size: 10px; }
 .new-group__selected { display: flex; flex-wrap: wrap; gap: 6px; }
 .new-group__selected button { display: flex; min-height: 34px; align-items: center; gap: 5px; border: 1px solid #c9d7fb; border-radius: 999px; background: var(--cobalt-50); color: var(--ink-700); padding: 3px 7px 3px 4px; font-size: 9px; }
 .new-group__hint { margin: 0; color: var(--ink-400); font-size: 10px; }
+.new-chat__results,
 .new-group__results,
 .thread-info__add > div { display: grid; gap: 4px; }
+.new-chat__results > button,
 .new-group__results > button,
 .thread-info__add > div > button {
   display: grid;
@@ -712,17 +708,24 @@
   padding: 7px;
   text-align: left;
 }
+.new-chat__results > button:hover,
+.new-chat__results > button.is-active,
 .new-group__results > button:hover,
 .new-group__results > button.is-selected,
 .thread-info__add > div > button:hover { border-color: #c4d4fb; background: var(--cobalt-50); }
+.new-chat__results > button > span,
 .new-group__results > button > span,
 .thread-info__add > div > button > span { display: grid; min-width: 0; gap: 2px; }
+.new-chat__results strong,
+.new-chat__results small,
 .new-group__results strong,
 .new-group__results small,
 .thread-info__add strong,
 .thread-info__add small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-chat__results strong,
 .new-group__results strong,
 .thread-info__add strong { font-size: 11px; }
+.new-chat__results small,
 .new-group__results small,
 .thread-info__add small { color: var(--ink-400); font-size: 9px; }
 .new-group__results i { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: var(--surface-soft); color: var(--cobalt-600); font-style: normal; }

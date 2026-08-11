@@ -7,7 +7,7 @@ async function login(page: Page) {
   await page.getByLabel('Нікнейм').fill('maria')
   await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
-  await expect(page).toHaveURL(/\/overview$/)
+  await expect(page).toHaveURL(/\/feed$/)
 }
 
 function futureLocalDateTime(daysFromNow: number): string {

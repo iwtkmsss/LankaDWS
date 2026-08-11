@@ -11,7 +11,7 @@ async function login(page: Page, username = 'maria') {
   await page.getByLabel('Нікнейм').fill(username)
   await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
-  await expect(page).toHaveURL(/\/overview$/)
+  await expect(page).toHaveURL(/\/feed$/)
 }
 
 async function screenshot(page: Page, project: string, state: string) {
@@ -35,7 +35,7 @@ test('messages workspace covers user-only search, direct history and real chat a
   await page.goto('/messages')
 
   await expect(page.getByRole('heading', { name: 'Повідомлення', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Нова група' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Новий чат' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Створити', exact: true })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: /Усі/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Непрочитані/ })).toBeVisible()
@@ -141,11 +141,34 @@ test('messages workspace covers user-only search, direct history and real chat a
   }
 })
 
+test('new chat compose reuses canonical direct threads from a one-symbol keyboard search', async ({ page }, testInfo) => {
+  await configureViewport(page, testInfo.project.name)
+  await login(page)
+  await page.goto('/messages?new=1')
+
+  const compose = page.getByRole('dialog', { name: 'Новий чат' })
+  const search = compose.getByRole('combobox', { name: 'Пошук користувачів для нового чату' })
+  await expect(search).toBeFocused()
+  await search.fill('о')
+  await expect(compose.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
+  await search.press('ArrowDown')
+  await search.press('ArrowUp')
+  await search.press('Enter')
+  await expect(page).toHaveURL(/\/messages\/thr_/)
+  const directUrl = page.url()
+
+  await page.goto('/messages?new=1&to=usr_olena')
+  await expect(page).toHaveURL(directUrl)
+  await expect(page.getByRole('region', { name: /Діалог: Олена Бондар/ })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('new group remains a local messages-only action', async ({ page }, testInfo) => {
   await configureViewport(page, testInfo.project.name)
   await login(page)
   await page.goto('/messages')
-  await page.getByRole('button', { name: 'Нова група' }).click()
+  await page.getByRole('button', { name: 'Новий чат' }).click()
+  await page.getByRole('dialog', { name: 'Новий чат' }).getByRole('button', { name: 'Створити групу' }).click()
   const drawer = page.getByRole('dialog', { name: 'Нова група' })
   await expect(drawer).toBeVisible()
   await screenshot(page, testInfo.project.name, 'group-drawer')
