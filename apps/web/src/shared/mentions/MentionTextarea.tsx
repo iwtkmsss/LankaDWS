@@ -159,7 +159,7 @@ export function MentionTextarea({
           onKeyDown={handleKeyDown}
         />
         {active && (
-          <div className="mention-field__results" id={`${id}-mentions`} role="listbox">
+          <div className="mention-field__results" id={`${id}-mentions`} role="listbox" aria-label={`${label}: варіанти згадок`}>
             {candidates.isLoading ? (
               <span role="status">Шукаємо колег…</span>
             ) : items.length > 0 ? items.map((candidate, index) => (

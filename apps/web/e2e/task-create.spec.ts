@@ -247,7 +247,9 @@ test('sends a selected task comment mention as structured data', async ({ page }
 
   const comment = page.getByRole('textbox', { name: 'Коментар до завдання' })
   await comment.fill('@оле')
-  await page.getByRole('option', { name: /Олена Бондар/ }).click()
+  await page.getByRole('listbox', { name: 'Коментар до завдання: варіанти згадок' })
+    .getByRole('option', { name: /Олена Бондар/ })
+    .click()
   await comment.pressSequentially(', перевір, будь ласка.')
 
   const requestPromise = page.waitForRequest((request) => (
