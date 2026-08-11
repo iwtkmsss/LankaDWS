@@ -82,6 +82,12 @@ type TaskRow = Prisma.TaskGetPayload<{
         avatarAsset: true
       }
     }
+    group: {
+      select: {
+        id: true
+        name: true
+      }
+    }
   }
 }>
 
@@ -526,6 +532,9 @@ export class TaskCompatibilityService {
     ))?.user ?? task.participants.find((participant) => (
       participant.role === 'RESPONSIBLE'
     ))?.user ?? task.reporter
+    const responsibles = task.participants
+      .filter((participant) => participant.role === 'RESPONSIBLE')
+      .map((participant) => participant.user)
     const legacyParticipants = task.participants
       .filter((participant) => participant.role !== 'RESPONSIBLE')
       .map((participant) => ({
@@ -544,6 +553,9 @@ export class TaskCompatibilityService {
       blockReason: task.blockReason,
       creator: task.reporter,
       assignee: primaryResponsible,
+      responsibles,
+      reporter: task.reporter,
+      group: task.group,
       status: task.status,
       priority: this.legacyPriority(task.priority),
       deadline: task.dueAt?.toISOString() ?? null,
@@ -1350,6 +1362,12 @@ export class TaskCompatibilityService {
           avatarAsset: true,
         },
       },
+      group: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
     } satisfies Prisma.TaskInclude
   }
 
@@ -1389,6 +1407,9 @@ export class TaskCompatibilityService {
       const responsible = row.participants.find((participant) => (
         participant.role === 'RESPONSIBLE'
       ))?.user ?? row.reporter
+      const responsibles = row.participants
+        .filter((participant) => participant.role === 'RESPONSIBLE')
+        .map((participant) => participant.user)
       return {
         id: row.id,
         number: row.number,
@@ -1396,6 +1417,9 @@ export class TaskCompatibilityService {
         parentTaskId: row.parentTaskId,
         title: row.title,
         assignee: responsible,
+        responsibles,
+        reporter: row.reporter,
+        group: row.group,
         status: row.status,
         priority: this.legacyPriority(row.priority),
         deadline: row.dueAt?.toISOString() ?? null,

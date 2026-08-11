@@ -1,7 +1,9 @@
 import type { TaskRelationType } from '@bert-crm/contracts'
 import { GitBranch, Link2, Plus, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button } from '../../../shared/ui'
+import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
+import { loadTaskCreateOptions } from './api'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -26,6 +28,13 @@ export function TaskRelationsSection({
   const [targetTaskId, setTargetTaskId] = useState('')
   const [type, setType] = useState<TaskRelationType>('RELATED')
   const [direction, setDirection] = useState<'OUTGOING' | 'INCOMING'>('OUTGOING')
+  const selected = options.tasks.find((task) => task.id === targetTaskId)
+  const loadTasks = useCallback(async (search: string, signal: AbortSignal) => {
+    const result = await loadTaskCreateOptions('', draft.projectId, search, signal)
+    return result.tasks
+      .filter((task) => task.id !== draft.parentTaskId && !draft.relations.some((relation) => relation.targetTaskId === task.id))
+      .map((task) => ({ id: task.id, label: `${task.number} · ${task.title}` }))
+  }, [draft.parentTaskId, draft.projectId, draft.relations])
 
   function addRelation() {
     if (!targetTaskId || draft.relations.some((item) => item.targetTaskId === targetTaskId)) return
@@ -55,22 +64,9 @@ export function TaskRelationsSection({
         </span>
       </div>
       <div className="task-create-relation-add">
-        <label>
-          Завдання
-          <select value={targetTaskId} onChange={(event) => setTargetTaskId(event.target.value)}>
-            <option value="">Оберіть завдання</option>
-            {options.tasks
-              .filter((task) => (
-                task.id !== draft.parentTaskId
-                && !draft.relations.some((relation) => relation.targetTaskId === task.id)
-              ))
-              .map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.number} · {task.title}
-                </option>
-              ))}
-          </select>
-        </label>
+        <AsyncTaskCombobox label="Завдання" value={targetTaskId} placeholder="Знайти завдання"
+          selectedOption={selected ? { id: selected.id, label: `${selected.number} · ${selected.title}` } : null}
+          loadOptions={loadTasks} onChange={setTargetTaskId} />
         <label>
           Тип зв’язку
           <select

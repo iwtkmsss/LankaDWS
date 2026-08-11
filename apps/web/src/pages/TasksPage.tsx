@@ -21,11 +21,9 @@ import {
   Download,
   Eye,
   FileText,
-  Filter,
   Flag,
   History,
   Link2,
-  ListTree,
   MessageCircle,
   Paperclip,
   Pencil,
@@ -43,6 +41,7 @@ import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
+import { TaskListColumnsControl, useTaskListColumnsPreference } from '../features/tasks/list/TaskListColumns'
 import {
   TaskDetailCustomization,
   TaskDetailSection,
@@ -227,6 +226,7 @@ function TasksListPage() {
     || role === 'CO_EXECUTOR'
     || (role === 'ALL' && user?.accountType === 'ADMIN')
   const isCreating = location.pathname === '/tasks/new'
+  const taskListColumns = useTaskListColumnsPreference()
   return (
     <div>
       <PageHeader
@@ -261,17 +261,14 @@ function TasksListPage() {
             ]}
           />
           <div className="toolbar-actions">
-            <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(true)}>
-              <Search size={17} />
-              Пошук
-            </button>
             <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-              <Filter size={17} />
-              Фільтри
+              <Search size={17} />
+              Пошук і фільтри
               {[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length
                 ? ` · ${[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length}`
                 : ''}
             </button>
+            <TaskListColumnsControl controller={taskListColumns} />
           </div>
         </div>
         <div className="task-presets" aria-label="Швидкі режими завдань">
@@ -536,21 +533,25 @@ function TasksListPage() {
         ) : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
-          <div className="responsive-table">
-            <table>
+          <div className="responsive-table task-list-table-wrap">
+            <table className="task-list-table">
               <thead>
                 <tr>
                   <th>Завдання</th>
-                  <th>Виконавець</th>
-                  <th>Строк</th>
-                  <th>Статус</th>
-                  <th><span className="sr-only">Активність</span></th>
+                  {taskListColumns.visible.includes('responsibles') && <th>Виконавці</th>}
+                  {taskListColumns.visible.includes('dueDate') && <th>Строк</th>}
+                  {taskListColumns.visible.includes('status') && <th>Статус</th>}
+                  {taskListColumns.visible.includes('reporter') && <th>Постановник</th>}
+                  {taskListColumns.visible.includes('group') && <th>Група</th>}
+                  {taskListColumns.visible.includes('priority') && <th>Пріоритет</th>}
+                  {taskListColumns.visible.includes('subtaskProgress') && <th>Підзадачі</th>}
+                  {taskListColumns.visible.includes('activity') && <th>Активність</th>}
                 </tr>
               </thead>
               <tbody>
                 {query.data.items.map((task) => (
                   <tr key={task.id}>
-                    <td>
+                    <td data-label="Завдання">
                       <Link to={`/tasks/${task.id}${location.search}`}>
                         <span className={`priority-dot priority-dot--${task.priority.toLowerCase()}`} />
                         <span>
@@ -561,28 +562,6 @@ function TasksListPage() {
                           </small>
                         </span>
                       </Link>
-                    </td>
-                    <td>
-                      <span className="person-cell">
-                        <Avatar size="sm" name={task.assignee.displayName} src={task.assignee.avatarAsset} />
-                        {task.assignee.displayName}
-                      </span>
-                    </td>
-                    <td>
-                      {task.deadline ? (
-                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : ''}`}>
-                          {isTaskOverdue(task) && <AlertTriangle size={14} />}
-                          <span>
-                            {formatDate(task.deadline)}
-                            {isTaskOverdue(task) && <small>Прострочено</small>}
-                          </span>
-                        </span>
-                      ) : '—'}
-                    </td>
-                    <td>
-                      <StatusBadge status={task.status} />
-                    </td>
-                    <td>
                       <span className="task-row-actions">
                         {canQuickComplete && !['DONE', 'CANCELLED', 'ARCHIVED'].includes(task.status) && (
                           <button
@@ -597,33 +576,48 @@ function TasksListPage() {
                           </button>
                         )}
                         {quickComplete.isError && quickComplete.variables?.id === task.id && (
-                          <Link
-                            className="task-quick-complete-error"
-                            to={`/tasks/${task.id}${location.search}`}
-                            title={
-                              quickComplete.error instanceof ApiProblem
-                                && quickComplete.error.problem.code === 'task_completion_blocked'
-                                ? 'Спочатку завершіть активні підзадачі'
-                                : 'Відкрийте завдання та спробуйте ще раз'
-                            }
-                          >
+                          <Link className="task-quick-complete-error" to={`/tasks/${task.id}${location.search}`}>
                             Потрібна увага
                           </Link>
                         )}
-                        <span className="activity-count">
-                          {task.subtaskProgress.total > 0 && (
-                            <>
-                              <ListTree size={14} />
-                              {task.subtaskProgress.done}/{task.subtaskProgress.total}
-                            </>
-                          )}
+                      </span>
+                    </td>
+                    {taskListColumns.visible.includes('responsibles') && <td data-label="Виконавці">
+                      {task.responsibles.length ? (
+                        <span className="person-cell task-responsibles">
+                          {task.responsibles.map((responsible) => (
+                            <span key={responsible.id}>
+                              <Avatar size="sm" name={responsible.displayName} src={responsible.avatarAsset} />
+                              {responsible.displayName}
+                            </span>
+                          ))}
+                        </span>
+                      ) : '—'}
+                    </td>}
+                    {taskListColumns.visible.includes('dueDate') && <td data-label="Строк">
+                      {task.deadline ? (
+                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : ''}`}>
+                          {isTaskOverdue(task) && <AlertTriangle size={14} />}
+                          <span>
+                            {formatDate(task.deadline)}
+                            {isTaskOverdue(task) && <small>Прострочено</small>}
+                          </span>
+                        </span>
+                      ) : '—'}
+                    </td>}
+                    {taskListColumns.visible.includes('status') && <td data-label="Статус"><StatusBadge status={task.status} /></td>}
+                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><span className="person-cell"><Avatar size="sm" name={task.reporter.displayName} src={task.reporter.avatarAsset} />{task.reporter.displayName}</span></td>}
+                    {taskListColumns.visible.includes('group') && <td data-label="Група">{task.group?.name ?? '—'}</td>}
+                    {taskListColumns.visible.includes('priority') && <td data-label="Пріоритет">{taskPriorityLabel(task.priority)}</td>}
+                    {taskListColumns.visible.includes('subtaskProgress') && <td data-label="Підзадачі">{task.subtaskProgress.total ? `${task.subtaskProgress.done}/${task.subtaskProgress.total}` : '—'}</td>}
+                    {taskListColumns.visible.includes('activity') && <td data-label="Активність">
+                      <span className="activity-count">
                           <MessageCircle size={14} />
                           {task.commentCount}
                           <Paperclip size={14} />
                           {task.attachmentCount}
-                        </span>
                       </span>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
@@ -2262,6 +2256,15 @@ function TaskFilterSelect({
       </select>
     </label>
   )
+}
+
+function taskPriorityLabel(priority: TaskListItem['priority']): string {
+  return {
+    LOW: 'Низький',
+    MEDIUM: 'Середній',
+    HIGH: 'Високий',
+    CRITICAL: 'Терміновий',
+  }[priority]
 }
 
 function isTaskOverdue(task: TaskListItem): boolean {

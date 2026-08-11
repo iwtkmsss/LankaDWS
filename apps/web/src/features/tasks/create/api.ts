@@ -20,8 +20,10 @@ export function taskCreateOptionsPath(
 export function loadTaskCreateOptions(
   groupId: string,
   projectId: string,
+  search = '',
+  signal?: AbortSignal,
 ): Promise<TaskCreateOptions> {
-  return api<TaskCreateOptions>(taskCreateOptionsPath(groupId, projectId))
+  return api<TaskCreateOptions>(taskCreateOptionsPath(groupId, projectId, search), { signal })
 }
 
 export function createProject(name: string): Promise<ProjectOption> {

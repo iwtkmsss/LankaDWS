@@ -162,6 +162,14 @@ kbd { border: 1px solid var(--line); border-radius: 5px; background: var(--surfa
   .admin-users-card .responsive-table td:first-child { padding-right: 128px; }
   .admin-users-card .responsive-table td:nth-child(4) { max-width: 120px; }
   .responsive-table td > a { min-width: 0; }
+  .task-list-table-wrap { overflow-x: hidden; }
+  .task-list-table td { position: static !important; display: grid; grid-template-columns: minmax(104px, 40%) minmax(0, 1fr); gap: 8px; padding: 6px 0; }
+  .task-list-table td::before { content: attr(data-label); color: var(--ink-400); font-size: 10px; font-weight: 720; letter-spacing: .04em; text-transform: uppercase; }
+  .task-list-table td:first-child { display: flex; padding-right: 0; }
+  .task-list-table td:first-child::before { display: none; }
+  .task-list-table td:first-child > a { min-width: 0; }
+  .task-list-table .task-row-actions { flex: none; }
+  .task-list-table .person-cell { white-space: normal; }
   .entity-form { grid-template-columns: 1fr; }
   .span-2 { grid-column: span 1; }
   .detail-grid { grid-template-columns: 1fr; }
