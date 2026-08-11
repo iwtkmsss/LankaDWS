@@ -6,6 +6,7 @@ import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 export interface RecurrenceRule {
@@ -123,6 +124,7 @@ export class TaskRecurrenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
+    private readonly approvals: TaskApprovalService,
   ) {}
 
   async timezoneFor(userId: string): Promise<string> {
@@ -213,6 +215,13 @@ export class TaskRecurrenceService {
           timezone,
           maximumReminderOffsetMinutes,
         )
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          expectedVersion + 1,
+          'RECURRENCE_UPDATED',
+        )
         return {
           id: recurrenceId,
           version: expectedVersion + 1,
@@ -253,6 +262,13 @@ export class TaskRecurrenceService {
           maximumReminderOffsetMinutes,
         )
       }
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        expectedVersion + 1,
+        'RECURRENCE_UPDATED',
+      )
       return {
         id: recurrence.id,
         version: expectedVersion + 1,
@@ -266,7 +282,7 @@ export class TaskRecurrenceService {
     taskId: string,
     expectedVersion: number,
   ) {
-    await this.access.editableTask(principal, taskId)
+    const task = await this.access.editableTask(principal, taskId)
     const recurrence = await this.prisma.taskRecurrence.findUnique({
       where: { templateTaskId: taskId },
       select: { id: true },
@@ -290,6 +306,13 @@ export class TaskRecurrenceService {
         },
         data: { state: 'CANCELLED' },
       })
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        expectedVersion + 1,
+        'RECURRENCE_CANCELLED',
+      )
       return { id: recurrence.id, active: false, version: expectedVersion + 1 }
     })
   }

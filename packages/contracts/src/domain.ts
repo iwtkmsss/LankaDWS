@@ -169,6 +169,36 @@ export interface TaskReference {
   status: TaskStatus
 }
 
+export type TaskApprovalRoundStatus = 'PENDING' | 'APPROVED' | 'NEEDS_CHANGES' | 'INVALIDATED'
+
+export interface TaskApprovalRoundView {
+  id: string
+  roundNumber: number
+  status: TaskApprovalRoundStatus
+  approver: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  requestedBy: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  requestedTaskVersion: number
+  requestedAt: string
+  decisionNote: string | null
+  decidedAt: string | null
+  invalidatedAt: string | null
+}
+
+export interface TaskApprovalView {
+  current: TaskApprovalRoundView | null
+  history: TaskApprovalRoundView[]
+  canRequest: boolean
+  canDecide: boolean
+}
+
+export interface TaskApprovalOption {
+  id: string
+  displayName: string
+  avatarAsset: string | null
+  jobTitle: string
+  suggested: boolean
+}
+
 export interface TaskDetailView extends TaskListItem {
   description: string
   blockReason: string | null
@@ -204,6 +234,7 @@ export interface TaskDetailView extends TaskListItem {
   canCreateSubtask: boolean
   canManageParticipants: boolean
   canAttachFiles: boolean
+  approval: TaskApprovalView
   personalState: TaskPersonalStateView
 }
 

@@ -132,6 +132,7 @@ describe('TaskCommandService', () => {
       recurrence as never,
       attachments as never,
       feedProjection as never,
+      {} as never,
     )
 
     const input = createInput({

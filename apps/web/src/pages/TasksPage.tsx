@@ -4,6 +4,7 @@ import type {
   PageResult,
   StructuredMentionInput,
   TaskActivityPage,
+  TaskApprovalOption,
   TaskAttachmentView,
   TaskDetailView,
   TaskListItem,
@@ -692,6 +693,7 @@ function TaskDetailPage({ id }: { id: string }) {
 function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const client = useQueryClient()
   const location = useLocation()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const [comment, setComment] = useState('')
   const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
@@ -711,6 +713,10 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const [participantsOpen, setParticipantsOpen] = useState(false)
   const [participantMessage, setParticipantMessage] = useState('')
   const [statusError, setStatusError] = useState('')
+  const [approvalMessage, setApprovalMessage] = useState('')
+  const [watcherExitOfferVersion, setWatcherExitOfferVersion] = useState<number | null>(null)
+  const [approverId, setApproverId] = useState('')
+  const [approvalNote, setApprovalNote] = useState('')
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
   const [personalMessage, setPersonalMessage] = useState('')
   const [activityOpen, setActivityOpen] = useState(false)
@@ -727,7 +733,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       || comment.trim()
       || replyTo
       || commentAttachmentIds.length
-      || newItem.trim(),
+      || newItem.trim()
+      || approvalNote.trim(),
     ),
     onRequestClose: onBack,
   })
@@ -757,6 +764,24 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: activityOpen,
   })
+  const approvalOptions = useQuery({
+    queryKey: ['task-approval-options', id],
+    queryFn: () => api<{ items: TaskApprovalOption[] }>(`/tasks/${id}/approval-options`),
+    enabled: Boolean(query.data?.approval.canRequest),
+  })
+  const isCurrentUserWatcher = Boolean(
+    user && query.data?.observers.some((observer) => observer.id === user.id),
+  )
+  useEffect(() => {
+    if (watcherExitOfferVersion !== null && query.data && !isCurrentUserWatcher) {
+      setWatcherExitOfferVersion(null)
+    }
+  }, [isCurrentUserWatcher, query.data, watcherExitOfferVersion])
+  useEffect(() => {
+    if (approverId || !approvalOptions.data?.items.length) return
+    const suggested = approvalOptions.data.items.find((option) => option.suggested)
+    if (suggested) setApproverId(suggested.id)
+  }, [approvalOptions.data, approverId])
   useEffect(() => {
     setActivityOpen(
       !detailPreference.value.hidden.includes('history')
@@ -1066,13 +1091,107 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       )
     },
   })
+  const requestApproval = useMutation({
+    mutationFn: (input: { approverId: string; expectedVersion: number }) =>
+      api(`/tasks/${id}/approval-requests`, {
+        method: 'POST',
+        headers: { 'idempotency-key': idempotencyKey('task-approval-request') },
+        body: jsonBody(input),
+      }),
+    onSuccess: () => {
+      setApprovalMessage('Запит на погодження надіслано.')
+      setApproverId('')
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: () => {
+      setApprovalMessage('Не вдалося запросити погодження. Оновіть завдання та перевірте approver.')
+    },
+  })
+  const decideApproval = useMutation({
+    mutationFn: (decision: 'APPROVE' | 'NEEDS_CHANGES') => {
+      if (!query.data) throw new Error('task_approval_context')
+      return api<{
+        approvalId: string
+        status: 'APPROVED' | 'NEEDS_CHANGES'
+        version: number
+        watcherExitAvailable: boolean
+      }>(`/tasks/${id}/approval-decisions`, {
+        method: 'POST',
+        headers: { 'idempotency-key': idempotencyKey('task-approval-decision') },
+        body: jsonBody({
+          decision,
+          note: approvalNote,
+          expectedVersion: query.data.version,
+        }),
+      })
+    },
+    onSuccess: (result, decision) => {
+      setApprovalMessage(
+        decision === 'APPROVE'
+          ? 'Завдання погоджено й завершено.'
+          : 'Завдання повернуто на доопрацювання.',
+      )
+      setApprovalNote('')
+      setWatcherExitOfferVersion(
+        decision === 'APPROVE' && result.watcherExitAvailable ? result.version : null,
+      )
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: (error) => {
+      setApprovalMessage(
+        error instanceof ApiProblem && error.problem.code === 'task_completion_blocked'
+          ? error.problem.detail ?? 'Спочатку завершіть активні підзадачі.'
+          : 'Рішення не збережено. Оновіть завдання та спробуйте ще раз.',
+      )
+    },
+  })
+  const exitWatcher = useMutation({
+    mutationFn: () => {
+      if (!user || !query.data || watcherExitOfferVersion === null) {
+        throw new Error('task_watcher_exit_context')
+      }
+      return api<{ version: number; accessRetained: boolean }>(
+        `/tasks/${id}/participants/${encodeURIComponent(user.id)}`,
+        {
+          method: 'DELETE',
+          body: jsonBody({ expectedVersion: query.data.version }),
+        },
+      )
+    },
+    onSuccess: async (result) => {
+      setWatcherExitOfferVersion(null)
+      await client.invalidateQueries({ queryKey: ['tasks'] })
+      if (!result.accessRetained) {
+        await client.cancelQueries({ queryKey: ['task', id], exact: true })
+        client.removeQueries({ queryKey: ['task', id], exact: true })
+        client.removeQueries({ queryKey: ['task-activity', id] })
+        client.removeQueries({ queryKey: ['task-approval-options', id] })
+        navigate('/tasks', { replace: true })
+        return
+      }
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+    },
+    onError: (error) => {
+      setApprovalMessage(
+        error instanceof ApiProblem && error.problem.status === 409
+          ? 'Завдання вже змінилося. Дані оновлено — перевірте роль WATCHER і повторіть вихід.'
+          : 'Не вдалося вийти зі WATCHER.',
+      )
+      void client.invalidateQueries({ queryKey: ['task', id] })
+    },
+  })
   return (
     <>
       <TaskDetailLayout
         title={query.data?.number ?? 'Завдання'}
         onRequestClose={() => closeGuard.requestClose('close-button')}
         footer={
-          query.data?.canEdit && (
+          query.data?.canEdit && !query.data.approval.current && (
             <div className="drawer-actions">
               <select
                 aria-label="Змінити статус"
@@ -1088,7 +1207,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               >
                 <option value="NEW">Нове</option>
                 <option value="IN_PROGRESS">В роботі</option>
-                <option value="IN_REVIEW">На перевірці</option>
                 <option value="DONE">Виконано</option>
                 <option value="BLOCKED">Заблоковано</option>
               </select>
@@ -1295,6 +1413,142 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               </span>
             </div>
           )}
+          <section className="task-approval" aria-labelledby={`task-approval-${id}`}>
+            <header>
+              <div>
+                <h4 id={`task-approval-${id}`}>Погодження</h4>
+                <p>Один approver ухвалює рішення в кожному раунді.</p>
+              </div>
+              {query.data.approval.current && (
+                <small>Раунд {query.data.approval.current.roundNumber}</small>
+              )}
+            </header>
+            {query.data.approval.current ? (
+              <div className="task-approval__current">
+                <Avatar
+                  size="sm"
+                  name={query.data.approval.current.approver.displayName}
+                  src={query.data.approval.current.approver.avatarAsset}
+                />
+                <span>
+                  <strong>{query.data.approval.current.approver.displayName}</strong>
+                  <small>
+                    Очікуємо рішення від {formatDateTime(query.data.approval.current.requestedAt)}.
+                    Зміна змісту поверне завдання в роботу й закриє цей раунд.
+                  </small>
+                </span>
+              </div>
+            ) : query.data.approval.canRequest ? (
+              <div className="task-approval__request">
+                <label>
+                  Approver
+                  <select
+                    aria-label="Approver завдання"
+                    value={approverId}
+                    disabled={approvalOptions.isLoading || requestApproval.isPending}
+                    onChange={(event) => setApproverId(event.target.value)}
+                  >
+                    <option value="">Оберіть людину з доступом до завдання</option>
+                    {approvalOptions.data?.items.map((option) => (
+                      <option value={option.id} key={option.id}>
+                        {option.displayName}{option.suggested ? ' · рекомендовано' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  type="button"
+                  disabled={!approverId || requestApproval.isPending}
+                  onClick={() => requestApproval.mutate({
+                    approverId,
+                    expectedVersion: query.data.version,
+                  })}
+                >
+                  Запросити погодження
+                </Button>
+              </div>
+            ) : (
+              <p className="muted">Новий раунд погодження зараз недоступний.</p>
+            )}
+            {query.data.approval.canDecide && (
+              <div className="task-approval__decision">
+                <label>
+                  Коментар до рішення (необов’язково)
+                  <textarea
+                    value={approvalNote}
+                    maxLength={2000}
+                    rows={2}
+                    onChange={(event) => setApprovalNote(event.target.value)}
+                  />
+                </label>
+                <div className="task-approval__actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={decideApproval.isPending}
+                    onClick={() => decideApproval.mutate('NEEDS_CHANGES')}
+                  >
+                    Потрібні зміни
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={decideApproval.isPending}
+                    onClick={() => decideApproval.mutate('APPROVE')}
+                  >
+                    Погодити
+                  </Button>
+                </div>
+              </div>
+            )}
+            {approvalMessage && (
+              <p className="task-approval__message" role="status">{approvalMessage}</p>
+            )}
+            {watcherExitOfferVersion !== null && isCurrentUserWatcher && (
+              <aside className="task-approval__watcher-exit" aria-label="Вихід зі WATCHER">
+                <span>
+                  <strong>Завдання погоджено</strong>
+                  <small>Ви все ще активний WATCHER. Вийти зі спостерігачів?</small>
+                </span>
+                <div className="task-approval__actions">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={exitWatcher.isPending}
+                    onClick={() => setWatcherExitOfferVersion(null)}
+                  >
+                    Залишитися
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      exitWatcher.isPending
+                      || query.isFetching
+                      || query.data.version < watcherExitOfferVersion
+                    }
+                    onClick={() => exitWatcher.mutate()}
+                  >
+                    Вийти
+                  </Button>
+                </div>
+              </aside>
+            )}
+            {query.data.approval.history.length > 0 && (
+              <details className="task-approval__history">
+                <summary>Історія погоджень · {query.data.approval.history.length}</summary>
+                <ol>
+                  {query.data.approval.history.map((round) => (
+                    <li key={round.id}>
+                      <span>
+                        <strong>Раунд {round.roundNumber} · {taskApprovalStatusLabel(round.status)}</strong>
+                        <small>{round.approver.displayName} · {formatDateTime(round.requestedAt)}</small>
+                      </span>
+                      {round.decisionNote && <p>{round.decisionNote}</p>}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
+          </section>
           <dl className="detail-grid">
             <div>
               <dt>Виконавець</dt>
@@ -2239,6 +2493,13 @@ function taskAttachmentStateLabel(status: TaskAttachmentView['scanStatus']): str
   if (status === 'INFECTED') return 'Заблоковано перевіркою'
   if (status === 'UNSUPPORTED') return 'Формат не підтримується'
   return 'Файл недоступний'
+}
+
+function taskApprovalStatusLabel(status: TaskDetailView['approval']['history'][number]['status']): string {
+  if (status === 'PENDING') return 'Очікує рішення'
+  if (status === 'APPROVED') return 'Погоджено'
+  if (status === 'NEEDS_CHANGES') return 'Потрібні зміни'
+  return 'Втратило чинність'
 }
 
 function TaskFilterSelect({

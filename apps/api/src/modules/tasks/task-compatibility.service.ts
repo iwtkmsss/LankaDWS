@@ -27,6 +27,7 @@ import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { TaskCommandService } from './task-command.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
 
 const taskStatuses = [
@@ -133,6 +134,7 @@ export class TaskCompatibilityService {
     private readonly commands: TaskCommandService,
     private readonly feedProjection: FeedProjectionService,
     private readonly participants: TaskParticipantsService,
+    private readonly approvals: TaskApprovalService,
   ) {}
 
   async list(
@@ -406,7 +408,8 @@ export class TaskCompatibilityService {
         },
       },
     })
-    const [comments, entityLinks, personalState, following, followerCount, reminders] = await Promise.all([
+    const canEdit = await this.canEdit(principal, task)
+    const [comments, entityLinks, personalState, following, followerCount, reminders, approval] = await Promise.all([
       this.prisma.comment.findMany({
         where: { entityType: 'TASK', entityId: task.id, deletedAt: null },
         orderBy: { createdAt: 'asc' },
@@ -442,6 +445,7 @@ export class TaskCompatibilityService {
         },
         orderBy: [{ remindAt: 'asc' }, { id: 'asc' }],
       }),
+      this.approvals.view(principal, task, canEdit),
     ])
     const [fileLinks, contentMentions] = await Promise.all([
       this.prisma.fileLink.findMany({
@@ -503,7 +507,6 @@ export class TaskCompatibilityService {
     ])
     const filesById = new Map(attachedFiles.map((file) => [file.id, file]))
     const authorsById = new Map(commentAuthors.map((author) => [author.id, author]))
-    const canEdit = await this.canEdit(principal, task)
     const attachmentView = (file: FileObject): TaskAttachmentView => ({
       id: file.id,
       fileName: file.safeFilename,
@@ -624,6 +627,7 @@ export class TaskCompatibilityService {
         && canEdit,
       canManageParticipants: this.canManageParticipants(principal, task, canEdit),
       canAttachFiles: true,
+      approval,
       personalState: {
         favorited: Boolean(personalState?.favoritedAt),
         important: personalState?.important ?? false,
@@ -741,6 +745,15 @@ export class TaskCompatibilityService {
         },
         data: { removedAt: new Date() },
       })
+      if (changedFields.length) {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          input.expectedVersion + 1,
+          'TASK_UPDATED',
+        )
+      }
       await this.recordEvent(tx, principal, task, 'task.updated', input.expectedVersion + 1, {
         legacyCompatibility: true,
         changedFields,
@@ -824,6 +837,13 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        updated.version,
+        'ATTACHMENT_ADDED',
+      )
       await this.recordEvent(tx, principal, task, 'task.attachment_added', updated.version, {
         attachmentCount: 1,
       })
@@ -885,6 +905,13 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        updated.version,
+        'ATTACHMENT_REMOVED',
+      )
       await this.recordEvent(tx, principal, task, 'task.attachment_removed', updated.version, {
         attachmentCount: -1,
       })
@@ -1054,9 +1081,11 @@ export class TaskCompatibilityService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     if (!taskStatuses.includes(status as TaskStatusValue)) throw badRequest('task_status')
+    if (status === 'IN_REVIEW') throw badRequest('task_approval_required')
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
     const task = await this.access.editableTask(principal, taskId)
     if (task.version !== expectedVersion) throw conflict('task_version')
+    await this.approvals.assertNoPending(task.id)
     const nextStatus = status as TaskStatusValue
     if (nextStatus === 'DONE') {
       const blockers = await this.activeSubtaskIds(task.id)
@@ -1075,11 +1104,19 @@ export class TaskCompatibilityService {
       })
       if (!result.count) throw conflict('task_version')
       const updated = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
-      if (task.parentTaskId) {
-        await tx.task.update({
+      if (task.parentTaskId && nextStatus !== task.status) {
+        const parent = await tx.task.update({
           where: { id: task.parentTaskId },
           data: { version: { increment: 1 } },
+          select: { id: true, companyId: true, version: true },
         })
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          parent,
+          parent.version,
+          'SUBTASK_STATUS_CHANGED',
+        )
       }
       const participantIds = await tx.taskParticipant.findMany({
         where: { taskId: task.id, removedAt: null },
@@ -1821,6 +1858,10 @@ export class TaskCompatibilityService {
       'task.participant_changed': 'Склад учасників змінено',
       'task.participant_removed': 'Вилучено учасника',
       'task.archived': 'Завдання архівовано',
+      'task.approval_requested': 'Запитано погодження',
+      'task.approval_approved': 'Завдання погоджено',
+      'task.approval_needs_changes': 'Повернуто на доопрацювання',
+      'task.approval_invalidated': 'Погодження втратило чинність через зміни',
     }
     return labels[action] ?? 'Завдання оновлено'
   }

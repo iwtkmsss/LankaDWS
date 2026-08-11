@@ -7,12 +7,13 @@ import type {
 } from '@bert-crm/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { normalizeUserSearchValue } from '../../common/user-search.js'
 import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 @Injectable()
@@ -21,6 +22,7 @@ export class TaskParticipantsService {
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
     private readonly feedProjection: FeedProjectionService,
+    private readonly approvals: TaskApprovalService,
   ) {}
 
   async createMany(
@@ -184,6 +186,15 @@ export class TaskParticipantsService {
           removedAt: null,
         },
       })
+      if (!existing || existing.removedAt || existing.role !== role) {
+        await this.approvals.invalidatePending(
+          tx,
+          principal,
+          task,
+          expectedVersion + 1,
+          existing && !existing.removedAt ? 'PARTICIPANT_CHANGED' : 'PARTICIPANT_ADDED',
+        )
+      }
       const [versionedTask, activeParticipants] = await Promise.all([
         tx.task.findUniqueOrThrow({ where: { id: taskId } }),
         tx.taskParticipant.findMany({
@@ -239,8 +250,8 @@ export class TaskParticipantsService {
     taskId: string,
     userId: string,
     expectedVersion: number,
-  ): Promise<{ version: number }> {
-    const task = await this.access.editableTask(principal, taskId)
+  ): Promise<{ version: number; accessRetained: boolean }> {
+    const task = await this.access.readableTask(principal, taskId)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     const participant = await this.prisma.taskParticipant.findUnique({
@@ -248,6 +259,10 @@ export class TaskParticipantsService {
       select: { role: true, removedAt: true },
     })
     if (!participant || participant.removedAt) throw badRequest('task_participant')
+    const selfWatcherExit = userId === principal.userId && participant.role === 'WATCHER'
+    if (!selfWatcherExit) {
+      await this.access.editableTask(principal, taskId)
+    }
     if (participant.role === 'RESPONSIBLE') {
       const responsibleCount = await this.prisma.taskParticipant.count({
         where: { taskId, role: 'RESPONSIBLE', removedAt: null },
@@ -261,10 +276,23 @@ export class TaskParticipantsService {
         data: { version: { increment: 1 } },
       })
       if (!updated.count) throw conflict('task_version')
-      await tx.taskParticipant.update({
-        where: { taskId_userId: { taskId, userId } },
-        data: { removedAt: new Date() },
-      })
+      if (selfWatcherExit) {
+        const removed = await tx.taskParticipant.updateMany({
+          where: {
+            taskId,
+            userId,
+            role: 'WATCHER',
+            removedAt: null,
+          },
+          data: { removedAt: new Date() },
+        })
+        if (!removed.count) throw conflict('task_participant')
+      } else {
+        await tx.taskParticipant.update({
+          where: { taskId_userId: { taskId, userId } },
+          data: { removedAt: new Date() },
+        })
+      }
       const now = new Date()
       await tx.taskFollower.updateMany({
         where: { taskId, userId },
@@ -289,6 +317,13 @@ export class TaskParticipantsService {
           data: { state: 'CANCELLED' },
         })
       }
+      await this.approvals.invalidatePending(
+        tx,
+        principal,
+        task,
+        expectedVersion + 1,
+        'PARTICIPANT_REMOVED',
+      )
       const [versionedTask, activeParticipants] = await Promise.all([
         tx.task.findUniqueOrThrow({ where: { id: taskId } }),
         tx.taskParticipant.findMany({
@@ -315,7 +350,13 @@ export class TaskParticipantsService {
           feedItemId,
         },
       )
-      return { version: expectedVersion + 1 }
+      return {
+        version: expectedVersion + 1,
+        accessRetained: userId !== principal.userId
+          || task.createdById === principal.userId
+          || task.reporterId === principal.userId
+          || isGlobalAdmin(principal),
+      }
     })
   }
 

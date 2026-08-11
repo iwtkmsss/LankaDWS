@@ -27,10 +27,25 @@ function serviceWith(prisma: Record<string, unknown>, access: Record<string, unk
     {} as never,
     {} as never,
     {} as never,
+    {
+      invalidatePending: vi.fn().mockResolvedValue(false),
+      assertNoPending: vi.fn().mockResolvedValue(undefined),
+    } as never,
   )
 }
 
 describe('TaskCompatibilityService', () => {
+  it('requires the dedicated approval command for IN_REVIEW', async () => {
+    const service = serviceWith({})
+
+    await expect(service.changeStatus(
+      principal(),
+      'task_1',
+      'IN_REVIEW',
+      1,
+    )).rejects.toMatchObject({ status: 400, code: 'task_approval_required' })
+  })
+
   it('maps the legacy collaborator list onto v2 participants, dueAt and URGENT', async () => {
     const task = {
       id: 'task_1',

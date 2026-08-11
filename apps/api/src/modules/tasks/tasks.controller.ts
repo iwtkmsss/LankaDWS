@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   createTaskSchema,
+  decideTaskApprovalSchema,
   manualTimeEntrySchema,
   mentionSearchQuerySchema,
   taskCommentInputSchema,
@@ -24,6 +25,7 @@ import {
   taskRecurrenceInputSchema,
   taskReminderInputSchema,
   taskRelationInputSchema,
+  requestTaskApprovalSchema,
   updateTimeEntrySchema,
   updateTaskSchema,
 } from '@bert-crm/contracts'
@@ -34,6 +36,7 @@ import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
+import { TaskApprovalService } from './task-approval.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
@@ -56,6 +59,7 @@ export class TasksController {
     private readonly commands: TaskCommandService,
     private readonly catalog: TaskCatalogService,
     private readonly attachments: TaskAttachmentsService,
+    private readonly approvals: TaskApprovalService,
     private readonly participants: TaskParticipantsService,
     private readonly checklist: TaskChecklistService,
     private readonly relations: TaskRelationsService,
@@ -138,6 +142,40 @@ export class TasksController {
     @Query('cursor') cursor?: string,
   ) {
     return this.tasks.activity(principalFrom(request), taskId, cursor)
+  }
+
+  @Get(':id/approval-options')
+  approvalOptions(
+    @Req() request: BertRequest,
+    @Param('id') taskId: string,
+  ) {
+    return this.approvals.options(principalFrom(request), taskId)
+  }
+
+  @Post(':id/approval-requests')
+  requestApproval(
+    @Req() request: BertRequest,
+    @Param('id') taskId: string,
+    @Body() rawBody: unknown,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    if (!key) throw badRequest('idempotency_key_required')
+    const parsed = requestTaskApprovalSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_approval_request_invalid')
+    return this.approvals.request(principalFrom(request), taskId, parsed.data, key)
+  }
+
+  @Post(':id/approval-decisions')
+  decideApproval(
+    @Req() request: BertRequest,
+    @Param('id') taskId: string,
+    @Body() rawBody: unknown,
+    @Headers('idempotency-key') key?: string,
+  ) {
+    if (!key) throw badRequest('idempotency_key_required')
+    const parsed = decideTaskApprovalSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_approval_decision_invalid')
+    return this.approvals.decide(principalFrom(request), taskId, parsed.data, key)
   }
 
   @Get(':id/mention-candidates')
