@@ -25,6 +25,7 @@ export function NewChatDrawer({
 }) {
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
+  const [searchFocused, setSearchFocused] = useState(false)
   const attemptedTargetRef = useRef<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const {
@@ -94,6 +95,13 @@ export function NewChatDrawer({
         <Button type="button" variant="secondary" onClick={onOpenGroup}>
           <UsersRound size={16} /> Створити групу
         </Button>
+        <div
+          className="new-chat__search-area"
+          onFocusCapture={() => setSearchFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false)
+          }}
+        >
         <label>
           Кому написати
           <div className="new-chat__search">
@@ -127,7 +135,7 @@ export function NewChatDrawer({
         {targetUserId && startingUserId === targetUserId && (
           <p className="new-chat__status" role="status"><LoaderCircle className="is-spinning" size={16} /> Відкриваємо діалог…</p>
         )}
-        {query && !isComposing && normalizedLength < 1 ? (
+        {searchFocused && (query && !isComposing && normalizedLength < 1 ? (
           <p className="new-chat__hint">Введіть щонайменше 1 символ.</p>
         ) : (users.isLoading || waitingForDebounce) ? (
           <Skeleton rows={5} />
@@ -159,7 +167,8 @@ export function NewChatDrawer({
           </div>
         ) : (
           <p className="new-chat__hint">Пошук починається з 1 символу.</p>
-        )}
+        ))}
+        </div>
       </div>
     </Drawer>
   )

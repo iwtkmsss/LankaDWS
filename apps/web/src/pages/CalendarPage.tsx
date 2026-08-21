@@ -12,8 +12,8 @@ import {
   Drawer,
   EmptyState,
   ErrorState,
+  PageDataLoader,
   PageHeader,
-  Skeleton,
   Tabs,
   UnsavedChangesDialog,
   useModalCloseGuard,
@@ -205,7 +205,7 @@ export default function CalendarPage() {
       />
       <Card className="calendar-card">
         {query.isLoading ? (
-          <Skeleton rows={6} />
+          <PageDataLoader />
         ) : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : (
@@ -434,7 +434,7 @@ export default function CalendarPage() {
               </div>
             )
           ) : detail.isLoading ? (
-            <Skeleton />
+            <PageDataLoader />
           ) : (
             <EmptyState
               title="Подія недоступна"

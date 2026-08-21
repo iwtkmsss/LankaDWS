@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { OrganizationCapability } from '@bert-crm/contracts'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bell,
   BookOpen,
@@ -47,10 +47,10 @@ interface SidebarNavSection {
 }
 
 const sidebarNavGroups = [
-  { key: 'primary', label: 'Основне' },
+  { key: 'primary', label: 'Щоденна робота' },
   { key: 'communication', label: 'Комунікації' },
-  { key: 'company', label: 'Компанія' },
-  { key: 'management', label: 'Управління' },
+  { key: 'company', label: 'Співпраця' },
+  { key: 'management', label: 'Знання та аналітика' },
   { key: 'administration', label: 'Адміністрування' },
 ] as const
 
@@ -71,6 +71,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const { user, canUseCapability, logout } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [mobileNav, setMobileNav] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
@@ -84,6 +85,47 @@ export function AppShell({ children }: PropsWithChildren) {
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
   const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
+  const prefetchNavigationRoute = (route: RouteMeta) => {
+    void route.preload?.()
+    if (!user?.company?.id) return
+
+    const company = user.company.id
+    if (route.path === '/overview') {
+      void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
+    } else if (route.path === '/tasks') {
+      void queryClient.prefetchQuery({
+        queryKey: ['tasks', 'RESPONSIBLE', 1, null, '', '', '', '', '', false, '', '', '', '', '', '', '', ''],
+        queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&groupId=&assigneeId=&creatorId=&coExecutorId=&observerId='),
+      })
+    } else if (route.path === '/feed') {
+      void queryClient.prefetchInfiniteQuery({
+        queryKey: ['feed', company, 'ALL', 'ALL', null, null, null, null, null, false, false, false],
+        initialPageParam: null as string | null,
+        queryFn: () => api(`/feed?company=${encodeURIComponent(company)}&filter=ALL&type=ALL&limit=20`),
+      })
+    } else if (route.path === '/messages') {
+      void queryClient.prefetchInfiniteQuery({
+        queryKey: ['messages', 'threads', company, false],
+        initialPageParam: null as string | null,
+        queryFn: () => api(`/messages/threads?company=${encodeURIComponent(company)}&limit=30`),
+      })
+      void queryClient.prefetchQuery({
+        queryKey: ['messages', 'recommended', company],
+        queryFn: () => api(`/messages/users/recommended?company=${encodeURIComponent(company)}&limit=6`),
+        staleTime: 60_000,
+      })
+    } else if (route.path === '/drive') {
+      void queryClient.prefetchQuery({
+        queryKey: ['documents', '', company, 'ALL', 'ALL', 'RECENT'],
+        queryFn: () => api(`/documents?section=ALL&type=ALL&sort=RECENT&company=${encodeURIComponent(company)}`),
+      })
+    } else if (route.path === '/employees') {
+      void queryClient.prefetchQuery({
+        queryKey: ['employees', '', company, '', '', ''],
+        queryFn: () => api(`/employees?company=${encodeURIComponent(company)}`),
+      })
+    }
+  }
   const nav = useMemo(
     () => navigationRoutes(user?.accountType === 'ADMIN', canUseCapability),
     [user?.accountType, canUseCapability],
@@ -307,6 +349,8 @@ export function AppShell({ children }: PropsWithChildren) {
           setMobileNav(false)
           setMoreOpen(false)
         }}
+        onPointerEnter={() => prefetchNavigationRoute(route)}
+        onFocus={() => prefetchNavigationRoute(route)}
       >
         <Icon size={18} />
         <span>{title}</span>

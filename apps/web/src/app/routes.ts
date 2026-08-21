@@ -19,45 +19,58 @@ export interface RouteMeta {
   releaseState?: 'planned' | 'released'
   adminChild?: boolean
   component: LazyExoticComponent<ComponentType>
+  preload?: () => Promise<unknown>
 }
 
-const Overview = lazy(() => import('../pages/OverviewPage'))
-const Feed = lazy(() => import('../pages/FeedPage').then((module) => ({ default: module.FeedPage })))
-const Tasks = lazy(() => import('../pages/TasksPage'))
-const Calendar = lazy(() => import('../pages/CalendarPage'))
-const Content = lazy(() => import('../pages/ContentPages'))
-const Communication = lazy(() => import('../pages/CommunicationPages'))
-const Settings = lazy(() => import('../pages/SettingsPages'))
-const Lifecycle = lazy(() => import('../pages/LifecyclePage'))
-const Admin = lazy(() => import('../pages/AdminPages'))
-const Organization = lazy(() => import('../pages/OrganizationPage'))
-const Companies = lazy(() => import('../pages/CompaniesPage'))
+const loadOverview = () => import('../pages/OverviewPage')
+const loadFeed = () => import('../pages/FeedPage').then((module) => ({ default: module.FeedPage }))
+const loadTasks = () => import('../pages/TasksPage')
+const loadCalendar = () => import('../pages/CalendarPage')
+const loadContent = () => import('../pages/ContentPages')
+const loadCommunication = () => import('../pages/CommunicationPages')
+const loadSettings = () => import('../pages/SettingsPages')
+const loadLifecycle = () => import('../pages/LifecyclePage')
+const loadAdmin = () => import('../pages/AdminPages')
+const loadOrganization = () => import('../pages/OrganizationPage')
+const loadCompanies = () => import('../pages/CompaniesPage')
+
+const Overview = lazy(loadOverview)
+const Feed = lazy(loadFeed)
+const Tasks = lazy(loadTasks)
+const Calendar = lazy(loadCalendar)
+const Content = lazy(loadContent)
+const Communication = lazy(loadCommunication)
+const Settings = lazy(loadSettings)
+const Lifecycle = lazy(loadLifecycle)
+const Admin = lazy(loadAdmin)
+const Organization = lazy(loadOrganization)
+const Companies = lazy(loadCompanies)
 
 export const routes: RouteMeta[] = [
-  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 1, navIcon: Gauge, component: Overview },
-  { path: '/tasks', title: 'Завдання', nav: true, navGroup: 'management', navOrder: 1, navIcon: CheckSquare2, component: Tasks },
+  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 7, navIcon: Gauge, component: Overview, preload: loadOverview },
+  { path: '/tasks', title: 'Завдання', nav: true, navGroup: 'primary', navOrder: 2, navIcon: CheckSquare2, component: Tasks, preload: loadTasks },
   { path: '/tasks/new', title: 'Нове завдання', component: Tasks },
   { path: '/tasks/:taskId', title: 'Деталі завдання', component: Tasks },
-  { path: '/calendar', title: 'Календар', nav: true, navGroup: 'communication', navOrder: 3, navIcon: CalendarDays, component: Calendar },
+  { path: '/calendar', title: 'Календар', nav: true, navGroup: 'primary', navOrder: 5, navIcon: CalendarDays, component: Calendar, preload: loadCalendar },
   { path: '/calendar/events/:eventId', title: 'Подія календаря', component: Calendar },
   { path: '/documents', title: 'Документи', component: Content },
   { path: '/documents/:documentId', title: 'Документ', component: Content },
-  { path: '/knowledge', title: 'База знань', nav: true, navGroup: 'management', navOrder: 2, navIcon: BookOpen, component: Content },
+  { path: '/knowledge', title: 'База знань', nav: true, navGroup: 'management', navOrder: 1, navIcon: BookOpen, component: Content },
   { path: '/knowledge/:articleSlug', title: 'Стаття', component: Content },
-  { path: '/employees', title: 'Працівники', nav: true, navGroup: 'company', navOrder: 1, navIcon: Users, component: Content },
+  { path: '/employees', title: 'Працівники', nav: true, navGroup: 'primary', navOrder: 6, navIcon: Users, component: Content, preload: loadContent },
   { path: '/employees/org', title: 'Структура організації', component: Organization },
   { path: '/employees/:employeeId', title: 'Профіль працівника', component: Content },
-  { path: '/analytics', title: 'Аналітика', nav: true, navGroup: 'management', navOrder: 3, navIcon: ChartNoAxesColumnIncreasing, component: Content },
+  { path: '/analytics', title: 'Аналітика', nav: true, navGroup: 'management', navOrder: 2, navIcon: ChartNoAxesColumnIncreasing, component: Content },
   { path: '/announcements', title: 'Оголошення', component: Communication },
   { path: '/announcements/new', title: 'Нове оголошення', component: Communication },
   { path: '/announcements/:announcementId', title: 'Оголошення', component: Communication },
   { path: '/notifications', title: 'Сповіщення', nav: true, navGroup: 'communication', navOrder: 4, navIcon: Bell, component: Communication },
-  { path: '/feed', title: 'Жива стрічка', capability: 'FEED', nav: true, navGroup: 'communication', navOrder: 1, navIcon: Newspaper, component: Feed },
-  { path: '/messages', title: 'Чат', nav: true, navGroup: 'communication', navOrder: 2, navIcon: MessageCircle, component: Communication },
+  { path: '/feed', title: 'Жива стрічка', capability: 'FEED', nav: true, navGroup: 'primary', navOrder: 1, navIcon: Newspaper, component: Feed, preload: loadFeed },
+  { path: '/messages', title: 'Чат', nav: true, navGroup: 'primary', navOrder: 3, navIcon: MessageCircle, component: Communication, preload: loadCommunication },
   { path: '/messages/:threadId', title: 'Діалог', component: Communication },
-  { path: '/groups', title: 'Робочі групи', capability: 'GROUPS_UI', nav: true, navGroup: 'company', navOrder: 2, navIcon: Building2, releaseState: 'released', component: Content },
+  { path: '/groups', title: 'Робочі групи', capability: 'GROUPS_UI', nav: true, navGroup: 'company', navOrder: 1, navIcon: Building2, releaseState: 'released', component: Content },
   { path: '/groups/:groupId', title: 'Робоча група', capability: 'GROUPS_UI', releaseState: 'released', component: Content },
-  { path: '/drive', title: 'Диск', nav: true, navGroup: 'company', navOrder: 3, navIcon: FileText, releaseState: 'released', component: Content },
+  { path: '/drive', title: 'Диск', nav: true, navGroup: 'primary', navOrder: 4, navIcon: FileText, releaseState: 'released', component: Content, preload: loadContent },
   { path: '/drive/:documentId', title: 'Файл на диску', releaseState: 'released', component: Content },
   { path: '/settings/profile', title: 'Профіль', component: Settings },
   { path: '/settings/notifications', title: 'Налаштування сповіщень', component: Settings },

@@ -58,6 +58,7 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  PageDataLoader,
   PageHeader,
   Skeleton,
   StatusBadge,
@@ -81,7 +82,6 @@ export default function TasksPage() {
 function TasksListPage() {
   const location = useLocation()
   const navigate = useNavigate()
-  const client = useQueryClient()
   const [params, setParams] = useSearchParams()
   const pendingParams = useRef(new URLSearchParams(params))
   useEffect(() => {
@@ -215,17 +215,6 @@ function TasksListPage() {
     ],
     queryFn: () => api<PageResult<TaskListItem>>(`/tasks?${queryString.toString()}`),
   })
-  const quickComplete = useMutation({
-    mutationFn: (task: TaskListItem) =>
-      api(`/tasks/${task.id}/status`, {
-        method: 'PATCH',
-        body: jsonBody({ status: 'DONE', expectedVersion: task.version }),
-      }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['tasks'] }),
-  })
-  const canQuickComplete = role === 'RESPONSIBLE'
-    || role === 'CO_EXECUTOR'
-    || (role === 'ALL' && user?.accountType === 'ADMIN')
   const isCreating = location.pathname === '/tasks/new'
   const taskListColumns = useTaskListColumnsPreference()
   return (
@@ -242,7 +231,7 @@ function TasksListPage() {
           )
         }
       />
-      <Card className="list-card">
+      <Card className="list-card task-list-card">
         <div className="list-toolbar">
           <Tabs
             value={role}
@@ -272,30 +261,30 @@ function TasksListPage() {
             <TaskListColumnsControl controller={taskListColumns} />
           </div>
         </div>
-        <div className="task-presets" aria-label="Швидкі режими завдань">
-          {[
-            ['ACTIVE', 'В роботі'],
-            ['DEFERRED', 'Відкладені'],
-            ['OVERDUE', 'Прострочені'],
-            ['DUE_SOON', 'Скоро строк'],
-          ].map(([value, label]) => (
-            <button
-              type="button"
-              className={preset === value ? 'is-active' : ''}
-              key={value}
-              onClick={() => updateParams((current) => {
-                current.delete('overdue')
-                if (preset === value) current.delete('preset')
-                else current.set('preset', value)
-                current.delete('page')
-              })}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         {filtersOpen && (
           <div className="filter-panel">
+            <div className="task-presets" aria-label="Швидкі режими завдань">
+              {[
+                ['ACTIVE', 'В роботі'],
+                ['DEFERRED', 'Відкладені'],
+                ['OVERDUE', 'Прострочені'],
+                ['DUE_SOON', 'Скоро строк'],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  className={preset === value ? 'is-active' : ''}
+                  key={value}
+                  onClick={() => updateParams((current) => {
+                    current.delete('overdue')
+                    if (preset === value) current.delete('preset')
+                    else current.set('preset', value)
+                    current.delete('page')
+                  })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <label className="search-field">
               <Search size={16} />
               <input
@@ -530,7 +519,7 @@ function TasksListPage() {
           </div>
         )}
         {query.isLoading ? (
-          <Skeleton rows={7} />
+          <PageDataLoader />
         ) : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
@@ -563,25 +552,6 @@ function TasksListPage() {
                           </small>
                         </span>
                       </Link>
-                      <span className="task-row-actions">
-                        {canQuickComplete && !['DONE', 'CANCELLED', 'ARCHIVED'].includes(task.status) && (
-                          <button
-                            type="button"
-                            className="task-quick-complete"
-                            aria-label={`Завершити «${task.title}»`}
-                            title="Завершити завдання"
-                            disabled={quickComplete.isPending && quickComplete.variables?.id === task.id}
-                            onClick={() => quickComplete.mutate(task)}
-                          >
-                            <CheckCircle2 size={17} />
-                          </button>
-                        )}
-                        {quickComplete.isError && quickComplete.variables?.id === task.id && (
-                          <Link className="task-quick-complete-error" to={`/tasks/${task.id}${location.search}`}>
-                            Потрібна увага
-                          </Link>
-                        )}
-                      </span>
                     </td>
                     {taskListColumns.visible.includes('responsibles') && <td data-label="Виконавці">
                       {task.responsibles.length ? (
@@ -1209,7 +1179,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         }
       >
       {query.isLoading ? (
-        <Skeleton rows={6} />
+        <PageDataLoader />
       ) : query.isError || !query.data ? (
         <ErrorState onRetry={() => void query.refetch()} />
       ) : (

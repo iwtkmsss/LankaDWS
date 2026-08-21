@@ -27,8 +27,8 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  PageDataLoader,
   PageHeader,
-  Skeleton,
   StatusBadge,
 } from '../shared/ui'
 
@@ -50,10 +50,7 @@ export default function OverviewPage() {
     return (
       <div className="overview-page">
         <PageHeader title="Огляд" />
-        <div className="overview-loading">
-          <Skeleton rows={3} />
-          <Skeleton rows={5} />
-        </div>
+        <PageDataLoader />
       </div>
     )
   }

@@ -17,6 +17,8 @@
 .field-with-icon:focus-within > :is(span, svg) { color: var(--cobalt-600); }
 .field-with-icon input { border: 0; padding-inline: 0; box-shadow: none; }
 .field-with-icon input:focus-visible { outline: 0; }
+.login-card .field-with-icon input:-webkit-autofill,
+.login-card .field-with-icon input:autofill { box-shadow: 0 0 0 1000px var(--surface) inset; -webkit-box-shadow: 0 0 0 1000px var(--surface) inset; -webkit-text-fill-color: var(--ink-900); caret-color: var(--ink-900); }
 .field-with-icon button { display: grid; width: 30px; height: 30px; place-items: center; border: 0; background: transparent; color: var(--ink-400); }
 .demo-note { display: grid; gap: 4px; border-radius: 10px; background: var(--cobalt-50); padding: 12px; color: var(--ink-500); font-size: 11px; }
 .demo-note strong { color: var(--cobalt-700); }

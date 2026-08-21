@@ -33,7 +33,7 @@ import { loadTaskCreateOptions } from './api'
 import { clearTaskDraft, loadTaskDraft, saveTaskDraft, taskDraftKey } from './draft'
 import { TaskChecklistSection } from './TaskChecklistSection'
 import { TaskBasicsSection, TaskContextSection } from './TaskMainSection'
-import { TaskParticipantsSection, TaskResponsibleField } from './TaskParticipantsSection'
+import { TaskParticipantsSection } from './TaskParticipantsSection'
 import { TaskPlanningSection } from './TaskPlanningSection'
 import { TaskRelationsSection } from './TaskRelationsSection'
 import {
@@ -312,8 +312,10 @@ export function TaskCreateModal({
     create.mutate()
   }
 
-  const responsibleCount = draft.participants.filter((item) => item.role === 'RESPONSIBLE').length
-  const additionalParticipantCount = draft.participants.length - responsibleCount
+  const participantCount = new Set([
+    draft.reporterId,
+    ...draft.participants.map((item) => item.userId),
+  ].filter(Boolean)).size
   const projectName = options.data?.projects.find((item) => item.id === draft.projectId)?.name
   const contextSummary = [
     projectName,
@@ -406,17 +408,6 @@ export function TaskCreateModal({
             invalidField={validation?.field}
           />
 
-          <TaskResponsibleField
-            draft={draft}
-            options={options.data}
-            currentUser={user}
-            optionsLoading={options.isLoading}
-            optionsError={options.isError}
-            update={update}
-            onOpenParticipants={() => openSection('participants')}
-            onRetryOptions={retryOptions}
-          />
-
           <div className="task-create-details" aria-label="Додаткові параметри">
             <div className="task-create-details__intro">
               <div>
@@ -449,8 +440,8 @@ export function TaskCreateModal({
             <TaskDisclosure
               id="participants"
               title="Учасники"
-              description="Постановник, співвиконавці та спостерігачі"
-              summary={additionalParticipantCount ? `${additionalParticipantCount} додано` : 'Не додано'}
+              description="Відповідальний, постановник, співвиконавці та спостерігачі"
+              summary={`${participantCount} ${participantCount === 1 ? 'людина' : 'людей'}`}
               icon={<Users size={18} aria-hidden />}
               open={openSections.has('participants')}
               onToggle={() => toggleSection('participants')}
@@ -458,6 +449,7 @@ export function TaskCreateModal({
               <TaskParticipantsSection
                 draft={draft}
                 options={options.data}
+                currentUser={user}
                 optionsLoading={options.isLoading}
                 optionsError={options.isError}
                 update={update}

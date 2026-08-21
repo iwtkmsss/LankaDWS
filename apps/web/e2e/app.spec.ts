@@ -9,6 +9,45 @@ async function login(page: Page, username = 'maria') {
   await expect(page).toHaveURL(/\/feed$/)
 }
 
+test('desktop navigation prefetches destinations and reuses cached task data', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop sidebar is the navigation prefetch surface.')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await login(page)
+  const sidebar = page.locator('.sidebar')
+  let taskListRequests = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/tasks') taskListRequests += 1
+  })
+
+  async function navigateTo(path: string, heading: string) {
+    const link = sidebar.locator(`a[href="${path}"]`)
+    await link.hover()
+    await link.click()
+    await expect(page).toHaveURL(new RegExp(`${path.replace('/', '\\/')}$`))
+    await expect(link).toHaveClass(/active/)
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+  }
+
+  await navigateTo('/tasks', 'Завдання')
+  const taskLink = page.locator('.task-list-table tbody a').first()
+  await expect(taskLink).toBeVisible()
+  await taskLink.click()
+  await expect(page).toHaveURL(/\/tasks\/tsk_/)
+  await expect(page.locator('.task-detail-heading h2')).toBeVisible()
+  const taskRequestsAfterFirstVisit = taskListRequests
+
+  await navigateTo('/messages', 'Повідомлення')
+  await navigateTo('/drive', 'Диск')
+  await navigateTo('/calendar', 'Календар')
+  await navigateTo('/employees', 'Працівники')
+  await navigateTo('/overview', 'Огляд')
+  await navigateTo('/feed', 'Жива стрічка')
+  await navigateTo('/tasks', 'Завдання')
+  await expect(page.locator('.page-data-loader')).toHaveCount(0)
+  await page.waitForTimeout(250)
+  expect(taskListRequests).toBe(taskRequestsAfterFirstVisit)
+})
+
 test('home landing follows FEED capability while explicit overview stays addressable', async ({ page, request }) => {
   await login(page)
   await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
@@ -425,10 +464,11 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await page.setViewportSize({ width: 1440, height: 900 })
   await login(page, 'dmytro')
   const sidebar = page.locator('.sidebar')
-  await expect(sidebar.getByText('Основне', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Щоденна робота', { exact: true })).toBeVisible()
   await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
-  await expect(sidebar.getByText('Компанія', { exact: true })).toBeVisible()
-  await expect(sidebar.getByText('Управління', { exact: true })).toBeVisible()
+  await expect(sidebar.locator('.nav-section').first().getByRole('link')).toHaveText([
+    'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Календар', 'Працівники', 'Огляд',
+  ])
   const moreButton = sidebar.getByRole('button', { name: 'Ще' })
   await expect(moreButton).toBeVisible()
   await moreButton.click()
@@ -436,7 +476,6 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(
     overflowMenu.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
   ).toBeVisible()
-  await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
   await moreButton.click()
 
   await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()

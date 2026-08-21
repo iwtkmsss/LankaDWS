@@ -3,3 +3,7 @@ export function withCompanyScope(path: string, _companyId: string | null | undef
   // organization now, so navigation must not expose or persist company scope.
   return path
 }
+
+export function organizationQueryScope(companyId: string | null | undefined): string {
+  return companyId ?? 'all'
+}

@@ -43,7 +43,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { withCompanyScope } from '../shared/lib/navigation'
+import { organizationQueryScope, withCompanyScope } from '../shared/lib/navigation'
 import { MentionText } from '../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../shared/mentions/mentionText'
@@ -55,8 +55,8 @@ import {
   ErrorState,
   IconButton,
   Modal,
+  PageDataLoader,
   PageHeader,
-  Skeleton,
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
@@ -79,7 +79,7 @@ export function FeedPage() {
     },
   })
   const readKey = useRef('')
-  const company = user?.company?.id ?? ''
+  const company = organizationQueryScope(user?.company?.id)
   const filter = parseFilter(params.get('filter'))
   const itemType = parseItemType(params.get('type'))
   const authorId = parseIdParam(params.get('authorId'))
@@ -190,7 +190,7 @@ export function FeedPage() {
     return (
       <>
         <PageHeader title="Жива стрічка" />
-        <Skeleton rows={7} />
+        <PageDataLoader />
       </>
     )
   }

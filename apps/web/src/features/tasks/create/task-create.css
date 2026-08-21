@@ -70,15 +70,9 @@
   outline: 0;
 }
 
-.task-create-core,
-.task-create-responsible {
+.task-create-core {
   display: grid;
   gap: 18px;
-}
-
-.task-create-responsible {
-  border-top: 1px solid var(--line);
-  padding-top: 24px;
 }
 
 .task-create-core__header {
@@ -130,66 +124,21 @@
   gap: 15px;
 }
 
-.task-create-fields label > span[aria-hidden] {
+.task-create-fields label > span[aria-hidden],
+.task-create-field-label > span[aria-hidden] {
   color: var(--danger);
+}
+
+.task-create-field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
 }
 
 .task-create-core__meta {
   display: grid;
   grid-template-columns: minmax(130px, .75fr) repeat(2, minmax(180px, 1fr));
   gap: 15px;
-}
-
-.task-create-responsible__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px;
-}
-
-.task-create-responsible__person {
-  display: grid;
-  min-width: min(280px, 100%);
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  border: 1px solid var(--cobalt-100);
-  border-radius: 11px;
-  background: var(--cobalt-50);
-  padding: 7px 7px 7px 9px;
-}
-
-.task-create-responsible__person > span:nth-child(2) {
-  display: grid;
-  min-width: 0;
-}
-
-.task-create-responsible__person strong,
-.task-create-responsible__person small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.task-create-responsible__person small {
-  color: var(--ink-500);
-  font-size: 10px;
-}
-
-.task-create-responsible__add {
-  max-width: 430px;
-}
-
-.task-create-responsible__add > span {
-  position: relative;
-}
-
-.task-create-responsible__add > span svg {
-  position: absolute;
-  top: 50%;
-  right: 34px;
-  pointer-events: none;
-  transform: translateY(-50%);
-  color: var(--cobalt-600);
 }
 
 .task-create-details {
@@ -492,7 +441,6 @@
   gap: 18px;
 }
 
-.task-create-participant-summary,
 .task-create-hierarchy-note {
   display: flex;
   align-items: center;
@@ -503,78 +451,179 @@
   padding: 11px 13px;
 }
 
-.task-create-participant-summary span {
-  display: flex;
-  gap: 4px;
-}
-
-.task-create-reporter {
-  max-width: 420px;
-}
-
-.task-create-people {
-  min-width: 0;
-  margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px;
-}
-
-.task-create-people legend,
 .task-create-weekdays legend {
   color: var(--ink-700);
   padding: 0 5px;
   font-weight: 700;
 }
 
-.task-create-people ul {
+.task-create-participants__intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 11px;
+  background: var(--cobalt-50);
+  color: var(--ink-700);
+  padding: 12px 14px;
+}
+
+.task-create-participants__intro > div {
   display: grid;
+  gap: 2px;
+}
+
+.task-create-participants__intro strong {
+  font-size: 12px;
+}
+
+.task-create-participants__intro span {
+  color: var(--ink-500);
+  font-size: 10px;
+}
+
+.task-create-participants__intro > span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--cobalt-700);
+  padding: 5px 9px;
+  font-weight: 750;
+}
+
+.task-create-role-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.task-create-role-card {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 13px;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+
+.task-create-role-card:focus-within {
+  border-color: var(--cobalt-200);
+  box-shadow: 0 8px 24px rgba(23, 66, 170, .08);
+}
+
+.task-create-role-card__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.task-create-role-card__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--cobalt-50);
+  color: var(--cobalt-700);
+}
+
+.task-create-role-card__header > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.task-create-role-card__header strong {
+  color: var(--ink-800);
+  font-size: 12px;
+}
+
+.task-create-role-card__header small {
+  overflow: hidden;
+  color: var(--ink-400);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-create-role-card__count {
+  display: flex;
+  align-items: center;
   gap: 5px;
+  color: var(--ink-400);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.task-create-role-card__count i {
+  border-radius: 999px;
+  background: var(--cobalt-50);
+  color: var(--cobalt-700);
+  padding: 3px 6px;
+  font-size: 8px;
+  font-style: normal;
+}
+
+.task-create-role-card__people {
+  display: grid;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.task-create-people li {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 210px);
-  align-items: center;
-  gap: 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  padding: 8px;
-}
-
-.task-create-people li.is-selected {
-  border-color: var(--cobalt-100);
-  background: var(--cobalt-50);
-}
-
-.task-create-person {
+.task-create-role-person {
   display: grid;
   min-width: 0;
-  grid-template-columns: 18px auto minmax(0, 1fr);
-  flex-direction: initial;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  cursor: pointer;
+  gap: 8px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+  padding: 7px 7px 7px 8px;
 }
 
-.task-create-person input {
-  width: 17px;
-  min-height: 17px;
-}
-
-.task-create-person > span:last-child {
+.task-create-role-person > span:nth-child(2) {
   display: grid;
   min-width: 0;
+  gap: 1px;
 }
 
-.task-create-person strong,
-.task-create-person small {
+.task-create-role-person strong,
+.task-create-role-person small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-create-role-person strong {
+  color: var(--ink-700);
+  font-size: 10px;
+}
+
+.task-create-role-person small {
+  color: var(--ink-400);
+  font-size: 9px;
+}
+
+.task-create-role-card__empty {
+  margin: 0;
+  border: 1px dashed var(--line);
+  border-radius: 9px;
+  color: var(--ink-400);
+  padding: 10px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.task-create-role-card .async-task-combobox > label {
+  color: var(--ink-500);
+  font-size: 9px;
+  font-weight: 700;
 }
 
 .task-create-checklist-add {
@@ -800,6 +849,10 @@
 }
 
 @media (max-width: 820px) {
+  .task-create-role-grid {
+    grid-template-columns: 1fr;
+  }
+
   .task-create-core__meta,
   .task-create-fields,
   .task-create-recurrence,
@@ -850,10 +903,6 @@
     width: auto;
   }
 
-  .task-create-responsible__person {
-    min-width: 100%;
-  }
-
   .task-create-disclosure__trigger {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 9px;
@@ -870,8 +919,7 @@
 
   .task-create-inline,
   .task-create-tag-new,
-  .task-create-checklist-add,
-  .task-create-people li {
+  .task-create-checklist-add {
     grid-template-columns: 1fr;
   }
 
@@ -887,8 +935,10 @@
     width: 100%;
   }
 
-  .task-create-people li select {
-    min-height: 44px;
+  .task-create-participants__intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .task-create-checklist li {

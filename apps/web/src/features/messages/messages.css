@@ -667,7 +667,11 @@
 .new-chat > .button { justify-self: start; }
 .new-chat > label,
 .new-group > label,
+.new-chat__search-area > label,
+.new-group__search-area > label,
 .message-conversion > label { display: grid; gap: 7px; color: var(--ink-600); font-size: 10px; font-weight: 750; }
+.new-chat__search-area,
+.new-group__search-area { display: grid; gap: 7px; }
 .new-group > label > span { float: right; color: var(--ink-400); }
 .new-chat__search,
 .new-group__search,

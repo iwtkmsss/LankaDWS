@@ -13,6 +13,7 @@ import {
   Drawer,
   EmptyState,
   ErrorState,
+  PageDataLoader,
   PageHeader,
   Skeleton,
   StatusBadge,
@@ -164,7 +165,7 @@ function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents';
             </select>
           </label>
         </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
+        {query.isLoading ? <PageDataLoader /> : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
           <div className="responsive-table drive-table">
@@ -282,7 +283,7 @@ function GroupsPage() {
             <button className={status === 'ARCHIVED' ? 'is-active' : ''} onClick={() => selectStatus('ARCHIVED')}>Архів</button>
           </div>
         </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
+        {query.isLoading ? <PageDataLoader /> : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
           <div className="group-grid">
@@ -743,7 +744,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 function KnowledgePage() {
   const { articleSlug } = useParams(); const navigate = useNavigate(); const { user } = useAuth(); const [search, setSearch] = useState('')
   const query = useQuery({ queryKey: ['knowledge', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`) })
-  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={user?.accountType === 'ADMIN' && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
+  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={user?.accountType === 'ADMIN' && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
 }
 
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
@@ -846,7 +847,7 @@ function EmployeesPage() {
           {query.data && <span>{query.data.counts.available} доступні · {query.data.counts.away} відсутні</span>}
           {hasFilters && <button type="button" onClick={clearFilters}><X size={14} />Очистити</button>}
         </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
+        {query.isLoading ? <PageDataLoader /> : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
           <div className="employee-grid">
@@ -964,7 +965,7 @@ function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 function AnalyticsPage() {
   interface Data { kpis: { taskCompletion: number; taskOverdue: number; activeLifecycle: number }; lifecycle: Array<{ processType: string; status: string; _count: { id: number }; _avg: { progress: number | null } }> }
   const query = useQuery({ queryKey: ['analytics'], queryFn: () => api<Data>('/analytics') })
-  if (query.isLoading) return <><PageHeader title="Аналітика" /><Skeleton rows={7} /></>
+  if (query.isLoading) return <><PageHeader title="Аналітика" /><PageDataLoader /></>
   if (query.isError || !query.data) return <ErrorState />
   return <div><PageHeader title="Аналітика" description="Агреговані показники лише в межах доступного company scope" /><div className="kpi-grid"><Kpi icon={Check} label="Виконання задач" value={`${query.data.kpis.taskCompletion}%`} /><Kpi icon={CalendarClock} label="Прострочені" value={query.data.kpis.taskOverdue} /><Kpi icon={UsersRound} label="Активні процеси" value={query.data.kpis.activeLifecycle} /></div><div className="analytics-grid"><Card><h2>Онбординг і офбординг</h2>{query.data.lifecycle.length ? query.data.lifecycle.map((item) => <article className="lifecycle-stat" key={`${item.processType}:${item.status}`}><BarChart3 size={19} /><span><strong>{item.processType}</strong><small>{item.status} · середній прогрес {Math.round(item._avg.progress ?? 0)}%</small></span><b>{item._count.id}</b></article>) : <EmptyState title="Процесів немає" description="Дані з’являться після запуску процесу." />}</Card></div></div>
 }

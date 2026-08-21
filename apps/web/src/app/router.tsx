@@ -3,7 +3,7 @@ import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router
 import { AppShell } from '../layout/AppShell'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { resolveHomePath } from '../shared/auth/home'
-import { OverlayProvider, Skeleton } from '../shared/ui'
+import { OverlayProvider, PageDataLoader, Skeleton } from '../shared/ui'
 import { routes, routeTitle, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
@@ -45,7 +45,7 @@ function ProtectedPage({ route }: { route: RouteMeta }) {
   }
   if (route.releaseState === 'planned') return <ModuleUnavailablePage title={route.title} state="preparing" />
   const Component = route.component
-  return <Suspense fallback={<div className="route-loading"><Skeleton rows={5} /></div>}><Component /></Suspense>
+  return <Suspense fallback={<div className="route-loading"><PageDataLoader /></div>}><Component /></Suspense>
 }
 
 function HomeRedirect() {

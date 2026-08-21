@@ -123,7 +123,6 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   const title = `E2E створення · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)
   await page.getByLabel('Опис').fill('Перевірка повної форми створення завдання.')
-  await page.getByLabel('Додати відповідального').selectOption('usr_andrii')
   await dialog.getByLabel('Пріоритет').selectOption('URGENT')
   await page.getByLabel('Дата початку').fill(futureLocalDateTime(2))
   await page.getByLabel('Кінцевий термін').fill(futureLocalDateTime(4))
@@ -145,8 +144,13 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   await participantsToggle.click()
   await expect(participantsToggle).toHaveAttribute('aria-expanded', 'true')
   await expect(contextToggle).toHaveAttribute('aria-expanded', 'true')
-  await dialog.getByText('Олена Бондар', { exact: true }).click()
-  await page.getByLabel('Роль: Олена Бондар').selectOption('COLLABORATOR')
+  await expect(dialog.locator('.task-create-role-card')).toHaveCount(4)
+  const responsibleSearch = dialog.getByRole('combobox', { name: 'Додати: відповідальний' })
+  await responsibleSearch.fill('Андр')
+  await dialog.getByRole('option', { name: /Андрій Коваль/ }).click()
+  const collaboratorSearch = dialog.getByRole('combobox', { name: 'Додати: співвиконавець' })
+  await collaboratorSearch.fill('Оле')
+  await dialog.getByRole('option', { name: /Олена Бондар/ }).click()
 
   await checklistToggle.click()
   const checklistPanel = dialog.locator('#task-create-checklist-panel')
@@ -288,14 +292,12 @@ test('optional options failures stay local and do not block basic task creation'
   const title = `E2E без довідників · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)
 
-  await expect(dialog.getByText('Список людей недоступний. Поточних відповідальних збережено.')).toBeVisible()
-
   await dialog.getByRole('button', { name: /^Контекст і матеріали/ }).click()
   await expect(dialog.getByText('Не вдалося завантажити проєкти й завдання.')).toBeVisible()
   await expect(dialog.getByText('Не вдалося завантажити теги.')).toBeVisible()
 
   await dialog.getByRole('button', { name: /^Учасники/ }).click()
-  await expect(dialog.getByText(/Не вдалося завантажити постановника й інших учасників/)).toBeVisible()
+  await expect(dialog.getByText(/Не вдалося завантажити учасників/)).toBeVisible()
 
   await dialog.getByRole('button', { name: /^Планування/ }).click()
   await expect(dialog.getByText(/Не вдалося завантажити дані для планування/)).toBeVisible()

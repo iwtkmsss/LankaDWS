@@ -6,7 +6,7 @@ import type {
 } from '@bert-crm/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, Button, ErrorState, Skeleton } from '../../../shared/ui'
+import { Avatar, Button, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
 import { formatChatTime } from '../lib/chatDates'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
 
@@ -235,7 +235,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
 
           <div className="messages-thread-scroll">
             {props.loadingThreads ? (
-              <Skeleton rows={7} />
+              <PageDataLoader />
             ) : props.threadError ? (
               <ErrorState title="Не вдалося завантажити діалоги" onRetry={props.onRetryThreads} />
             ) : props.threads.length ? (

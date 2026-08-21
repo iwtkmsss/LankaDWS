@@ -15,12 +15,12 @@ describe('canonical route registry', () => {
     expect(routes.find((route) => route.path === '/overview')).toMatchObject({
       title: 'Огляд',
       navGroup: 'primary',
-      navOrder: 1,
+      navOrder: 7,
     })
     expect(routes.find((route) => route.path === '/feed')).toMatchObject({
       title: 'Жива стрічка',
       capability: 'FEED',
-      navGroup: 'communication',
+      navGroup: 'primary',
     })
     expect(routes.find((route) => route.path === '/notifications')).toMatchObject({ navGroup: 'communication' })
   })
@@ -42,6 +42,12 @@ describe('canonical route registry', () => {
     expect(configuredRoutes.every((path) => routes.some((route) => route.path === path && route.nav))).toBe(true)
   })
 
+  it('exposes preloaders for the primary desktop destinations', () => {
+    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/employees', '/overview']) {
+      expect(routes.find((route) => route.path === path)?.preload).toEqual(expect.any(Function))
+    }
+  })
+
   it('groups each sidebar destination once in the requested information architecture', () => {
     const pathsByGroup = Object.fromEntries(
       ['primary', 'communication', 'company', 'management', 'administration'].map((group) => [
@@ -53,10 +59,10 @@ describe('canonical route registry', () => {
       ]),
     )
     expect(pathsByGroup).toEqual({
-      primary: ['/overview'],
-      communication: ['/feed', '/messages', '/calendar', '/notifications'],
-      company: ['/employees', '/groups', '/drive'],
-      management: ['/tasks', '/knowledge', '/analytics'],
+      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/employees', '/overview'],
+      communication: ['/notifications'],
+      company: ['/groups'],
+      management: ['/knowledge', '/analytics'],
       administration: [
         '/admin',
         '/admin/companies',

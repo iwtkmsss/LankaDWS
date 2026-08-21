@@ -34,7 +34,9 @@ export function TaskBasicsSection({
       </header>
       <div className="task-create-fields">
         <label className="span-2">
+          <span className="task-create-field-label">
           Назва завдання <span aria-hidden="true">*</span>
+          </span>
           <input
             ref={titleRef}
             value={draft.title}

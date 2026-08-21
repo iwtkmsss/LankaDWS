@@ -26,6 +26,7 @@ export function NewGroupDrawer({
 }) {
   const [title, setTitle] = useState('')
   const [query, setQuery] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
   const {
     debouncedValue: debounced,
     isComposing,
@@ -106,6 +107,13 @@ export function NewGroupDrawer({
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
+        <div
+          className="new-group__search-area"
+          onFocusCapture={() => setSearchFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false)
+          }}
+        >
         <label>
           Учасники <span>{selected.length}/49</span>
           <div className="new-group__search">
@@ -135,7 +143,7 @@ export function NewGroupDrawer({
             ))}
           </div>
         )}
-        {query && !isComposing && normalizedLength < 1 ? (
+        {searchFocused && (query && !isComposing && normalizedLength < 1 ? (
           <p className="new-group__hint">Введіть щонайменше 1 символ.</p>
         ) : users.isLoading ? (
           <Skeleton rows={5} />
@@ -161,7 +169,8 @@ export function NewGroupDrawer({
               )
             })}
           </div>
-        )}
+        ))}
+        </div>
         {create.isError && <p className="form-error" role="alert">Не вдалося створити групу. Оновіть дані й спробуйте ще раз.</p>}
         </div>
       </Drawer>

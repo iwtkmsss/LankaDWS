@@ -1,16 +1,18 @@
 import type { PrincipalView, TaskParticipantRoleV2 } from '@bert-crm/contracts'
-import { Plus, Trash2, UserRoundPlus, UsersRound } from 'lucide-react'
-import { Avatar, Button } from '../../../shared/ui'
+import { Eye, UserCheck, UserCog, UsersRound, X } from 'lucide-react'
+import { useCallback, type ReactNode } from 'react'
+import { Avatar } from '../../../shared/ui'
+import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
+  TaskCreateParticipantDraft,
   TaskCreateUserOption,
   UpdateTaskCreateDraft,
 } from './types'
 
-type AdditionalParticipantRole = Exclude<TaskParticipantRoleV2, 'RESPONSIBLE'>
-
-const additionalRoleLabels: Record<AdditionalParticipantRole, string> = {
+const participantRoleLabels: Record<TaskParticipantRoleV2, string> = {
+  RESPONSIBLE: 'Відповідальний',
   COLLABORATOR: 'Співвиконавець',
   WATCHER: 'Спостерігач',
 }
@@ -19,21 +21,197 @@ function userLabel(
   userId: string,
   users: TaskCreateUserOption[],
   currentUser: PrincipalView | null,
-): { displayName: string; avatarAsset: string | null; jobTitle: string } {
+): TaskCreateUserOption {
   const option = users.find((user) => user.id === userId)
   if (option) return option
   if (currentUser?.id === userId) return currentUser
-  return { displayName: 'Вибраний користувач', avatarAsset: null, jobTitle: '' }
+  return { id: userId, displayName: 'Вибраний користувач', avatarAsset: null, jobTitle: '' }
 }
 
-export function TaskResponsibleField({
+function PersonCard({
+  person,
+  roleLabel,
+  onRemove,
+}: {
+  person: TaskCreateUserOption
+  roleLabel: string
+  onRemove?: () => void
+}) {
+  return (
+    <li className="task-create-role-person">
+      <Avatar name={person.displayName} src={person.avatarAsset} size="sm" />
+      <span>
+        <strong>{person.displayName}</strong>
+        <small>{person.jobTitle || roleLabel}</small>
+      </span>
+      {onRemove && (
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={`Прибрати ${person.displayName} з ролі «${roleLabel}»`}
+          onClick={onRemove}
+        >
+          <X size={15} aria-hidden />
+        </button>
+      )}
+    </li>
+  )
+}
+
+function ParticipantRoleCard({
+  role,
+  title,
+  description,
+  icon,
+  required = false,
+  draft,
+  users,
+  currentUser,
+  update,
+}: {
+  role: TaskParticipantRoleV2
+  title: string
+  description: string
+  icon: ReactNode
+  required?: boolean
+  draft: TaskCreateDraft
+  users: TaskCreateUserOption[]
+  currentUser: PrincipalView | null
+  update: UpdateTaskCreateDraft
+}) {
+  const selected = draft.participants.filter((participant) => participant.role === role)
+  const loadOptions = useCallback(async (search: string) => {
+    const normalizedSearch = search.trim().toLocaleLowerCase('uk')
+    return users
+      .filter((person) => !selected.some((participant) => participant.userId === person.id))
+      .filter((person) => `${person.displayName} ${person.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedSearch))
+      .map((person) => {
+        const currentRole = draft.participants.find((participant) => participant.userId === person.id)?.role
+        const detail = currentRole
+          ? `${person.jobTitle || 'Учасник команди'} · Зараз: ${participantRoleLabels[currentRole]}`
+          : person.jobTitle
+        return { id: person.id, label: person.displayName, detail }
+      })
+  }, [draft.participants, selected, users])
+
+  function assign(userId: string) {
+    if (!userId) return
+    update((current) => ({
+      ...current,
+      participants: [
+        ...current.participants.filter((participant) => participant.userId !== userId),
+        { userId, role },
+      ],
+    }))
+  }
+
+  function remove(participant: TaskCreateParticipantDraft) {
+    update((current) => ({
+      ...current,
+      participants: current.participants.filter((item) => item.userId !== participant.userId),
+    }))
+  }
+
+  return (
+    <section className="task-create-role-card" aria-labelledby={`task-create-role-${role}`}>
+      <header className="task-create-role-card__header">
+        <span className="task-create-role-card__icon">{icon}</span>
+        <span>
+          <strong id={`task-create-role-${role}`}>{title}</strong>
+          <small>{description}</small>
+        </span>
+        <span className="task-create-role-card__count">
+          {required && <i>Обов’язково</i>}
+          {selected.length}
+        </span>
+      </header>
+
+      {selected.length > 0 ? (
+        <ul className="task-create-role-card__people" aria-label={`${title}: вибрані люди`}>
+          {selected.map((participant) => (
+            <PersonCard
+              key={participant.userId}
+              person={userLabel(participant.userId, users, currentUser)}
+              roleLabel={title}
+              onRemove={() => remove(participant)}
+            />
+          ))}
+        </ul>
+      ) : (
+        <p className="task-create-role-card__empty">Ще нікого не додано</p>
+      )}
+
+      <AsyncTaskCombobox
+        label={`Додати: ${title.toLocaleLowerCase('uk')}`}
+        value=""
+        placeholder="Почніть вводити ім’я"
+        clearOnSelect
+        loadOptions={loadOptions}
+        onChange={assign}
+      />
+    </section>
+  )
+}
+
+function ReporterRoleCard({
+  draft,
+  users,
+  currentUser,
+  update,
+}: {
+  draft: TaskCreateDraft
+  users: TaskCreateUserOption[]
+  currentUser: PrincipalView | null
+  update: UpdateTaskCreateDraft
+}) {
+  const reporter = draft.reporterId ? userLabel(draft.reporterId, users, currentUser) : null
+  const loadOptions = useCallback(async (search: string) => {
+    const normalizedSearch = search.trim().toLocaleLowerCase('uk')
+    return users
+      .filter((person) => person.id !== draft.reporterId)
+      .filter((person) => `${person.displayName} ${person.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedSearch))
+      .map((person) => ({ id: person.id, label: person.displayName, detail: person.jobTitle }))
+  }, [draft.reporterId, users])
+
+  return (
+    <section className="task-create-role-card" aria-labelledby="task-create-role-reporter">
+      <header className="task-create-role-card__header">
+        <span className="task-create-role-card__icon"><UserCog size={18} aria-hidden /></span>
+        <span>
+          <strong id="task-create-role-reporter">Постановник</strong>
+          <small>Створює доручення та приймає результат</small>
+        </span>
+        <span className="task-create-role-card__count"><i>Обов’язково</i>{reporter ? 1 : 0}</span>
+      </header>
+
+      {reporter && (
+        <ul className="task-create-role-card__people" aria-label="Постановник">
+          <PersonCard person={reporter} roleLabel="Постановник" />
+        </ul>
+      )}
+
+      <AsyncTaskCombobox
+        label="Змінити постановника"
+        value={draft.reporterId}
+        selectedOption={reporter ? { id: reporter.id, label: reporter.displayName, detail: reporter.jobTitle } : null}
+        placeholder="Почніть вводити ім’я"
+        loadOptions={loadOptions}
+        onChange={(reporterId) => {
+          if (!reporterId) return
+          update((current) => ({ ...current, reporterId }))
+        }}
+      />
+    </section>
+  )
+}
+
+export function TaskParticipantsSection({
   draft,
   options,
   currentUser,
   optionsLoading,
   optionsError,
   update,
-  onOpenParticipants,
   onRetryOptions,
 }: {
   draft: TaskCreateDraft
@@ -42,228 +220,73 @@ export function TaskResponsibleField({
   optionsLoading: boolean
   optionsError: boolean
   update: UpdateTaskCreateDraft
-  onOpenParticipants: () => void
-  onRetryOptions: () => void
-}) {
-  const users = options?.users ?? []
-  const responsible = draft.participants.filter((participant) => participant.role === 'RESPONSIBLE')
-  const additionalCount = draft.participants.length - responsible.length
-
-  return (
-    <section className="task-create-responsible" aria-labelledby="task-create-responsible-title">
-      <header className="task-create-core__header task-create-core__header--compact">
-        <div>
-          <span className="task-create-kicker">Виконання</span>
-          <h3 id="task-create-responsible-title">Відповідальні</h3>
-        </div>
-        <Button type="button" variant="ghost" onClick={onOpenParticipants}>
-          <UsersRound size={16} />
-          {additionalCount > 0 ? `Інші учасники · ${additionalCount}` : 'Додати інших учасників'}
-        </Button>
-      </header>
-      <div className="task-create-responsible__list" aria-label="Відповідальні за завдання">
-        {responsible.length === 0 ? (
-          <p className="task-create-help">Додайте принаймні одного відповідального.</p>
-        ) : responsible.map((participant) => {
-          const person = userLabel(participant.userId, users, currentUser)
-          return (
-            <span className="task-create-responsible__person" key={participant.userId}>
-              <Avatar name={person.displayName} src={person.avatarAsset} size="sm" />
-              <span>
-                <strong>{person.displayName}</strong>
-                <small>{person.jobTitle || 'Відповідальний'}</small>
-              </span>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`Прибрати відповідального ${person.displayName}`}
-                onClick={() => update((current) => ({
-                  ...current,
-                  participants: current.participants.filter(
-                    (item) => item.userId !== participant.userId,
-                  ),
-                }))}
-              >
-                <Trash2 size={15} />
-              </button>
-            </span>
-          )
-        })}
-      </div>
-      {optionsLoading && !options && (
-        <p className="task-create-local-state" role="status">Завантажуємо список людей…</p>
-      )}
-      {optionsError && !options && (
-        <div className="task-create-local-error">
-          <span>Список людей недоступний. Поточних відповідальних збережено.</span>
-          <button type="button" onClick={onRetryOptions}>Повторити</button>
-        </div>
-      )}
-      {options && (
-        <label className="task-create-responsible__add">
-          Додати відповідального
-          <span>
-            <select
-              value=""
-              onChange={(event) => {
-                const userId = event.target.value
-                if (!userId) return
-                update((current) => {
-                  const existing = current.participants.some((item) => item.userId === userId)
-                  return {
-                    ...current,
-                    participants: existing
-                      ? current.participants.map((item) => (
-                        item.userId === userId ? { ...item, role: 'RESPONSIBLE' } : item
-                      ))
-                      : [...current.participants, { userId, role: 'RESPONSIBLE' }],
-                  }
-                })
-              }}
-            >
-              <option value="">Оберіть людину</option>
-              {users
-                .filter((person) => !responsible.some((item) => item.userId === person.id))
-                .map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.displayName}{person.jobTitle ? ` · ${person.jobTitle}` : ''}
-                  </option>
-                ))}
-            </select>
-            <Plus size={17} aria-hidden />
-          </span>
-        </label>
-      )}
-    </section>
-  )
-}
-
-export function TaskParticipantsSection({
-  draft,
-  options,
-  optionsLoading,
-  optionsError,
-  update,
-  onRetryOptions,
-}: {
-  draft: TaskCreateDraft
-  options?: TaskCreateOptions
-  optionsLoading: boolean
-  optionsError: boolean
-  update: UpdateTaskCreateDraft
   onRetryOptions: () => void
 }) {
   if (optionsLoading && !options) {
-    return <p className="task-create-local-state" role="status">Завантажуємо постановника та учасників…</p>
+    return <p className="task-create-local-state" role="status">Завантажуємо список людей…</p>
   }
   if (optionsError && !options) {
     return (
       <div className="task-create-local-error">
-        <span>Не вдалося завантажити постановника й інших учасників. Введені значення збережено.</span>
+        <span>Не вдалося завантажити учасників. Введені значення збережено.</span>
         <button type="button" onClick={onRetryOptions}>Повторити</button>
       </div>
     )
   }
   if (!options) return null
 
-  const responsibleIds = new Set(
-    draft.participants
-      .filter((participant) => participant.role === 'RESPONSIBLE')
-      .map((participant) => participant.userId),
-  )
-  const additionalParticipants = draft.participants.filter(
-    (participant) => participant.role !== 'RESPONSIBLE',
-  )
-  const availableUsers = options.users.filter((person) => !responsibleIds.has(person.id))
-
   return (
     <div className="task-create-participants">
-      <div className="task-create-participant-summary">
-        <UsersRound size={18} aria-hidden />
-        <span>
-          <strong>{additionalParticipants.length}</strong>
-          {additionalParticipants.length === 1 ? 'інший учасник' : 'інших учасників'}
-        </span>
+      <div className="task-create-participants__intro">
+        <div>
+          <strong>Ролі в завданні</strong>
+          <span>Знайдіть людину та одразу призначте її потрібну роль.</span>
+        </div>
+        <span>{new Set([
+          draft.reporterId,
+          ...draft.participants.map((item) => item.userId),
+        ].filter(Boolean)).size} людей</span>
       </div>
-      <label className="task-create-reporter">
-        Постановник
-        <select
-          value={draft.reporterId}
-          onChange={(event) => update((current) => ({
-            ...current,
-            reporterId: event.target.value,
-          }))}
-        >
-          <option value="" disabled>Оберіть постановника</option>
-          {options.users.map((person) => (
-            <option key={person.id} value={person.id}>
-              {person.displayName}{person.jobTitle ? ` · ${person.jobTitle}` : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      <fieldset className="task-create-people">
-        <legend>Співвиконавці та спостерігачі</legend>
-        {availableUsers.length === 0 ? (
-          <div className="task-create-empty task-create-empty--compact">
-            <UserRoundPlus size={24} aria-hidden />
-            <p>Інших доступних учасників немає.</p>
-          </div>
-        ) : (
-          <ul>
-            {availableUsers.map((person) => {
-              const participant = additionalParticipants.find((item) => item.userId === person.id)
-              return (
-                <li key={person.id} className={participant ? 'is-selected' : ''}>
-                  <label className="task-create-person">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(participant)}
-                      onChange={(event) => update((current) => ({
-                        ...current,
-                        participants: event.target.checked
-                          ? [...current.participants, {
-                              userId: person.id,
-                              role: 'COLLABORATOR',
-                            }]
-                          : current.participants.filter((item) => item.userId !== person.id),
-                      }))}
-                    />
-                    <Avatar name={person.displayName} src={person.avatarAsset} size="sm" />
-                    <span>
-                      <strong>{person.displayName}</strong>
-                      <small>{person.jobTitle || 'Учасник команди'}</small>
-                    </span>
-                  </label>
-                  <select
-                    value={participant?.role ?? 'COLLABORATOR'}
-                    disabled={!participant}
-                    aria-label={`Роль: ${person.displayName}`}
-                    onChange={(event) => update((current) => ({
-                      ...current,
-                      participants: current.participants.map((item) => (
-                        item.userId === person.id
-                          ? {
-                              ...item,
-                              role: event.target.value as AdditionalParticipantRole,
-                            }
-                          : item
-                      )),
-                    }))}
-                  >
-                    {Object.entries(additionalRoleLabels).map(([value, label]) => (
-                      <option key={value} value={value}>{label}</option>
-                    ))}
-                  </select>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </fieldset>
-      <p className="task-create-help">
-        Відповідальні налаштовуються в основному блоці. Тут додаються лише інші ролі.
-      </p>
+
+      <div className="task-create-role-grid">
+        <ParticipantRoleCard
+          role="RESPONSIBLE"
+          title="Відповідальний"
+          description="Веде завдання та відповідає за результат"
+          icon={<UserCheck size={18} aria-hidden />}
+          required
+          draft={draft}
+          users={options.users}
+          currentUser={currentUser}
+          update={update}
+        />
+        <ReporterRoleCard
+          draft={draft}
+          users={options.users}
+          currentUser={currentUser}
+          update={update}
+        />
+        <ParticipantRoleCard
+          role="COLLABORATOR"
+          title="Співвиконавець"
+          description="Допомагає виконувати завдання"
+          icon={<UsersRound size={18} aria-hidden />}
+          draft={draft}
+          users={options.users}
+          currentUser={currentUser}
+          update={update}
+        />
+        <ParticipantRoleCard
+          role="WATCHER"
+          title="Спостерігач"
+          description="Стежить за перебігом без відповідальності"
+          icon={<Eye size={18} aria-hidden />}
+          draft={draft}
+          users={options.users}
+          currentUser={currentUser}
+          update={update}
+        />
+      </div>
     </div>
   )
 }
