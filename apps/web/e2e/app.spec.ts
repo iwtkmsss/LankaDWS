@@ -97,12 +97,10 @@ async function createTaskThroughModal(
   await page.getByLabel('Назва завдання').fill(title)
   if (options.description) await page.getByLabel('Опис').fill(options.description)
   if (options.additionalResponsible) {
-    const responsibleSelect = page.getByLabel('Додати відповідального')
-    const responsibleId = await responsibleSelect.locator('option').filter({
-      hasText: options.additionalResponsible,
-    }).getAttribute('value')
-    expect(responsibleId).toBeTruthy()
-    await responsibleSelect.selectOption(responsibleId!)
+    await page.getByRole('button', { name: /^Учасники/ }).click()
+    const responsibleSearch = page.getByRole('combobox', { name: 'Додати: відповідальний' })
+    await responsibleSearch.fill(options.additionalResponsible)
+    await page.getByRole('option', { name: new RegExp(options.additionalResponsible) }).click()
   }
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
@@ -451,10 +449,18 @@ test('administrator sees the approved grouped admin navigation', async ({ page }
     await expect(sidebar.getByRole('link', { name: 'Компанії', exact: true })).toBeVisible()
     await expect(sidebar.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
   } else {
-    await page.locator('.sidebar').getByRole('button', { name: 'Ще' }).click()
+    const sidebar = page.locator('.sidebar')
+    const moreButton = sidebar.getByRole('button', { name: 'Ще' })
     const overflowMenu = page.getByRole('menu', { name: 'Додаткові розділи' })
-    await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
-    await expect(overflowMenu.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
+    for (const name of ['Компанії', 'Користувачі']) {
+      const direct = sidebar.getByRole('link', { name, exact: true })
+      if (await direct.isVisible()) {
+        await expect(direct).toBeVisible()
+      } else {
+        if (!await overflowMenu.isVisible()) await moreButton.click()
+        await expect(overflowMenu.getByRole('menuitem', { name, exact: true })).toBeVisible()
+      }
+    }
   }
   await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
 })

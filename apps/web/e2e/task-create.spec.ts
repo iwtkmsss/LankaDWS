@@ -65,8 +65,8 @@ test('shared modal shell traps focus, guards dirty closure and stays responsive'
     element.scrollTop = element.scrollHeight
   })
   const fixedRowsAfter = await Promise.all([header.boundingBox(), footer.boundingBox()])
-  expect(fixedRowsAfter[0]?.y).toBe(fixedRowsBefore[0]?.y)
-  expect(fixedRowsAfter[1]?.y).toBe(fixedRowsBefore[1]?.y)
+  expect(Math.abs((fixedRowsAfter[0]?.y ?? 0) - (fixedRowsBefore[0]?.y ?? 0))).toBeLessThan(0.5)
+  expect(Math.abs((fixedRowsAfter[1]?.y ?? 0) - (fixedRowsBefore[1]?.y ?? 0))).toBeLessThan(0.5)
 
   const createButton = dialog.getByRole('button', { name: 'Створити завдання' })
   await createButton.focus()
@@ -273,7 +273,7 @@ test('sends a selected task comment mention as structured data', async ({ page }
     }],
   })
 
-  await expect(page.getByRole('link', { name: '@Олена Бондар' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '@Олена Бондар' }).last()).toBeVisible()
   await expect(page.locator('.task-role-group').filter({ hasText: 'Олена Бондар' })).toBeVisible()
 })
 

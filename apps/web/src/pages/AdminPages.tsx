@@ -458,7 +458,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
           </label>
           <label>
             Логін
-            <input name="username" required pattern="[a-z0-9._-]{3,32}" autoComplete="username" />
+            <input name="username" required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" />
           </label>
           <label>
             Email
