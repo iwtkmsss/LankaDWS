@@ -271,7 +271,7 @@ export class AuthService {
   private async createSession(user: SessionTarget, request: Request, response: Response, assurance: number, restricted: boolean): Promise<void> {
     const token = randomToken()
     const csrfToken = randomToken(24)
-    const expiresAt = new Date(Date.now() + getConfig().SESSION_ABSOLUTE_HOURS * 3_600_000)
+    const expiresAt = new Date(Date.now() + getConfig().SESSION_IDLE_MINUTES * 60_000)
     await this.prisma.userSession.create({ data: {
       id: id('ses'), sessionHash: fingerprint(token, 'session'), userId: user.id, authAssurance: assurance,
       authorizationVersion: user.authorizationVersion, csrfHash: fingerprint(csrfToken, 'csrf'),

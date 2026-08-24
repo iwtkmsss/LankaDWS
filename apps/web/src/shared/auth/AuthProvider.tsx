@@ -34,6 +34,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  useEffect(() => {
+    if (state !== 'authenticated') return
+    const heartbeat = () => {
+      if (document.visibilityState === 'visible' && document.hasFocus()) void refresh()
+    }
+    const interval = window.setInterval(heartbeat, 5 * 60_000)
+    document.addEventListener('visibilitychange', heartbeat)
+    window.addEventListener('focus', heartbeat)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', heartbeat)
+      window.removeEventListener('focus', heartbeat)
+    }
+  }, [refresh, state])
+
   const login = useCallback(async (input: LoginInput) => {
     const result = await api<{ nextStep: AuthNextStep; csrfToken?: string }>('/auth/login', { method: 'POST', body: jsonBody(input) })
     if (result.csrfToken) setCsrfToken(result.csrfToken)

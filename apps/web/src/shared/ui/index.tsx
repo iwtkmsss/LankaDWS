@@ -146,4 +146,7 @@ export function Tabs({ value, items, onChange }: { value: string; items: Array<{
   return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div>
 }
 
-export function PageHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) { return <header className="page-header"><div><h1 tabIndex={-1}>{title}</h1>{description && <p>{description}</p>}</div>{action}</header> }
+export function PageHeader({ action }: { title: string; description?: string; action?: ReactNode }) {
+  if (!action) return null
+  return <header className="page-header page-header--actions-only">{action}</header>
+}

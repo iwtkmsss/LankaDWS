@@ -1,10 +1,11 @@
 import { z } from 'zod'
 
 export const usernamePattern = /^[a-z0-9._-]{3,32}$/
+const withoutWhitespace = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/gu, '') : value
 
 export const loginInputSchema = z.object({
-  username: z.string().trim().toLowerCase().regex(usernamePattern),
-  password: z.string().min(1).max(128),
+  username: z.preprocess(withoutWhitespace, z.string().toLowerCase().regex(usernamePattern)),
+  password: z.preprocess(withoutWhitespace, z.string().min(1).max(128)),
   totpCode: z.string().regex(/^\d{6}$/).optional(),
 })
 

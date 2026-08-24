@@ -50,7 +50,7 @@ test('desktop navigation prefetches destinations and reuses cached task data', a
 
 test('home landing follows FEED capability while explicit overview stays addressable', async ({ page, request }) => {
   await login(page)
-  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/feed$/)
   await page.goto('/')
   await expect(page).toHaveURL(/\/feed$/)
   await page.goto('/overview')
@@ -110,7 +110,7 @@ async function createTaskThroughModal(
 test('employee feed and canonical navigation are accessible', async ({ page }) => {
   await login(page)
   await page.goto('/feed')
-  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/feed$/)
   await expect(page.locator('.sidebar .nav-section__label').getByText('Адміністрування', { exact: true })).toHaveCount(0)
   await expect(page.locator('.feed-card').getByText('Марія Іваненко').first()).toBeVisible()
   await expect(page.locator('.feed-attention').getByRole('link').first()).toHaveAttribute(
@@ -123,7 +123,7 @@ test('employee feed and canonical navigation are accessible', async ({ page }) =
   const eventDialog = page.getByRole('dialog', { name: 'Подія' })
   await expect(eventDialog.getByRole('heading', { name: 'Огляд операцій' })).toBeVisible()
   await eventDialog.getByRole('button', { name: 'Закрити' }).click()
-  await expect(page.getByRole('heading', { name: 'Календар', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/calendar$/)
   await page.goto('/feed?type=EVENT')
   await expect(page).toHaveURL(/\/feed\?type=EVENT$/)
   await expect(page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })).toBeVisible()
@@ -141,7 +141,7 @@ test('employee feed and canonical navigation are accessible', async ({ page }) =
 test('manager overview and admin access stay correctly scoped', async ({ page }) => {
   await login(page, 'andrii')
   await page.goto('/overview?company=cmp_bert_service')
-  await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/overview$/)
   await expect(page).not.toHaveURL(/company=/)
   await expect(page.getByText('Потребують рішення')).toHaveCount(0)
   await page.goto('/admin/users')
@@ -173,17 +173,24 @@ test('command palette keeps canonical create actions ahead of results', async ({
   await login(page, 'maria')
   await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
   const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-  await palette.getByRole('textbox').fill('Ｍ')
-  await expect(palette.getByRole('option', { name: /Марія Іваненко.*@maria/ })).toBeVisible()
+  await palette.getByRole('textbox').fill('Олена')
+  const employee = palette.getByRole('option', { name: /Олена Бондар.*@olena/ })
+  await expect(employee).toBeVisible()
   await expect(palette.locator('.palette__group')).toHaveText(['Працівники'])
+  await employee.click()
+  await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
+  await expect(page.getByRole('region', { name: /Діалог: Олена Бондар/ })).toBeVisible()
 
-  await palette.getByRole('textbox').fill('TSK-2401')
-  await expect(palette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard.*№2401/ })).toBeVisible()
-  await expect(palette.locator('.palette__group')).toHaveText(['Завдання'])
+  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
+  const reopenedPalette = page.getByRole('dialog', { name: 'Глобальний пошук' })
 
-  await palette.getByRole('textbox').fill('завдання')
-  await expect(palette.getByText('Створити', { exact: true })).toBeVisible()
-  await palette.getByRole('option', { name: /Нове завдання/ }).click()
+  await reopenedPalette.getByRole('textbox').fill('TSK-2401')
+  await expect(reopenedPalette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard.*№2401/ })).toBeVisible()
+  await expect(reopenedPalette.locator('.palette__group')).toHaveText(['Завдання'])
+
+  await reopenedPalette.getByRole('textbox').fill('завдання')
+  await expect(reopenedPalette.getByText('Створити', { exact: true })).toBeVisible()
+  await reopenedPalette.getByRole('option', { name: /Нове завдання/ }).click()
   await expect(page).toHaveURL(/\/tasks\/new/)
 })
 
@@ -442,7 +449,7 @@ test('administrator sees the approved grouped admin navigation', async ({ page }
   }
   await login(page, 'dmytro')
   await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: 'Адміністрування', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/admin(?:\?.*)?$/)
   if (testInfo.project.name === 'mobile-chromium') {
     await page.getByRole('button', { name: 'Відкрити меню' }).click()
     const sidebar = page.locator('.sidebar')
@@ -594,7 +601,6 @@ test('legacy company scope is removed while task filters and browser history rem
   const taskLink = (await mobileTaskLink.isVisible()) ? mobileTaskLink : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
   await taskLink.click()
   await expect(page).toHaveURL(/\/tasks$/)
-  await expect(page.getByRole('heading', { name: 'Завдання', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Пошук і фільтри' }).click()
   const filters = page.locator('.filter-panel')
   await page.getByLabel('Пошук завдань').fill('d')
@@ -607,5 +613,36 @@ test('legacy company scope is removed while task filters and browser history rem
   await expect(page).toHaveURL(/\/tasks\/tsk_design\?search=dashboard&status=IN_PROGRESS/)
   await page.goBack()
   await expect(page).toHaveURL(/search=dashboard/)
-  await expect(page.getByRole('heading', { name: 'Завдання', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
+})
+
+test('topbar chat action navigates first and opens new chat only inside messages', async ({ page }) => {
+  await login(page)
+  const chatAction = page.getByRole('button', { name: /Повідомлення/ })
+  await chatAction.click()
+  await expect(page).toHaveURL(/\/messages$/)
+  await expect(page.getByRole('dialog', { name: 'Новий чат' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: /Повідомлення/ }).click()
+  await expect(page).toHaveURL(/\/messages\?new=1/)
+  await expect(page.getByRole('dialog', { name: 'Новий чат' })).toBeVisible()
+})
+
+test('notification center sends a direct notification to a searched colleague', async ({ page }) => {
+  await login(page)
+  await page.goto('/notifications?tab=all')
+  await page.getByRole('button', { name: 'Надіслати сповіщення' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Нове сповіщення' })
+  await drawer.getByRole('combobox', { name: 'Пошук одержувача' }).fill('Олена')
+  await drawer.getByRole('option', { name: /Олена Бондар/ }).click()
+  const title = `Особисте сповіщення ${Date.now()}`
+  await drawer.getByLabel('Заголовок').fill(title)
+  await drawer.getByLabel('Текст сповіщення').fill('Перевірте, будь ласка, робоче оновлення.')
+  await drawer.getByRole('button', { name: 'Надіслати сповіщення' }).click()
+  await expect(page.getByRole('status')).toContainText('Сповіщення для Олена Бондар надіслано')
+
+  await page.context().clearCookies()
+  await login(page, 'olena')
+  await page.goto('/notifications?tab=all')
+  await expect(page.getByText(title)).toBeVisible()
 })

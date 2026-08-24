@@ -23,6 +23,7 @@ import {
   UsersRound,
 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { removeWhitespace } from '../shared/lib/credentials'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { formatDateTime } from '../shared/lib/format'
@@ -458,7 +459,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
           </label>
           <label>
             Логін
-            <input name="username" required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" />
+            <input name="username" required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           <label>
             Email
@@ -466,11 +467,11 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
           </label>
           <label>
             Пароль
-            <input name="password" type="password" required minLength={15} autoComplete="new-password" />
+            <input name="password" type="password" required minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           <label>
             Підтвердження паролю
-            <input name="passwordConfirmation" type="password" required minLength={15} autoComplete="new-password" />
+            <input name="passwordConfirmation" type="password" required minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           <label>
             Телефон <small>(необов’язково)</small>
@@ -681,7 +682,7 @@ function UserEditor({
         </label>
         <label>
           Логін
-          <input name="username" required defaultValue={user.username} />
+          <input name="username" required defaultValue={user.username} onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
         </label>
         <label>
           Посада
@@ -689,11 +690,11 @@ function UserEditor({
         </label>
         <label>
           Новий пароль <small>(за потреби)</small>
-          <input name="password" type="password" minLength={15} autoComplete="new-password" />
+          <input name="password" type="password" minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
         </label>
         <label>
           Підтвердження нового паролю
-          <input name="passwordConfirmation" type="password" minLength={15} autoComplete="new-password" />
+          <input name="passwordConfirmation" type="password" minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
         </label>
         <label className="span-2">
           Email

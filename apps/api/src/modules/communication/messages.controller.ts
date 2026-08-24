@@ -139,6 +139,16 @@ export class MessagesController {
     return this.messages.recommendedUsers(principalFrom(request), parsed.data)
   }
 
+  @Get('users/:id')
+  user(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Query('company') company: string,
+  ) {
+    if (!company) throw badRequest('chat_company_required')
+    return this.messages.user(principalFrom(request), company, id)
+  }
+
   @Post('threads/:id/attachments')
   @ApiConsumes('multipart/form-data')
   @ApiBody({

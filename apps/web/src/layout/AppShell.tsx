@@ -561,7 +561,7 @@ export function AppShell({ children }: PropsWithChildren) {
           <div className="topbar__actions">
             <IconButton
               label={chatUnread ? `Повідомлення: ${chatUnread} непрочитаних` : 'Повідомлення'}
-              onClick={() => navigate(scopedPath('/messages'))}
+              onClick={() => navigate(scopedPath(isMessagesRoute ? '/messages?new=1' : '/messages'))}
             >
               <MessageCircle size={19} />
               {chatUnread > 0 && (

@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const accountTypeSchema = z.enum(['ADMIN', 'USER'])
 export type AccountType = z.infer<typeof accountTypeSchema>
+const withoutWhitespace = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/gu, '') : value
 
 export const companyInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -20,7 +21,7 @@ const adminUserBaseSchema = z.object({
   gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable().optional(),
   birthDate: z.string().date().nullable().optional(),
   jobTitle: z.string().trim().max(120).optional(),
-  username: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,32}$/),
+  username: z.preprocess(withoutWhitespace, z.string().toLowerCase().regex(/^[a-z0-9._-]{3,32}$/)),
   accountType: accountTypeSchema,
   companyId: z.string().min(1).optional(),
   orgUnitId: z.string().min(1).optional(),
@@ -28,8 +29,8 @@ const adminUserBaseSchema = z.object({
 })
 
 export const adminUserInputSchema = adminUserBaseSchema.extend({
-  password: z.string().min(15).max(128),
-  passwordConfirmation: z.string().min(15).max(128),
+  password: z.preprocess(withoutWhitespace, z.string().min(15).max(128)),
+  passwordConfirmation: z.preprocess(withoutWhitespace, z.string().min(15).max(128)),
 }).superRefine((value, context) => {
   if (value.password !== value.passwordConfirmation) context.addIssue({ code: z.ZodIssueCode.custom, path: ['passwordConfirmation'], message: 'password_confirmation' })
 })
@@ -41,8 +42,8 @@ export const adminUserUpdateInputSchema = adminUserBaseSchema.extend({
   gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable().optional(),
   birthDate: z.string().date().nullable().optional(),
   jobTitle: z.string().trim().max(120).optional(),
-  password: z.string().min(15).max(128).optional(),
-  passwordConfirmation: z.string().min(15).max(128).optional(),
+  password: z.preprocess(withoutWhitespace, z.string().min(15).max(128).optional()),
+  passwordConfirmation: z.preprocess(withoutWhitespace, z.string().min(15).max(128).optional()),
 }).superRefine((value, context) => {
   if ((value.password || value.passwordConfirmation) && value.password !== value.passwordConfirmation) context.addIssue({ code: z.ZodIssueCode.custom, path: ['passwordConfirmation'], message: 'password_confirmation' })
 })

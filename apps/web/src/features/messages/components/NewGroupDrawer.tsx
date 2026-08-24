@@ -78,6 +78,7 @@ export function NewGroupDrawer({
       <Drawer
         title="Нова група"
         onRequestClose={closeGuard.requestClose}
+        className="new-group-drawer"
         footer={(
           <>
             <Button

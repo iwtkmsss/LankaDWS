@@ -32,7 +32,7 @@ interface MessagesSidebarProps {
   onSearchCompositionEnd: () => void
   onUnreadChange: (value: boolean) => void
   onSelectThread: (threadId: string) => void
-  onStartDirect: (userId: string) => void
+  onStartDirect: (contact: ChatContactUser) => void
   onOpenCompose: () => void
   onLoadMore: () => void
   onRetryThreads: () => void
@@ -87,7 +87,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const selected = props.searchResults[activeResult]
-      if (selected) props.onStartDirect(selected.id)
+      if (selected) props.onStartDirect(selected)
     } else if (event.key === 'Escape') {
       event.preventDefault()
       props.onQueryChange('')
@@ -159,7 +159,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                   type="button"
                   key={contact.id}
                   onMouseEnter={() => setActiveResult(index)}
-                  onClick={() => props.onStartDirect(contact.id)}
+                  onClick={() => props.onStartDirect(contact)}
                   disabled={Boolean(props.startingUserId)}
                 >
                   <Avatar name={contact.displayName} src={contact.avatarAsset} />
@@ -195,7 +195,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                     type="button"
                     key={contact.id}
                     disabled={Boolean(props.startingUserId)}
-                    onClick={() => props.onStartDirect(contact.id)}
+                    onClick={() => props.onStartDirect(contact)}
                     title={`${contact.displayName}: ${reasonLabel(contact.reason)}`}
                   >
                     <Avatar name={contact.displayName} src={contact.avatarAsset} />

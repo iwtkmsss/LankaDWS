@@ -109,7 +109,7 @@ describe('MessagesSidebar', () => {
 
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onStartDirect).toHaveBeenCalledWith('usr_maria')
+    expect(onStartDirect).toHaveBeenCalledWith(expect.objectContaining({ id: 'usr_maria' }))
 
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onQueryChange).toHaveBeenCalledWith('')

@@ -14,13 +14,15 @@ export function NewChatDrawer({
   startingUserId,
   onClose,
   onStartDirect,
+  onStartTarget,
   onOpenGroup,
 }: {
   companyId: string
   targetUserId: string | null
   startingUserId: string | null
   onClose: () => void
-  onStartDirect: (userId: string) => void
+  onStartDirect: (contact: ChatContactUser) => void
+  onStartTarget: (userId: string) => void
   onOpenGroup: () => void
 }) {
   const [query, setQuery] = useState('')
@@ -49,11 +51,11 @@ export function NewChatDrawer({
   useEffect(() => {
     if (!targetUserId || attemptedTargetRef.current === targetUserId) return
     attemptedTargetRef.current = targetUserId
-    onStartDirect(targetUserId)
-  }, [onStartDirect, targetUserId])
+    onStartTarget(targetUserId)
+  }, [onStartTarget, targetUserId])
 
   function select(contact: ChatContactUser) {
-    onStartDirect(contact.id)
+    onStartDirect(contact)
   }
 
   function handleSearchKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -86,12 +88,12 @@ export function NewChatDrawer({
       title="Новий чат"
       onRequestClose={onClose}
       initialFocusRef={searchInputRef}
+      className="new-chat-drawer"
       footer={(
         <Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>
       )}
     >
       <div className="new-chat">
-        <p>Оберіть колегу для особистого діалогу або створіть групу.</p>
         <Button type="button" variant="secondary" onClick={onOpenGroup}>
           <UsersRound size={16} /> Створити групу
         </Button>
@@ -160,14 +162,12 @@ export function NewChatDrawer({
                 </span>
                 {startingUserId === contact.id
                   ? <LoaderCircle className="is-spinning" size={18} aria-label="Відкриваємо діалог" />
-                  : <Search size={17} aria-hidden="true" />}
+                  : null}
               </button>
             ))}
             {!results.length && <p className="new-chat__hint">Користувачів не знайдено.</p>}
           </div>
-        ) : (
-          <p className="new-chat__hint">Пошук починається з 1 символу.</p>
-        ))}
+        ) : null)}
         </div>
       </div>
     </Drawer>

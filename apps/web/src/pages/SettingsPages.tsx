@@ -6,6 +6,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
+import { removeWhitespace } from '../shared/lib/credentials'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
 
 export default function SettingsPages() {
@@ -372,15 +373,15 @@ function SecuritySettings() {
         <form className="security-form" onSubmit={submit}>
           <label>
             Поточний пароль
-            <input name="currentPassword" type="password" required autoComplete="current-password" />
+            <input name="currentPassword" type="password" required autoComplete="current-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           <label>
             Новий пароль
-            <input name="newPassword" type="password" minLength={15} required autoComplete="new-password" />
+            <input name="newPassword" type="password" minLength={15} required autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           <label>
             Повторіть новий пароль
-            <input name="confirmation" type="password" minLength={15} required autoComplete="new-password" />
+            <input name="confirmation" type="password" minLength={15} required autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
           </label>
           {error && <div className="form-error">{error}</div>}
           {saved && (

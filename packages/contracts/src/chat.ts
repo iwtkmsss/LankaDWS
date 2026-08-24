@@ -86,11 +86,19 @@ export const createChatThreadSchema = z.object({
 export type CreateChatThreadInput = z.infer<typeof createChatThreadSchema>
 
 export const sendChatMessageSchema = z.object({
-  body: z.string().trim().min(1).max(8_000),
+  body: z.string().trim().max(8_000).default(''),
   replyToId: z.string().trim().min(1).max(120).nullable().optional(),
   attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5).default([])
     .transform((items) => [...new Set(items)].sort()),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).superRefine((value, context) => {
+  if (!value.body && value.attachmentIds.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['body'],
+      message: 'A message requires text or an attachment.',
+    })
+  }
 })
 export type SendChatMessageInput = z.infer<typeof sendChatMessageSchema>
 
@@ -182,6 +190,7 @@ export const chatContactUserSchema = z.object({
   username: z.string(),
   jobTitle: z.string(),
   avatarAsset: z.string().nullable(),
+  directThreadId: z.string().nullable().optional(),
 })
 export type ChatContactUser = z.infer<typeof chatContactUserSchema>
 

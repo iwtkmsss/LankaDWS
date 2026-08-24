@@ -72,7 +72,14 @@ export class SessionAuthGuard implements CanActivate {
       restricted,
     }
     if (now - session.lastSeenAt.getTime() > 60_000) {
-      void this.prisma.userSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
+      const lastSeenAt = new Date()
+      const expiresAt = new Date(now + idleLimit)
+      await this.prisma.userSession.update({ where: { id: session.id }, data: { lastSeenAt, expiresAt } })
+      const response = context.switchToHttp().getResponse<Response>()
+      const cookieOptions = { secure: getConfig().NODE_ENV === 'production', sameSite: 'strict' as const, path: '/', expires: expiresAt }
+      response.cookie(getConfig().SESSION_COOKIE_NAME, token, { ...cookieOptions, httpOnly: true })
+      const csrfToken = request.cookies?.bert_csrf as string | undefined
+      if (csrfToken) response.cookie('bert_csrf', csrfToken, { ...cookieOptions, httpOnly: false })
     }
     context.switchToHttp().getResponse<Response>().setHeader('Cache-Control', 'no-store')
     if (this.reflector.getAllAndOverride<boolean>(ADMIN_ONLY, [context.getHandler(), context.getClass()]) && session.user.accountType !== 'ADMIN') throw forbidden()

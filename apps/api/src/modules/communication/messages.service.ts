@@ -696,7 +696,41 @@ export class MessagesService {
         || collator.compare(left.normalizedDisplayName, right.normalizedDisplayName)
         || left.id.localeCompare(right.id)
     })
-    return { items: users.slice(0, query.limit).map((user) => this.contactUser(user)) }
+    const selected = users.slice(0, query.limit)
+    const directThreads = await this.directThreadsForUsers(
+      principal,
+      companyId,
+      selected.map((user) => user.id),
+    )
+    return {
+      items: selected.map((user) => this.contactUser(user, directThreads.get(user.id) ?? null)),
+    }
+  }
+
+  async user(
+    principal: AuthPrincipal,
+    company: string,
+    userId: string,
+  ): Promise<ChatContactUser> {
+    const companyId = this.scope.assertCompany(principal, company)
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        workspaceId: principal.workspaceId,
+        isActive: true,
+        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
+      },
+      select: {
+        id: true,
+        displayName: true,
+        username: true,
+        jobTitle: true,
+        avatarAsset: true,
+      },
+    })
+    if (!user || user.id === principal.userId) throw notFound()
+    const directThreads = await this.directThreadsForUsers(principal, companyId, [user.id])
+    return this.contactUser(user, directThreads.get(user.id) ?? null)
   }
 
   async mentionCandidates(
@@ -918,7 +952,9 @@ export class MessagesService {
     if (input.mentions.length > 0) {
       await this.assertMessageMentionRecipients(principal, thread, mentionedUserIds)
     }
-    if (!text || text.length > 8_000) throw badRequest('message_body')
+    if ((!text && attachmentIds.length === 0) || text.length > 8_000) {
+      throw badRequest('message_body')
+    }
     if (replyToId) {
       const parent = await this.prisma.message.findFirst({
         where: { id: replyToId, threadId },
@@ -2263,14 +2299,57 @@ export class MessagesService {
     return new Map(rows.map((row) => [row.threadId, Number(row.unreadCount)]))
   }
 
-  private contactUser(user: SafeUser): ChatContactUser {
+  private contactUser(user: SafeUser, directThreadId?: string | null): ChatContactUser {
     return {
       id: user.id,
       displayName: user.displayName,
       username: user.username,
       jobTitle: user.jobTitle,
       avatarAsset: user.avatarAsset,
+      ...(directThreadId !== undefined ? { directThreadId } : {}),
     }
+  }
+
+  private async directThreadsForUsers(
+    principal: AuthPrincipal,
+    companyId: string,
+    userIds: string[],
+  ): Promise<Map<string, string>> {
+    if (!userIds.length) return new Map()
+    const threads = await this.prisma.messageThread.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        companyId,
+        kind: 'DIRECT',
+        participants: {
+          some: { userId: principal.userId, leftAt: null },
+        },
+        AND: [{
+          participants: {
+            some: { userId: { in: userIds }, leftAt: null },
+          },
+        }],
+      },
+      select: {
+        id: true,
+        participants: {
+          where: { leftAt: null },
+          select: { userId: true },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 120,
+    })
+    const result = new Map<string, string>()
+    for (const thread of threads) {
+      const otherId = thread.participants.find(
+        (participant) => participant.userId !== principal.userId,
+      )?.userId
+      if (otherId && userIds.includes(otherId) && !result.has(otherId)) {
+        result.set(otherId, thread.id)
+      }
+    }
+    return result
   }
 
   private userSearchRank(

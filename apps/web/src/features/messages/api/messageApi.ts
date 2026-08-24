@@ -1,5 +1,6 @@
 import type {
   ChatAttachmentView,
+  ChatContactUser,
   ChatMessagePage,
   ChatMessageSearchPage,
   ChatMessageView,
@@ -70,6 +71,11 @@ export function searchChatUsers(
 ) {
   const query = new URLSearchParams({ company: companyId, q: queryValue, limit: '20' })
   return api<ChatUserSearchPage>(`/messages/users/search?${query}`, { signal })
+}
+
+export function getChatUser(companyId: string, userId: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({ company: companyId })
+  return api<ChatContactUser>(`/messages/users/${encodeURIComponent(userId)}?${query}`, { signal })
 }
 
 export function getRecommendedChatUsers(companyId: string, signal?: AbortSignal) {

@@ -279,6 +279,26 @@
 .announcement-detail aside { display: flex; gap: 8px; margin-top: 25px; border-radius: 9px; background: var(--surface-soft); padding: 10px; color: var(--ink-500); font-size: 11px; }
 .notification-summary { display: inline-flex; align-items: baseline; gap: 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-500); padding: 7px 11px; font-size: 12px; }
 .notification-summary strong { color: var(--cobalt-700); font-size: 16px; }
+.notification-header-actions { display: flex; align-items: center; gap: 10px; }
+.notification-sent { margin: -6px 0 12px; border: 1px solid #bce7cf; border-radius: 9px; background: #effaf4; color: #13714a; padding: 9px 12px; font-size: 12px; }
+.notification-compose { display: grid; gap: 16px; }
+.notification-compose > label { display: grid; gap: 7px; color: var(--ink-600); font-size: 11px; font-weight: 750; }
+.notification-compose__search,
+.notification-compose__recipient { display: flex; min-height: 44px; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); padding: 5px 10px; }
+.notification-compose__search:focus-within { border-color: var(--cobalt-500); box-shadow: var(--focus); }
+.notification-compose__search input { min-width: 0; flex: 1; border: 0; outline: 0; box-shadow: none; }
+.notification-compose__recipient > span { display: grid; min-width: 0; flex: 1; }
+.notification-compose__recipient small { color: var(--ink-400); font-weight: 500; }
+.notification-compose__recipient button { border: 0; background: transparent; color: var(--ink-400); }
+.notification-compose__results { display: grid; overflow-y: auto; max-height: 260px; border: 1px solid var(--line); border-radius: 9px; }
+.notification-compose__results > button { display: flex; align-items: center; gap: 9px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); padding: 9px; text-align: left; }
+.notification-compose__results > button:last-child { border-bottom: 0; }
+.notification-compose__results > button:hover { background: var(--cobalt-50); }
+.notification-compose__results > button > span { display: grid; min-width: 0; }
+.notification-compose__results small { color: var(--ink-400); font-weight: 500; }
+.notification-compose__results p { margin: 0; color: var(--ink-400); padding: 18px; text-align: center; }
+.notification-compose__error { min-height: 18px; margin: 0; color: var(--danger); font-size: 10px; }
+.notification-compose > .button { justify-self: start; }
 .notification-list { display: grid; }
 .notification-list article { display: grid; min-width: 0; align-items: center; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; border-bottom: 1px solid var(--line); padding: 14px 16px; }
 .notification-list article:last-child { border-bottom: 0; }

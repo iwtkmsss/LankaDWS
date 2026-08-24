@@ -6,6 +6,8 @@ import { trimMentionValue } from '../../../shared/mentions/mentionText'
 
 interface MessageComposerProps {
   threadId: string
+  initialBody?: string
+  onInitialBodyConsumed?: () => void
   replyTo: ChatMessageView | null
   attachments: ChatAttachmentView[]
   sending: boolean
@@ -17,11 +19,46 @@ interface MessageComposerProps {
   onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
 }
 
+function draftKey(threadId: string): string {
+  return `bertcrm:message-draft:${threadId}`
+}
+
+function storedDraft(threadId: string): string {
+  try {
+    return window.sessionStorage.getItem(draftKey(threadId)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function storeDraft(threadId: string, body: string): void {
+  try {
+    if (body) window.sessionStorage.setItem(draftKey(threadId), body)
+    else window.sessionStorage.removeItem(draftKey(threadId))
+  } catch {
+    // The in-memory draft remains available when browser storage is blocked.
+  }
+}
+
 export function MessageComposer(props: MessageComposerProps) {
-  const [body, setBody] = useState('')
+  const [body, setBody] = useState(() => props.initialBody ?? storedDraft(props.threadId))
   const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const submittingRef = useRef(false)
+
+  useEffect(() => {
+    if (props.initialBody) props.onInitialBodyConsumed?.()
+  }, [])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [props.threadId])
+
+  useEffect(() => {
+    storeDraft(props.threadId, body)
+  }, [body, props.threadId])
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -32,12 +69,17 @@ export function MessageComposer(props: MessageComposerProps) {
 
   async function submit() {
     const value = trimMentionValue(body, mentions)
-    if (!value.body || props.sending) return
-    const sent = await props.onSend(value)
-    if (sent) {
-      setBody('')
-      setMentions([])
-      requestAnimationFrame(() => textareaRef.current?.focus())
+    if ((!value.body && props.attachments.length === 0) || props.sending || submittingRef.current) return
+    submittingRef.current = true
+    try {
+      const sent = await props.onSend(value)
+      if (sent) {
+        setBody('')
+        setMentions([])
+        requestAnimationFrame(() => textareaRef.current?.focus())
+      }
+    } finally {
+      submittingRef.current = false
     }
   }
 
@@ -97,6 +139,7 @@ export function MessageComposer(props: MessageComposerProps) {
           className="message-composer__input"
           label="Повідомлення"
           visuallyHiddenLabel
+          autoFocus
           value={body}
           mentions={mentions}
           candidateUrl={`/messages/threads/${encodeURIComponent(props.threadId)}/mention-candidates`}
@@ -119,7 +162,7 @@ export function MessageComposer(props: MessageComposerProps) {
           type="button"
           className="message-composer__send"
           aria-label="Надіслати"
-          disabled={!body.trim() || props.sending}
+          disabled={(!body.trim() && props.attachments.length === 0) || props.sending}
           onClick={() => void submit()}
         >
           {props.sending

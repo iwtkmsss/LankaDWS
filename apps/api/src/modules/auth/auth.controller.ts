@@ -11,10 +11,11 @@ import { Public, Restricted } from './auth.decorators.js'
 import { getConfig } from '../../config/config.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 
-const passwordChangeSchema = z.object({ newPassword: z.string(), confirmation: z.string() })
+const withoutWhitespace = (value: string) => value.replace(/\s+/gu, '')
+const passwordChangeSchema = z.object({ newPassword: z.string().transform(withoutWhitespace), confirmation: z.string().transform(withoutWhitespace) })
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
 const recoverySchema = z.object({ code: z.string().min(8).max(64) })
-const reauthSchema = z.object({ password: z.string().min(1), code: z.string().regex(/^\d{6}$/).optional() })
+const reauthSchema = z.object({ password: z.string().transform(withoutWhitespace).pipe(z.string().min(1)), code: z.string().regex(/^\d{6}$/).optional() })
 const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
 const notificationPreferenceSchema = z.object({ emailEnabled: z.boolean(), inAppEnabled: z.literal(true), digest: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']), quietStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), quietEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) })
 

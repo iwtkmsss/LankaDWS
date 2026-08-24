@@ -58,7 +58,7 @@ export function MessageBubble({
     return (
       <article
         id={`message-${message.id}`}
-        className={`message-row ${own ? 'is-own' : ''}`}
+        className={`message-row ${own ? 'is-own' : 'is-other'}`}
       >
         {!own && <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />}
         <div className="message-bubble is-deleted">
@@ -74,7 +74,7 @@ export function MessageBubble({
       id={`message-${message.id}`}
       className={[
         'message-row',
-        own ? 'is-own' : '',
+        own ? 'is-own' : 'is-other',
         highlighted ? 'is-highlighted' : '',
       ].filter(Boolean).join(' ')}
     >
@@ -137,9 +137,9 @@ export function MessageBubble({
               <Button disabled={busy || !editBody.trim()}>Зберегти</Button>
             </div>
           </form>
-        ) : (
+        ) : message.body ? (
           <p><MentionText body={message.body} mentions={message.mentions} /></p>
-        )}
+        ) : null}
 
         {message.attachments.length > 0 && (
           <div className="message-attachments">

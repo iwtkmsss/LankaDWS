@@ -21,6 +21,7 @@ import {
   markChatReadSchema,
   removeChatParticipantSchema,
   sendChatMessageSchema,
+  sendUserNotificationSchema,
   updateChatParticipantSchema,
   updateChatPreferenceSchema,
   createFeedCommentSchema,
@@ -144,7 +145,7 @@ function validCompanyMappingArtifact() {
 
 describe('transport schemas', () => {
   it('canonicalizes a nickname and rejects email login identifiers', () => {
-    expect(loginInputSchema.parse({ username: 'DMYTRO', password: 'x' }).username).toBe('dmytro')
+    expect(loginInputSchema.parse({ username: ' DMY TRO ', password: ' p a s s ' })).toMatchObject({ username: 'dmytro', password: 'pass' })
     expect(() => loginInputSchema.parse({ username: 'dmytro@example.com', password: 'x' })).toThrow()
   })
 
@@ -323,6 +324,15 @@ describe('transport schemas', () => {
       body: '@Олена Бондар, перевірте',
       mentions: [{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }],
     }).mentions).toEqual([{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }])
+    expect(sendChatMessageSchema.parse({
+      body: '',
+      attachmentIds: ['file_one'],
+    })).toEqual({
+      body: '',
+      attachmentIds: ['file_one'],
+      mentions: [],
+    })
+    expect(() => sendChatMessageSchema.parse({ body: '', attachmentIds: [] })).toThrow()
     expect(chatMentionCandidatesQuerySchema.parse({ q: 'о', limit: '8' }))
       .toEqual({ q: 'о', limit: 8 })
     expect(() => sendChatMessageSchema.parse({
@@ -386,6 +396,23 @@ describe('transport schemas', () => {
       .toEqual({ lastReadMessageId: 'msg_1' })
     expect(updateChatPreferenceSchema.parse({ notificationMode: 'NONE', expectedVersion: 2 }))
       .toEqual({ notificationMode: 'NONE', expectedVersion: 2 })
+  })
+
+  it('validates direct user notifications without accepting empty copy', () => {
+    expect(sendUserNotificationSchema.parse({
+      recipientId: 'usr_olena',
+      title: 'Перевірка',
+      body: 'Будь ласка, перегляньте оновлення.',
+    })).toEqual({
+      recipientId: 'usr_olena',
+      title: 'Перевірка',
+      body: 'Будь ласка, перегляньте оновлення.',
+    })
+    expect(() => sendUserNotificationSchema.parse({
+      recipientId: 'usr_olena',
+      title: ' ',
+      body: ' ',
+    })).toThrow()
   })
 
   it('keeps task comment mentions structured and defaults legacy comments safely', () => {

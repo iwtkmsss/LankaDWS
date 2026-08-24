@@ -55,6 +55,7 @@ export class SearchController {
       this.prisma.user.findMany({
         where: {
           workspaceId: principal.workspaceId,
+          id: { not: principal.userId },
           isActive: true,
           accountType: 'USER',
           primaryCompanyId: { in: companyIds },
@@ -88,7 +89,7 @@ export class SearchController {
         title: item.displayName,
         safeSnippet: [`@${item.username}`, item.jobTitle].filter(Boolean).join(' · '),
         companyId: item.primaryCompanyId,
-        route: `/employees/${item.id}`,
+        route: `/messages?to=${encodeURIComponent(item.id)}`,
       })),
     ] }
   }

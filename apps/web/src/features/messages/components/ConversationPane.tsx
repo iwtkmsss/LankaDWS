@@ -28,6 +28,8 @@ interface ConversationPaneProps {
   sending: boolean
   uploading: boolean
   composerError: string
+  initialComposerBody?: string
+  onInitialComposerBodyConsumed?: () => void
   onBack: () => void
   onInfo: () => void
   onToggleMute: () => void
@@ -183,7 +185,10 @@ export function ConversationPane(props: ConversationPaneProps) {
 
       {props.thread.canPost && (
         <MessageComposer
+          key={props.thread.id}
           threadId={props.thread.id}
+          initialBody={props.initialComposerBody}
+          onInitialBodyConsumed={props.onInitialComposerBodyConsumed}
           replyTo={props.replyTo}
           attachments={props.attachments}
           sending={props.sending}

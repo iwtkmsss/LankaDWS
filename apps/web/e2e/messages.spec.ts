@@ -155,6 +155,8 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
   await expect(compose.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
   await search.press('ArrowDown')
   await search.press('Enter')
+  await expect(page).toHaveURL(/\/messages\?to=usr_olena/)
+  await page.getByRole('textbox', { name: 'Повідомлення', exact: true }).fill('Початок нового діалогу')
   await expect(page).toHaveURL(/\/messages\/thr_/)
   const directUrl = page.url()
 
@@ -162,6 +164,30 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
   await expect(page).toHaveURL(directUrl)
   await expect(page.getByRole('region', { name: /Діалог: Олена Бондар/ })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('a searched contact stays transient until the first draft text is entered', async ({ page }, testInfo) => {
+  await configureViewport(page, testInfo.project.name)
+  await login(page)
+  await page.goto('/messages?new=1')
+
+  const compose = page.getByRole('dialog', { name: 'Новий чат' })
+  const search = compose.getByRole('combobox', { name: 'Пошук користувачів для нового чату' })
+  await search.fill('Марко')
+  await compose.getByRole('option', { name: /Марко Литвин/ }).click()
+  await expect(page).toHaveURL(/\/messages\?to=usr_marko/)
+  await expect(page.getByRole('region', { name: /Діалог: Марко Литвин/ })).toBeVisible()
+
+  await page.goto('/messages')
+  await expect(page.locator('.messages-thread-list button').filter({ hasText: 'Марко Литвин' })).toHaveCount(0)
+
+  await page.goto('/messages?to=usr_marko')
+  const draft = 'Чернетка, яка зберігає початок чату'
+  await page.getByRole('textbox', { name: 'Повідомлення', exact: true }).fill(draft)
+  await expect(page).toHaveURL(/\/messages\/thr_/)
+  await expect(page.getByRole('textbox', { name: 'Повідомлення', exact: true })).toHaveValue(draft)
+  await page.goto('/messages')
+  await expect(page.locator('.messages-thread-list button').filter({ hasText: 'Марко Литвин' })).toBeVisible()
 })
 
 test('new group remains a local messages-only action', async ({ page }, testInfo) => {

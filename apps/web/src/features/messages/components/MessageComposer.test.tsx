@@ -1,19 +1,23 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import type { ChatAttachmentView } from '@bert-crm/contracts'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageComposer } from './MessageComposer'
 import { api } from '../../../shared/api/client'
 
 vi.mock('../../../shared/api/client', () => ({ api: vi.fn() }))
 
-function renderComposer(onSend = vi.fn(async () => true)) {
+function renderComposer(
+  onSend = vi.fn(async () => true),
+  attachments: ChatAttachmentView[] = [],
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rendered = render(
     <QueryClientProvider client={client}>
       <MessageComposer
         threadId="thread-1"
         replyTo={null}
-        attachments={[]}
+        attachments={attachments}
         sending={false}
         uploading={false}
         error=""
@@ -32,6 +36,28 @@ function renderComposer(onSend = vi.fn(async () => true)) {
 }
 
 describe('MessageComposer', () => {
+  beforeEach(() => window.sessionStorage.clear())
+
+  it('focuses the message field when the conversation opens', async () => {
+    const { input } = renderComposer()
+    await waitFor(() => expect(input).toHaveFocus())
+  })
+
+  it('does not submit the same draft twice while sending is in progress', async () => {
+    let finish: ((sent: boolean) => void) | undefined
+    const onSend = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve }))
+    const { input } = renderComposer(onSend)
+    fireEvent.change(input, { target: { value: 'Одне повідомлення' } })
+
+    const sendButton = screen.getByRole('button', { name: 'Надіслати' })
+    fireEvent.click(sendButton)
+    fireEvent.click(sendButton)
+
+    expect(onSend).toHaveBeenCalledTimes(1)
+    finish?.(true)
+    await waitFor(() => expect(input).toHaveValue(''))
+  })
+
   it('sends with Enter and clears the draft after success', async () => {
     const { input, onSend } = renderComposer()
     fireEvent.change(input, { target: { value: '  Вітаю  ' } })
@@ -67,6 +93,33 @@ describe('MessageComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Надіслати' }))
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(2))
     expect(onSend.mock.calls[0]).toEqual(onSend.mock.calls[1])
+  })
+
+  it('sends an attachment without requiring text', async () => {
+    const onSend = vi.fn(async () => true)
+    const attachment: ChatAttachmentView = {
+      id: 'file-one',
+      fileName: 'звіт.pdf',
+      bytes: 1_024,
+      mimeType: 'application/pdf',
+      scanStatus: 'CLEAN',
+    }
+    renderComposer(onSend, [attachment])
+
+    const sendButton = screen.getByRole('button', { name: 'Надіслати' })
+    expect(sendButton).toBeEnabled()
+    fireEvent.click(sendButton)
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith({ body: '', mentions: [] }))
+  })
+
+  it('restores an unsent draft after the composer remounts', () => {
+    const first = renderComposer()
+    fireEvent.change(first.input, { target: { value: 'Не втрачати цей текст' } })
+    first.unmount()
+
+    const second = renderComposer()
+    expect(second.input).toHaveValue('Не втрачати цей текст')
   })
 
   it('sends raw @text without a mention and stores a mention only after candidate selection', async () => {
