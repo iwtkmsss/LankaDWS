@@ -1,7 +1,7 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
 import { Observable, Subject } from 'rxjs'
 import type { ChatRealtimeEvent } from '@bert-crm/contracts'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
@@ -13,6 +13,12 @@ export class ChatRealtimeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async canAccess(principal: AuthPrincipal, threadId: string): Promise<boolean> {
+    if (isGlobalAdmin(principal)) {
+      return Boolean(await this.prisma.messageThread.findFirst({
+        where: { id: threadId, workspaceId: principal.workspaceId },
+        select: { id: true },
+      }))
+    }
     const participant = await this.prisma.threadParticipant.findFirst({
       where: {
         threadId,
@@ -130,6 +136,7 @@ export class ChatRealtimeService {
     const thread = await this.prisma.messageThread.findUnique({
       where: { id: threadId },
       select: {
+        workspaceId: true,
         companyId: true,
         entityType: true,
         entityId: true,
@@ -143,8 +150,8 @@ export class ChatRealtimeService {
     const activeUsers = await this.prisma.user.findMany({
       where: {
         id: { in: thread.participants.map((participant) => participant.userId) },
+        workspaceId: thread.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: thread.companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })

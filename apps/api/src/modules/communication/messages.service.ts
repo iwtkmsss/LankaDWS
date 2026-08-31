@@ -116,12 +116,30 @@ export class MessagesService {
     const usersById = await this.safeUsers(
       authorizedRows.flatMap((thread) => thread.participants.map((participant) => participant.userId)),
     )
+    const lastMessageIds = authorizedRows.flatMap((thread) => thread.messages[0]?.id ? [thread.messages[0].id] : [])
+    const attachmentLinks = lastMessageIds.length
+      ? await this.prisma.fileLink.findMany({
+          where: {
+            entityType: 'MESSAGE',
+            entityId: { in: lastMessageIds },
+            purpose: 'ATTACHMENT',
+          },
+          select: { entityId: true },
+        })
+      : []
+    const messagesWithAttachments = new Set(attachmentLinks.map((link) => link.entityId))
     const unreadByThread = await this.unreadCounts(
       principal.userId,
       authorizedRows.map((thread) => thread.id),
     )
     const allItems = authorizedRows.map((thread) =>
-      this.threadListItem(principal, thread, usersById, unreadByThread.get(thread.id) ?? 0),
+      this.threadListItem(
+        principal,
+        thread,
+        usersById,
+        unreadByThread.get(thread.id) ?? 0,
+        Boolean(thread.messages[0] && messagesWithAttachments.has(thread.messages[0].id)),
+      ),
     )
     const counts = await this.threadSummary(principal, companyIds, visibleGroupIds)
     const sourceLast = allItems.at(-1)
@@ -166,7 +184,7 @@ export class MessagesService {
     if (input.kind === 'GROUP' && (groupTitle.length < 2 || groupTitle.length > 120)) {
       throw badRequest('chat_title_invalid')
     }
-    await this.assertActiveCompanyUsers(companyId, participantIds)
+    await this.assertActiveWorkspaceUsers(principal, participantIds)
     const requestFingerprint = this.chatFingerprint('chat.thread.create', {
       companyId,
       kind: input.kind,
@@ -184,14 +202,12 @@ export class MessagesService {
     const directKey = input.kind === 'DIRECT'
       ? this.chatFingerprint('chat.direct', {
           workspaceId: principal.workspaceId,
-          companyId,
           userIds: [principal.userId, ...participantIds].sort(),
         })
       : null
     if (directKey) {
       const existingDirect = await this.findDirectThread(
         principal.workspaceId,
-        companyId,
         [principal.userId, ...participantIds].sort(),
         directKey,
       )
@@ -306,7 +322,6 @@ export class MessagesService {
       if (!directKey) throw error
       const canonical = await this.findDirectThread(
         principal.workspaceId,
-        companyId,
         [principal.userId, ...participantIds].sort(),
         directKey,
       )
@@ -408,7 +423,7 @@ export class MessagesService {
 
     const participantIds = [...new Set(group.members.map((member) => member.userId))]
     if (!participantIds.includes(principal.userId)) throw notFound()
-    await this.assertActiveCompanyUsers(group.companyId, participantIds)
+    await this.assertActiveWorkspaceUsers(principal, participantIds)
     const threadId = id('thr')
     await this.prisma.$transaction(async (tx) => {
       const thread = await tx.messageThread.create({
@@ -469,7 +484,7 @@ export class MessagesService {
     const currentParticipant = thread.participants.find(
       (participant) => participant.userId === principal.userId && !participant.leftAt,
     )
-    if (!currentParticipant) throw notFound()
+    if (!currentParticipant && !isGlobalAdmin(principal)) throw notFound()
     const lastMessage = await this.prisma.message.findFirst({
       where: { threadId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -483,7 +498,7 @@ export class MessagesService {
       kind === 'GROUP'
       || kind === 'CONTEXTUAL'
     ) && !isGroupContext && (
-      currentParticipant.role === 'OWNER'
+      currentParticipant?.role === 'OWNER'
       || isGlobalAdmin(principal)
     )
     const activeOwnerCount = thread.participants.filter(
@@ -495,21 +510,21 @@ export class MessagesService {
       title: this.threadTitle(principal.userId, thread, usersById),
       kind,
       version: thread.version,
-      notificationMode: this.notificationMode(currentParticipant.notificationMode),
-      participantVersion: currentParticipant.version,
+      notificationMode: currentParticipant ? this.notificationMode(currentParticipant.notificationMode) : 'ALL',
+      participantVersion: currentParticipant?.version ?? 1,
       participants: thread.participants
         .filter((participant) => !participant.leftAt)
         .map((participant) => this.participantView(participant, usersById))
         .sort((left, right) => left.displayName.localeCompare(right.displayName, 'uk')),
       lastMessageId: lastMessage?.id ?? null,
-      lastReadMessageId: currentParticipant.lastReadMessageId,
-      canPost: true,
+      lastReadMessageId: currentParticipant?.lastReadMessageId ?? null,
+      canPost: Boolean(currentParticipant),
       canManageParticipants,
       canLeave: (
         kind === 'GROUP'
         || kind === 'CONTEXTUAL'
-      ) && !isGroupContext && (
-        currentParticipant.role !== 'OWNER'
+      ) && !isGroupContext && Boolean(currentParticipant) && (
+        currentParticipant?.role !== 'OWNER'
         || activeOwnerCount > 1
       ),
     }
@@ -647,12 +662,23 @@ export class MessagesService {
       thread.participants.map((participant) => participant.userId),
     )
     const unread = await this.unreadCounts(principal.userId, [threadId])
+    const lastMessageHasAttachments = latest[0]
+      ? Boolean(await this.prisma.fileLink.findFirst({
+          where: {
+            entityType: 'MESSAGE',
+            entityId: latest[0].id,
+            purpose: 'ATTACHMENT',
+          },
+          select: { id: true },
+        }))
+      : false
     return {
       item: this.threadListItem(
         principal,
         { ...thread, messages: latest },
         usersById,
         unread.get(threadId) ?? 0,
+        lastMessageHasAttachments,
       ),
       counts: await this.summary(principal, thread.companyId ?? undefined),
     }
@@ -662,7 +688,6 @@ export class MessagesService {
     principal: AuthPrincipal,
     query: ChatUserSearchQuery,
   ): Promise<ChatUserSearchPage> {
-    const companyId = this.scope.assertCompany(principal, query.company)
     const normalized = normalizeUserSearchValue(query.q)
     if (!isUserSearchValueLongEnough(normalized)) throw badRequest('chat_user_search_too_short')
     const users = await this.prisma.user.findMany({
@@ -671,7 +696,6 @@ export class MessagesService {
         id: { not: principal.userId },
         isActive: true,
         AND: [
-          { OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }] },
           { OR: [
             { normalizedUsername: { contains: normalized } },
             { normalizedDisplayName: { contains: normalized } },
@@ -699,7 +723,6 @@ export class MessagesService {
     const selected = users.slice(0, query.limit)
     const directThreads = await this.directThreadsForUsers(
       principal,
-      companyId,
       selected.map((user) => user.id),
     )
     return {
@@ -712,13 +735,11 @@ export class MessagesService {
     company: string,
     userId: string,
   ): Promise<ChatContactUser> {
-    const companyId = this.scope.assertCompany(principal, company)
     const user = await this.prisma.user.findFirst({
       where: {
         id: userId,
         workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
       },
       select: {
         id: true,
@@ -729,7 +750,7 @@ export class MessagesService {
       },
     })
     if (!user || user.id === principal.userId) throw notFound()
-    const directThreads = await this.directThreadsForUsers(principal, companyId, [user.id])
+    const directThreads = await this.directThreadsForUsers(principal, [user.id])
     return this.contactUser(user, directThreads.get(user.id) ?? null)
   }
 
@@ -740,8 +761,7 @@ export class MessagesService {
   ): Promise<{ items: MentionCandidateView[] }> {
     const thread = await this.readableThread(principal, threadId)
     this.assertMentionableThread(thread)
-    const companyId = thread.companyId
-    if (!companyId) throw notFound()
+    if (!thread.companyId) throw notFound()
     const participantIds = thread.participants
       .filter((participant) => !participant.leftAt)
       .map((participant) => participant.userId)
@@ -751,7 +771,6 @@ export class MessagesService {
         id: { in: participantIds },
         workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
         ...(normalized
           ? {
               AND: [{
@@ -1137,7 +1156,7 @@ export class MessagesService {
     if (thread.participants.filter((participant) => !participant.leftAt).length >= 50) {
       throw badRequest('chat_participant_limit')
     }
-    await this.assertActiveCompanyUsers(thread.companyId!, [input.userId])
+    await this.assertActiveWorkspaceUsers(principal, [input.userId])
     const operation = `chat.participant.add:${thread.id}`
     const requestFingerprint = this.chatFingerprint(operation, {
       userId: input.userId,
@@ -1697,23 +1716,36 @@ export class MessagesService {
     const current = participant.lastReadMessageId
       ? await this.prisma.message.findUnique({ where: { id: participant.lastReadMessageId } })
       : null
+    const markNotificationsRead = () => this.prisma.notification.updateMany({
+      where: {
+        recipientId: principal.userId,
+        entityType: 'MESSAGE_THREAD',
+        entityId: threadId,
+        readAt: null,
+      },
+      data: { readAt: new Date() },
+    })
     if (current && !this.messageAfter(target, current)) {
+      await markNotificationsRead()
       return {
         lastReadMessageId: current.id,
         participantVersion: participant.version,
       }
     }
-    const updated = await this.prisma.threadParticipant.update({
-      where: { id: participant.id },
-      data: {
-        lastReadMessageId: target.id,
-        version: { increment: 1 },
-      },
-      select: {
-        lastReadMessageId: true,
-        version: true,
-      },
-    })
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.threadParticipant.update({
+        where: { id: participant.id },
+        data: {
+          lastReadMessageId: target.id,
+          version: { increment: 1 },
+        },
+        select: {
+          lastReadMessageId: true,
+          version: true,
+        },
+      }),
+      markNotificationsRead(),
+    ])
     void this.realtime.publish(threadId, 'thread.read').catch(() => undefined)
     return {
       lastReadMessageId: updated.lastReadMessageId!,
@@ -1771,12 +1803,7 @@ export class MessagesService {
         thread: {
           workspaceId: principal.workspaceId,
           companyId: { in: principal.allowedCompanyIds },
-          participants: {
-            some: {
-              userId: principal.userId,
-              leftAt: null,
-            },
-          },
+          ...(!isGlobalAdmin(principal) ? { participants: { some: { userId: principal.userId, leftAt: null } } } : {}),
         },
       },
       select: {
@@ -1841,12 +1868,7 @@ export class MessagesService {
         id: threadId,
         workspaceId: principal.workspaceId,
         companyId: { in: principal.allowedCompanyIds },
-        participants: {
-          some: {
-            userId: principal.userId,
-            leftAt: null,
-          },
-        },
+        ...(!isGlobalAdmin(principal) ? { participants: { some: { userId: principal.userId, leftAt: null } } } : {}),
       },
       include: {
         participants: true,
@@ -1892,6 +1914,7 @@ export class MessagesService {
     principal: AuthPrincipal,
     thread: Pick<MessageThread, 'entityType' | 'entityId'>,
   ): Promise<void> {
+    if (isGlobalAdmin(principal)) return
     if (thread.entityType !== 'GROUP') return
     if (!thread.entityId) throw notFound()
     const membership = await this.prisma.groupMember.findFirst({
@@ -1939,8 +1962,7 @@ export class MessagesService {
     previousUserIds: string[] = [],
   ): Promise<void> {
     this.assertMentionableThread(thread)
-    const companyId = thread.companyId
-    if (!companyId) throw notFound()
+    if (!thread.companyId) throw notFound()
     const currentParticipantIds = new Set(thread.participants
       .filter((participant) => !participant.leftAt)
       .map((participant) => participant.userId))
@@ -1955,7 +1977,6 @@ export class MessagesService {
         id: { in: newlyMentioned },
         workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
@@ -2012,7 +2033,9 @@ export class MessagesService {
     const missingReplyIds = replyIds.filter(
       (replyId) => !messages.some((message) => message.id === replyId),
     )
-    const [replyMessages, attachmentLinks, contentMentions] = await Promise.all([
+    const readMarkerIds = thread.participants.flatMap((participant) =>
+      !participant.leftAt && participant.lastReadMessageId ? [participant.lastReadMessageId] : [])
+    const [replyMessages, attachmentLinks, contentMentions, readMarkerMessages] = await Promise.all([
       missingReplyIds.length
         ? this.prisma.message.findMany({
             where: { id: { in: [...new Set(missingReplyIds)] }, threadId: thread.id },
@@ -2034,6 +2057,11 @@ export class MessagesService {
         },
         orderBy: { start: 'asc' },
       }),
+      readMarkerIds.length
+        ? this.prisma.message.findMany({
+            where: { id: { in: [...new Set(readMarkerIds)] }, threadId: thread.id },
+          })
+        : [],
     ])
     const attachmentFiles = attachmentLinks.length
       ? await this.prisma.fileObject.findMany({
@@ -2056,6 +2084,7 @@ export class MessagesService {
     const allMessages = [...messages, ...replyMessages]
     const usersById = await this.safeUsers(allMessages.map((message) => message.authorId))
     const messagesById = new Map(allMessages.map((message) => [message.id, message]))
+    const readMarkerById = new Map(readMarkerMessages.map((message) => [message.id, message]))
     const filesById = new Map(attachmentFiles.map((file) => [file.id, file]))
     const mentionUserById = new Map(mentionUsers.map((user) => [user.id, user]))
     const activeParticipantIds = new Set(thread.participants
@@ -2072,7 +2101,6 @@ export class MessagesService {
         active: Boolean(
           activeParticipantIds.has(mention.userId)
           && user?.isActive
-          && (user.primaryCompanyId === thread.companyId || user.accountType === 'ADMIN'),
         ),
       })
       mentionsByMessage.set(mention.sourceId, current)
@@ -2092,6 +2120,11 @@ export class MessagesService {
       usersById,
       attachmentsByMessage.get(message.id) ?? [],
       mentionsByMessage.get(message.id) ?? [],
+      thread.participants.filter((participant) => {
+        if (participant.leftAt || participant.userId === message.authorId || !participant.lastReadMessageId) return false
+        const marker = readMarkerById.get(participant.lastReadMessageId)
+        return Boolean(marker && !this.messageAfter(message, marker))
+      }).length,
     ))
   }
 
@@ -2312,14 +2345,12 @@ export class MessagesService {
 
   private async directThreadsForUsers(
     principal: AuthPrincipal,
-    companyId: string,
     userIds: string[],
   ): Promise<Map<string, string>> {
     if (!userIds.length) return new Map()
     const threads = await this.prisma.messageThread.findMany({
       where: {
         workspaceId: principal.workspaceId,
-        companyId,
         kind: 'DIRECT',
         participants: {
           some: { userId: principal.userId, leftAt: null },
@@ -2366,14 +2397,13 @@ export class MessagesService {
 
   private recommendationUsers(
     principal: AuthPrincipal,
-    companyId: string,
+    _companyId: string,
     userIds?: string[],
   ): Promise<SafeUser[]> {
     return this.prisma.user.findMany({
       where: {
         workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
         id: {
           not: principal.userId,
           ...(userIds ? { in: userIds } : {}),
@@ -2490,12 +2520,12 @@ export class MessagesService {
     return new Map(users.map((user) => [user.id, user]))
   }
 
-  private async assertActiveCompanyUsers(companyId: string, userIds: string[]): Promise<void> {
+  private async assertActiveWorkspaceUsers(principal: AuthPrincipal, userIds: string[]): Promise<void> {
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: userIds },
+        workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
@@ -2504,7 +2534,6 @@ export class MessagesService {
 
   private async findDirectThread(
     workspaceId: string,
-    companyId: string,
     userIds: string[],
     directKey: string,
   ): Promise<(MessageThread & { participants: ThreadParticipant[] }) | null> {
@@ -2516,7 +2545,6 @@ export class MessagesService {
     const candidates = await this.prisma.messageThread.findMany({
       where: {
         workspaceId,
-        companyId,
         kind: 'DIRECT',
         participants: {
           some: {
@@ -2564,6 +2592,7 @@ export class MessagesService {
     thread: ThreadListRow,
     usersById: Map<string, SafeUser>,
     unreadCount: number,
+    lastMessageHasAttachments = false,
   ): ChatThreadListItem {
     const participant = thread.participants.find(
       (entry) => entry.userId === principal.userId && !entry.leftAt,
@@ -2591,7 +2620,7 @@ export class MessagesService {
       lastMessageAt: lastMessage?.createdAt.toISOString()
         ?? thread.lastMessageAt?.toISOString()
         ?? null,
-      lastMessage: lastMessage?.body ?? '',
+      lastMessage: lastMessage?.body || (lastMessageHasAttachments ? 'Файл' : ''),
       lastMessageId: lastMessage?.id ?? null,
       unread: unreadCount > 0,
       unreadCount,
@@ -2622,6 +2651,7 @@ export class MessagesService {
     usersById: Map<string, SafeUser>,
     attachments: ChatAttachmentView[],
     mentions: StructuredMentionView[],
+    readByCount: number,
   ): ChatMessageView {
     const author = usersById.get(message.authorId)
     const reply = message.replyToId ? messagesById.get(message.replyToId) : null
@@ -2651,6 +2681,7 @@ export class MessagesService {
         avatarAsset: author?.avatarAsset ?? null,
       },
       attachments: deleted ? [] : attachments,
+      readByCount,
       canEdit: !deleted && (message.authorId === principal.userId || canManage),
       canDelete: !deleted && (message.authorId === principal.userId || canManage),
     }

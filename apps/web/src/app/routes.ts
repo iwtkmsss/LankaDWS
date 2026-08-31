@@ -4,7 +4,7 @@ import type { OrganizationCapabilityCode } from '@bert-crm/contracts'
 import {
   BookOpen, Building2, Bell, CalendarDays, ChartNoAxesColumnIncreasing,
   CheckSquare2, FileText, FileSearch, Gauge, MessageCircle, Newspaper,
-  Database, ShieldCheck, Settings as SettingsIcon, Users, type LucideIcon,
+  Database, Network, ShieldCheck, Settings as SettingsIcon, Users, type LucideIcon,
 } from 'lucide-react'
 
 export interface RouteMeta {
@@ -31,8 +31,9 @@ const loadCommunication = () => import('../pages/CommunicationPages')
 const loadSettings = () => import('../pages/SettingsPages')
 const loadLifecycle = () => import('../pages/LifecyclePage')
 const loadAdmin = () => import('../pages/AdminPages')
-const loadOrganization = () => import('../pages/OrganizationPage')
-const loadCompanies = () => import('../pages/CompaniesPage')
+const loadOrganization = () => import('../pages/OrganizationUniversePage')
+const loadAdminOrganization = () => import('../pages/AdminOrganizationPage')
+const loadLegacyRedirect = () => import('../pages/LegacyRouteRedirectPage')
 
 const Overview = lazy(loadOverview)
 const Feed = lazy(loadFeed)
@@ -44,10 +45,11 @@ const Settings = lazy(loadSettings)
 const Lifecycle = lazy(loadLifecycle)
 const Admin = lazy(loadAdmin)
 const Organization = lazy(loadOrganization)
-const Companies = lazy(loadCompanies)
+const AdminOrganization = lazy(loadAdminOrganization)
+const LegacyRedirect = lazy(loadLegacyRedirect)
 
 export const routes: RouteMeta[] = [
-  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 7, navIcon: Gauge, component: Overview, preload: loadOverview },
+  { path: '/overview', title: 'Огляд', nav: true, navGroup: 'primary', navOrder: 8, navIcon: Gauge, component: Overview, preload: loadOverview },
   { path: '/tasks', title: 'Завдання', nav: true, navGroup: 'primary', navOrder: 2, navIcon: CheckSquare2, component: Tasks, preload: loadTasks },
   { path: '/tasks/new', title: 'Нове завдання', component: Tasks },
   { path: '/tasks/:taskId', title: 'Деталі завдання', component: Tasks },
@@ -57,9 +59,10 @@ export const routes: RouteMeta[] = [
   { path: '/documents/:documentId', title: 'Документ', component: Content },
   { path: '/knowledge', title: 'База знань', nav: true, navGroup: 'management', navOrder: 1, navIcon: BookOpen, component: Content },
   { path: '/knowledge/:articleSlug', title: 'Стаття', component: Content },
-  { path: '/employees', title: 'Працівники', nav: true, navGroup: 'primary', navOrder: 6, navIcon: Users, component: Content, preload: loadContent },
-  { path: '/employees/org', title: 'Структура організації', component: Organization },
-  { path: '/employees/:employeeId', title: 'Профіль працівника', component: Content },
+  { path: '/organization', title: 'Організація', nav: true, navGroup: 'company', navOrder: 2, navIcon: Network, component: Organization, preload: loadOrganization },
+  { path: '/employees', title: 'Працівники', component: LegacyRedirect },
+  { path: '/employees/org', title: 'Структура', component: LegacyRedirect },
+  { path: '/employees/:employeeId', title: 'Профіль працівника', component: LegacyRedirect },
   { path: '/analytics', title: 'Аналітика', nav: true, navGroup: 'management', navOrder: 2, navIcon: ChartNoAxesColumnIncreasing, component: Content },
   { path: '/announcements', title: 'Оголошення', component: Communication },
   { path: '/announcements/new', title: 'Нове оголошення', component: Communication },
@@ -78,9 +81,12 @@ export const routes: RouteMeta[] = [
   { path: '/settings/sessions', title: 'Активні сесії', component: Settings },
   { path: '/onboarding/:processId', title: 'Онбординг', component: Lifecycle },
   { path: '/offboarding/:processId', title: 'Офбординг', component: Lifecycle },
+  { path: '/companies', title: 'Організація', component: LegacyRedirect },
+  { path: '/companies/:companyId', title: 'Організація', component: LegacyRedirect },
   { path: '/admin', title: 'Адміністрування', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 1, navIcon: SettingsIcon, component: Admin },
-  { path: '/admin/companies', title: 'Компанії', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 2, navIcon: Building2, adminChild: true, component: Companies },
-  { path: '/admin/companies/:companyId', title: 'Компанія', adminOnly: true, component: Companies },
+  { path: '/admin/companies', title: 'Компанії', adminOnly: true, component: LegacyRedirect },
+  { path: '/admin/companies/:companyId', title: 'Компанія', adminOnly: true, component: LegacyRedirect },
+  { path: '/admin/companies/:companyId/structure', title: 'Структура компанії', adminOnly: true, component: AdminOrganization },
   { path: '/admin/users', title: 'Користувачі', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 3, navIcon: Users, adminChild: true, component: Admin },
   { path: '/admin/users/:userId', title: 'Користувач', adminOnly: true, component: Admin },
   { path: '/admin/security', title: 'Безпека', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 4, navIcon: ShieldCheck, adminChild: true, component: Admin },
@@ -92,11 +98,11 @@ export const routes: RouteMeta[] = [
 
 export const mobileNavigation = {
   primary: ['/feed', '/tasks', '/messages', '/drive'],
-  more: ['/calendar', '/employees', '/overview'],
+  more: ['/calendar', '/organization', '/overview'],
 } as const
 
 export const mobileNavigationLabels: Record<string, string> = {
-  '/employees': 'Співробітники',
+  '/organization': 'Організація',
 }
 
 export function navigationRoutes(

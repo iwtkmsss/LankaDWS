@@ -45,10 +45,10 @@ export class AdminService {
   }
 
   async userDetail(principal: AuthPrincipal, userId: string) {
-    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, orgAssignments: { where: { endedAt: null, isPrimary: true }, include: { orgUnit: true } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
+    const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, orgAssignments: { where: { endedAt: null, isPrimary: true }, include: { orgUnit: true } }, managedCompanies: { select: { id: true, displayName: true } }, managedOrgUnits: { select: { id: true, name: true, companyId: true } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
     const assignment = user.orgAssignments[0]
-    return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
+    return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, leadership: { companies: user.managedCompanies.map((company) => ({ id: company.id, name: company.displayName })), orgUnits: user.managedOrgUnits }, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
   }
 
   async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; password: string; contactEmail: string; phone?: string; gender?: string | null; birthDate?: string | null; jobTitle?: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean }) {
@@ -99,6 +99,11 @@ export class AdminService {
     }
     const updated = await this.prisma.$transaction(async (tx) => {
       const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, phone: input.phone === undefined ? user.phone : input.phone?.trim() || null, gender: input.gender === undefined ? user.gender : input.gender, birthDate: input.birthDate === undefined ? user.birthDate : input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
+      const clearsLeadership = !input.isActive || input.accountType !== 'USER' || user.primaryCompanyId !== company?.id
+      if (clearsLeadership) {
+        await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })
+        await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })
+      }
       if (orgUnit && company) {
         await tx.userOrgAssignment.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), isPrimary: false } })
         await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
@@ -239,6 +244,8 @@ export class AdminService {
         await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: input.newOwnerId } })
       }
       await tx.user.update({ where: { id: targetId }, data: { isActive: false, authorizationVersion: { increment: 1 } } })
+      await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
+      await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
       await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents }), correlationId: id('corr') } })
     })

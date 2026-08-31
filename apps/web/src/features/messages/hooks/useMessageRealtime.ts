@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { apiUrl } from '../../../shared/api/client'
 import { getMessage, getThreadPreview } from '../api/messageApi'
+import { messageKeys } from '../api/messageKeys'
 import { upsertMessageCache, upsertThreadPreview } from '../lib/messageCache'
 
 export function useMessageRealtime(): boolean {
@@ -30,6 +31,9 @@ export function useMessageRealtime(): boolean {
       if (handledEvents.size > 200) {
         const oldest = handledEvents.values().next().value
         if (oldest) handledEvents.delete(oldest)
+      }
+      if (event.eventType === 'thread.read') {
+        void client.invalidateQueries({ queryKey: messageKeys.pages(event.threadId) })
       }
       void Promise.all([
         event.messageId

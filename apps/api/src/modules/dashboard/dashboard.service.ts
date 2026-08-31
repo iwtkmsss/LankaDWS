@@ -68,7 +68,7 @@ export class DashboardService {
       lifecycle,
     ] = await Promise.all([
       availability.tasks
-        ? this.tasks.dashboardSummary(principal, companyId, completedSince)
+        ? this.tasks.dashboardSummary(principal, undefined, completedSince)
         : Promise.resolve<DashboardTaskSummary | null>(null),
       availability.calendar
         ? this.events(principal, generatedAt, todayStart, todayEnd)
@@ -77,14 +77,14 @@ export class DashboardService {
         ? this.announcements(principal)
         : Promise.resolve<AnnouncementListItem[]>([]),
       availability.messages
-        ? this.messages.summary(principal, companyId)
+        ? this.messages.summary(principal)
         : Promise.resolve<{ all: number; unread: number } | null>(null),
       availability.notifications
         ? this.notificationSummary(principal.userId)
         : Promise.resolve<{ action: number; unread: number } | null>(null),
       availability.activity
         ? this.feed.list(principal, {
-            company: companyId,
+            company: 'all',
             filter: 'ALL',
             type: 'ALL',
             limit: 5,

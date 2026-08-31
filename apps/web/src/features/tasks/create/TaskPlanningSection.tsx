@@ -1,6 +1,7 @@
 import type { TaskRecurrenceFrequency } from '@bert-crm/contracts'
 import { AlarmClockPlus, Plus, Repeat2, Trash2 } from 'lucide-react'
 import { Button } from '../../../shared/ui'
+import { randomId } from '../../../shared/api/client'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -20,7 +21,7 @@ const weekdays = [
 
 function newReminder(): TaskReminderDraft {
   return {
-    clientId: crypto.randomUUID(),
+    clientId: randomId(),
     targetType: 'PARTICIPANTS',
     userId: '',
     triggerType: 'AT',

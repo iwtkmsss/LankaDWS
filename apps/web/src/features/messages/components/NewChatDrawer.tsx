@@ -10,17 +10,21 @@ import { normalizedCodePointLength } from '../lib/messageText'
 
 export function NewChatDrawer({
   companyId,
+  companyOptions,
   targetUserId,
   startingUserId,
   onClose,
+  onCompanyChange,
   onStartDirect,
   onStartTarget,
   onOpenGroup,
 }: {
   companyId: string
+  companyOptions: Array<{ id: string; name: string }>
   targetUserId: string | null
   startingUserId: string | null
   onClose: () => void
+  onCompanyChange: (companyId: string) => void
   onStartDirect: (contact: ChatContactUser) => void
   onStartTarget: (userId: string) => void
   onOpenGroup: () => void
@@ -94,6 +98,24 @@ export function NewChatDrawer({
       )}
     >
       <div className="new-chat">
+        {companyOptions.length > 0 && (
+          <label>
+            Компанія
+            <select
+              aria-label="Компанія для нового чату"
+              value={companyId}
+              onChange={(event) => {
+                setQuery('')
+                attemptedTargetRef.current = null
+                onCompanyChange(event.target.value)
+              }}
+            >
+              {companyOptions.map((company) => (
+                <option key={company.id} value={company.id}>{company.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <Button type="button" variant="secondary" onClick={onOpenGroup}>
           <UsersRound size={16} /> Створити групу
         </Button>

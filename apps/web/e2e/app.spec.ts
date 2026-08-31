@@ -9,6 +9,17 @@ async function login(page: Page, username = 'maria') {
   await expect(page).toHaveURL(/\/feed$/)
 }
 
+test('profile menu closes when clicking outside it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await login(page, 'dmytro')
+
+  await page.locator('.profile-button').click()
+  await expect(page.locator('.profile-popover')).toBeVisible()
+
+  await page.locator('.workspace').click({ position: { x: 400, y: 200 } })
+  await expect(page.locator('.profile-popover')).toBeHidden()
+})
+
 test('desktop navigation prefetches destinations and reuses cached task data', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop sidebar is the navigation prefetch surface.')
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -39,7 +50,7 @@ test('desktop navigation prefetches destinations and reuses cached task data', a
   await navigateTo('/messages', 'Повідомлення')
   await navigateTo('/drive', 'Диск')
   await navigateTo('/calendar', 'Календар')
-  await navigateTo('/employees', 'Працівники')
+  await navigateTo('/organization', 'Організація')
   await navigateTo('/overview', 'Огляд')
   await navigateTo('/feed', 'Жива стрічка')
   await navigateTo('/tasks', 'Завдання')
@@ -149,56 +160,100 @@ test('manager overview and admin access stay correctly scoped', async ({ page })
   await expect(page.getByRole('heading', { name: 'Користувачі' })).toHaveCount(0)
 })
 
-test('organization tree expands and keeps the selected unit addressable', async ({ page }) => {
+test('organization map moves the camera, highlights a branch and keeps selection addressable', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/employees/org')
-  const tree = page.getByRole('tree', { name: 'Структура підрозділів' })
-  await expect(tree).toBeVisible()
+  await page.goto('/organization?view=structure&companyId=cmp_bert_ua')
+  const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
+  await expect(map).toBeVisible()
 
-  const expandable = tree.locator('[role="treeitem"][aria-expanded]').first()
-  await expect(expandable).toHaveAttribute('aria-expanded', 'true')
-  const toggle = expandable.getByRole('button', { name: /Згорнути/ })
-  await toggle.click()
-  await expect(expandable).toHaveAttribute('aria-expanded', 'false')
-  await expandable.getByRole('button', { name: /Розгорнути/ }).click()
-
-  const selectedUnit = tree.locator('.org-tree__select').first()
+  const selectedUnit = map.locator('.organization-map__node:not(.organization-map__node--company)').first()
   await selectedUnit.click()
-  await expect(page).toHaveURL(/\/employees\/org\?unit=/)
-  await selectedUnit.press('ArrowDown')
-  await expect(tree.locator('.org-tree__select').nth(1)).toBeFocused()
+  await expect(page).toHaveURL(/\/organization\?.*unitId=/)
+  await expect(map.locator('.organization-map__links path.is-active')).not.toHaveCount(0)
+  const transformBefore = await map.locator('.organization-map__world').getAttribute('style')
+  await map.getByRole('button', { name: 'Збільшити карту' }).click()
+  await expect(map.locator('.organization-map__world')).not.toHaveAttribute('style', transformBefore ?? '')
+  await map.hover()
+  const pageScrollBefore = await page.evaluate(() => window.scrollY)
+  await page.mouse.wheel(0, 180)
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore)
+  for (let index = 0; index < 24; index += 1) await page.mouse.wheel(0, 180)
+  const transformAtZoomLimit = await map.locator('.organization-map__world').getAttribute('style')
+  await page.mouse.wheel(0, 180)
+  await expect(map.locator('.organization-map__world')).toHaveAttribute('style', transformAtZoomLimit ?? '')
+  await expect(map.getByRole('button', { name: /BERT/ }).first()).toBeVisible()
+
+  await expect(page.getByRole('button', { name: 'Структура', exact: true })).toHaveClass(/is-active/)
+  await expect(page.getByLabel('Компанія')).toHaveValue('cmp_bert_ua')
 })
 
-test('command palette keeps canonical create actions ahead of results', async ({ page }) => {
+test('administrator manages a recursive company structure', async ({ page }) => {
+  await login(page, 'dmytro')
+  await page.goto('/admin/companies/cmp_bert_ua/structure')
+  await expect(page.getByRole('heading', { name: 'Структура · BERT' })).toBeVisible()
+  await page.getByRole('button', { name: 'Режим перегляду' }).click()
+  await expect(page.getByText('Керівник компанії').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Додати гілку до компанії BERT' }).click()
+
+  const suffix = Date.now().toString(36)
+  let drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
+  await drawer.getByLabel('Назва').fill(`E2E UI напрям ${suffix}`)
+  await drawer.getByLabel('Керівник').fill('Анд')
+  await drawer.getByRole('option', { name: /Андрій Коваль/ }).click()
+  await drawer.getByLabel('Працівники').fill('Марко')
+  await drawer.getByRole('option', { name: /Марко Литвин/ }).click()
+  await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: `E2E UI напрям ${suffix}` })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Новий підрозділ' }).click()
+  drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
+  await drawer.getByLabel('Назва').fill(`E2E UI лабораторія ${suffix}`)
+  await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: `E2E UI лабораторія ${suffix}` })).toBeVisible()
+
+  const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
+  const sourceUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI напрям ${suffix}` })
+  const targetUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI лабораторія ${suffix}` })
+  await sourceUnitNode.click()
+  const employeeCard = map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')
+  await expect(employeeCard).toBeVisible()
+  const transferData = await page.evaluateHandle(() => new DataTransfer())
+  await employeeCard.dispatchEvent('dragstart', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('dragenter', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('dragover', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('drop', { dataTransfer: transferData })
+  const transfer = page.getByRole('alertdialog', { name: 'Перевести працівника?' })
+  await expect(transfer).toContainText(`E2E UI лабораторія ${suffix}`)
+  await transfer.getByRole('button', { name: 'Перевести' }).click()
+  await expect(transfer).toHaveCount(0)
+  await targetUnitNode.click()
+  await expect(map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')).toBeVisible()
+
+  await page.getByText('Архівація', { exact: true }).click()
+  await page.getByRole('button', { name: 'Архівувати' }).click()
+  await expect(page.getByText('Відновиться порожнім; попередні переміщення не відкочуються.')).toBeVisible()
+  await page.getByRole('button', { name: 'Відновити' }).click()
+  await expect(page.getByText('Активний підрозділ')).toBeVisible()
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations).toEqual([])
+})
+
+test('global search and the former top bar are removed', async ({ page }) => {
   await login(page, 'maria')
-  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
-  const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-  await palette.getByRole('textbox').fill('Олена')
-  const employee = palette.getByRole('option', { name: /Олена Бондар.*@olena/ })
-  await expect(employee).toBeVisible()
-  await expect(palette.locator('.palette__group')).toHaveText(['Працівники'])
-  await employee.click()
-  await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
-  await expect(page.getByRole('region', { name: /Діалог: Олена Бондар/ })).toBeVisible()
-
-  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
-  const reopenedPalette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-
-  await reopenedPalette.getByRole('textbox').fill('TSK-2401')
-  await expect(reopenedPalette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard.*№2401/ })).toBeVisible()
-  await expect(reopenedPalette.locator('.palette__group')).toHaveText(['Завдання'])
-
-  await reopenedPalette.getByRole('textbox').fill('завдання')
-  await expect(reopenedPalette.getByText('Створити', { exact: true })).toBeVisible()
-  await reopenedPalette.getByRole('option', { name: /Нове завдання/ }).click()
-  await expect(page).toHaveURL(/\/tasks\/new/)
+  await expect(page.locator('.topbar')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Пошук у BERT CRM' })).toHaveCount(0)
+  await page.keyboard.press('Control+K')
+  await expect(page.getByRole('dialog', { name: 'Глобальний пошук' })).toHaveCount(0)
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/employees?q=Марія')
+  await page.goto('/organization?view=people&companyId=cmp_bert_ua&q=Марія')
   await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
-  await page.getByRole('link', { name: /Марія Іваненко/ }).click()
+  await page.locator('.directory-person__profile').filter({ hasText: 'Марія Іваненко' }).click()
   await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
 })
 
@@ -480,7 +535,7 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(sidebar.getByText('Щоденна робота', { exact: true })).toBeVisible()
   await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
   await expect(sidebar.locator('.nav-section').first().getByRole('link')).toHaveText([
-    'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Календар', 'Працівники', 'Огляд',
+    'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Календар', 'Огляд',
   ])
   const moreButton = sidebar.getByRole('button', { name: 'Ще' })
   await expect(moreButton).toBeVisible()
@@ -489,6 +544,10 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(
     overflowMenu.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
   ).toBeVisible()
+  await page.locator('.workspace').click({ position: { x: 400, y: 200 } })
+  await expect(overflowMenu).toBeHidden()
+
+  await moreButton.click()
   await moreButton.click()
 
   await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()
@@ -591,12 +650,6 @@ test('legacy company scope is removed while task filters and browser history rem
   await login(page)
   await page.goto('/overview?company=all')
   await expect(page).not.toHaveURL(/company=/)
-  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
-  const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-  await palette.getByRole('textbox').fill('dashboard')
-  await palette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard/ }).click()
-  await expect(page).toHaveURL(/\/tasks\/tsk_design$/)
-  await page.goBack()
   const mobileTaskLink = page.locator('.bottom-nav').getByRole('link', { name: 'Завдання', exact: true })
   const taskLink = (await mobileTaskLink.isVisible()) ? mobileTaskLink : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
   await taskLink.click()
@@ -616,14 +669,15 @@ test('legacy company scope is removed while task filters and browser history rem
   await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
 })
 
-test('topbar chat action navigates first and opens new chat only inside messages', async ({ page }) => {
+test('sidebar chat navigation replaces the former topbar action', async ({ page }) => {
   await login(page)
-  const chatAction = page.getByRole('button', { name: /Повідомлення/ })
+  await expect(page.locator('.topbar')).toHaveCount(0)
+  const chatAction = page.locator('.sidebar').getByRole('link', { name: /Чат/ })
   await chatAction.click()
   await expect(page).toHaveURL(/\/messages$/)
   await expect(page.getByRole('dialog', { name: 'Новий чат' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: /Повідомлення/ }).click()
+  await page.getByRole('button', { name: 'Новий чат' }).click()
   await expect(page).toHaveURL(/\/messages\?new=1/)
   await expect(page.getByRole('dialog', { name: 'Новий чат' })).toBeVisible()
 })

@@ -51,12 +51,11 @@ export class SessionAuthGuard implements CanActivate {
       }
     }
 
-    const allowedCompanyIds = session.user.accountType === 'ADMIN'
-      ? (await this.prisma.company.findMany({
-          where: { workspaceId: session.user.workspaceId },
-          select: { id: true },
-        })).map((company) => company.id)
-      : session.user.primaryCompanyId ? [session.user.primaryCompanyId] : []
+    const allowedCompanyIds = (await this.prisma.company.findMany({
+      where: { workspaceId: session.user.workspaceId, isActive: true },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    })).map((company) => company.id)
 
     request.principal = {
       userId: session.user.id,

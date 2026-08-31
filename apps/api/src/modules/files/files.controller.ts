@@ -23,10 +23,19 @@ export class FilesController {
   }
 
   @Get(':id/download')
-  async download(@Req() request: BertRequest, @Param('id') id: string, @Res() response: Response) {
+  async download(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Query('inline') inline: string | undefined,
+    @Res() response: Response,
+  ) {
     const file = await this.files.download(principalFrom(request), id)
+    const canOpenInline = inline === 'true' && (
+      /^image\/(?:png|jpeg|gif|webp)$/.test(file.mime)
+      || file.mime === 'application/pdf'
+    )
     response.setHeader('Content-Type', file.mime)
-    response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`)
+    response.setHeader('Content-Disposition', `${canOpenInline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.name)}`)
     response.setHeader('X-Content-Type-Options', 'nosniff')
     response.send(file.bytes)
   }

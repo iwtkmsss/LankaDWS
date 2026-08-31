@@ -16,18 +16,19 @@ const principal: AuthPrincipal = {
   restricted: false,
 }
 
-describe('ScopeService in single-organization mode', () => {
+describe('ScopeService in workspace-wide company mode', () => {
   const scope = new ScopeService()
 
-  it('always resolves an omitted or legacy all scope to the organization', () => {
-    expect(scope.allowedCompanies(principal)).toEqual(['cmp_organization'])
-    expect(scope.allowedCompanies(principal, 'all')).toEqual(['cmp_organization'])
+  it('resolves an omitted or all scope to every active workspace company', () => {
+    expect(scope.allowedCompanies(principal)).toEqual(['cmp_organization', 'cmp_legacy'])
+    expect(scope.allowedCompanies(principal, 'all')).toEqual(['cmp_organization', 'cmp_legacy'])
     expect(scope.assertCompany(principal, undefined)).toBe('cmp_organization')
     expect(scope.assertCompany(principal, 'all')).toBe('cmp_organization')
   })
 
-  it('does not reopen access to legacy additional companies', () => {
-    expect(() => scope.allowedCompanies(principal, 'cmp_legacy')).toThrow()
-    expect(() => scope.assertCompany(principal, 'cmp_legacy')).toThrow()
+  it('allows selecting any active company in the workspace', () => {
+    expect(scope.allowedCompanies(principal, 'cmp_legacy')).toEqual(['cmp_legacy'])
+    expect(scope.assertCompany(principal, 'cmp_legacy')).toBe('cmp_legacy')
+    expect(() => scope.assertCompany(principal, 'cmp_outside')).toThrow()
   })
 })

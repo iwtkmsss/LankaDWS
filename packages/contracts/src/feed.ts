@@ -239,6 +239,8 @@ export interface FeedBirthdayView {
   displayName: string
   avatarAsset: string | null
   jobTitle: string
+  birthdayDate: { month: number; day: number }
+  isToday: boolean
 }
 
 export interface FeedListResult {

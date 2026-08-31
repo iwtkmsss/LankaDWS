@@ -15,11 +15,15 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
       </header>
       <div className="feed-birthday-highlight__people">
         {birthdays.map((birthday) => (
-          <Link key={birthday.id} to={`/employees/${birthday.id}`}>
+          <Link
+            key={birthday.id}
+            className={birthday.isToday ? 'is-today' : undefined}
+            to={`/organization?view=people&employeeId=${birthday.id}`}
+          >
             <Avatar name={birthday.displayName} src={birthday.avatarAsset} />
             <span>
               <strong>{birthday.displayName}</strong>
-              <small>Сьогодні</small>
+              <small>День народження · {formatBirthdayDate(birthday.birthdayDate)}</small>
             </span>
             <ChevronRight size={17} aria-hidden />
           </Link>
@@ -27,4 +31,9 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
       </div>
     </Card>
   )
+}
+
+function formatBirthdayDate({ month, day }: FeedBirthdayView['birthdayDate']): string {
+  return new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long' })
+    .format(new Date(Date.UTC(2024, month - 1, day)))
 }

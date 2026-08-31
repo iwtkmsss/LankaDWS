@@ -4,6 +4,7 @@ import type {
   ChatContactUser,
   ChatMessagePage,
   ChatMessageView,
+  PrincipalView,
   StructuredMentionInput,
 } from '@bert-crm/contracts'
 import {
@@ -16,7 +17,7 @@ import {
 import { MessageCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, ApiProblem, jsonBody } from '../../shared/api/client'
+import { api, ApiProblem, jsonBody, randomId } from '../../shared/api/client'
 import { useAuth } from '../../shared/auth/AuthProvider'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui'
@@ -55,13 +56,52 @@ function visibleApiError(error: unknown, fallback: string): string {
   return `${fallback} ${reason} Код: ${error.problem.code}. Запит: ${error.problem.correlationId}.`
 }
 
+export function chatThreadCompanyScope(
+  user: {
+    accountType: PrincipalView['accountType']
+    company: { id: string } | null
+  } | null,
+): string {
+  return user ? 'all' : ''
+}
+
+export interface ChatCompanyOption {
+  id: string
+  name: string
+  isActive: boolean
+}
+
+export function chatCreationCompanyId(
+  user: {
+    accountType: PrincipalView['accountType']
+    company: { id: string } | null
+  } | null,
+  requestedCompanyId: string | null,
+  companies: ChatCompanyOption[] = [],
+): string {
+  if (user?.company?.id) return user.company.id
+  if (user?.accountType !== 'ADMIN') return ''
+  const activeCompanies = companies.filter((company) => company.isActive)
+  return activeCompanies.some((company) => company.id === requestedCompanyId)
+    ? requestedCompanyId!
+    : (activeCompanies[0]?.id ?? '')
+}
+
 export function MessagesPage() {
   const { threadId } = useParams()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const client = useQueryClient()
   const { user, canUseCapability } = useAuth()
-  const companyId = user?.company?.id ?? ''
+  const threadCompanyScope = chatThreadCompanyScope(user)
+  const adminCompanies = useQuery({
+    queryKey: ['admin-companies'],
+    queryFn: () => api<{ items: ChatCompanyOption[] }>('/admin/companies'),
+    enabled: user?.accountType === 'ADMIN' && !user.company,
+    staleTime: 30_000,
+  })
+  const creationCompanies = adminCompanies.data?.items.filter((company) => company.isActive) ?? []
+  const companyId = chatCreationCompanyId(user, params.get('company'), creationCompanies)
   const unreadOnly = params.get('unread') === 'true'
   const composeOpen = params.get('new') === '1'
   const groupOpen = params.get('group') === '1'
@@ -93,6 +133,15 @@ export function MessagesPage() {
   const draftBodyRef = useRef('')
   const realtimeConnected = useMessageRealtime()
 
+  const selectCreationCompany = (nextCompanyId: string) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('company', nextCompanyId)
+      next.delete('to')
+      return next
+    }, { replace: true })
+  }
+
   useEffect(() => {
     setParams((current) => {
       const next = new URLSearchParams(current)
@@ -103,12 +152,12 @@ export function MessagesPage() {
   }, [query, setParams])
 
   const threadPages = useInfiniteQuery({
-    queryKey: messageKeys.threads(companyId, unreadOnly),
+    queryKey: messageKeys.threads(threadCompanyScope, unreadOnly),
     queryFn: ({ pageParam, signal }) =>
-      getThreadPage(companyId, unreadOnly, pageParam, signal),
+      getThreadPage(threadCompanyScope, unreadOnly, pageParam, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: Boolean(companyId),
+    enabled: Boolean(threadCompanyScope),
     refetchInterval: realtimeConnected ? false : 15_000,
     refetchIntervalInBackground: false,
   })
@@ -161,7 +210,7 @@ export function MessagesPage() {
       if (directAttemptRef.current.userId !== contact.id) {
         directAttemptRef.current = {
           userId: contact.id,
-          key: `chat-direct:${crypto.randomUUID()}`,
+          key: `chat-direct:${randomId()}`,
         }
       }
       return createThread({
@@ -258,6 +307,7 @@ export function MessagesPage() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
       void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
+      void client.invalidateQueries({ queryKey: ['notifications'] })
     },
     onError: () => { markedReadRef.current = '' },
   })
@@ -323,8 +373,8 @@ export function MessagesPage() {
     if (sendAttemptRef.current.signature !== signature) {
       sendAttemptRef.current = {
         signature,
-        key: `chat-message:${crypto.randomUUID()}`,
-        tempId: `optimistic:${crypto.randomUUID()}`,
+        key: `chat-message:${randomId()}`,
+        tempId: `optimistic:${randomId()}`,
       }
     }
     const attempt = sendAttemptRef.current
@@ -354,6 +404,7 @@ export function MessagesPage() {
         avatarAsset: user.avatarAsset,
       },
       attachments,
+      readByCount: 0,
       canEdit: true,
       canDelete: true,
     }
@@ -398,6 +449,7 @@ export function MessagesPage() {
     }
     const next = new URLSearchParams()
     if (unreadOnly) next.set('unread', 'true')
+    if (!user?.company && companyId) next.set('company', companyId)
     next.set('to', contact.id)
     navigate(`/messages?${next}`)
   }
@@ -551,6 +603,8 @@ export function MessagesPage() {
       {composeOpen && companyId && (
         <NewChatDrawer
           companyId={companyId}
+          companyOptions={creationCompanies}
+          onCompanyChange={selectCreationCompany}
           targetUserId={targetUserId}
           startingUserId={startingUserId}
           onClose={closeCompose}
@@ -558,6 +612,7 @@ export function MessagesPage() {
           onStartTarget={(id) => {
             const next = new URLSearchParams()
             if (unreadOnly) next.set('unread', 'true')
+            if (!user?.company && companyId) next.set('company', companyId)
             next.set('to', id)
             navigate(`/messages?${next}`)
           }}
@@ -567,6 +622,8 @@ export function MessagesPage() {
       {groupOpen && companyId && (
         <NewGroupDrawer
           companyId={companyId}
+          companyOptions={creationCompanies}
+          onCompanyChange={selectCreationCompany}
           onClose={closeGroup}
           onCreated={(id) => {
             closeGroup()

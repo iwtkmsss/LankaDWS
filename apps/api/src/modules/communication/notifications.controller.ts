@@ -24,20 +24,23 @@ export class NotificationsController {
   @Get()
   async list(@Req() request: BertRequest, @Query('tab') tab = 'action') {
     const principal = principalFrom(request)
+    await this.reconcileChatReads(principal.userId)
     const [rows, counts] = await Promise.all([
       this.prisma.notification.findMany({
         where: { recipientId: principal.userId, ...this.tabWhere(tab) },
         orderBy: [{ readAt: 'asc' }, { createdAt: 'desc' }],
         take: 100,
       }),
-      this.summaryFor(principal.userId),
+      this.summaryCounts(principal.userId),
     ])
     return { items: rows, counts }
   }
 
   @Get('summary')
   async summary(@Req() request: BertRequest) {
-    return this.summaryFor(principalFrom(request).userId)
+    const userId = principalFrom(request).userId
+    await this.reconcileChatReads(userId)
+    return this.summaryCounts(userId)
   }
 
   @Post()
@@ -57,10 +60,6 @@ export class NotificationsController {
         id: parsed.data.recipientId,
         workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [
-          { primaryCompanyId: { in: principal.allowedCompanyIds } },
-          { accountType: 'ADMIN' },
-        ],
       },
       select: { id: true, primaryCompanyId: true },
     })
@@ -132,7 +131,61 @@ export class NotificationsController {
     return { read: body.read }
   }
 
-  private async summaryFor(userId: string) {
+  private async reconcileChatReads(userId: string): Promise<void> {
+    const notifications = await this.prisma.notification.findMany({
+      where: {
+        recipientId: userId,
+        entityType: 'MESSAGE_THREAD',
+        readAt: null,
+      },
+      select: { id: true, entityId: true, dedupeKey: true },
+    })
+    if (!notifications.length) return
+    const participants = await this.prisma.threadParticipant.findMany({
+      where: {
+        userId,
+        leftAt: null,
+        lastReadMessageId: { not: null },
+        threadId: { in: [...new Set(notifications.map((item) => item.entityId))] },
+      },
+      select: { threadId: true, lastReadMessageId: true },
+    })
+    const markerByThread = new Map(participants.flatMap((participant) =>
+      participant.lastReadMessageId ? [[participant.threadId, participant.lastReadMessageId] as const] : []))
+    const notificationMessageById = new Map(notifications.flatMap((notification) => {
+      const messageId = notification.dedupeKey.split(':')[1]
+      return messageId ? [[notification.id, messageId] as const] : []
+    }))
+    const messageIds = [
+      ...new Set([
+        ...markerByThread.values(),
+        ...notificationMessageById.values(),
+      ]),
+    ]
+    if (!messageIds.length) return
+    const messages = await this.prisma.message.findMany({
+      where: { id: { in: messageIds } },
+      select: { id: true, threadId: true, createdAt: true },
+    })
+    const messageById = new Map(messages.map((message) => [message.id, message]))
+    const readNotificationIds = notifications.flatMap((notification) => {
+      const marker = messageById.get(markerByThread.get(notification.entityId) ?? '')
+      const target = messageById.get(notificationMessageById.get(notification.id) ?? '')
+      if (!marker || !target || marker.threadId !== notification.entityId || target.threadId !== notification.entityId) return []
+      const markerTime = marker.createdAt.getTime()
+      const targetTime = target.createdAt.getTime()
+      return markerTime > targetTime || (markerTime === targetTime && marker.id >= target.id)
+        ? [notification.id]
+        : []
+    })
+    if (!readNotificationIds.length) return
+    await this.prisma.notification.updateMany({
+      where: { id: { in: readNotificationIds }, recipientId: userId, readAt: null },
+      data: { readAt: new Date() },
+    })
+  }
+
+  private async summaryCounts(userId: string) {
     const [action, unread] = await Promise.all([
       this.prisma.notification.count({
         where: { recipientId: userId, requiresAction: true, readAt: null },

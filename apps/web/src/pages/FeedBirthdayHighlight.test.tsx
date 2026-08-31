@@ -14,23 +14,29 @@ describe('FeedBirthdayHighlight', () => {
             displayName: 'Марія Іваненко',
             avatarAsset: null,
             jobTitle: 'Продуктова дизайнерка',
+            birthdayDate: { month: 5, day: 12 },
+            isToday: true,
           },
           {
             id: 'usr_marko',
             displayName: 'Марко Литвин',
             avatarAsset: null,
             jobTitle: 'Дизайнер',
+            birthdayDate: { month: 5, day: 15 },
+            isToday: false,
           },
         ]} />
       </MemoryRouter>,
     )
 
     expect(screen.getByRole('heading', { name: 'Дні народження' })).toBeVisible()
-    expect(screen.getAllByText('Сьогодні')).toHaveLength(2)
+    expect(screen.getByText('День народження · 12 травня')).toBeVisible()
+    expect(screen.getByText('День народження · 15 травня')).toBeVisible()
     expect(screen.getByRole('link', { name: /Марія Іваненко/ })).toHaveAttribute(
       'href',
-      '/employees/usr_maria',
+      '/organization?view=people&employeeId=usr_maria',
     )
-    expect(screen.queryByText(/років|1994|12\.05|Продуктова дизайнерка/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/років|1994|Продуктова дизайнерка/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Марія Іваненко/ })).toHaveClass('is-today')
   })
 })

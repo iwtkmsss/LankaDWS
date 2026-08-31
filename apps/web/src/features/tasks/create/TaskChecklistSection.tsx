@@ -1,5 +1,6 @@
 import { Check, GripVertical, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
+import { randomId } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'
 import type { TaskCreateDraft, UpdateTaskCreateDraft } from './types'
 
@@ -18,7 +19,7 @@ export function TaskChecklistSection({
     update((current) => ({
       ...current,
       checklistItems: [...current.checklistItems, {
-        clientId: crypto.randomUUID(),
+        clientId: randomId(),
         title: normalized,
         isCompleted: false,
       }],

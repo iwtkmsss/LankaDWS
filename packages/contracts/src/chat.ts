@@ -294,6 +294,7 @@ export const chatMessageViewSchema = z.object({
     avatarAsset: true,
   }),
   attachments: z.array(chatAttachmentViewSchema),
+  readByCount: z.number().int().nonnegative(),
   canEdit: z.boolean(),
   canDelete: z.boolean(),
 })

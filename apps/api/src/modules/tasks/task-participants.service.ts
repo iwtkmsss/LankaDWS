@@ -431,13 +431,6 @@ export class TaskParticipantsService {
       ...(userIds ? { id: { in: userIds } } : {}),
       workspaceId: principal.workspaceId,
       isActive: true,
-      OR: [
-        { accountType: 'ADMIN' },
-        {
-          primaryCompanyId: companyId,
-          ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-        },
-      ],
     }
   }
 }

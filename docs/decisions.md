@@ -2,6 +2,14 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-08-31 — Companies are workspace organization, not authorization boundaries
+
+This decision supersedes the runtime-scope part of “One organization with recursive departments” and any same-company participant requirement. Every authenticated principal receives all active companies in the workspace; company IDs remain persistence keys and optional UI filters. Inactive companies are visible only through administration. Module capabilities and existing record ACLs still apply.
+
+Confidentiality is explicit at the aggregate boundary: a task is readable only by its creator, reporter, active participants and global administrators; a chat is readable only by active participants and global administrators; a notification is readable only by its recipient. Any active workspace user may be selected for a new task, direct/group chat or manual notification regardless of primary company. Canonical direct-chat identity is workspace participant-based rather than company-based.
+
+The web client exposes `/companies` to all users and combines the former employee directory and structure pages under `/organization`. Legacy URLs redirect. The global top bar, global search endpoint and `Ctrl/Cmd+K` command palette are removed; page-local searches remain, while chat and notification counts live on their sidebar destinations.
+
 ## 2026-07-27 — One organization with recursive departments
 
 BertCRM no longer models several selectable companies. A user operates in one organization, while structure is represented by the existing recursive `OrgUnit.parentId` hierarchy, so a department may contain any number of nested subdepartments.

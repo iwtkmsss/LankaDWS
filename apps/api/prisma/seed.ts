@@ -21,7 +21,7 @@ const users = [
 
 async function seed(): Promise<void> {
   await prisma.workspace.upsert({ where: { id: 'ws_bert' }, create: { id: 'ws_bert', displayName: 'BERT Workspace' }, update: { displayName: 'BERT Workspace' } })
-  await prisma.company.upsert({ where: { id: 'cmp_bert_ua' }, create: { id: 'cmp_bert_ua', workspaceId: 'ws_bert', displayName: 'BERT', legalName: 'BERT', code: 'bert' }, update: { displayName: 'BERT', legalName: 'BERT', code: 'bert' } })
+  await prisma.company.upsert({ where: { id: 'cmp_bert_ua' }, create: { id: 'cmp_bert_ua', workspaceId: 'ws_bert', displayName: 'BERT', legalName: 'BERT', code: 'bert', description: 'Продуктова та операційна команда спільного робочого простору BERT.' }, update: { displayName: 'BERT', legalName: 'BERT', code: 'bert', description: 'Продуктова та операційна команда спільного робочого простору BERT.' } })
   for (const companyId of ['cmp_bert_ua']) {
     for (const code of allOrganizationCapabilityCodes) {
       await prisma.companyCapability.upsert({
@@ -39,6 +39,7 @@ async function seed(): Promise<void> {
     await prisma.passwordCredential.upsert({ where: { userId: user.id }, create: { id: `pwd_${user.username}`, userId: user.id, passwordHash }, update: { passwordHash, changedAt: new Date() } })
   }
   for (const user of users) await prisma.user.update({ where: { id: user.id }, data: { approverId: user.approverId } })
+  await prisma.company.update({ where: { id: 'cmp_bert_ua' }, data: { managerId: 'usr_andrii' } })
 
   await prisma.companyCapability.updateMany({
     where: {
@@ -227,7 +228,7 @@ async function seed(): Promise<void> {
     { id: 'org_bert_ua_operations', companyId: 'cmp_bert_ua', sourceKey: 'operations', parentId: null, name: 'Операції', normalizedName: 'операції', managerId: 'usr_andrii', sortOrder: 10 },
     { id: 'org_bert_ua_product', companyId: 'cmp_bert_ua', sourceKey: 'product', parentId: 'org_bert_ua_operations', name: 'Продукт і дизайн', normalizedName: 'продукт і дизайн', managerId: 'usr_maria', sortOrder: 20 },
     { id: 'org_bert_ua_people', companyId: 'cmp_bert_ua', sourceKey: 'people', parentId: 'org_bert_ua_operations', name: 'Люди та культура', normalizedName: 'люди та культура', managerId: 'usr_olena', sortOrder: 30 },
-    { id: 'org_bert_ua_technology', companyId: 'cmp_bert_ua', sourceKey: 'technology', parentId: 'org_bert_ua_operations', name: 'Технології', normalizedName: 'технології', managerId: 'usr_dmytro', sortOrder: 40 },
+    { id: 'org_bert_ua_technology', companyId: 'cmp_bert_ua', sourceKey: 'technology', parentId: 'org_bert_ua_operations', name: 'Технології', normalizedName: 'технології', managerId: 'usr_andrii', sortOrder: 40 },
     { id: 'org_bert_service', companyId: 'cmp_bert_ua', sourceKey: 'service', parentId: 'org_bert_ua_operations', name: 'Сервісний відділ', normalizedName: 'сервісний відділ', managerId: 'usr_marko', sortOrder: 50 },
   ] as const
   for (const unit of orgUnits) {
@@ -242,7 +243,6 @@ async function seed(): Promise<void> {
     { id: 'orga_andrii_operations', userId: 'usr_andrii', companyId: 'cmp_bert_ua', orgUnitId: 'org_bert_ua_operations', positionTitle: 'Операційний керівник' },
     { id: 'orga_maria_product', userId: 'usr_maria', companyId: 'cmp_bert_ua', orgUnitId: 'org_bert_ua_product', positionTitle: 'Продуктова дизайнерка' },
     { id: 'orga_olena_people', userId: 'usr_olena', companyId: 'cmp_bert_ua', orgUnitId: 'org_bert_ua_people', positionTitle: 'HR-фахівчиня' },
-    { id: 'orga_dmytro_technology', userId: 'usr_dmytro', companyId: 'cmp_bert_ua', orgUnitId: 'org_bert_ua_technology', positionTitle: 'Системний адміністратор' },
     { id: 'orga_marko_service', userId: 'usr_marko', companyId: 'cmp_bert_ua', orgUnitId: 'org_bert_service', positionTitle: 'Дизайнер' },
   ]) {
     await prisma.userOrgAssignment.upsert({

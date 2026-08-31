@@ -35,7 +35,7 @@ import {
   moveFeedFavorites,
   writeFeedProjection,
 } from './feed-projection.service.js'
-import { birthdayOccursOn, calendarDateInTimeZone } from './birthday-highlight.js'
+import { calendarDateInTimeZone, daysUntilBirthday } from './birthday-highlight.js'
 
 interface FeedCursor {
   occurredAt: string
@@ -2422,16 +2422,28 @@ export class FeedService {
       },
       orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
     })
-    return users.flatMap((user) =>
-      user.birthDate && birthdayOccursOn(user.birthDate, today)
+    return users
+      .flatMap((user) => user.birthDate
         ? [{
             id: user.id,
             displayName: user.displayName,
             avatarAsset: user.avatarAsset,
             jobTitle: user.jobTitle,
+            birthdayDate: {
+              month: user.birthDate.getUTCMonth() + 1,
+              day: user.birthDate.getUTCDate(),
+            },
+            daysUntilBirthday: daysUntilBirthday(user.birthDate, today),
           }]
-        : [],
-    )
+        : [])
+      .sort((left, right) => left.daysUntilBirthday - right.daysUntilBirthday
+        || left.displayName.localeCompare(right.displayName, 'uk')
+        || left.id.localeCompare(right.id))
+      .slice(0, 3)
+      .map(({ daysUntilBirthday, ...birthday }) => ({
+        ...birthday,
+        isToday: daysUntilBirthday === 0,
+      }))
   }
 
   private isDefaultFeedPage(query: FeedListQuery): boolean {

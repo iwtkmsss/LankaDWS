@@ -211,21 +211,6 @@ export class TaskCompatibilityService {
               }
             : null
     const roleWhere = this.roleWhere(principal.userId, viewRole)
-    const membershipWhere: Prisma.TaskWhereInput = {
-      OR: [
-        { groupId: null },
-        {
-          group: {
-            members: {
-              some: {
-                userId: principal.userId,
-                leftAt: null,
-              },
-            },
-          },
-        },
-      ],
-    }
     const search = filters.search?.trim().slice(0, 100)
     const where: Prisma.TaskWhereInput = {
       workspaceId: principal.workspaceId,
@@ -233,7 +218,6 @@ export class TaskCompatibilityService {
       archivedAt: null,
       AND: [
         roleWhere,
-        membershipWhere,
         ...(presetWhere ? [presetWhere] : []),
         ...(dueFrom || dueTo
           ? [{ dueAt: { ...(dueFrom ? { gte: dueFrom } : {}), ...(dueTo ? { lte: dueTo } : {}) } }]
@@ -327,24 +311,7 @@ export class TaskCompatibilityService {
       workspaceId: principal.workspaceId,
       companyId: { in: companyIds },
       archivedAt: null,
-      AND: [
-        responsibleWhere,
-        {
-          OR: [
-            { groupId: null },
-            {
-              group: {
-                members: {
-                  some: {
-                    userId: principal.userId,
-                    leftAt: null,
-                  },
-                },
-              },
-            },
-          ],
-        },
-      ],
+      AND: [responsibleWhere],
     }
     const nonTerminalWhere: Prisma.TaskWhereInput = {
       ...baseWhere,
@@ -501,13 +468,7 @@ export class TaskCompatibilityService {
           id: true,
           displayName: true,
           avatarAsset: true,
-          primaryCompanyId: true,
-          accountType: true,
           isActive: true,
-          groupMemberships: {
-            where: { groupId: task.groupId ?? '__no_group__', leftAt: null },
-            select: { id: true },
-          },
         },
       }),
     ])
@@ -593,14 +554,7 @@ export class TaskCompatibilityService {
               start: mention.start,
               end: mention.end,
               active: Boolean(
-                mentionedUser?.isActive
-                && (
-                  mentionedUser.accountType === 'ADMIN'
-                  || (
-                    mentionedUser.primaryCompanyId === task.companyId
-                    && (!task.groupId || mentionedUser.groupMemberships.length > 0)
-                  )
-                ),
+                mentionedUser?.isActive,
               ),
             }
           }),
@@ -683,14 +637,8 @@ export class TaskCompatibilityService {
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: userIds },
+        workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [
-          { accountType: 'ADMIN' },
-          {
-            primaryCompanyId: task.companyId,
-            ...(task.groupId ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } } : {}),
-          },
-        ],
       },
       select: { id: true },
     })
@@ -1582,14 +1530,8 @@ export class TaskCompatibilityService {
     const user = await this.prisma.user.findFirst({
       where: {
         id: userId,
+        workspaceId: principal.workspaceId,
         isActive: true,
-        OR: [
-          { accountType: 'ADMIN' },
-          {
-            primaryCompanyId: task.companyId,
-            ...(task.groupId ? { groupMemberships: { some: { groupId: task.groupId, leftAt: null } } } : {}),
-          },
-        ],
       },
       select: { id: true },
     })

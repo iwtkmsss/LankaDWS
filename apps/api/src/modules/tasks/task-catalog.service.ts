@@ -136,13 +136,6 @@ export class TaskCatalogService {
         where: {
           workspaceId: principal.workspaceId,
           isActive: true,
-          OR: [
-            { accountType: 'ADMIN' },
-            {
-              primaryCompanyId: companyId,
-              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-            },
-          ],
           ...(search
             ? { OR: [{ displayName: { contains: search } }, { jobTitle: { contains: search } }] }
             : {}),

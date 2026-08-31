@@ -7,10 +7,18 @@ const withoutWhitespace = (value: unknown) => typeof value === 'string' ? value.
 export const companyInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   slug: z.string().trim().toLowerCase().regex(/^[a-z0-9][a-z0-9-]{1,62}$/),
+  description: z.string().trim().max(320).nullable().optional()
+    .transform((value) => value || null),
   timezone: z.string().trim().min(3).max(64).default('Europe/Kyiv'),
   isActive: z.boolean().default(true),
 })
 export type CompanyInput = z.infer<typeof companyInputSchema>
+
+export const updateCompanyManagerSchema = z.object({
+  managerId: z.string().min(1).max(120).nullable(),
+  expectedVersion: z.number().int().positive(),
+})
+export type UpdateCompanyManagerInput = z.infer<typeof updateCompanyManagerSchema>
 
 const adminUserBaseSchema = z.object({
   firstName: z.string().trim().min(1).max(80),

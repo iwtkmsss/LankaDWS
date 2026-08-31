@@ -1144,6 +1144,149 @@ describe('BERT CRM API workflows', () => {
     expect(JSON.stringify(employees.body)).not.toContain('username');
   });
 
+  it('lets an administrator manage a recursive organization hierarchy shared across the workspace', async () => {
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now().toString(36);
+    const admin = await login('dmytro');
+    const maria = await login('maria');
+    const endpoint = '/api/v1/admin/companies/cmp_bert_ua/org-units';
+
+    const root = await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `E2E напрям ${suffix}`, managerId: 'usr_andrii' })
+      .expect(201);
+    const rootBody = root.body as { id: string; version: number };
+    const target = await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `E2E ціль ${suffix}` })
+      .expect(201);
+    const targetBody = target.body as { id: string; version: number };
+    const child = await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `Дослідження 🚀 ${suffix}`, parentId: rootBody.id, managerId: 'usr_maria' })
+      .expect(201);
+    const childBody = child.body as { id: string; version: number };
+    const grandchild = await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `Лабораторія ${suffix}`, parentId: childBody.id })
+      .expect(201);
+    const grandchildBody = grandchild.body as { id: string; version: number };
+
+    await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `  дослідження 🚀 ${suffix}  `, parentId: rootBody.id })
+      .expect(409);
+    await admin.agent
+      .patch(`${endpoint}/${rootBody.id}`)
+      .set('x-csrf-token', admin.csrf)
+      .send({ parentId: grandchildBody.id, expectedVersion: rootBody.version })
+      .expect(409);
+    await admin.agent
+      .post(endpoint)
+      .set('x-csrf-token', admin.csrf)
+      .send({ name: `Некоректний керівник ${suffix}`, managerId: 'usr_dmytro' })
+      .expect(404);
+
+    const employeeId = `usr_e2e_org_${suffix}`;
+    await prisma.user.create({ data: {
+      id: employeeId,
+      workspaceId: 'ws_bert',
+      primaryCompanyId: 'cmp_bert_ua',
+      accountType: 'USER',
+      firstName: 'Тест',
+      lastName: 'Ієрархія',
+      displayName: `Ієрархія Тест ${suffix}`,
+      normalizedDisplayName: `ієрархія тест ${suffix}`,
+      username: `org_${suffix}`,
+      normalizedUsername: `org_${suffix}`,
+      jobTitle: 'Тестувальник структури',
+    } });
+    await prisma.userOrgAssignment.create({ data: {
+      id: `uoa_e2e_org_${suffix}`,
+      companyId: 'cmp_bert_ua',
+      userId: employeeId,
+      orgUnitId: childBody.id,
+      isPrimary: true,
+    } });
+
+    const archived = await admin.agent
+      .post(`${endpoint}/${childBody.id}/archive`)
+      .set('x-csrf-token', admin.csrf)
+      .send({ expectedVersion: childBody.version })
+      .expect(201);
+    const archivedBody = archived.body as { archived: true; destinationId: string; version: number };
+    expect(archivedBody).toMatchObject({ archived: true, destinationId: rootBody.id });
+    expect(await prisma.userOrgAssignment.findFirst({
+      where: { userId: employeeId, endedAt: null, isPrimary: true },
+      select: { orgUnitId: true },
+    })).toEqual({ orgUnitId: rootBody.id });
+    expect(await prisma.orgUnit.findUnique({ where: { id: grandchildBody.id }, select: { parentId: true } }))
+      .toEqual({ parentId: rootBody.id });
+
+    const restoredUnit = await admin.agent
+      .post(`${endpoint}/${childBody.id}/restore`)
+      .set('x-csrf-token', admin.csrf)
+      .send({ expectedVersion: archivedBody.version, parentId: rootBody.id })
+      .expect(201);
+    const restoredUnitBody = restoredUnit.body as { id: string; version: number };
+    const restored = await admin.agent.get(`${endpoint}?status=ALL`).expect(200);
+    const restoredBody = restored.body as { items: Array<{ id: string; status: string; activeEmployeeCount: number }> };
+    expect(restoredBody.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: childBody.id, status: 'ACTIVE', activeEmployeeCount: 0 }),
+    ]));
+
+    const otherCompanyId = `cmp_e2e_org_${suffix}`;
+    await prisma.company.create({ data: {
+      id: otherCompanyId,
+      workspaceId: 'ws_bert',
+      displayName: `Інша компанія ${suffix}`,
+      legalName: `Інша компанія ${suffix}`,
+      code: `other-${suffix}`,
+    } });
+    const crossCompanyTree = await maria.agent.get(`/api/v1/org/units?company=${otherCompanyId}`).expect(200);
+    expect(crossCompanyTree.body).toMatchObject({ company: { id: otherCompanyId } });
+    await maria.agent.get(`/api/v1/admin/companies/cmp_bert_ua/org-units`).expect(403);
+
+    let company = await admin.agent.get('/api/v1/admin/companies/cmp_bert_ua').expect(200);
+    let companyBody = company.body as { version: number };
+    await admin.agent
+      .patch('/api/v1/admin/companies/cmp_bert_ua/manager')
+      .set('x-csrf-token', admin.csrf)
+      .send({ managerId: employeeId, expectedVersion: companyBody.version })
+      .expect(200);
+    await admin.agent
+      .patch(`${endpoint}/${childBody.id}`)
+      .set('x-csrf-token', admin.csrf)
+      .send({ managerId: employeeId, expectedVersion: restoredUnitBody.version })
+      .expect(200);
+    await admin.agent
+      .post(`/api/v1/admin/users/${employeeId}/deactivate`)
+      .set('x-csrf-token', admin.csrf)
+      .send({ reason: 'Перевірка очищення керівних маркерів' })
+      .expect(201);
+    expect(await prisma.company.findUnique({ where: { id: 'cmp_bert_ua' }, select: { managerId: true } })).toEqual({ managerId: null });
+    expect(await prisma.orgUnit.findUnique({ where: { id: childBody.id }, select: { managerId: true } })).toEqual({ managerId: null });
+
+    company = await admin.agent.get('/api/v1/admin/companies/cmp_bert_ua').expect(200);
+    companyBody = company.body as { version: number };
+    await admin.agent
+      .patch('/api/v1/admin/companies/cmp_bert_ua/manager')
+      .set('x-csrf-token', admin.csrf)
+      .send({ managerId: 'usr_andrii', expectedVersion: companyBody.version })
+      .expect(200);
+    const publicTree = await maria.agent.get('/api/v1/org/units').expect(200);
+    const publicTreeBody = publicTree.body as { company: { id: string; manager: { id: string } | null } };
+    expect(publicTreeBody.company).toMatchObject({ id: 'cmp_bert_ua', manager: { id: 'usr_andrii' } });
+    expect(JSON.stringify(publicTreeBody.company)).not.toContain('contactEmail');
+
+    expect(targetBody.id).toMatch(/^org_/);
+  });
+
   it('exposes import readiness only to system administrators without raw source data', async () => {
     const dmytro = await login('dmytro');
     const response = await dmytro.agent
@@ -2004,6 +2147,18 @@ describe('BERT CRM API workflows', () => {
       .expect(200);
     expect((afterRead.body as { items: Array<{ id: string }> }).items.some((item) => item.id === threadId))
       .toBe(false);
+    expect(await prisma.notification.count({
+      where: {
+        recipientId: 'usr_andrii',
+        entityType: 'MESSAGE_THREAD',
+        entityId: threadId,
+        readAt: null,
+      },
+    })).toBe(0);
+    const readReceiptMessage = await maria.agent
+      .get(`/api/v1/messages/${replyId}`)
+      .expect(200);
+    expect((readReceiptMessage.body as ChatMessageView).readByCount).toBe(1);
 
     await maria.agent
       .post(`/api/v1/messages/threads/${threadId}/messages`)
@@ -3041,114 +3196,10 @@ describe('BERT CRM API workflows', () => {
     ).toBeNull();
   });
 
-  it('rejects a company identifier outside the authenticated principal scope', async () => {
+  it('rejects an unknown company identifier and does not expose a global search endpoint', async () => {
     const maria = await login('maria');
     await maria.agent.get('/api/v1/tasks?company=cmp_not_allowed').expect(403);
-    await maria.agent
-      .get('/api/v1/search?q=dashboard&company=cmp_not_allowed')
-      .expect(403);
-  });
-
-  it('limits global search to permission-safe people and tasks from one Unicode symbol', async () => {
-    const prisma = app.get(PrismaService);
-    const maria = await login('maria');
-    const olena = await login('olena');
-    const dmytro = await login('dmytro');
-    const suffix = Date.now().toString(36);
-    const numberSeed = Date.now().toString();
-    const roleCanaryId = `tsk_search_role_${suffix}`;
-    const groupCanaryId = `tsk_search_group_${suffix}`;
-    const roleCanaryTitle = `S6-role-canary-${suffix}`;
-    const groupCanaryTitle = `S6-group-canary-${suffix}`;
-
-    await prisma.task.create({
-      data: {
-        id: roleCanaryId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
-        number: `91${numberSeed}`,
-        title: roleCanaryTitle,
-        createdById: 'usr_olena',
-        reporterId: 'usr_olena',
-        participants: {
-          create: {
-            id: `tpart_search_role_${suffix}`,
-            userId: 'usr_olena',
-            role: 'RESPONSIBLE',
-            addedById: 'usr_olena',
-          },
-        },
-      },
-    });
-    await prisma.task.create({
-      data: {
-        id: groupCanaryId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
-        groupId: 'grp_people_private',
-        number: `92${numberSeed}`,
-        title: groupCanaryTitle,
-        createdById: 'usr_olena',
-        reporterId: 'usr_olena',
-        participants: {
-          create: {
-            id: `tpart_search_group_${suffix}`,
-            userId: 'usr_maria',
-            role: 'WATCHER',
-            addedById: 'usr_olena',
-          },
-        },
-      },
-    });
-
-    try {
-      const oneSymbol = await maria.agent
-        .get(`/api/v1/search?q=${encodeURIComponent('Ｍ')}`)
-        .expect(200);
-      expect(oneSymbol.body.items).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'EMPLOYEE', id: 'usr_maria' }),
-      ]));
-      expect(oneSymbol.body.items.every((item: { type: string }) =>
-        item.type === 'EMPLOYEE' || item.type === 'TASK')).toBe(true);
-
-      const username = await maria.agent.get('/api/v1/search?q=olen').expect(200);
-      expect(username.body.items).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'EMPLOYEE', id: 'usr_olena' }),
-      ]));
-
-      for (const query of ['2401', 'TSK-2401']) {
-        const taskNumber = await maria.agent
-          .get(`/api/v1/search?q=${encodeURIComponent(query)}`)
-          .expect(200);
-        expect(taskNumber.body.items).toEqual(expect.arrayContaining([
-          expect.objectContaining({ type: 'TASK', id: 'tsk_design' }),
-        ]));
-      }
-
-      const formerArticleResult = await maria.agent
-        .get(`/api/v1/search?q=${encodeURIComponent('Безпечна робота з даними')}`)
-        .expect(200);
-      expect(formerArticleResult.body.items).toEqual([]);
-
-      const unrelatedTask = await olena.agent.get('/api/v1/search?q=dashboard').expect(200);
-      expect(unrelatedTask.body.items).toEqual([]);
-
-      for (const title of [roleCanaryTitle, groupCanaryTitle]) {
-        const hidden = await maria.agent
-          .get(`/api/v1/search?q=${encodeURIComponent(title)}`)
-          .expect(200);
-        expect(hidden.body.items).toEqual([]);
-
-        const adminVisible = await dmytro.agent
-          .get(`/api/v1/search?q=${encodeURIComponent(title)}`)
-          .expect(200);
-        expect(adminVisible.body.items).toEqual([
-          expect.objectContaining({ type: 'TASK' }),
-        ]);
-      }
-    } finally {
-      await prisma.task.deleteMany({ where: { id: { in: [roleCanaryId, groupCanaryId] } } });
-    }
+    await maria.agent.get('/api/v1/search?q=dashboard').expect(404);
   });
 
   it('supports canonical structured Feed mentions without weakening audience access', async () => {
@@ -3469,8 +3520,10 @@ describe('BERT CRM API workflows', () => {
       const mariaBirthday = result.birthdays.find((birthday) => birthday.id === 'usr_maria');
       expect(Object.keys(mariaBirthday ?? {}).sort()).toEqual([
         'avatarAsset',
+        'birthdayDate',
         'displayName',
         'id',
+        'isToday',
         'jobTitle',
       ]);
       expect(result.birthdays).not.toEqual(expect.arrayContaining([

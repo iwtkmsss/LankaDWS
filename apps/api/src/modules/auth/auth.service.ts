@@ -216,16 +216,14 @@ export class AuthService {
       include: { primaryCompany: true },
     })
     if (!user) throw notFound()
-    const capabilities = user.primaryCompanyId
-      ? await this.capabilities.forOrganization(user.primaryCompanyId)
-      : await this.capabilities.forOrganizations(principal.allowedCompanyIds)
+    const capabilities = await this.capabilities.forOrganizations(principal.allowedCompanyIds)
     return {
       id: user.id,
       displayName: user.displayName,
       username: user.username,
       jobTitle: user.jobTitle,
       avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset,
-      company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
+      company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, description: user.primaryCompany.description, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
       accountType: user.accountType,
       contactEmail: user.contactEmail,
       phone: user.phone,

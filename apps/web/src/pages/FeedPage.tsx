@@ -211,14 +211,6 @@ export function FeedPage() {
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
-        action={(
-          <Button onClick={() => {
-            setComposerDirty(false)
-            setComposerOpen(true)
-          }}>
-            Створити публікацію
-          </Button>
-        )}
       />
       <div className="feed-layout">
         <div className="feed-main">
@@ -295,11 +287,15 @@ export function FeedPage() {
           {!hasLegacyFilter && (
             <FeedBirthdayHighlight birthdays={firstPage.birthdays} />
           )}
-          <p className="feed-unread-note">
-            {firstPage.unreadCount > 0
-              ? `${firstPage.unreadCount} нових подій позначено прочитаними. Підтвердження важливого завжди виконується окремо.`
-              : 'Відкриття стрічки не підтверджує ознайомлення з важливими публікаціями.'}
-          </p>
+          <Button
+            className="feed-create-post"
+            onClick={() => {
+              setComposerDirty(false)
+              setComposerOpen(true)
+            }}
+          >
+            Створити публікацію
+          </Button>
         </aside>
       </div>
       {composerOpen && (

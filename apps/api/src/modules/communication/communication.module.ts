@@ -7,11 +7,10 @@ import { MessagesController } from './messages.controller.js'
 import { MessagesService } from './messages.service.js'
 import { NotificationsController } from './notifications.controller.js'
 import { SavedViewsController } from './saved-views.controller.js'
-import { SearchController } from './search.controller.js'
 
 @Module({
   imports: [CalendarModule, FilesModule, TasksModule],
-  controllers: [MessagesController, NotificationsController, SavedViewsController, SearchController],
+  controllers: [MessagesController, NotificationsController, SavedViewsController],
   providers: [MessagesService, ChatRealtimeService],
   exports: [MessagesService],
 })

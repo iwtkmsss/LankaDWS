@@ -25,27 +25,9 @@ export class TaskAccessService {
       where: {
         id: taskId,
         workspaceId: principal.workspaceId,
-        companyId: { in: principal.allowedCompanyIds },
       },
     })
     if (!task) return null
-
-    if (task.groupId) {
-      const membership = await this.prisma.groupMember.findFirst({
-        where: {
-          groupId: task.groupId,
-          userId: principal.userId,
-          leftAt: null,
-          group: {
-            workspaceId: principal.workspaceId,
-            companyId: task.companyId,
-            status: 'ACTIVE',
-          },
-        },
-        select: { id: true },
-      })
-      if (!membership) return null
-    }
 
     if (
       task.createdById === principal.userId

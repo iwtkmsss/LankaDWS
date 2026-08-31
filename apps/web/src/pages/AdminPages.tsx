@@ -152,7 +152,7 @@ function AdminOverviewPage() {
       </section>
       <div className="kpi-grid">
         <Kpi icon={Users} value={data.users.active} label="Активні користувачі" href={scoped('/admin/users')} />
-        <Kpi icon={Building2} value={data.departments} label="Підрозділи" href="/employees/org" />
+        <Kpi icon={Building2} value={data.departments} label="Підрозділи" href="/organization?view=structure" />
         <Kpi
           icon={UsersRound}
           value={data.administrators}
@@ -545,7 +545,12 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     version: number
     accountType: 'ADMIN' | 'USER'
     company: { id: string; name: string } | null
+    orgUnit: { id: string; name: string } | null
     contactEmail: string | null
+    leadership: {
+      companies: Array<{ id: string; name: string }>
+      orgUnits: Array<{ id: string; name: string; companyId: string }>
+    }
     security: {
       twoFactor: boolean
       activeSessions: number
@@ -598,6 +603,14 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <ShieldCheck size={16} />
               Перевірка доступу не створює сесію від імені користувача.
             </p>
+            {(query.data.leadership.companies.length + query.data.leadership.orgUnits.length) > 0 && <Card className="leadership-warning">
+              <strong>Керівні маркери</strong>
+              <span>{[
+                ...query.data.leadership.companies.map((company) => company.name),
+                ...query.data.leadership.orgUnits.map((unit) => unit.name),
+              ].join(', ')}</span>
+              <small>Під час деактивації, переведення в іншу компанію або зміни типу на ADMIN ці маркери буде очищено.</small>
+            </Card>}
             <Button variant="secondary" onClick={() => setEditing(true)}>
               Редагувати користувача
             </Button>
@@ -627,23 +640,37 @@ function UserEditor({
     username: string
     accountType: 'ADMIN' | 'USER'
     company: { id: string; name: string } | null
+    orgUnit: { id: string; name: string } | null
     contactEmail: string | null
     jobTitle: string
     isActive: boolean
+    leadership: {
+      companies: Array<{ id: string; name: string }>
+      orgUnits: Array<{ id: string; name: string; companyId: string }>
+    }
   }
   onClose: () => void
 }) {
   const client = useQueryClient()
   const [accountType, setAccountType] = useState(user.accountType)
+  const [companyId, setCompanyId] = useState(user.company?.id ?? '')
   const companies = useQuery({
     queryKey: ['admin-companies'],
     queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
+  })
+  const units = useQuery({
+    queryKey: ['org-units', companyId],
+    queryFn: () => api<{ items: Array<{ id: string; name: string }> }>(`/org/units?company=${encodeURIComponent(companyId)}`),
+    enabled: accountType === 'USER' && Boolean(companyId),
   })
   const mutation = useMutation({
     mutationFn: (body: object) => api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['admin-users'] })
       void client.invalidateQueries({ queryKey: ['admin-user', user.id] })
+      void client.invalidateQueries({ queryKey: ['admin-companies'] })
+      void client.invalidateQueries({ queryKey: ['admin-org-units'] })
+      void client.invalidateQueries({ queryKey: ['org-units'] })
       onClose()
     },
   })
@@ -657,7 +684,8 @@ function UserEditor({
       middleName: data.get('middleName') || undefined,
       username: data.get('username'),
       accountType,
-      companyId: accountType === 'USER' ? data.get('companyId') : undefined,
+      companyId: accountType === 'USER' ? companyId : undefined,
+      orgUnitId: accountType === 'USER' ? data.get('orgUnitId') : undefined,
       isActive: data.get('isActive') === 'on',
       contactEmail: data.get('contactEmail') || null,
       jobTitle: data.get('jobTitle'),
@@ -710,7 +738,7 @@ function UserEditor({
         {accountType === 'USER' && (
           <label>
             Компанія
-            <select name="companyId" required defaultValue={user.company?.id ?? ''}>
+            <select name="companyId" required value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
               <option value="" disabled>
                 Оберіть компанію
               </option>
@@ -724,6 +752,21 @@ function UserEditor({
             </select>
           </label>
         )}
+        {accountType === 'USER' && (
+          <label className="span-2">
+            Підрозділ
+            <select name="orgUnitId" required disabled={!companyId || units.isLoading} defaultValue={companyId === user.company?.id ? user.orgUnit?.id ?? '' : ''} key={companyId}>
+              <option value="" disabled>Оберіть підрозділ</option>
+              {units.data?.items.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
+            </select>
+          </label>
+        )}
+        {(user.leadership.companies.length + user.leadership.orgUnits.length) > 0 && <p className="privacy-note span-2">
+          Зміна компанії, типу доступу або деактивація очистить керівні маркери: {[
+            ...user.leadership.companies.map((company) => company.name),
+            ...user.leadership.orgUnits.map((unit) => unit.name),
+          ].join(', ')}.
+        </p>}
         <label className="check-row span-2">
           <input name="isActive" type="checkbox" defaultChecked={user.isActive} />
           Обліковий запис активний

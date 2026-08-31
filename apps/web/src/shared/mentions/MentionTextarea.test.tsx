@@ -78,7 +78,7 @@ describe('MentionTextarea', () => {
     )
 
     expect(screen.queryByRole('link', { name: '@Марія' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@Олена' })).toHaveAttribute('href', '/employees/usr_olena')
+    expect(screen.getByRole('link', { name: '@Олена' })).toHaveAttribute('href', '/organization?view=people&employeeId=usr_olena')
     expect(screen.getByText('@Андрій')).toHaveClass('is-inactive')
   })
 })

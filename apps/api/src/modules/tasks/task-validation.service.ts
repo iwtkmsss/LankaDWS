@@ -88,13 +88,6 @@ export class TaskValidationService {
           id: { in: userIds },
           workspaceId: principal.workspaceId,
           isActive: true,
-          OR: [
-            { accountType: 'ADMIN' },
-            {
-              primaryCompanyId: companyId,
-              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-            },
-          ],
         },
         select: { id: true },
       }),
@@ -214,13 +207,6 @@ export class TaskValidationService {
           id: { in: userIds },
           workspaceId: principal.workspaceId,
           isActive: true,
-          OR: [
-            { accountType: 'ADMIN' },
-            {
-              primaryCompanyId: task.companyId,
-              ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-            },
-          ],
         },
         select: { id: true },
       }),

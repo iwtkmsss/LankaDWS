@@ -123,4 +123,9 @@ describe('MessagesSidebar', () => {
     rerender(<MessagesSidebar {...props} query="мар" debouncedQuery="мар" />)
     expect(screen.queryByRole('region', { name: 'Рекомендовані контакти' })).not.toBeInTheDocument()
   })
+
+  it('shows a file label when the latest message only contains an attachment', () => {
+    renderSidebar({ threads: [{ ...thread, lastMessage: 'Файл' }] })
+    expect(screen.getByText('Файл')).toBeInTheDocument()
+  })
 })

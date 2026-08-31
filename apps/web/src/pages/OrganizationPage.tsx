@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
+import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
 import { Building2, ChevronDown, ChevronRight, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -57,7 +57,7 @@ export default function OrganizationPage() {
   const organizationId = user?.company?.id
   const unitsQuery = useQuery({
     queryKey: ['org-units', organizationId],
-    queryFn: () => api<{ items: OrgUnitView[] }>('/org/units'),
+    queryFn: () => api<{ company: OrgCompanyView; items: OrgUnitView[] }>('/org/units'),
     enabled: Boolean(organizationId),
   })
   const units = unitsQuery.data?.items ?? []
@@ -111,6 +111,10 @@ export default function OrganizationPage() {
   return (
     <div>
       <PageHeader title="Структура організації" description="Відділи, підвідділи, керівники та робочі ролі без приватних контактів" action={<Link className="button button--secondary" to="/employees"><UserRound size={17} />Відкрити довідник людей</Link>} />
+      {unitsQuery.data?.company && <Card className="org-company-summary">
+        <Building2 size={20} />
+        <span><strong>{unitsQuery.data.company.name}</strong><small>{unitsQuery.data.company.manager ? `Керівник компанії: ${unitsQuery.data.company.manager.displayName}` : 'Керівника компанії не призначено'}</small></span>
+      </Card>}
       <p className="privacy-note org-privacy-note"><ShieldCheck size={17} />Показуємо лише безпечні робочі дані працівників організації.</p>
       <Card className="org-card">
         <section className="org-browser" aria-label="Підрозділи організації">

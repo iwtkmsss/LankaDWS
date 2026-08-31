@@ -14,7 +14,7 @@ export function MentionText({ body, mentions }: { body: string; mentions: Struct
     const text = body.slice(mention.start, mention.end)
     content.push(mention.active
       ? (
-          <Link className="structured-mention" to={`/employees/${mention.userId}`} key={`${mention.start}:${mention.userId}`}>
+          <Link className="structured-mention" to={`/organization?view=people&employeeId=${mention.userId}`} key={`${mention.start}:${mention.userId}`}>
             {text}
           </Link>
         )

@@ -13,6 +13,7 @@ import { getMessage, getThreadPreview } from './api/messageApi'
 import { messageKeys } from './api/messageKeys'
 import { useMessageRealtime } from './hooks/useMessageRealtime'
 import { addOptimisticMessage, upsertMessageCache } from './lib/messageCache'
+import { chatCreationCompanyId, chatThreadCompanyScope } from './MessagesPage'
 
 vi.mock('./api/messageApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/messageApi')>()
@@ -56,6 +57,7 @@ const message: ChatMessageView = {
     avatarAsset: null,
   },
   attachments: [],
+  readByCount: 0,
   canEdit: false,
   canDelete: false,
 }
@@ -153,6 +155,28 @@ describe('MessagesPage realtime flow', () => {
     expect(getThreadPreview).not.toHaveBeenCalled()
   })
 
+  it('invalidates message pages when another participant reads the thread', async () => {
+    const client = new QueryClient()
+    client.setQueryData(messageKeys.pages('thread-1'), { pages: [], pageParams: [] })
+    render(
+      <QueryClientProvider client={client}>
+        <RealtimeHarness />
+      </QueryClientProvider>,
+    )
+    const source = FakeEventSource.instances[0]
+
+    await act(async () => {
+      source?.dispatchEvent(new MessageEvent('chat', { data: JSON.stringify({
+        threadId: 'thread-1',
+        eventType: 'thread.read',
+        messageId: null,
+        occurredAt: '2026-07-28T12:01:00.000Z',
+      }) }))
+    })
+
+    expect(client.getQueryState(messageKeys.pages('thread-1'))?.isInvalidated).toBe(true)
+  })
+
   it('reconciles an own optimistic row when SSE wins the response race', () => {
     const client = new QueryClient()
     const optimistic = {
@@ -169,5 +193,31 @@ describe('MessagesPage realtime flow', () => {
       messageKeys.pages('thread-1'),
     )
     expect(cached?.pages.flatMap((page) => page.items)).toEqual([message])
+  })
+})
+
+describe('MessagesPage company scope', () => {
+  it('loads all permitted thread companies for a global admin without a primary company', () => {
+    expect(chatThreadCompanyScope({ accountType: 'ADMIN', company: null })).toBe('all')
+  })
+
+  it('loads all workspace threads for an organization user', () => {
+    expect(chatThreadCompanyScope({
+      accountType: 'USER',
+      company: { id: 'company-1' },
+    })).toBe('all')
+  })
+
+  it('selects an active company for chat creation by a global admin', () => {
+    const admin = { accountType: 'ADMIN' as const, company: null }
+    const companies = [
+      { id: 'company-1', name: 'Перша', isActive: true },
+      { id: 'company-2', name: 'Друга', isActive: true },
+      { id: 'company-3', name: 'Архівна', isActive: false },
+    ]
+
+    expect(chatCreationCompanyId(admin, null, companies)).toBe('company-1')
+    expect(chatCreationCompanyId(admin, 'company-2', companies)).toBe('company-2')
+    expect(chatCreationCompanyId(admin, 'company-3', companies)).toBe('company-1')
   })
 })

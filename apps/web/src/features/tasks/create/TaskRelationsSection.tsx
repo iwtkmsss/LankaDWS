@@ -1,6 +1,7 @@
 import type { TaskRelationType } from '@bert-crm/contracts'
 import { GitBranch, Link2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
+import { randomId } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'
 import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
 import { loadTaskCreateOptions } from './api'
@@ -41,7 +42,7 @@ export function TaskRelationsSection({
     update((current) => ({
       ...current,
       relations: [...current.relations, {
-        clientId: crypto.randomUUID(),
+        clientId: randomId(),
         targetTaskId,
         type,
         direction,

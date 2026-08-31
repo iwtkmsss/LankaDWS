@@ -10,12 +10,20 @@ describe('canonical route registry', () => {
       releaseState: 'released',
     })
     expect(routes.find((route) => route.path === '/drive')).toMatchObject({ releaseState: 'released' })
-    expect(routes.find((route) => route.path === '/employees/org')).toBeDefined()
+    expect(routes.find((route) => route.path === '/organization')).toMatchObject({
+      title: 'Організація',
+      nav: true,
+      navGroup: 'company',
+      navOrder: 2,
+    })
+    expect(routes.find((route) => route.path === '/employees/org')?.nav).toBeUndefined()
+    expect(routes.find((route) => route.path === '/companies')).toMatchObject({ title: 'Організація' })
+    expect(routes.find((route) => route.path === '/companies')?.nav).toBeUndefined()
     expect(routes.find((route) => route.path === '/admin/import')).toMatchObject({ adminOnly: true, adminChild: true })
     expect(routes.find((route) => route.path === '/overview')).toMatchObject({
       title: 'Огляд',
       navGroup: 'primary',
-      navOrder: 7,
+      navOrder: 8,
     })
     expect(routes.find((route) => route.path === '/feed')).toMatchObject({
       title: 'Жива стрічка',
@@ -35,15 +43,15 @@ describe('canonical route registry', () => {
 
   it('keeps the approved mobile footer and overflow order explicit', () => {
     expect(mobileNavigation.primary).toEqual(['/feed', '/tasks', '/messages', '/drive'])
-    expect(mobileNavigation.more).toEqual(['/calendar', '/employees', '/overview'])
-    expect(mobileNavigationLabels['/employees']).toBe('Співробітники')
+    expect(mobileNavigation.more).toEqual(['/calendar', '/organization', '/overview'])
+    expect(mobileNavigationLabels['/organization']).toBe('Організація')
     const configuredRoutes = [...mobileNavigation.primary, ...mobileNavigation.more]
     expect(new Set(configuredRoutes).size).toBe(configuredRoutes.length)
     expect(configuredRoutes.every((path) => routes.some((route) => route.path === path && route.nav))).toBe(true)
   })
 
   it('exposes preloaders for the primary desktop destinations', () => {
-    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/employees', '/overview']) {
+    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/organization', '/overview']) {
       expect(routes.find((route) => route.path === path)?.preload).toEqual(expect.any(Function))
     }
   })
@@ -59,13 +67,12 @@ describe('canonical route registry', () => {
       ]),
     )
     expect(pathsByGroup).toEqual({
-      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/employees', '/overview'],
+      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/overview'],
       communication: ['/notifications'],
-      company: ['/groups'],
+      company: ['/groups', '/organization'],
       management: ['/knowledge', '/analytics'],
       administration: [
         '/admin',
-        '/admin/companies',
         '/admin/users',
         '/admin/security',
         '/admin/audit',

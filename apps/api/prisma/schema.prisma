@@ -275,15 +275,18 @@ model Company {
   displayName           String
   legalName             String
   code                  String
+  description           String?
   isActive              Boolean                @default(true)
   timezone              String                 @default("Europe/Kyiv")
   locale                String                 @default("uk-UA")
   workingDaysJson       String                 @default("[1,2,3,4,5]")
   holidayJson           String                 @default("[]")
   version               Int                    @default(1)
+  managerId             String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  manager               User?                  @relation("CompanyManager", fields: [managerId], references: [id], onDelete: SetNull)
   primaryUsers          User[]                 @relation("PrimaryCompany")
   capabilities          CompanyCapability[]
   groups                Group[]
@@ -301,6 +304,7 @@ model Company {
 
   @@unique([workspaceId, code])
   @@index([workspaceId, isActive])
+  @@index([managerId])
 }
 
 enum TaskApprovalStatus {
@@ -362,6 +366,7 @@ model User {
   feedReadCursors              FeedReadCursor[]               @relation("FeedReadCursorUser")
   feedItemStates               FeedUserItemState[]            @relation("FeedUserItemStateUser")
   managedOrgUnits              OrgUnit[]                      @relation("OrgUnitManager")
+  managedCompanies             Company[]                      @relation("CompanyManager")
   orgAssignments               UserOrgAssignment[]
   createdSourceCompanyMappings SourceCompanyMapping[]         @relation("SourceCompanyMappingCreator")
   activatedMigrations          MigrationActivation[]          @relation("MigrationActivator")

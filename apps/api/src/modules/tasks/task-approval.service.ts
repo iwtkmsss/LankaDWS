@@ -431,15 +431,6 @@ export class TaskApprovalService {
       AND: [
         {
           OR: [
-            { accountType: 'ADMIN' },
-            { primaryCompanyId: task.companyId },
-          ],
-        },
-        ...(task.groupId
-          ? [{ groupMemberships: { some: { groupId: task.groupId, leftAt: null } } }]
-          : []),
-        {
-          OR: [
             { id: task.createdById },
             { id: task.reporterId },
             {

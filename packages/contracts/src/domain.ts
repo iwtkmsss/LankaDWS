@@ -55,6 +55,7 @@ export interface CompanyView {
   id: string
   name: string
   slug: string
+  description: string | null
   isActive: boolean
   timezone: string
   createdAt?: string

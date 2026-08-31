@@ -1,7 +1,8 @@
 import type { ChatContactUser } from '@bert-crm/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Check, Plus, Search, X } from 'lucide-react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { randomId } from '../../../shared/api/client'
 import { useDebouncedSearchValue } from '../../../shared/lib/useDebouncedSearchValue'
 import {
   Avatar,
@@ -17,11 +18,15 @@ import { normalizedCodePointLength } from '../lib/messageText'
 
 export function NewGroupDrawer({
   companyId,
+  companyOptions,
   onClose,
+  onCompanyChange,
   onCreated,
 }: {
   companyId: string
+  companyOptions: Array<{ id: string; name: string }>
   onClose: () => void
+  onCompanyChange: (companyId: string) => void
   onCreated: (threadId: string) => void
 }) {
   const [title, setTitle] = useState('')
@@ -57,13 +62,19 @@ export function NewGroupDrawer({
       if (attemptRef.current.signature !== signature) {
         attemptRef.current = {
           signature,
-          key: `chat-group:${crypto.randomUUID()}`,
+          key: `chat-group:${randomId()}`,
         }
       }
       return createThread(payload, attemptRef.current.key)
     },
     onSuccess: (thread) => closeGuard.closeForSuccess(() => onCreated(thread.id)),
   })
+
+  useEffect(() => {
+    setQuery('')
+    setSelected([])
+    attemptRef.current = { signature: '', key: '' }
+  }, [companyId])
 
   function toggle(contact: ChatContactUser) {
     setSelected((current) =>
@@ -98,6 +109,20 @@ export function NewGroupDrawer({
         )}
       >
         <div className="new-group">
+        {companyOptions.length > 0 && (
+          <label>
+            Компанія
+            <select
+              aria-label="Компанія для нової групи"
+              value={companyId}
+              onChange={(event) => onCompanyChange(event.target.value)}
+            >
+              {companyOptions.map((company) => (
+                <option key={company.id} value={company.id}>{company.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Назва групи
           <input

@@ -1,6 +1,10 @@
 import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import {
   CalendarPlus,
+  Check,
+  CheckCheck,
+  Download,
+  ExternalLink,
   FileText,
   ListTodo,
   MoreHorizontal,
@@ -14,6 +18,7 @@ import { Avatar, Button } from '../../../shared/ui'
 import { MentionText } from '../../../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../../../shared/mentions/mentionText'
+import { apiUrl } from '../../../shared/api/client'
 import { formatChatTime } from '../lib/chatDates'
 
 interface MessageBubbleProps {
@@ -53,6 +58,11 @@ export function MessageBubble({
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
     editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
+  const deliveryLabel = message.id.startsWith('optimistic:')
+    ? 'Надсилається'
+    : message.readByCount > 0
+      ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
+      : 'Відправлено'
 
   if (message.deletedAt) {
     return (
@@ -144,14 +154,44 @@ export function MessageBubble({
         {message.attachments.length > 0 && (
           <div className="message-attachments">
             {message.attachments.map((attachment) => (
-              <div key={attachment.id}>
-                <span><FileText size={18} /></span>
-                <span>
+              <div className="message-attachment" key={attachment.id}>
+                {attachment.scanStatus === 'CLEAN' && /^image\/(?:png|jpeg|gif|webp)$/.test(attachment.mimeType ?? '') ? (
+                  <a
+                    className="message-attachment__preview"
+                    href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={`Відкрити ${attachment.fileName}`}
+                  >
+                    <img
+                      src={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
+                      alt={attachment.fileName}
+                      loading="lazy"
+                    />
+                  </a>
+                ) : (
+                  <span className="message-attachment__icon"><FileText size={18} /></span>
+                )}
+                <span className="message-attachment__copy">
                   <strong>{attachment.fileName}</strong>
                   <small>
                     {formatBytes(attachment.bytes)}
                     {attachment.scanStatus !== 'CLEAN' ? ` · ${attachment.scanStatus === 'SCANNING' || attachment.scanStatus === 'QUARANTINED' ? 'Перевіряється' : 'Недоступний'}` : ''}
                   </small>
+                  {attachment.scanStatus === 'CLEAN' && (
+                    <span className="message-attachment__actions">
+                      <a
+                        href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <ExternalLink size={13} /> Відкрити
+                      </a>
+                      <a href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download`)} download>
+                        <Download size={13} /> Завантажити
+                      </a>
+                    </span>
+                  )}
                 </span>
               </div>
             ))}
@@ -161,6 +201,12 @@ export function MessageBubble({
         <footer>
           {message.editedAt && <span>змінено</span>}
           <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
+          {own && (
+            <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} title={deliveryLabel}>
+              {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
+              <span>{deliveryLabel}</span>
+            </span>
+          )}
         </footer>
 
         {!editing && (

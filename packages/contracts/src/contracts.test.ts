@@ -38,6 +38,12 @@ import {
   loginInputSchema,
   markFeedReadSchema,
   orgUnitListQuerySchema,
+  archiveOrgUnitSchema,
+  assignOrgUnitEmployeesSchema,
+  createOrgUnitSchema,
+  restoreOrgUnitSchema,
+  updateCompanyManagerSchema,
+  updateOrgUnitSchema,
   shareFileToFeedSchema,
   updateOrganizationCapabilitySchema,
   taskCommentInputSchema,
@@ -168,6 +174,17 @@ describe('transport schemas', () => {
     expect(groupListQuerySchema.parse({ company: 'cmp_bert', limit: '20', query: '  design  ' })).toMatchObject({ company: 'cmp_bert', limit: 20, query: 'design', status: 'ACTIVE' })
     expect(() => groupListQuerySchema.parse({ company: 'cmp_bert', limit: 500 })).toThrow()
     expect(orgUnitListQuerySchema.parse({ company: 'cmp_bert', parentId: null })).toEqual({ company: 'cmp_bert', parentId: null })
+    expect(createOrgUnitSchema.parse({ name: '  Дослідження\tта  розвиток 🚀  ', parentId: null })).toEqual({
+      name: 'Дослідження та розвиток 🚀',
+      parentId: null,
+    })
+    expect(updateOrgUnitSchema.parse({ managerId: null, expectedVersion: 3 })).toEqual({ managerId: null, expectedVersion: 3 })
+    expect(assignOrgUnitEmployeesSchema.parse({ employeeIds: ['usr_one', 'usr_two'], expectedVersion: 2 })).toEqual({ employeeIds: ['usr_one', 'usr_two'], expectedVersion: 2 })
+    expect(() => assignOrgUnitEmployeesSchema.parse({ employeeIds: ['usr_one', 'usr_one'], expectedVersion: 2 })).toThrow()
+    expect(archiveOrgUnitSchema.parse({ targetUnitId: 'org_target', expectedVersion: 2 })).toEqual({ targetUnitId: 'org_target', expectedVersion: 2 })
+    expect(restoreOrgUnitSchema.parse({ name: '  Відновлений відділ ', parentId: null, expectedVersion: 4 })).toEqual({ name: 'Відновлений відділ', parentId: null, expectedVersion: 4 })
+    expect(updateCompanyManagerSchema.parse({ managerId: null, expectedVersion: 1 })).toEqual({ managerId: null, expectedVersion: 1 })
+    expect(() => createOrgUnitSchema.parse({ name: ' '.repeat(5) })).toThrow()
   })
 
   it('keeps feed audiences explicit and comment replies flat', () => {
