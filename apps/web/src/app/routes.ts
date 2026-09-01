@@ -4,7 +4,7 @@ import type { OrganizationCapabilityCode } from '@bert-crm/contracts'
 import {
   BookOpen, Building2, Bell, CalendarDays, ChartNoAxesColumnIncreasing,
   CheckSquare2, FileText, FileSearch, Gauge, MessageCircle, Newspaper,
-  Database, Network, ShieldCheck, Settings as SettingsIcon, Users, type LucideIcon,
+  Network, Settings as SettingsIcon, Users, type LucideIcon,
 } from 'lucide-react'
 
 export interface RouteMeta {
@@ -89,11 +89,9 @@ export const routes: RouteMeta[] = [
   { path: '/admin/companies/:companyId/structure', title: 'Структура компанії', adminOnly: true, component: AdminOrganization },
   { path: '/admin/users', title: 'Користувачі', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 3, navIcon: Users, adminChild: true, component: Admin },
   { path: '/admin/users/:userId', title: 'Користувач', adminOnly: true, component: Admin },
-  { path: '/admin/security', title: 'Безпека', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 4, navIcon: ShieldCheck, adminChild: true, component: Admin },
-  { path: '/admin/audit', title: 'Журнал дій', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 5, navIcon: FileSearch, adminChild: true, component: Admin },
+  { path: '/admin/audit', title: 'Журнал дій', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 4, navIcon: FileSearch, adminChild: true, component: Admin },
   { path: '/admin/audit/:eventId', title: 'Подія журналу', adminOnly: true, component: Admin },
-  { path: '/admin/import', title: 'Імпорт даних', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 6, navIcon: Database, adminChild: true, component: Admin },
-  { path: '/admin/system', title: 'Система', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 7, navIcon: SettingsIcon, adminChild: true, component: Admin },
+  { path: '/admin/system', title: 'Система', adminOnly: true, nav: true, navGroup: 'administration', navOrder: 5, navIcon: SettingsIcon, adminChild: true, component: Admin },
 ]
 
 export const mobileNavigation = {

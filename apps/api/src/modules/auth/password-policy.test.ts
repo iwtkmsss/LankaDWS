@@ -8,7 +8,7 @@ describe('password policy', () => {
 
   it('rejects short, product-related and username-related secrets', () => {
     expect(() => assertPasswordPolicy('short', 'maria')).toThrow()
-    expect(() => assertPasswordPolicy('Bert CRM is my password 2026', 'maria')).toThrow()
+    expect(() => assertPasswordPolicy('Lanka is my password 2026', 'maria')).toThrow()
     expect(() => assertPasswordPolicy('maria has a very long password', 'maria')).toThrow()
   })
 

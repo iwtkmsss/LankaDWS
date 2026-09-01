@@ -222,14 +222,6 @@ function TasksListPage() {
       <PageHeader
         title="Завдання"
         description="Окремі робочі списки за вашою роллю в кожному завданні"
-        action={
-          (
-            <Link className="button button--primary" to={`/tasks/new${location.search}`}>
-              <Plus size={17} />
-              Нове завдання
-            </Link>
-          )
-        }
       />
       <Card className="list-card task-list-card">
         <div className="list-toolbar">

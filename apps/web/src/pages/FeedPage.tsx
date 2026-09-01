@@ -144,7 +144,7 @@ export function FeedPage() {
   const items = pages.data?.pages.flatMap((page) => page.items) ?? []
 
   useEffect(() => {
-    document.title = 'Жива стрічка — BERT CRM'
+    document.title = 'Жива стрічка — Lanka'
   }, [])
 
   useEffect(() => {

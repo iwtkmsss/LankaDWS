@@ -19,7 +19,6 @@ describe('canonical route registry', () => {
     expect(routes.find((route) => route.path === '/employees/org')?.nav).toBeUndefined()
     expect(routes.find((route) => route.path === '/companies')).toMatchObject({ title: 'Організація' })
     expect(routes.find((route) => route.path === '/companies')?.nav).toBeUndefined()
-    expect(routes.find((route) => route.path === '/admin/import')).toMatchObject({ adminOnly: true, adminChild: true })
     expect(routes.find((route) => route.path === '/overview')).toMatchObject({
       title: 'Огляд',
       navGroup: 'primary',
@@ -74,9 +73,7 @@ describe('canonical route registry', () => {
       administration: [
         '/admin',
         '/admin/users',
-        '/admin/security',
         '/admin/audit',
-        '/admin/import',
         '/admin/system',
       ],
     })

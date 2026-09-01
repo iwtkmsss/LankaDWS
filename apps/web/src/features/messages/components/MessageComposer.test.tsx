@@ -12,6 +12,7 @@ function renderComposer(
   attachments: ChatAttachmentView[] = [],
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const onFiles = vi.fn()
   const rendered = render(
     <QueryClientProvider client={client}>
       <MessageComposer
@@ -23,7 +24,7 @@ function renderComposer(
         error=""
         onReplyCancel={vi.fn()}
         onRemoveAttachment={vi.fn()}
-        onFiles={vi.fn()}
+        onFiles={onFiles}
         onSend={onSend}
       />
     </QueryClientProvider>,
@@ -31,6 +32,7 @@ function renderComposer(
   return {
     input: screen.getByRole('textbox', { name: 'Повідомлення' }),
     onSend,
+    onFiles,
     unmount: rendered.unmount,
   }
 }
@@ -111,6 +113,15 @@ describe('MessageComposer', () => {
     fireEvent.click(sendButton)
 
     await waitFor(() => expect(onSend).toHaveBeenCalledWith({ body: '', mentions: [] }))
+  })
+
+  it('adds files from the clipboard through the attachment uploader', () => {
+    const { input, onFiles } = renderComposer()
+    const image = new File(['image'], 'скріншот.png', { type: 'image/png' })
+
+    fireEvent.paste(input, { clipboardData: { files: [image] } })
+
+    expect(onFiles).toHaveBeenCalledWith([image])
   })
 
   it('restores an unsent draft after the composer remounts', () => {

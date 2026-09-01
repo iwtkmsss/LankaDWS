@@ -1,6 +1,6 @@
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import { FileText, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
 
@@ -83,6 +83,15 @@ export function MessageComposer(props: MessageComposerProps) {
     }
   }
 
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files]
+    if (!files.length) return
+
+    event.preventDefault()
+    const availableSlots = 5 - props.attachments.length
+    if (availableSlots > 0 && !props.uploading) props.onFiles(files.slice(0, availableSlots))
+  }
+
   return (
     <div className="message-composer">
       {props.replyTo && (
@@ -157,6 +166,7 @@ export function MessageComposer(props: MessageComposerProps) {
             event.preventDefault()
             void submit()
           }}
+          onPaste={handlePaste}
         />
         <button
           type="button"

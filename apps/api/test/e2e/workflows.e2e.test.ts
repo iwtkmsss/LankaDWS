@@ -64,7 +64,7 @@ async function login(username: string) {
   return { agent, csrf: response.body.csrfToken as string };
 }
 
-describe('BERT CRM API workflows', () => {
+describe('Lanka API workflows', () => {
   it('creates a complete task aggregate idempotently', async () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
@@ -3047,7 +3047,7 @@ describe('BERT CRM API workflows', () => {
     const uploaded = await dmytro.agent
       .post('/api/v1/files?company=cmp_bert_ua')
       .set('x-csrf-token', dmytro.csrf)
-      .attach('file', Buffer.from('BERT CRM safe e2e file\n'), {
+      .attach('file', Buffer.from('Lanka safe e2e file\n'), {
         filename: 'e2e-note.txt',
         contentType: 'text/plain',
       })
@@ -3196,10 +3196,30 @@ describe('BERT CRM API workflows', () => {
     ).toBeNull();
   });
 
-  it('rejects an unknown company identifier and does not expose a global search endpoint', async () => {
+  it('rejects an unknown company identifier and searches only readable workspace records', async () => {
     const maria = await login('maria');
     await maria.agent.get('/api/v1/tasks?company=cmp_not_allowed').expect(403);
-    await maria.agent.get('/api/v1/search?q=dashboard').expect(404);
+    const search = await maria.agent.get('/api/v1/search?q=dashboard').expect(200);
+    expect(search.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'TASK', id: 'tsk_design' }),
+    ]));
+
+    const peopleSearch = await maria.agent
+      .get(`/api/v1/search?q=${encodeURIComponent('дМиТрО')}`)
+      .expect(200);
+    expect(peopleSearch.body.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: 'EMPLOYEE',
+        id: 'usr_dmytro',
+        route: '/messages?new=1&to=usr_dmytro',
+      }),
+    ]));
+
+    const marko = await login('marko');
+    const privateSearch = await marko.agent.get('/api/v1/search?q=dashboard').expect(200);
+    expect(privateSearch.body.items).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'TASK', id: 'tsk_design' }),
+    ]));
   });
 
   it('supports canonical structured Feed mentions without weakening audience access', async () => {

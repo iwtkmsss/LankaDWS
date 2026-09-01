@@ -234,7 +234,7 @@ export class DashboardService {
       id: receipt.announcement.id,
       title: receipt.announcement.title,
       safeSnippet: receipt.announcement.body.slice(0, 180),
-      authorName: authorById.get(receipt.announcement.authorId) ?? 'BERT CRM',
+      authorName: authorById.get(receipt.announcement.authorId) ?? 'Lanka',
       companyIds: receipt.announcement.companies.map((entry) => entry.companyId),
       status: receipt.announcement.status,
       isPinned: receipt.announcement.isPinned,

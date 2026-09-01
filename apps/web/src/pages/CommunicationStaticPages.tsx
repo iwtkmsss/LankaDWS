@@ -20,7 +20,6 @@ import {
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
-import { SendNotificationDrawer } from '../features/notifications/SendNotificationDrawer'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import {
@@ -342,9 +341,6 @@ export function NotificationsPage() {
   const tab = params.get('tab') ?? 'action'
   const company = params.get('company')
   const client = useQueryClient()
-  const { user } = useAuth()
-  const [composeOpen, setComposeOpen] = useState(false)
-  const [sentTo, setSentTo] = useState('')
   const query = useQuery({
     queryKey: ['notifications', tab],
     queryFn: () =>
@@ -383,13 +379,9 @@ export function NotificationsPage() {
                 непрочитаних
               </span>
             ) : null}
-            <Button disabled={!user?.company?.id} onClick={() => setComposeOpen(true)}>
-              <Plus size={17} /> Надіслати сповіщення
-            </Button>
           </div>
         )}
       />
-      {sentTo && <p className="notification-sent" role="status">Сповіщення для {sentTo} надіслано.</p>}
       <Card className="list-card notification-center">
         <div className="list-toolbar">
           <Tabs
@@ -481,16 +473,6 @@ export function NotificationsPage() {
           <EmptyState title="Черга порожня" description="Тут немає сповіщень для вибраної вкладки." />
         )}
       </Card>
-      {composeOpen && user?.company?.id && (
-        <SendNotificationDrawer
-          companyId={user.company.id}
-          onClose={() => setComposeOpen(false)}
-          onSent={(contact) => {
-            setSentTo(contact.displayName)
-            setComposeOpen(false)
-          }}
-        />
-      )}
     </div>
   )
 }

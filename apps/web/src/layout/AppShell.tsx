@@ -10,6 +10,9 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Search,
   ShieldCheck,
   Users,
   X,
@@ -17,9 +20,12 @@ import {
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { RouteMeta } from '../app/routes'
 import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes } from '../app/routes'
+import { CommandPalette } from '../features/search/CommandPalette'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { Avatar, BrandMark, IconButton } from '../shared/ui'
+import { RightCommunicationPanel } from './RightCommunicationPanel'
+import { TopbarContent, TopbarContentProvider } from './TopbarContent'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -54,7 +60,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const [mobileNav, setMobileNav] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
+  const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
@@ -120,6 +128,13 @@ export function AppShell({ children }: PropsWithChildren) {
       .filter((section) => section.items.length > 0),
     [nav],
   )
+  const paletteShortcuts = useMemo(() => nav
+    .filter((route) => route.path !== '/admin')
+    .map((route) => ({
+      path: route.path,
+      title: route.title,
+      safeSnippet: 'Відкрити розділ',
+    })), [nav])
   const desktopNavRoutes = navSections.flatMap((section) => section.items)
   let visibleRouteCount = desktopNavRoutes.length
   if (desktopNavHeight !== null) {
@@ -253,10 +268,17 @@ export function AppShell({ children }: PropsWithChildren) {
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
         setProfileOpen(false)
         setMoreOpen(false)
         setMobileMoreOpen(false)
+        setPaletteOpen(true)
+      } else if (event.key === 'Escape') {
+        setProfileOpen(false)
+        setMoreOpen(false)
+        setMobileMoreOpen(false)
+        setRightPanelOpen(false)
       }
     }
     window.addEventListener('keydown', handle)
@@ -313,9 +335,11 @@ export function AppShell({ children }: PropsWithChildren) {
     )
   }
   return (
-    <div className={[
+    <TopbarContentProvider>
+      <div className={[
       'app-frame',
       sidebarCollapsed ? 'sidebar-collapsed' : '',
+      rightPanelOpen ? 'right-panel-open' : '',
       isMessagesRoute ? 'app-frame--messages' : '',
       isMessageThreadRoute ? 'app-frame--messages-thread' : '',
     ].filter(Boolean).join(' ')}>
@@ -327,15 +351,18 @@ export function AppShell({ children }: PropsWithChildren) {
         <div className="sidebar__brand">
           <BrandMark />
           <span className="sidebar__brand-copy">
-            <strong>BERT</strong>
-            <small>CRM workspace</small>
+            <strong>Lanka</strong>
+            <small>CORPORATE WORKSPACE</small>
           </span>
           <IconButton
             className="sidebar__collapse"
             label={sidebarCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'}
             onClick={() => {
               setMoreOpen(false)
-              setSidebarCollapsed((value) => !value)
+              setSidebarCollapsed((value) => {
+                if (value) setRightPanelOpen(false)
+                return !value
+              })
             }}
           >
             {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
@@ -419,13 +446,67 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       </aside>
       <div className="workspace">
-        <IconButton className="mobile-menu-trigger" label="Відкрити меню" onClick={() => setMobileNav(true)}>
-          <Menu size={21} />
-        </IconButton>
+        <header className="topbar">
+          <IconButton className="topbar__menu" label="Відкрити меню" onClick={() => {
+            setRightPanelOpen(false)
+            setMobileNav(true)
+          }}>
+            <Menu size={21} />
+          </IconButton>
+          <div className="topbar__route-content">
+            <TopbarContent fallback={(
+              <button className="search-trigger" aria-label="Пошук у Lanka" onClick={() => {
+                setProfileOpen(false)
+                setMoreOpen(false)
+                setPaletteOpen(true)
+              }}>
+                <Search size={17} />
+                <span>Пошук у Lanka</span>
+                <kbd>Ctrl K</kbd>
+              </button>
+            )} />
+          </div>
+          <div className="topbar__actions">
+            <IconButton
+              className={rightPanelOpen ? 'is-active' : ''}
+              label={rightPanelOpen ? 'Закрити праву панель' : 'Відкрити чат і сповіщення'}
+              aria-expanded={rightPanelOpen}
+              aria-controls="right-communication-panel"
+              onClick={() => {
+                setProfileOpen(false)
+                setMoreOpen(false)
+                setMobileNav(false)
+                setRightPanelOpen((value) => {
+                  if (!value) setSidebarCollapsed(true)
+                  return !value
+                })
+              }}
+            >
+              {rightPanelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}
+              {(chatUnread + (notificationSummary.data?.unread ?? 0)) > 0 && (
+                <b className="topbar-badge" aria-label={`${chatUnread + (notificationSummary.data?.unread ?? 0)} непрочитаних подій`}>
+                  {chatUnread + (notificationSummary.data?.unread ?? 0) > 99
+                    ? '99+'
+                    : chatUnread + (notificationSummary.data?.unread ?? 0)}
+                </b>
+              )}
+            </IconButton>
+          </div>
+        </header>
         <main id="main-content" className={`main-content ${isMessagesRoute ? 'main-content--messages' : ''}`}>
           {children}
         </main>
       </div>
+      {rightPanelOpen && (
+        <div id="right-communication-panel">
+          <RightCommunicationPanel
+            chatUnread={chatUnread}
+            notificationUnread={notificationSummary.data?.unread ?? 0}
+            onClose={() => setRightPanelOpen(false)}
+          />
+        </div>
+      )}
+      {paletteOpen && <CommandPalette shortcuts={paletteShortcuts} onClose={() => setPaletteOpen(false)} />}
       {mobileMoreOpen && <button className="bottom-nav__scrim" aria-label="Закрити додаткову навігацію" onClick={() => setMobileMoreOpen(false)} />}
       <nav className="bottom-nav" aria-label="Мобільна навігація">
         {mobilePrimaryRoutes.map((route) => {
@@ -490,6 +571,7 @@ export function AppShell({ children }: PropsWithChildren) {
           </div>
         )}
       </nav>
-    </div>
+      </div>
+    </TopbarContentProvider>
   )
 }

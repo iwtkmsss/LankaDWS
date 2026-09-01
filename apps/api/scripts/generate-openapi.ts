@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger: false })
   try {
     configureApp(app)
-    const config = new DocumentBuilder().setTitle('BERT CRM API').setDescription('Permission-scoped BERT CRM modular monolith API').setVersion('1.0.0').addCookieAuth('bert_session').build()
+    const config = new DocumentBuilder().setTitle('Lanka API').setDescription('Permission-scoped Lanka modular monolith API').setVersion('1.0.0').addCookieAuth('bert_session').build()
     const document = SwaggerModule.createDocument(app, config)
     const target = resolve('../../artifacts/openapi.json')
     await mkdir(resolve('../../artifacts'), { recursive: true })

@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { OrganizationCapability, type DocumentListItem, type GroupDetailView, type GroupListResult } from '@bert-crm/contracts'
 import { Archive, ArchiveRestore, BarChart3, BookOpenCheck, Building2, CalendarClock, Check, CheckSquare2, Download, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, MessageCircle, Network, Newspaper, Plus, Search, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
+import { useTopbarContent } from '../layout/TopbarContent'
 import {
   Avatar,
   Button,
@@ -744,7 +745,12 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 function KnowledgePage() {
   const { articleSlug } = useParams(); const navigate = useNavigate(); const { user } = useAuth(); const [search, setSearch] = useState('')
   const query = useQuery({ queryKey: ['knowledge', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`) })
-  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={user?.accountType === 'ADMIN' && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
+  const topbarAction = useMemo(() => user?.accountType === 'ADMIN'
+    ? <Link to="/admin/system?tab=directories" className="button button--secondary topbar-action">Керувати матеріалами</Link>
+    : null, [user?.accountType])
+  useTopbarContent(topbarAction)
+
+  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція Lanka'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
 }
 
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {

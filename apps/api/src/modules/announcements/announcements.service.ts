@@ -31,7 +31,7 @@ export class AnnouncementsService {
     const authorIds = [...new Set(receipts.map((receipt) => receipt.announcement.authorId))]
     const authors = await this.prisma.user.findMany({ where: { id: { in: authorIds } }, select: { id: true, displayName: true } })
     const authorById = new Map(authors.map((author) => [author.id, author.displayName]))
-    return { items: receipts.map((receipt) => ({ id: receipt.announcement.id, title: receipt.announcement.title, safeSnippet: receipt.announcement.body.slice(0, 180), authorName: authorById.get(receipt.announcement.authorId) ?? 'BERT CRM', companyIds: receipt.announcement.companies.map((entry) => entry.companyId), status: receipt.announcement.status, isPinned: receipt.announcement.isPinned, publishedAt: receipt.announcement.publishAt?.toISOString() ?? null, readAt: receipt.readAt?.toISOString() ?? null })) }
+    return { items: receipts.map((receipt) => ({ id: receipt.announcement.id, title: receipt.announcement.title, safeSnippet: receipt.announcement.body.slice(0, 180), authorName: authorById.get(receipt.announcement.authorId) ?? 'Lanka', companyIds: receipt.announcement.companies.map((entry) => entry.companyId), status: receipt.announcement.status, isPinned: receipt.announcement.isPinned, publishedAt: receipt.announcement.publishAt?.toISOString() ?? null, readAt: receipt.readAt?.toISOString() ?? null })) }
   }
 
   async detail(principal: AuthPrincipal, announcementId: string) {

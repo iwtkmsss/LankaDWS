@@ -18,15 +18,11 @@ import { normalizedCodePointLength } from '../lib/messageText'
 
 export function NewGroupDrawer({
   companyId,
-  companyOptions,
   onClose,
-  onCompanyChange,
   onCreated,
 }: {
   companyId: string
-  companyOptions: Array<{ id: string; name: string }>
   onClose: () => void
-  onCompanyChange: (companyId: string) => void
   onCreated: (threadId: string) => void
 }) {
   const [title, setTitle] = useState('')
@@ -109,20 +105,6 @@ export function NewGroupDrawer({
         )}
       >
         <div className="new-group">
-        {companyOptions.length > 0 && (
-          <label>
-            Компанія
-            <select
-              aria-label="Компанія для нової групи"
-              value={companyId}
-              onChange={(event) => onCompanyChange(event.target.value)}
-            >
-              {companyOptions.map((company) => (
-                <option key={company.id} value={company.id}>{company.name}</option>
-              ))}
-            </select>
-          </label>
-        )}
         <label>
           Назва групи
           <input

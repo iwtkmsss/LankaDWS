@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { OrganizationCapability, type EventListItem } from '@bert-crm/contracts'
 import { CalendarPlus, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
+import { useTopbarContent } from '../layout/TopbarContent'
 import {
   Button,
   Card,
@@ -13,7 +14,6 @@ import {
   EmptyState,
   ErrorState,
   PageDataLoader,
-  PageHeader,
   Tabs,
   UnsavedChangesDialog,
   useModalCloseGuard,
@@ -155,8 +155,8 @@ export default function CalendarPage() {
     }, { replace: true })
   }, [canCreate, requestedCreate, setParams])
 
-  function move(delta: number) {
-    const next = new Date(date)
+  const move = useCallback((delta: number) => {
+    const next = new Date(`${selectedDate}T12:00:00`)
     if (view === 'day') next.setDate(next.getDate() + delta)
     else if (view === 'week') next.setDate(next.getDate() + (7 * delta))
     else next.setMonth(next.getMonth() + delta, 1)
@@ -164,45 +164,44 @@ export default function CalendarPage() {
       current.set('date', localDateKey(next))
       return current
     })
-  }
+  }, [selectedDate, setParams, view])
 
-  function moveToToday() {
+  const moveToToday = useCallback(() => {
     setParams((current) => {
       current.set('date', localDateKey(new Date()))
       return current
     })
-  }
+  }, [setParams])
+
+  const calendarTitle = useMemo(() => calendarHeading(view, date), [selectedDate, view])
+  const calendarControls = useMemo(() => (
+    <div className="calendar-actions calendar-actions--topbar">
+      <div className="calendar-nav">
+        <Button variant="secondary" onClick={moveToToday}>Сьогодні</Button>
+        <Button variant="secondary" onClick={() => move(-1)} aria-label="Попередній місяць">
+          <ChevronLeft size={17} />
+        </Button>
+        <strong>{calendarTitle}</strong>
+        <Button variant="secondary" onClick={() => move(1)} aria-label="Наступний місяць">
+          <ChevronRight size={17} />
+        </Button>
+      </div>
+      {canCreate && (
+        <Button onClick={() => {
+          setCreateDate(null)
+          setCreateTitle('')
+          setCreateOpen(true)
+        }}>
+          <CalendarPlus size={17} />
+          Створити подію
+        </Button>
+      )}
+    </div>
+  ), [calendarTitle, canCreate, move, moveToToday])
+  useTopbarContent(calendarControls)
 
   return (
     <div>
-      <PageHeader
-        title="Календар"
-        description="Робочі події та privacy-safe відсутності"
-        action={
-          <div className="calendar-actions">
-            <div className="calendar-nav">
-              <Button variant="secondary" onClick={moveToToday}>Сьогодні</Button>
-              <Button variant="secondary" onClick={() => move(-1)} aria-label="Попередній місяць">
-                <ChevronLeft size={17} />
-              </Button>
-              <strong>{calendarHeading(view, date)}</strong>
-              <Button variant="secondary" onClick={() => move(1)} aria-label="Наступний місяць">
-                <ChevronRight size={17} />
-              </Button>
-            </div>
-            {canCreate && (
-              <Button onClick={() => {
-                setCreateDate(null)
-                setCreateTitle('')
-                setCreateOpen(true)
-              }}>
-                <CalendarPlus size={17} />
-                Створити подію
-              </Button>
-            )}
-          </div>
-        }
-      />
       <Card className="calendar-card">
         {query.isLoading ? (
           <PageDataLoader />

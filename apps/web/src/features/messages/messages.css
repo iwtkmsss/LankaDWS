@@ -69,6 +69,9 @@
   font-size: 13px;
 }
 
+.messages-sidebar__search input:focus,
+.messages-sidebar__search input:focus-visible { border: 0; outline: 0; box-shadow: none; }
+
 .messages-sidebar__search > button {
   display: grid;
   width: 30px;

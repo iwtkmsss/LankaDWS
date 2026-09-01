@@ -1,4 +1,4 @@
-# BERT CRM operations runbook
+# Lanka operations runbook
 
 ## Production topology
 

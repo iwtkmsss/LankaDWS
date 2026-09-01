@@ -133,15 +133,6 @@ export function MessagesPage() {
   const draftBodyRef = useRef('')
   const realtimeConnected = useMessageRealtime()
 
-  const selectCreationCompany = (nextCompanyId: string) => {
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      next.set('company', nextCompanyId)
-      next.delete('to')
-      return next
-    }, { replace: true })
-  }
-
   useEffect(() => {
     setParams((current) => {
       const next = new URLSearchParams(current)
@@ -307,6 +298,7 @@ export function MessagesPage() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
       void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
+      void client.invalidateQueries({ queryKey: ['threads', 'summary'] })
       void client.invalidateQueries({ queryKey: ['notifications'] })
     },
     onError: () => { markedReadRef.current = '' },
@@ -603,8 +595,6 @@ export function MessagesPage() {
       {composeOpen && companyId && (
         <NewChatDrawer
           companyId={companyId}
-          companyOptions={creationCompanies}
-          onCompanyChange={selectCreationCompany}
           targetUserId={targetUserId}
           startingUserId={startingUserId}
           onClose={closeCompose}
@@ -622,8 +612,6 @@ export function MessagesPage() {
       {groupOpen && companyId && (
         <NewGroupDrawer
           companyId={companyId}
-          companyOptions={creationCompanies}
-          onCompanyChange={selectCreationCompany}
           onClose={closeGroup}
           onCreated={(id) => {
             closeGroup()

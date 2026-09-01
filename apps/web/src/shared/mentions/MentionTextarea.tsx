@@ -1,6 +1,6 @@
 import type { MentionCandidateView, StructuredMentionInput } from '@bert-crm/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useId, useRef, useState, type CompositionEvent, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type ClipboardEvent, type CompositionEvent, type KeyboardEvent } from 'react'
 import { api } from '../api/client'
 import { Avatar } from '../ui'
 import { reconcileMentionChange } from './mentionText'
@@ -26,6 +26,7 @@ export function MentionTextarea({
   visuallyHiddenLabel = false,
   onTextareaRef,
   onKeyDown,
+  onPaste,
 }: {
   label: string
   value: string
@@ -41,6 +42,7 @@ export function MentionTextarea({
   visuallyHiddenLabel?: boolean
   onTextareaRef?: (element: HTMLTextAreaElement | null) => void
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+  onPaste?: (event: ClipboardEvent<HTMLTextAreaElement>) => void
 }) {
   const id = useId()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -157,6 +159,7 @@ export function MentionTextarea({
           onBlur={() => setActive(null)}
           onClick={(event) => detectActive(event.currentTarget.value, event.currentTarget.selectionStart)}
           onKeyDown={handleKeyDown}
+          onPaste={onPaste}
         />
         {active && (
           <div className="mention-field__results" id={`${id}-mentions`} role="listbox" aria-label={`${label}: варіанти згадок`}>

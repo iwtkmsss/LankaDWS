@@ -8,7 +8,7 @@ This decision supersedes the runtime-scope part of “One organization with recu
 
 Confidentiality is explicit at the aggregate boundary: a task is readable only by its creator, reporter, active participants and global administrators; a chat is readable only by active participants and global administrators; a notification is readable only by its recipient. Any active workspace user may be selected for a new task, direct/group chat or manual notification regardless of primary company. Canonical direct-chat identity is workspace participant-based rather than company-based.
 
-The web client exposes `/companies` to all users and combines the former employee directory and structure pages under `/organization`. Legacy URLs redirect. The global top bar, global search endpoint and `Ctrl/Cmd+K` command palette are removed; page-local searches remain, while chat and notification counts live on their sidebar destinations.
+The web client exposes `/companies` to all users and combines the former employee directory and structure pages under `/organization`. Legacy URLs redirect. The top bar contains privacy-aware global search with `Ctrl/Cmd+K`, chat and notification actions, but no company selector or separate structure button. Page-local searches remain available inside their modules.
 
 ## 2026-07-27 — One organization with recursive departments
 

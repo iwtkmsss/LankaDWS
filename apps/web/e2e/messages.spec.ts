@@ -73,7 +73,7 @@ test('messages workspace covers user-only search, direct history and real chat a
   await conversation.locator('input[type="file"]').setInputFiles({
     name: attachmentName,
     mimeType: 'text/plain',
-    buffer: Buffer.from('BERT CRM messages visual QA'),
+    buffer: Buffer.from('Lanka messages visual QA'),
   })
   await expect(conversation.getByText(attachmentName)).toBeVisible()
   const attachmentBody = `${body} · вкладення`

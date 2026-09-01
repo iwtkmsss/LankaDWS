@@ -1,24 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ImportReadinessView } from '@bert-crm/contracts'
 import {
   Activity,
-  AlertTriangle,
   ArrowRight,
   Building2,
   Check,
   ChevronRight,
   CircleAlert,
   Download,
-  Database,
   FileClock,
   KeyRound,
-  LockKeyhole,
   Plus,
   RefreshCw,
   Search,
   ServerCog,
   ShieldCheck,
-  ShieldAlert,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -86,9 +81,7 @@ export default function AdminPages() {
   const path = useLocation().pathname
   if (path === '/admin') return <AdminOverviewPage />
   if (path.startsWith('/admin/users')) return <UsersPage />
-  if (path.startsWith('/admin/security')) return <SecurityPage />
   if (path.startsWith('/admin/audit')) return <AuditPage />
-  if (path.startsWith('/admin/import')) return <ImportReadinessPage />
   return <SystemPage />
 }
 
@@ -115,14 +108,6 @@ function AdminOverviewPage() {
       action: 'Перевірити фонові роботи',
       href: scoped('/admin/system?tab=jobs'),
       icon: ServerCog,
-    },
-    {
-      id: 'without-2fa',
-      count: data.attention.without2fa,
-      label: 'Активних акаунтів без 2FA',
-      action: 'Перевірити захист акаунтів',
-      href: scoped('/admin/security'),
-      icon: LockKeyhole,
     },
   ].filter((item) => item.count > 0)
   const attentionTotal = attentionItems.reduce((total, item) => total + item.count, 0)
@@ -158,13 +143,6 @@ function AdminOverviewPage() {
           value={data.administrators}
           label="Глобальні адміністратори"
           href={scoped('/admin/users?accountType=ADMIN')}
-        />
-        <Kpi
-          icon={ShieldCheck}
-          value={`${data.twoFactorCoverage}%`}
-          label="Покриття 2FA"
-          href={scoped('/admin/security')}
-          attention={data.twoFactorCoverage < 100}
         />
       </div>
       <div className="admin-grid">
@@ -780,70 +758,6 @@ function UserEditor({
   )
 }
 
-function SecurityPage() {
-  interface Policy {
-    require2faAccountTypes: Array<'ADMIN' | 'USER'>
-    temporaryPasswordHours: number
-    sessionHours: number
-    version: number
-    effectiveAt?: string
-  }
-  const query = useQuery({
-    queryKey: ['security-policy'],
-    queryFn: () => api<Policy>('/admin/security-policy'),
-  })
-  return (
-    <div>
-      <PageHeader title="Безпека" description="Політики доступу, 2FA та контрольованого відновлення" />
-      {query.isLoading ? (
-        <Skeleton />
-      ) : query.isError || !query.data ? (
-        <ErrorState />
-      ) : (
-        <div className="security-admin-grid">
-          <Card>
-            <span className="settings-icon">
-              <ShieldCheck />
-            </span>
-            <h2>Двофакторна автентифікація</h2>
-            <p>Обов’язкова для типів облікових записів:</p>
-            <div className="tag-list">
-              {query.data.require2faAccountTypes.map((accountType) => (
-                <span key={accountType}>
-                  {accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'}
-                </span>
-              ))}
-            </div>
-          </Card>
-          <Card>
-            <span className="settings-icon">
-              <KeyRound />
-            </span>
-            <h2>Тимчасові доступи</h2>
-            <strong className="large-value">{query.data.temporaryPasswordHours} год</strong>
-            <p>Дані показуються адміністратору лише один раз.</p>
-          </Card>
-          <Card>
-            <span className="settings-icon">
-              <LockKeyhole />
-            </span>
-            <h2>Сесії</h2>
-            <strong className="large-value">{query.data.sessionHours} год</strong>
-            <p>Абсолютна тривалість із серверною ротацією.</p>
-          </Card>
-          <Card>
-            <span className="settings-icon">
-              <UsersRound />
-            </span>
-            <h2>Reset адміністратора</h2>
-            <p>Для повних адміністраторів потрібні дві різні особи; для останнього — break-glass CLI.</p>
-          </Card>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function AuditPage() {
   const [params, setParams] = useSearchParams()
   const { eventId } = useParams()
@@ -1014,128 +928,6 @@ function AuditEventDetail({ event }: { event: AuditEvent }) {
   )
 }
 
-function ImportReadinessPage() {
-  const query = useQuery({
-    queryKey: ['admin-import-readiness'],
-    queryFn: () => api<ImportReadinessView>('/admin/import/readiness'),
-  })
-
-  if (query.isLoading) {
-    return (
-      <div>
-        <PageHeader title="Готовність імпорту" />
-        <Skeleton rows={8} />
-      </div>
-    )
-  }
-  if (query.isError || !query.data) {
-    return (
-      <div>
-        <PageHeader title="Готовність імпорту" />
-        <ErrorState title="Не вдалося перевірити готовність імпорту" onRetry={() => void query.refetch()} />
-      </div>
-    )
-  }
-
-  const data = query.data
-  const blockingGates = data.gates.filter((gate) => gate.status === 'BLOCKING').length
-  const metrics = [
-    { label: 'Пакети даних', value: data.counters.datasets },
-    { label: 'Запечатані пакети', value: data.counters.sealedDatasets },
-    { label: 'Запуски', value: data.counters.runs },
-    { label: 'Блокувальні проблеми', value: data.counters.unresolvedBlockingIssues },
-  ]
-
-  return (
-    <div className="import-readiness">
-      <PageHeader
-        title="Готовність імпорту"
-        description="Безпечна підготовка перенесення даних із Bitrix24 без передчасного запуску production APPLY"
-      />
-      <Card className="import-readiness__hero">
-        <span className="import-readiness__hero-icon" aria-hidden="true">
-          <ShieldAlert size={27} />
-        </span>
-        <div>
-          <span className="eyebrow">
-            <LockKeyhole size={15} /> Production APPLY вимкнено
-          </span>
-          <h2>Спочатку закриваємо {blockingGates} критичних рішень</h2>
-          <p>
-            Контрольна площина вже захищає маніфести, ланцюжки та журнал змін. Запуск імпорту з’явиться лише після
-            формального закриття всіх блокерів і успішної репетиції.
-          </p>
-        </div>
-        <StatusBadge status={data.state} />
-      </Card>
-
-      <dl className="import-readiness__metrics">
-        {metrics.map((metric) => (
-          <div key={metric.label}>
-            <dt>{metric.label}</dt>
-            <dd>{metric.value}</dd>
-          </div>
-        ))}
-      </dl>
-
-      <div className="import-readiness__layout">
-        <Card className="import-gates">
-          <header className="card-title">
-            <div>
-              <span className="eyebrow">Preflight gates</span>
-              <h2>Що потрібно вирішити</h2>
-            </div>
-            <StatusBadge status={blockingGates ? 'BLOCKED' : 'READY'} />
-          </header>
-          <div className="import-gates__list">
-            {data.gates.map((gate) => (
-              <article key={gate.id} className={gate.status === 'READY' ? 'is-ready' : ''}>
-                <span className="import-gates__icon" aria-hidden="true">
-                  {gate.status === 'READY' ? <Check size={18} /> : <AlertTriangle size={18} />}
-                </span>
-                <div>
-                  <small>{gate.id}</small>
-                  <h3>{gate.title}</h3>
-                  <p>{gate.detail}</p>
-                </div>
-                <StatusBadge status={gate.status === 'READY' ? 'READY' : 'BLOCKED'} />
-              </article>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="import-safety">
-          <span className="settings-icon">
-            <Database />
-          </span>
-          <span className="eyebrow">Control plane v{data.controlPlaneVersion}</span>
-          <h2>Що вже захищено</h2>
-          <ul>
-            <li>
-              <Check size={16} /> Sealed-пакети не можна переписати
-            </li>
-            <li>
-              <Check size={16} /> Delta продовжує лише сумісний ланцюжок
-            </li>
-            <li>
-              <Check size={16} /> APPLY потребує окремого lease
-            </li>
-            <li>
-              <Check size={16} /> Change journal працює append-only
-            </li>
-            <li>
-              <Check size={16} /> Дані та ID maps ізольовані за workspace
-            </li>
-          </ul>
-          <p className="import-safety__note">
-            Остання перевірка: <time dateTime={data.checkedAt}>{formatDateTime(data.checkedAt)}</time>
-          </p>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
 function SystemPage() {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') ?? 'processes'
@@ -1247,9 +1039,9 @@ function SystemTab({ tab }: { tab: string }) {
     },
     brand: {
       icon: ShieldCheck,
-      title: 'Бренд BERT',
+      title: 'Бренд Lanka',
       text: 'Runtime wordmark, кольори та локальні assets застосунку.',
-      items: ['Cobalt #1F5EFF', 'Roboto', 'BERT CRM'],
+      items: ['Cobalt #1F5EFF', 'Roboto', 'Lanka'],
     },
   }
   const value = content[tab] ?? content.processes!

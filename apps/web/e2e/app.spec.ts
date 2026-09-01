@@ -241,12 +241,23 @@ test('administrator manages a recursive company structure', async ({ page }) => 
   expect(accessibility.violations).toEqual([])
 })
 
-test('global search and the former top bar are removed', async ({ page }) => {
+test('top bar exposes global search without company navigation buttons', async ({ page }) => {
   await login(page, 'maria')
-  await expect(page.locator('.topbar')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Пошук у BERT CRM' })).toHaveCount(0)
+  const topbar = page.locator('.topbar')
+  await expect(topbar).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
+  await expect(topbar.getByRole('button', { name: 'Компанії' })).toHaveCount(0)
+  await expect(topbar.getByRole('button', { name: 'Структура' })).toHaveCount(0)
   await page.keyboard.press('Control+K')
-  await expect(page.getByRole('dialog', { name: 'Глобальний пошук' })).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Глобальний пошук' })).toBeVisible()
+  const searchInput = page.getByRole('textbox', { name: 'Знайти або перейти' })
+  await searchInput.fill('dashboard')
+  await expect(page.getByRole('option', { name: /Підготувати концепцію дизайну dashboard/ })).toBeVisible()
+  await searchInput.fill('дмитро')
+  const personResult = page.getByRole('option', { name: /Дмитро Савчук.*Адміністратор/ })
+  await expect(personResult).toBeVisible()
+  await personResult.click()
+  await expect(page).toHaveURL(/\/messages\?new=1&to=usr_dmytro/)
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
@@ -669,9 +680,9 @@ test('legacy company scope is removed while task filters and browser history rem
   await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
 })
 
-test('sidebar chat navigation replaces the former topbar action', async ({ page }) => {
+test('chat remains available from the sidebar and the restored top bar', async ({ page }) => {
   await login(page)
-  await expect(page.locator('.topbar')).toHaveCount(0)
+  await expect(page.locator('.topbar').getByRole('button', { name: /Повідомлення/ })).toBeVisible()
   const chatAction = page.locator('.sidebar').getByRole('link', { name: /Чат/ })
   await chatAction.click()
   await expect(page).toHaveURL(/\/messages$/)

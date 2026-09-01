@@ -11,7 +11,7 @@ import { ModuleUnavailablePage } from '../pages/ModuleUnavailablePage'
 
 function DocumentTitle() {
   const location = useLocation()
-  useEffect(() => { document.title = `${routeTitle(location.pathname)} — BERT CRM` }, [location.pathname])
+  useEffect(() => { document.title = `${routeTitle(location.pathname)} — Lanka` }, [location.pathname])
   return null
 }
 

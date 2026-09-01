@@ -303,7 +303,7 @@ export class AuthService {
   }
 
   private totp(secret: string, label: string): OTPAuth.TOTP {
-    return new OTPAuth.TOTP({ issuer: 'BERT CRM', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
+    return new OTPAuth.TOTP({ issuer: 'Lanka', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
   }
 
   private totpValidate(secret: string, label: string, token: string): number | null {
