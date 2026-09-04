@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { TaskDetailPreferenceController } from './TaskDetailPreferences'
 import {
+  DEFAULT_TASK_DETAIL_PREFERENCE,
   TaskDetailCustomization,
   TaskDetailSection,
   TaskDetailSections,
@@ -26,6 +27,10 @@ function controller(
 }
 
 describe('Task Detail customization', () => {
+  it('collapses every section in the default layout', () => {
+    expect(DEFAULT_TASK_DETAIL_PREFERENCE.collapsed).toEqual(DEFAULT_TASK_DETAIL_PREFERENCE.order)
+  })
+
   it('renders sections in preference order and omits hidden sections', () => {
     const state = controller({
       order: ['discussion', 'personal', 'participants', 'subtasks', 'checklist', 'recurrence', 'materials', 'history'],
@@ -83,4 +88,3 @@ describe('Task Detail customization', () => {
     expect(state.reset).toHaveBeenCalledOnce()
   })
 })
-

@@ -93,6 +93,25 @@ export class FilesService {
     return { bytes, mime: file.detectedMime ?? 'application/octet-stream', name: file.safeFilename }
   }
 
+  async downloadAvatar(principal: AuthPrincipal, fileId: string): Promise<{ bytes: Buffer; mime: string; name: string }> {
+    const [file, avatarOwner] = await Promise.all([
+      this.prisma.fileObject.findFirst({
+        where: { id: fileId, workspaceId: principal.workspaceId },
+      }),
+      this.prisma.user.findFirst({
+        where: {
+          workspaceId: principal.workspaceId,
+          avatarAsset: { in: [fileId, `/api/v1/me/avatar/${fileId}`] },
+        },
+        select: { id: true },
+      }),
+    ])
+    if (!file || !avatarOwner) throw notFound()
+    if (file.scanStatus !== 'CLEAN') throw forbidden('Файл перебуває на перевірці або недоступний.')
+    const bytes = await readCleanFile(file.storageKey)
+    return { bytes, mime: file.detectedMime ?? 'application/octet-stream', name: file.safeFilename }
+  }
+
   async assertAttachable(
     principal: AuthPrincipal,
     companyId: string,
@@ -301,11 +320,33 @@ export class FilesService {
         where: {
           id: { in: documentIds },
           companyId: { in: principal.allowedCompanyIds },
-          confidentiality: { in: ['GENERAL', 'INTERNAL'] },
+          OR: [
+            { ownerId: principal.userId },
+            { confidentiality: { in: ['GENERAL', 'INTERNAL'] } },
+          ],
         },
         select: { id: true },
       })
       if (document) return file
+      const acl = await this.prisma.documentAcl.findFirst({
+        where: { documentId: { in: documentIds }, principalType: 'USER', principalId: principal.userId },
+        select: { documentId: true },
+      })
+      if (acl && await this.prisma.document.findFirst({
+        where: { id: acl.documentId, companyId: { in: principal.allowedCompanyIds } },
+        select: { id: true },
+      })) return file
+    }
+    const articleIds = links.filter((link) => link.entityType === 'KNOWLEDGE_ARTICLE').map((link) => link.entityId)
+    if (articleIds.length > 0) {
+      const article = await this.prisma.knowledgeArticle.findFirst({
+        where: { id: { in: articleIds }, workspaceId: principal.workspaceId, status: 'ACTIVE' },
+        select: { id: true },
+      })
+      if (article) {
+        const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: article.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] }, select: { id: true } })
+        if (audience) return file
+      }
     }
     const postIds = links.filter((link) => link.entityType === 'FEED_POST').map((link) => link.entityId)
     if (postIds.length > 0) {

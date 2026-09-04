@@ -23,6 +23,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers, credentials: 'include' })
   if (!response.ok) {
     const body = await response.json().catch(() => ({ type: 'about:blank', title: 'Не вдалося виконати запит', status: response.status, code: `http_${response.status}`, correlationId: response.headers.get('x-correlation-id') ?? 'unknown' })) as ProblemDetails
+    if (response.status === 401 && !path.startsWith('/auth/') && body.code !== 'credential_step_required') {
+      window.dispatchEvent(new Event('bert:session-ended'))
+    }
     throw new ApiProblem(body)
   }
   if (response.status === 204) return undefined as T

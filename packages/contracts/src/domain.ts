@@ -73,6 +73,8 @@ export interface UserSummary {
 export interface PrincipalView extends UserSummary {
   accountType: AccountType
   company: CompanyView | null
+  positionTitle: string
+  orgUnitPath: Array<{ id: string; name: string }>
   contactEmail: string | null
   phone: string | null
   gender: 'FEMALE' | 'MALE' | 'OTHER' | null

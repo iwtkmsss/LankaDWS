@@ -8,6 +8,7 @@ function unit(id: string, parentId: string | null, sortOrder: number): OrgUnitVi
     companyId: 'cmp_bert',
     parentId,
     name: id,
+    description: null,
     manager: null,
     activeEmployeeCount: 0,
     childCount: 0,

@@ -22,6 +22,7 @@ export type AdminOrgUnitListQuery = z.infer<typeof adminOrgUnitListQuerySchema>
 
 export const createOrgUnitSchema = z.object({
   name: orgUnitNameSchema,
+  description: z.string().trim().max(320).optional(),
   parentId: z.string().min(1).max(120).nullable().optional(),
   managerId: orgManagerIdSchema.optional(),
 })
@@ -29,10 +30,11 @@ export type CreateOrgUnitInput = z.infer<typeof createOrgUnitSchema>
 
 export const updateOrgUnitSchema = z.object({
   name: orgUnitNameSchema.optional(),
+  description: z.string().trim().max(320).optional(),
   parentId: z.string().min(1).max(120).nullable().optional(),
   managerId: orgManagerIdSchema.optional(),
   expectedVersion: z.number().int().positive(),
-}).refine((value) => value.name !== undefined || value.parentId !== undefined || value.managerId !== undefined, {
+}).refine((value) => value.name !== undefined || value.description !== undefined || value.parentId !== undefined || value.managerId !== undefined, {
   message: 'org_unit_update_empty',
 })
 export type UpdateOrgUnitInput = z.infer<typeof updateOrgUnitSchema>
@@ -65,6 +67,7 @@ export interface OrgManagerView {
 export interface OrgCompanyView {
   id: string
   name: string
+  description: string | null
   manager: OrgManagerView | null
   version: number
 }
@@ -74,6 +77,7 @@ export interface OrgUnitView {
   companyId: string
   parentId: string | null
   name: string
+  description: string | null
   manager: { id: string; displayName: string; jobTitle: string } | null
   activeEmployeeCount: number
   childCount: number

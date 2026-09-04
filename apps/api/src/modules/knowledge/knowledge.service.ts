@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, notFound } from '../../common/errors.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
@@ -20,22 +20,62 @@ export class KnowledgeService {
     const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: resolved.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] } })
     if (!audience) throw notFound()
     const acknowledgement = await this.prisma.acknowledgement.findFirst({ where: { entityType: 'ARTICLE', entityId: resolved.id, version: resolved.version, userId: principal.userId } })
-    return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement }
+    const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT' }, select: { fileId: true } })
+    const attachmentRows = attachmentLinks.length === 0 ? [] : await this.prisma.fileObject.findMany({ where: { id: { in: attachmentLinks.map((link) => link.fileId) }, workspaceId: principal.workspaceId }, select: { id: true, safeFilename: true, bytes: true, detectedMime: true, scanStatus: true } })
+    const attachments = attachmentRows.map(({ detectedMime, ...file }) => ({ ...file, mimeType: detectedMime }))
+    return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement, attachments }
   }
 
-  async create(principal: AuthPrincipal, input: { slug: string; title: string; body: string; companyIds: string[]; reviewAt?: string }) {
+  async create(principal: AuthPrincipal, input: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string }) {
     const slug = input.slug.trim().toLowerCase()
     if (!/^[a-z0-9-]{3,80}$/.test(slug) || !input.title.trim() || !input.body.trim()) throw badRequest('article_fields')
     if (!input.companyIds.length || input.companyIds.some((company) => !principal.allowedCompanyIds.includes(company))) throw badRequest('article_audience')
+    const attachmentIds = await this.assertAttachments(principal, input.attachmentIds)
     const articleId = id('art')
     const versionId = id('artv')
     await this.prisma.$transaction(async (tx) => {
       await tx.knowledgeArticle.create({ data: { id: articleId, workspaceId: principal.workspaceId, slug, ownerId: principal.userId, status: 'ACTIVE', currentVersionId: versionId, reviewAt: input.reviewAt ? new Date(input.reviewAt) : null } })
       await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId, version: 1, title: input.title.trim(), body: input.body.trim(), changeSummary: 'Перша публікація', createdBy: principal.userId, publishedAt: new Date() } })
       await tx.articleAudience.createMany({ data: input.companyIds.map((companyId) => ({ id: id('audn'), articleId, principalType: 'COMPANY', principalId: companyId })) })
+      if (attachmentIds.length) await tx.fileLink.createMany({ data: attachmentIds.map((fileId) => ({ id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: articleId, purpose: 'ATTACHMENT', aclMode: 'INHERIT' })) })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: articleId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     })
     return { id: articleId, slug }
+  }
+
+  async update(principal: AuthPrincipal, slug: string, input: { title: string; body: string; changeSummary: string; attachmentIds?: string[]; expectedVersion: number }) {
+    if (principal.accountType !== 'ADMIN') throw forbidden()
+    if (typeof input.title !== 'string' || !input.title.trim() || typeof input.body !== 'string' || !input.body.trim() || typeof input.changeSummary !== 'string' || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw badRequest('article_fields')
+    const article = await this.detail(principal, slug)
+    if (article.workspaceId !== principal.workspaceId) throw notFound()
+    const attachmentIds = await this.assertAttachments(principal, input.attachmentIds)
+    const versionId = id('artv')
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, version: input.expectedVersion, status: 'ACTIVE' }, data: { version: { increment: 1 }, currentVersionId: versionId } })
+      if (updated.count !== 1) throw conflict('Матеріал уже змінено. Відкрийте його повторно, щоб завантажити актуальну версію.')
+      await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId: article.id, version: input.expectedVersion + 1, title: input.title.trim(), body: input.body.trim(), changeSummary: input.changeSummary.trim() || 'Оновлено матеріал', createdBy: principal.userId, publishedAt: new Date() } })
+      for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: {} })
+      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    })
+    return { id: article.id, slug }
+  }
+
+  async archive(principal: AuthPrincipal, slug: string, expectedVersion: number) {
+    if (principal.accountType !== 'ADMIN') throw forbidden()
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('article_version')
+    const article = await this.detail(principal, slug)
+    const updated = await this.prisma.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, status: 'ACTIVE', version: expectedVersion }, data: { status: 'ARCHIVED', version: { increment: 1 } } })
+    if (updated.count !== 1) throw conflict('Матеріал уже змінено. Оновіть сторінку та повторіть дію.')
+    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.archived', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    return { archived: true }
+  }
+
+  private async assertAttachments(principal: AuthPrincipal, input: string[] | undefined) {
+    const ids = [...new Set(input ?? [])]
+    if (ids.length === 0) return []
+    const files = await this.prisma.fileObject.findMany({ where: { id: { in: ids }, workspaceId: principal.workspaceId, ownerId: principal.userId, scanStatus: 'CLEAN' }, select: { id: true } })
+    if (files.length !== ids.length) throw badRequest('article_attachment_invalid')
+    return ids
   }
 
   async acknowledge(principal: AuthPrincipal, slug: string, expectedVersion: number) {

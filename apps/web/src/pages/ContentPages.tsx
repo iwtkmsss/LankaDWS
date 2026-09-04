@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { OrganizationCapability, type DocumentListItem, type GroupDetailView, type GroupListResult } from '@bert-crm/contracts'
-import { Archive, ArchiveRestore, BarChart3, BookOpenCheck, Building2, CalendarClock, Check, CheckSquare2, Download, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, MessageCircle, Network, Newspaper, Plus, Search, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Archive, ArchiveRestore, BookOpenCheck, Building2, Check, CheckSquare2, Download, Eye, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, Maximize2, MessageCircle, Network, Newspaper, Pencil, Plus, Search, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, jsonBody } from '../shared/api/client'
+import { api, jsonBody, randomId } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
-import { useTopbarContent } from '../layout/TopbarContent'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import {
   Avatar,
   Button,
   Card,
+  ConfirmationDialog,
   Drawer,
   EmptyState,
   ErrorState,
@@ -23,7 +24,8 @@ import {
 } from '../shared/ui'
 
 interface ArticleList { id: string; slug: string; title: string; changeSummary: string; reviewAt: string | null; version: number; updatedAt: string }
-interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null }
+interface KnowledgeAttachment { id: string; safeFilename: string; bytes: number; mimeType: string | null; scanStatus: string }
+interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null; attachments: KnowledgeAttachment[] }
 interface Employee {
   id: string
   displayName: string
@@ -67,13 +69,13 @@ export default function ContentPages() {
   if (path.startsWith('/documents')) return <DocumentsPage basePath="/documents" title="Документи" />
   if (path.startsWith('/knowledge')) return <KnowledgePage />
   if (path.startsWith('/employees')) return <EmployeesPage />
-  return <AnalyticsPage />
+  return null
 }
 
 function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents'; title: string }) {
   const { documentId } = useParams()
   const navigate = useNavigate()
-  const { canUseCapability, user } = useAuth()
+  const { user } = useAuth()
   const [params, setParams] = useSearchParams()
   const [creating, setCreating] = useState(false)
   const search = params.get('q') ?? ''
@@ -84,14 +86,14 @@ function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents';
   const sort = params.get('sort') ?? 'RECENT'
   const requestQuery = new URLSearchParams({ section, type: fileType, sort })
   if (search) requestQuery.set('search', search)
-  if (companyId) requestQuery.set('company', companyId)
+  if (basePath !== '/drive' && companyId) requestQuery.set('company', companyId)
   const query = useQuery({
-    queryKey: ['documents', search, companyId, section, fileType, sort],
+    queryKey: ['documents', basePath === '/drive' ? 'all' : companyId, search, section, fileType, sort],
     queryFn: () => api<DriveResult>(`/documents?${requestQuery.toString()}`),
   })
-  const featureEnabled = basePath === '/documents' || canUseCapability(OrganizationCapability.Drive)
   const createCompanyId = companyId
-  const canCreate = featureEnabled && Boolean(companyId)
+  const isGlobalAdmin = user?.accountType === 'ADMIN' && !user.company
+  const canCreate = Boolean(companyId) || isGlobalAdmin
   useEffect(() => {
     if (!requestedCreate || !canCreate) return
     setCreating(true)
@@ -120,7 +122,10 @@ function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents';
         title={title}
         description="Робочі файли, актуальні версії та зрозумілий доступ в одному місці"
         action={canCreate && (
-          <Button onClick={() => setCreating(true)}><FilePlus2 size={17} />Завантажити файл</Button>
+          <Button onClick={() => setCreating(true)}>
+            <FilePlus2 size={17} />
+            {basePath === '/drive' ? 'Додати файл' : 'Завантажити файл'}
+          </Button>
         )}
       />
       <Card className="drive-card">
@@ -200,7 +205,6 @@ function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents';
             title={section === 'ARCHIVED' ? 'Архів порожній' : 'Файлів не знайдено'}
             description={search || fileType !== 'ALL' ? 'Змініть пошук або тип файлу.' : 'Завантажте перший робочий файл.'}
             illustration={search || fileType !== 'ALL' ? 'search' : 'workspace'}
-            action={canCreate && section !== 'ARCHIVED' && <Button onClick={() => setCreating(true)}><FilePlus2 size={17} />Завантажити</Button>}
           />
         )}
       </Card>
@@ -473,8 +477,10 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
             <div className="group-member-list">
               {query.data.members.map((member) => (
                 <article key={member.id}>
-                  <Avatar size="sm" name={member.user.displayName} src={member.user.avatarAsset} />
-                  <span><strong>{member.user.displayName}</strong><small>{member.role === 'OWNER' ? 'Власник' : member.role === 'MODERATOR' ? 'Модератор' : 'Учасник'}</small></span>
+                  <UserProfileLink className="group-person" userId={member.user.id}>
+                    <Avatar size="sm" name={member.user.displayName} src={member.user.avatarAsset} />
+                    <span><strong>{member.user.displayName}</strong><small>{member.role === 'OWNER' ? 'Власник' : member.role === 'MODERATOR' ? 'Модератор' : 'Учасник'}</small></span>
+                  </UserProfileLink>
                 </article>
               ))}
             </div>
@@ -485,8 +491,10 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
               <div className="group-request-list">
                 {query.data.pendingRequests.map((request) => (
                   <article key={request.id}>
-                    <Avatar size="sm" name={request.requester.displayName} src={request.requester.avatarAsset} />
-                    <strong>{request.requester.displayName}</strong>
+                    <UserProfileLink className="group-person" userId={request.requester.id}>
+                      <Avatar size="sm" name={request.requester.displayName} src={request.requester.avatarAsset} />
+                      <strong>{request.requester.displayName}</strong>
+                    </UserProfileLink>
                     <button aria-label="Прийняти" onClick={() => decide.mutate({ requestId: request.id, decision: 'APPROVED' })}><Check size={16} /></button>
                     <button aria-label="Відхилити" onClick={() => decide.mutate({ requestId: request.id, decision: 'REJECTED' })}><X size={16} /></button>
                   </article>
@@ -530,12 +538,31 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
 }
 
 function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const { user } = useAuth()
-  const selectedCompany = companyId || user?.company?.id || ''
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [documentName, setDocumentName] = useState('')
+  const [selectedFileName, setSelectedFileName] = useState('')
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
+  const selectFile = (file: File | undefined) => {
+    if (!file) return
+    setSelectedFileName(file.name)
+    setDocumentName((current) => current || file.name.replace(/\.[^/.]+$/, ''))
+    setDirty(true)
+  }
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    selectFile(event.currentTarget.files?.[0])
+  }
+  const handleFileDrop = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault()
+    setIsDraggingFile(false)
+    const file = event.dataTransfer.files[0]
+    if (!file) return
+    if (fileInputRef.current) fileInputRef.current.files = event.dataTransfer.files
+    selectFile(file)
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -545,20 +572,19 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
     try {
       const upload = new FormData()
       upload.set('file', file)
-      const uploaded = await api<{ id: string; status: string }>(`/files?company=${selectedCompany}`, { method: 'POST', body: upload })
-      let status = uploaded.status
-      for (let attempt = 0; attempt < 10 && status !== 'CLEAN'; attempt += 1) {
+      const uploaded = await api<{ id: string; scanStatus: string }>(`/files${companyId ? `?company=${encodeURIComponent(companyId)}` : ''}`, { method: 'POST', body: upload })
+      let scanStatus = uploaded.scanStatus
+      for (let attempt = 0; attempt < 10 && scanStatus !== 'CLEAN'; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 600))
-        status = (await api<{ status: string }>(`/files/${uploaded.id}/status`)).status
+        scanStatus = (await api<{ scanStatus: string }>(`/files/${uploaded.id}/status`)).scanStatus
       }
-      if (status !== 'CLEAN') throw new Error('scan')
+      if (scanStatus !== 'CLEAN') throw new Error('scan')
       const document = await api<{ id: string }>('/documents', {
         method: 'POST',
         body: jsonBody({
-          companyId: selectedCompany,
+          ...(companyId ? { companyId } : {}),
           name: data.get('name'),
           fileId: uploaded.id,
-          changeSummary: data.get('summary'),
         }),
       })
       closeGuard.closeForSuccess(() => onCreated(document.id))
@@ -576,12 +602,19 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
         onRequestClose={closeGuard.requestClose}
       >
         <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
-          <label className="span-2">Назва<input name="name" required maxLength={180} /></label>
-          <label className="span-2 file-input">
+          <label className="span-2">Назва<input name="name" required maxLength={180} value={documentName} onChange={(event) => setDocumentName(event.target.value)} /></label>
+          <label
+            className={`span-2 file-input${isDraggingFile ? ' file-input--drag-active' : ''}`}
+            onDragEnter={(event) => { event.preventDefault(); setIsDraggingFile(true) }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={(event) => { if (event.currentTarget === event.target) setIsDraggingFile(false) }}
+            onDrop={handleFileDrop}
+          >
             <FilePlus2 /><span>PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ</span>
-            <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
+            <small className="file-input__hint">Перетягніть файл сюди або виберіть його з комп’ютера</small>
+            {selectedFileName && <strong className="file-input__name">{selectedFileName}</strong>}
+            <input ref={fileInputRef} type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" onChange={handleFileChange} />
           </label>
-          <label className="span-2">Що у версії<input name="summary" placeholder="Перша версія" maxLength={180} /></label>
           {error && <div className="form-error span-2">{error}</div>}
           <Button className="span-2" disabled={busy}>{busy ? 'Перевіряємо файл…' : 'Завантажити на Диск'}</Button>
         </form>
@@ -601,11 +634,20 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     version: number
     confidentiality: string
     archivedAt: string | null
-    versions: Array<{ id: string; fileId: string; version: number; changeSummary: string; createdAt: string; status: string }>
+    versions: Array<{
+      id: string
+      fileId: string
+      version: number
+      changeSummary: string
+      createdAt: string
+      status: string
+      file: { name: string; mimeType: string; bytes: number; scanStatus: string } | null
+    }>
   }
   const client = useQueryClient()
   const [versionError, setVersionError] = useState('')
   const [versionDirty, setVersionDirty] = useState(false)
+  const [previewVersionId, setPreviewVersionId] = useState<string | null>(null)
   const closeGuard = useModalCloseGuard({
     dirty: versionDirty,
     onRequestClose: () => onClose(),
@@ -642,13 +684,13 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     mutationFn: async ({ file, summary }: { file: globalThis.File; summary: string }) => {
       const upload = new FormData()
       upload.set('file', file)
-      const uploaded = await api<{ id: string; status: string }>(`/files?company=${query.data?.companyId}`, { method: 'POST', body: upload })
-      let status = uploaded.status
-      for (let attempt = 0; attempt < 10 && status !== 'CLEAN'; attempt += 1) {
+      const uploaded = await api<{ id: string; scanStatus: string }>(`/files?company=${query.data?.companyId}`, { method: 'POST', body: upload })
+      let scanStatus = uploaded.scanStatus
+      for (let attempt = 0; attempt < 10 && scanStatus !== 'CLEAN'; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 600))
-        status = (await api<{ status: string }>(`/files/${uploaded.id}/status`)).status
+        scanStatus = (await api<{ scanStatus: string }>(`/files/${uploaded.id}/status`)).scanStatus
       }
-      if (status !== 'CLEAN') throw new Error('scan')
+      if (scanStatus !== 'CLEAN') throw new Error('scan')
       return api(`/documents/${id}/versions`, {
         method: 'POST',
         body: jsonBody({ fileId: uploaded.id, changeSummary: summary || undefined, expectedVersion: query.data?.version }),
@@ -682,16 +724,18 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       )}
     </div>
   ) : undefined
+  const previewVersion = query.data?.versions.find((version) => version.id === previewVersionId)
+    ?? query.data?.versions[0]
   return (
     <>
-      <Drawer title={query.data?.number ?? 'Документ'} onRequestClose={closeGuard.requestClose} footer={footer}>
+      <Drawer title={query.data?.number ?? 'Документ'} size="lg" onRequestClose={closeGuard.requestClose} footer={footer}>
         {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="detail-stack">
           <div>
             <StatusBadge status={query.data.archivedAt ? 'ARCHIVED' : query.data.status} />
             <h3>{query.data.name}</h3>
-            <p className="privacy-note"><ShieldCheck size={17} />Доступ перевіряється під час кожного відкриття.</p>
           </div>
+          {previewVersion && <DocumentPreview version={previewVersion} />}
           {!query.data.archivedAt && (
             <form
               className="document-version-form"
@@ -727,7 +771,14 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     <strong>Версія {version.version}</strong>
                     <small>{version.changeSummary} · {formatDateTime(version.createdAt)}</small>
                   </span>
-                  <a className="icon-button" aria-label="Завантажити" href={`/api/v1/files/${version.fileId}/download`}>
+                  <Button
+                    variant={previewVersion?.id === version.id ? 'secondary' : 'ghost'}
+                    aria-label={`Переглянути версію ${version.version}`}
+                    onClick={() => setPreviewVersionId(version.id)}
+                  >
+                    <Eye size={17} />Переглянути
+                  </Button>
+                  <a className="icon-button" aria-label={`Завантажити версію ${version.version}`} href={`/api/v1/files/${version.fileId}/download`}>
                     <Download size={17} />
                   </a>
                 </article>
@@ -743,25 +794,165 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 function KnowledgePage() {
-  const { articleSlug } = useParams(); const navigate = useNavigate(); const { user } = useAuth(); const [search, setSearch] = useState('')
+  const { articleSlug } = useParams()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const [search, setSearch] = useState('')
+  const [deleting, setDeleting] = useState<ArticleList | null>(null)
+  const client = useQueryClient()
+  const canManage = user?.accountType === 'ADMIN'
+  const managing = canManage && params.get('manage') === '1'
+  const editor = managing ? params.get('edit') : null
   const query = useQuery({ queryKey: ['knowledge', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`) })
-  const topbarAction = useMemo(() => user?.accountType === 'ADMIN'
-    ? <Link to="/admin/system?tab=directories" className="button button--secondary topbar-action">Керувати матеріалами</Link>
-    : null, [user?.accountType])
-  useTopbarContent(topbarAction)
+  const remove = useMutation({
+    mutationFn: (article: ArticleList) => api(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
+    onSuccess: async () => {
+      setDeleting(null)
+      await client.invalidateQueries({ queryKey: ['knowledge'] })
+    },
+  })
+  const openEditor = (slug: string) => setParams((previous) => { const next = new URLSearchParams(previous); next.set('edit', slug); return next })
+  const closeEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('edit'); return next })
 
-  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція Lanka'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
+  return <div>
+    <PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={canManage && <Button className="knowledge-manage-button" variant="secondary" aria-pressed={managing} onClick={() => setParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (managing) { next.delete('manage'); next.delete('edit') } else next.set('manage', '1')
+      return next
+    })}>{managing ? <Check size={17} /> : <Pencil size={17} />}{managing ? 'Завершити керування' : 'Керувати матеріалами'}</Button>} />
+    <div className="knowledge-layout">
+      <Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input aria-label="Пошук матеріалів" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card>
+      <section className="article-grid" aria-label="Матеріали бази знань">
+        {query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : <>
+          {query.data?.items.map((item) => <div className="knowledge-article-card" key={item.id}>
+            <Link to={{ pathname: `/knowledge/${item.slug}`, search: params.toString() }}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція Lanka'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>
+            {managing && <div className="knowledge-article-actions"><Button variant="secondary" aria-label={`Редагувати ${item.title}`} onClick={() => openEditor(item.slug)}><Pencil size={16} />Редагувати</Button><Button variant="danger" aria-label={`Видалити ${item.title}`} onClick={() => setDeleting(item)}><Trash2 size={16} />Видалити</Button></div>}
+          </div>)}
+          {!query.data?.items.length && <p className="knowledge-empty">{search ? 'За вашим запитом матеріалів не знайдено.' : 'Матеріалів поки немає.'}</p>}
+          {managing && <button type="button" className="knowledge-add-card" onClick={() => openEditor('new')}><span><Plus size={32} /></span><strong>Додати матеріал</strong><small>Створіть нову інструкцію для команди</small></button>}
+        </>}
+      </section>
+    </div>
+    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending} />}
+    {editor ? <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} /> : articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate({ pathname: '/knowledge', search: params.toString() })} />}
+  </div>
+}
+
+function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void }) {
+  const client = useQueryClient()
+  const [dirty, setDirty] = useState(false)
+  const [newSlug] = useState(() => `article-${randomId()}`)
+  const [draft, setDraft] = useState<ArticleDetail | null>(null)
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
+  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: onClose })
+  const article = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`), enabled: Boolean(slug) })
+  useEffect(() => {
+    if (article.data?.currentVersion) setDraft((current) => current ?? article.data)
+  }, [article.data])
+  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: Array<{ id: string; isActive: boolean }> }>('/admin/companies') })
+  async function uploadAttachments() {
+    if (attachmentFiles.length === 0) return []
+    const companyId = companies.data?.items.find((company) => company.isActive)?.id
+    if (!companyId) throw new Error('Немає активної компанії для завантаження файлу.')
+    const attachmentIds: string[] = []
+    for (const file of attachmentFiles) {
+      const formData = new FormData()
+      formData.set('file', file)
+      const uploaded = await api<{ id: string; scanStatus: string }>(`/files?company=${encodeURIComponent(companyId)}`, { method: 'POST', body: formData })
+      let scanStatus = uploaded.scanStatus
+      for (let attempt = 0; scanStatus !== 'CLEAN' && attempt < 6; attempt += 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500))
+        scanStatus = (await api<{ scanStatus: string }>(`/files/${uploaded.id}/status`)).scanStatus
+      }
+      if (scanStatus !== 'CLEAN') throw new Error(`Файл «${file.name}» ще проходить перевірку. Зачекайте кілька секунд і збережіть матеріал повторно.`)
+      attachmentIds.push(uploaded.id)
+    }
+    return attachmentIds
+  }
+  const save = useMutation({
+    mutationFn: async (data: FormData) => api(slug ? `/knowledge/articles/${slug}` : '/knowledge/articles', {
+      method: slug ? 'PATCH' : 'POST',
+      body: jsonBody({ title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), ...(slug ? { expectedVersion: Number(data.get('expectedVersion')) } : { slug: newSlug, companyIds: companies.data?.items.filter((company) => company.isActive).map((company) => company.id) ?? [] }) }),
+    }),
+    onSuccess: async () => {
+      await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] })])
+      closeGuard.closeForSuccess(onClose)
+    },
+  })
+  const ready = slug ? Boolean(draft?.currentVersion) : Boolean(companies.data?.items.some((company) => company.isActive))
+  return <>
+    <Drawer title={slug ? 'Редагувати матеріал' : 'Додати матеріал'} onRequestClose={save.isPending ? () => {} : closeGuard.requestClose}>
+      {(slug ? article.isLoading : companies.isLoading) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
+        {slug && <input type="hidden" name="expectedVersion" value={draft?.version ?? ''} />}
+        <label className="span-2">Назва<input name="title" required defaultValue={draft?.currentVersion?.title ?? ''} autoFocus disabled={save.isPending} /></label>
+        <label className="span-2">Текст матеріалу<textarea name="body" rows={12} required defaultValue={draft?.currentVersion?.body ?? ''} disabled={save.isPending} /></label>
+        {slug && <label className="span-2">Короткий опис змін<input name="changeSummary" placeholder="Що оновлено в цій версії" disabled={save.isPending} /></label>}
+        <label className="span-2 knowledge-attachments-upload">Файли
+          <input aria-label="Додати файли" type="file" multiple onChange={(event) => setAttachmentFiles(Array.from(event.currentTarget.files ?? []))} disabled={save.isPending} />
+          <small>Файли буде прикріплено після перевірки безпеки.</small>
+        </label>
+        {attachmentFiles.length > 0 && <ul className="knowledge-file-list" aria-label="Вибрані файли">{attachmentFiles.map((file) => <li key={`${file.name}-${file.size}`}><FileIcon size={16} />{file.name}</li>)}</ul>}
+        {draft?.attachments.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{draft.attachments.map((file) => <li key={file.id}><FileIcon size={16} /><a href={`/api/v1/files/${file.id}/download`}>{file.safeFilename}</a><small>{file.scanStatus === 'CLEAN' ? 'Готовий' : 'Перевіряється'}</small></li>)}</ul></section> : null}
+        {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
+        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending}>{save.isPending ? 'Зберігаємо…' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
+      </form>}
+    </Drawer>
+    <UnsavedChangesDialog guard={closeGuard} />
+  </>
 }
 
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const client = useQueryClient(); const query = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`) })
   const ack = useMutation({ mutationFn: () => api(`/knowledge/articles/${slug}/acknowledge`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }) }), onSuccess: () => void client.invalidateQueries({ queryKey: ['article', slug] }) })
-  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
+  const firstPreviewable = query.data?.attachments.find(isKnowledgePreviewable)?.id ?? null
+  const expandedId = previewId ?? firstPreviewable
+  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.attachments.length > 0 && <section className="knowledge-existing-files"><strong>Прикріплені файли</strong><div className="knowledge-attachment-list">{query.data.attachments.map((file) => <KnowledgeAttachmentPreview key={file.id} attachment={file} expanded={file.id === expandedId} onToggle={() => setPreviewId(file.id === expandedId ? '' : file.id)} />)}</div></section>}{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
+}
+
+function isKnowledgePreviewable(file: KnowledgeAttachment) {
+  return file.scanStatus === 'CLEAN' && (file.mimeType === 'application/pdf' || file.mimeType?.startsWith('image/'))
+}
+
+function KnowledgeAttachmentPreview({ attachment, expanded, onToggle }: { attachment: KnowledgeAttachment; expanded: boolean; onToggle: () => void }) {
+  const url = `/api/v1/files/${attachment.id}/download?inline=true`
+  const previewable = isKnowledgePreviewable(attachment)
+  return <section className="document-preview knowledge-attachment-preview" aria-label={`Прикріплений файл ${attachment.safeFilename}`}>{previewable && expanded && (attachment.mimeType?.startsWith('image/') ? <img src={url} alt={attachment.safeFilename} /> : <iframe title={`Перегляд ${attachment.safeFilename}`} src={url} />)}<div className="knowledge-attachment-preview__footer"><span title={attachment.safeFilename}>{attachment.safeFilename}</span><div>{previewable && <Button variant="ghost" aria-expanded={expanded} aria-label={`${expanded ? 'Згорнути передперегляд' : 'Переглянути'} ${attachment.safeFilename}`} onClick={onToggle}>{expanded ? 'Згорнути' : <><Eye size={16} />Переглянути</>}</Button>}{previewable && <a className="icon-button" aria-label={`Відкрити окремо ${attachment.safeFilename}`} href={url} target="_blank" rel="noreferrer"><Maximize2 size={17} /></a>}<a className="icon-button" aria-label={`Завантажити ${attachment.safeFilename}`} href={`/api/v1/files/${attachment.id}/download`}><Download size={17} /></a></div></div></section>
+}
+
+function DocumentPreview({ version }: { version: { fileId: string; version: number; file: { name: string; mimeType: string; bytes: number; scanStatus: string } | null } }) {
+  const file = version.file
+  const url = `/api/v1/files/${version.fileId}/download?inline=true`
+  const canPreview = file?.scanStatus === 'CLEAN' && (file.mimeType === 'application/pdf' || file.mimeType.startsWith('image/'))
+  return (
+    <section className="document-preview" aria-label={`Перегляд версії ${version.version}`}>
+      <div className="document-preview__header">
+        <span><Eye size={18} />Перегляд · версія {version.version}</span>
+        <div>
+          <a className="button button--secondary" href={url} target="_blank" rel="noreferrer">
+            <Maximize2 size={16} />Відкрити окремо
+          </a>
+          <a className="icon-button" aria-label="Завантажити файл" href={`/api/v1/files/${version.fileId}/download`}><Download size={17} /></a>
+        </div>
+      </div>
+      {canPreview ? file.mimeType.startsWith('image/') ? (
+        <img src={url} alt={file.name} />
+      ) : (
+        <iframe title={`Перегляд ${file.name}`} src={url} />
+      ) : (
+        <div className="document-preview__unsupported">
+          <FileIcon size={28} />
+          <strong>{file?.name ?? 'Файл недоступний'}</strong>
+          <span>{file ? `${formatFileSize(file.bytes)} · перегляд цього формату недоступний у браузері` : 'Не вдалося знайти дані файлу.'}</span>
+          <a className="button button--secondary" href={`/api/v1/files/${version.fileId}/download`}><Download size={16} />Завантажити файл</a>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function EmployeesPage() {
-  const { employeeId } = useParams()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { user } = useAuth()
   const search = params.get('q') ?? ''
@@ -795,7 +986,6 @@ function EmployeesPage() {
     setParams(next, { replace: true })
   }
   const hasFilters = Boolean(search || orgUnitId || managerId || presence)
-  const currentQuery = params.toString()
   const orgUrl = '/employees/org'
 
   return (
@@ -859,9 +1049,9 @@ function EmployeesPage() {
           <div className="employee-grid">
             {query.data.items.map((item) => (
                 <article className="employee-card" key={item.id}>
-                  <Link
+                  <UserProfileLink
                     className="employee-card__profile"
-                    to={`/employees/${item.id}${currentQuery ? `?${currentQuery}` : ''}`}
+                    userId={item.id}
                   >
                     <Avatar size="lg" name={item.displayName} src={item.avatarAsset} />
                     <span>
@@ -873,7 +1063,7 @@ function EmployeesPage() {
                         {item.presence === 'AVAILABLE' ? 'Доступний' : 'Відсутній'}
                       </em>
                     </span>
-                  </Link>
+                  </UserProfileLink>
                   {item.id !== user?.id && (
                     <Link
                       className="employee-card__chat"
@@ -896,84 +1086,6 @@ function EmployeesPage() {
           />
         )}
       </Card>
-      {employeeId && (
-        <EmployeeDrawer
-          id={employeeId}
-          onClose={() => navigate(`/employees${currentQuery ? `?${currentQuery}` : ''}`)}
-        />
-      )}
     </div>
   )
 }
-
-function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const { user, canUseCapability } = useAuth()
-  const query = useQuery({
-    queryKey: ['employee', id],
-    queryFn: () => api<Employee>(`/employees/${id}`),
-  })
-  return (
-    <Drawer title="Профіль працівника" onRequestClose={() => onClose()}>
-      {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
-        <div className="employee-detail">
-          <Avatar size="lg" name={query.data.displayName} src={query.data.avatarAsset} />
-          <h3>{query.data.displayName}</h3>
-          <p>{query.data.positionTitle || query.data.jobTitle}</p>
-          <div className="employee-actions">
-            {query.data.id !== user?.id && (
-              <Link
-                className="button button--primary"
-                to={`/messages?new=1&to=${encodeURIComponent(query.data.id)}`}
-              >
-                <MessageCircle size={16} />
-                Написати
-              </Link>
-            )}
-            {(
-              <Link
-                className="button button--secondary"
-                to={`/tasks/new?assigneeId=${encodeURIComponent(query.data.id)}`}
-              >
-                <CheckSquare2 size={16} />
-                Поставити завдання
-              </Link>
-            )}
-            {canUseCapability(OrganizationCapability.CalendarWrite)
-              && (
-                <Link
-                  className="button button--secondary"
-                  to={`/calendar?new=1&title=${encodeURIComponent(`Зустріч: ${query.data.displayName}`)}`}
-                >
-                  <CalendarClock size={16} />
-                  Запланувати час
-                </Link>
-            )}
-          </div>
-          {query.data.orgUnit?.parent && <p className="employee-hierarchy"><Building2 size={15} />{query.data.orgUnit.parent.name} → {query.data.orgUnit.name}</p>}
-          <dl className="detail-grid">
-            {query.data.orgUnit && <div><dt>Підрозділ</dt><dd>{query.data.orgUnit.name}</dd></div>}
-            <div><dt>Керівник</dt><dd>{query.data.approver?.displayName ?? 'Не вказано'}</dd></div>
-            <div><dt>Часовий пояс</dt><dd>{query.data.timezone}</dd></div>
-            {query.data.contactEmail && <div><dt>Контакт</dt><dd><a href={`mailto:${query.data.contactEmail}`}>{query.data.contactEmail}</a></dd></div>}
-          </dl>
-          <section>
-            <h4>Найближча присутність</h4>
-            {query.data.upcomingPresence?.length ? query.data.upcomingPresence.map((item) => (
-              <p key={item.startAt}><CalendarClock size={16} />{item.state} · {formatDate(item.startAt)} — {formatDate(item.endAt)}</p>
-            )) : <p className="muted">Особливих статусів немає.</p>}
-          </section>
-        </div>
-      )}
-    </Drawer>
-  )
-}
-
-function AnalyticsPage() {
-  interface Data { kpis: { taskCompletion: number; taskOverdue: number; activeLifecycle: number }; lifecycle: Array<{ processType: string; status: string; _count: { id: number }; _avg: { progress: number | null } }> }
-  const query = useQuery({ queryKey: ['analytics'], queryFn: () => api<Data>('/analytics') })
-  if (query.isLoading) return <><PageHeader title="Аналітика" /><PageDataLoader /></>
-  if (query.isError || !query.data) return <ErrorState />
-  return <div><PageHeader title="Аналітика" description="Агреговані показники лише в межах доступного company scope" /><div className="kpi-grid"><Kpi icon={Check} label="Виконання задач" value={`${query.data.kpis.taskCompletion}%`} /><Kpi icon={CalendarClock} label="Прострочені" value={query.data.kpis.taskOverdue} /><Kpi icon={UsersRound} label="Активні процеси" value={query.data.kpis.activeLifecycle} /></div><div className="analytics-grid"><Card><h2>Онбординг і офбординг</h2>{query.data.lifecycle.length ? query.data.lifecycle.map((item) => <article className="lifecycle-stat" key={`${item.processType}:${item.status}`}><BarChart3 size={19} /><span><strong>{item.processType}</strong><small>{item.status} · середній прогрес {Math.round(item._avg.progress ?? 0)}%</small></span><b>{item._count.id}</b></article>) : <EmptyState title="Процесів немає" description="Дані з’являться після запуску процесу." />}</Card></div></div>
-}
-
-function Kpi({ icon: Icon, label, value }: { icon: typeof Building2; label: string; value: string | number }) { return <Card className="kpi-card"><span><Icon size={20} /></span><div><strong>{value}</strong><small>{label}</small></div></Card> }

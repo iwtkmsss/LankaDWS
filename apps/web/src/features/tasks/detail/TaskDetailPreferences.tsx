@@ -27,7 +27,7 @@ import { Button } from '../../../shared/ui'
 export const DEFAULT_TASK_DETAIL_PREFERENCE: TaskDetailPreferenceValue = {
   order: [...TASK_DETAIL_SECTION_IDS],
   hidden: [],
-  collapsed: ['recurrence', 'materials', 'history'],
+  collapsed: [...TASK_DETAIL_SECTION_IDS],
 }
 
 const SECTION_LABELS: Record<TaskDetailSectionId, string> = {

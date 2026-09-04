@@ -98,6 +98,12 @@ export class MessagesService {
           },
         },
         ...this.visibleThreadWhere(visibleGroupIds),
+        AND: [{
+          OR: [
+            { kind: { not: 'DIRECT' } },
+            { messages: { some: { deletedAt: null } } },
+          ],
+        }],
         ...(cursor ? this.threadCursorWhere(cursor) : {}),
         ...(selectedIds ? { id: { in: selectedIds } } : {}),
       },
@@ -2286,9 +2292,18 @@ export class MessagesService {
          ON participant."threadId" = thread."id"
         AND participant."userId" = ?
         AND participant."leftAt" IS NULL
-       WHERE thread."workspaceId" = ?
-         AND thread."companyId" IN (${companyPlaceholders})
-         AND ${groupVisibility}`,
+        WHERE thread."workspaceId" = ?
+          AND thread."companyId" IN (${companyPlaceholders})
+          AND ${groupVisibility}
+          AND (
+            thread."kind" <> 'DIRECT'
+            OR EXISTS (
+              SELECT 1
+              FROM "Message" AS visible_message
+              WHERE visible_message."threadId" = thread."id"
+                AND visible_message."deletedAt" IS NULL
+            )
+          )`,
       principal.userId,
       principal.userId,
       principal.workspaceId,

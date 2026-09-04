@@ -6,7 +6,7 @@ import type {
 } from '@bert-crm/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, Button, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
+import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
 import { formatChatTime } from '../lib/chatDates'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
 
@@ -33,7 +33,6 @@ interface MessagesSidebarProps {
   onUnreadChange: (value: boolean) => void
   onSelectThread: (threadId: string) => void
   onStartDirect: (contact: ChatContactUser) => void
-  onOpenCompose: () => void
   onLoadMore: () => void
   onRetryThreads: () => void
 }
@@ -96,13 +95,6 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
 
   return (
     <aside className="messages-sidebar" aria-label="Повідомлення">
-      <header className="messages-sidebar__header">
-        <h1>Повідомлення</h1>
-        <Button type="button" className="messages-sidebar__new-chat" onClick={props.onOpenCompose}>
-          <MessageCircle size={16} /> Новий чат
-        </Button>
-      </header>
-
       <div className="messages-sidebar__search">
         <Search size={18} aria-hidden="true" />
         <input

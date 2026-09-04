@@ -7,9 +7,9 @@ function principalWithFeed(enabled: boolean): Pick<PrincipalView, 'capabilities'
 }
 
 describe('resolveHomePath', () => {
-  it('lands on Feed only when FEED is enabled for the principal', () => {
+  it('lands on Feed when available and falls back to Tasks', () => {
     expect(resolveHomePath(principalWithFeed(true))).toBe('/feed')
-    expect(resolveHomePath(principalWithFeed(false))).toBe('/overview')
-    expect(resolveHomePath(null)).toBe('/overview')
+    expect(resolveHomePath(principalWithFeed(false))).toBe('/tasks')
+    expect(resolveHomePath(null)).toBe('/tasks')
   })
 })

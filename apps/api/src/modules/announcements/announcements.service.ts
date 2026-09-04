@@ -9,7 +9,6 @@ interface DraftInput {
   title: string
   body: string
   companyIds: string[]
-  userIds?: string[]
   isPinned?: boolean
   publishAt?: string
   expiresAt?: string
@@ -34,26 +33,39 @@ export class AnnouncementsService {
     return { items: receipts.map((receipt) => ({ id: receipt.announcement.id, title: receipt.announcement.title, safeSnippet: receipt.announcement.body.slice(0, 180), authorName: authorById.get(receipt.announcement.authorId) ?? 'Lanka', companyIds: receipt.announcement.companies.map((entry) => entry.companyId), status: receipt.announcement.status, isPinned: receipt.announcement.isPinned, publishedAt: receipt.announcement.publishAt?.toISOString() ?? null, readAt: receipt.readAt?.toISOString() ?? null })) }
   }
 
+  async audiences(principal: AuthPrincipal) {
+    const companies = await this.prisma.company.findMany({
+      where: {
+        id: { in: principal.allowedCompanyIds },
+        workspaceId: principal.workspaceId,
+        isActive: true,
+      },
+      select: { id: true, displayName: true, code: true },
+      orderBy: { displayName: 'asc' },
+    })
+    return { items: companies.map((company) => ({ id: company.id, name: company.displayName, shortName: company.code })) }
+  }
+
   async detail(principal: AuthPrincipal, announcementId: string) {
     const receipt = await this.prisma.announcementReceipt.findUnique({ where: { announcementId_userId: { announcementId, userId: principal.userId } }, include: { announcement: { include: { companies: true, users: true } } } })
     if (!receipt) throw notFound()
     return { ...receipt.announcement, receipt: { readAt: receipt.readAt, dismissedAt: receipt.dismissedAt }, audience: { companyIds: receipt.announcement.companies.map((entry) => entry.companyId), userIds: receipt.announcement.users.map((entry) => entry.userId) } }
   }
 
-  async audiencePreview(principal: AuthPrincipal, input: Pick<DraftInput, 'companyIds' | 'userIds'>) {
+  async audiencePreview(principal: AuthPrincipal, input: Pick<DraftInput, 'companyIds'>) {
     this.assertAudience(principal, input.companyIds)
-    const users = await this.resolveAudience(input)
+    const users = await this.resolveAudience(principal, input)
     return { recipientCount: users.length, inaccessibleRelatedDocuments: 0 }
   }
 
   async createDraft(principal: AuthPrincipal, input: DraftInput) {
     this.assertAudience(principal, input.companyIds)
     if (!input.title.trim() || input.title.length > 180 || !input.body.trim() || input.body.length > 10_000) throw badRequest('announcement_fields')
+    await this.resolveAudience(principal, input)
     const announcementId = id('ann')
     await this.prisma.$transaction(async (tx) => {
       await tx.announcement.create({ data: { id: announcementId, workspaceId: principal.workspaceId, authorId: principal.userId, title: input.title.trim(), body: input.body.trim(), status: 'DRAFT', isPinned: Boolean(input.isPinned), publishAt: input.publishAt ? new Date(input.publishAt) : null, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } })
       await tx.announcementAudienceCompany.createMany({ data: input.companyIds.map((companyId) => ({ id: id('anc'), announcementId, companyId })) })
-      if (input.userIds?.length) await tx.announcementAudienceUser.createMany({ data: input.userIds.map((userId) => ({ id: id('anu'), announcementId, userId })) })
     })
     return { id: announcementId, status: 'DRAFT', version: 1 }
   }
@@ -87,7 +99,10 @@ export class AnnouncementsService {
     if (!companyIds.length || companyIds.some((companyId) => !principal.allowedCompanyIds.includes(companyId))) throw badRequest('announcement_audience')
   }
 
-  private resolveAudience(input: Pick<DraftInput, 'companyIds' | 'userIds'>) {
-    return this.prisma.user.findMany({ where: { isActive: true, OR: [{ primaryCompanyId: { in: input.companyIds } }, { id: { in: input.userIds ?? [] } }] }, select: { id: true } })
+  private resolveAudience(principal: AuthPrincipal, input: Pick<DraftInput, 'companyIds'>) {
+    return this.prisma.user.findMany({
+      where: { workspaceId: principal.workspaceId, isActive: true, primaryCompanyId: { in: input.companyIds } },
+      select: { id: true },
+    })
   }
 }

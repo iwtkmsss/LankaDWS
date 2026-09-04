@@ -24,7 +24,7 @@ interface MessageStreamProps {
 
 export function MessageStream(props: MessageStreamProps) {
   const [showBottom, setShowBottom] = useState(false)
-  const scroll = usePreservedChatScroll(props.messages.length)
+  const scroll = usePreservedChatScroll(props.messages.length, props.threadId)
   const readIndex = props.lastReadMessageId
     ? props.messages.findIndex((message) => message.id === props.lastReadMessageId)
     : -1
@@ -34,6 +34,7 @@ export function MessageStream(props: MessageStreamProps) {
 
   useEffect(() => {
     if (!props.highlightedMessageId) return
+    scroll.stopFollowingBottom()
     requestAnimationFrame(() => {
       document.getElementById(`message-${props.highlightedMessageId}`)?.scrollIntoView({
         block: 'center',
@@ -46,59 +47,65 @@ export function MessageStream(props: MessageStreamProps) {
     <div
       ref={scroll.containerRef}
       className="message-stream"
+      onKeyDown={scroll.onUserScrollIntent}
+      onPointerDown={scroll.onUserScrollIntent}
       onScroll={() => {
         scroll.onScroll()
         const element = scroll.containerRef.current
         setShowBottom(Boolean(element && element.scrollHeight - element.scrollTop - element.clientHeight > 220))
       }}
+      onTouchStart={scroll.onUserScrollIntent}
+      onWheel={scroll.onUserScrollIntent}
     >
-      {props.canLoadOlder && (
-        <button
-          type="button"
-          className="message-stream__older"
-          disabled={props.loadingOlder}
-          onClick={() => {
-            scroll.rememberBeforePrepend()
-            void props.onLoadOlder()
-          }}
-        >
-          {props.loadingOlder && <LoaderCircle className="is-spinning" size={15} />}
-          {props.loadingOlder ? 'Завантажуємо…' : 'Раніші повідомлення'}
-        </button>
-      )}
+      <div ref={scroll.contentRef} className="message-stream__content">
+        {props.canLoadOlder && (
+          <button
+            type="button"
+            className="message-stream__older"
+            disabled={props.loadingOlder}
+            onClick={() => {
+              scroll.rememberBeforePrepend()
+              void props.onLoadOlder()
+            }}
+          >
+            {props.loadingOlder && <LoaderCircle className="is-spinning" size={15} />}
+            {props.loadingOlder ? 'Завантажуємо…' : 'Раніші повідомлення'}
+          </button>
+        )}
 
-      {!props.messages.length ? (
-        <div className="message-stream__empty">
-          <MessageCircle size={34} />
-          <strong>Почніть розмову</strong>
-          <span>Напишіть перше повідомлення в цьому діалозі.</span>
-        </div>
-      ) : (
-        props.messages.map((message, index) => {
-          const previous = props.messages[index - 1]
-          const showDay = !previous || chatDayKey(previous.createdAt) !== chatDayKey(message.createdAt)
-          return (
-            <div key={message.id}>
-              {showDay && <div className="message-day-separator"><span>{formatChatDay(message.createdAt)}</span></div>}
-              {index === firstUnreadIndex && (
-                <div className="message-unread-separator"><span>Непрочитані</span></div>
-              )}
-              <MessageBubble
-                threadId={props.threadId}
-                message={message}
-                own={message.authorId === props.currentUserId}
-                highlighted={message.id === props.highlightedMessageId}
-                canConvertToTask={props.canConvertToTask}
-                canConvertToEvent={props.canConvertToEvent}
-                onReply={props.onReply}
-                onEdit={props.onEdit}
-                onDelete={props.onDelete}
-                onConvert={props.onConvert}
-              />
-            </div>
-          )
-        })
-      )}
+        {!props.messages.length ? (
+          <div className="message-stream__empty">
+            <MessageCircle size={34} />
+            <strong>Почніть розмову</strong>
+            <span>Напишіть перше повідомлення в цьому діалозі.</span>
+          </div>
+        ) : (
+          props.messages.map((message, index) => {
+            const previous = props.messages[index - 1]
+            const showDay = !previous || chatDayKey(previous.createdAt) !== chatDayKey(message.createdAt)
+            return (
+              <div key={message.id}>
+                {showDay && <div className="message-day-separator"><span>{formatChatDay(message.createdAt)}</span></div>}
+                {index === firstUnreadIndex && (
+                  <div className="message-unread-separator"><span>Непрочитані</span></div>
+                )}
+                <MessageBubble
+                  threadId={props.threadId}
+                  message={message}
+                  own={message.authorId === props.currentUserId}
+                  highlighted={message.id === props.highlightedMessageId}
+                  canConvertToTask={props.canConvertToTask}
+                  canConvertToEvent={props.canConvertToEvent}
+                  onReply={props.onReply}
+                  onEdit={props.onEdit}
+                  onDelete={props.onDelete}
+                  onConvert={props.onConvert}
+                />
+              </div>
+            )
+          })
+        )}
+      </div>
 
       {showBottom && (
         <button

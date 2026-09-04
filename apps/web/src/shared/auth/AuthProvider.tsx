@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react'
-import { createContext, use, useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type AuthNextStep, type LoginInput, type OrganizationCapabilityCode, type PrincipalView } from '@bert-crm/contracts'
+import { useQueryClient } from '@tanstack/react-query'
 import { api, jsonBody, setCsrfToken } from '../api/client'
 
 type AuthState = 'loading' | 'authenticated' | 'anonymous' | 'restricted'
@@ -17,29 +18,45 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const queryClient = useQueryClient()
   const [state, setState] = useState<AuthState>('loading')
   const [user, setUser] = useState<PrincipalView | null>(null)
+  const refreshVersion = useRef(0)
 
   const refresh = useCallback(async () => {
+    const version = ++refreshVersion.current
     try {
       const principal = await api<PrincipalView>('/me')
+      if (version !== refreshVersion.current) return
       setCsrfToken(principal.csrfToken)
       setUser(principal)
       setState(principal.mustEnroll2FA ? 'restricted' : 'authenticated')
     } catch {
+      if (version !== refreshVersion.current) return
       setUser(null)
       setState('anonymous')
     }
   }, [])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    const endSession = () => {
+      ++refreshVersion.current
+      queryClient.clear()
+      setCsrfToken('')
+      setUser(null)
+      setState('anonymous')
+    }
+    window.addEventListener('bert:session-ended', endSession)
+    void refresh()
+    return () => window.removeEventListener('bert:session-ended', endSession)
+  }, [refresh, queryClient])
 
   useEffect(() => {
-    if (state !== 'authenticated') return
+    if (state !== 'authenticated' && state !== 'restricted') return
     const heartbeat = () => {
-      if (document.visibilityState === 'visible' && document.hasFocus()) void refresh()
+      void api('/me', { headers: { 'x-session-check': '1' } }).catch(() => undefined)
     }
-    const interval = window.setInterval(heartbeat, 5 * 60_000)
+    const interval = window.setInterval(heartbeat, 15_000)
     document.addEventListener('visibilitychange', heartbeat)
     window.addEventListener('focus', heartbeat)
     return () => {
@@ -58,6 +75,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [refresh])
 
   const logout = useCallback(async () => {
+    ++refreshVersion.current
     await api('/auth/logout', { method: 'POST' }).catch(() => undefined)
     setCsrfToken('')
     setUser(null)

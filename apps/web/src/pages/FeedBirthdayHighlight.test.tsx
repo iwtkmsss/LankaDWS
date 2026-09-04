@@ -34,7 +34,7 @@ describe('FeedBirthdayHighlight', () => {
     expect(screen.getByText('День народження · 15 травня')).toBeVisible()
     expect(screen.getByRole('link', { name: /Марія Іваненко/ })).toHaveAttribute(
       'href',
-      '/organization?view=people&employeeId=usr_maria',
+      '/?employeeId=usr_maria',
     )
     expect(screen.queryByText(/років|1994|Продуктова дизайнерка/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Марія Іваненко/ })).toHaveClass('is-today')

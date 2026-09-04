@@ -63,7 +63,6 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
     onUnreadChange: vi.fn(),
     onSelectThread: vi.fn(),
     onStartDirect: vi.fn(),
-    onOpenCompose: vi.fn(),
     onLoadMore: vi.fn(),
     onRetryThreads: vi.fn(),
     ...overrides,
@@ -72,13 +71,12 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
 }
 
 describe('MessagesSidebar', () => {
-  it('opens the explicit new-chat composer and renders only real tabs', () => {
-    const { props } = renderSidebar()
+  it('starts with search and renders only real tabs', () => {
+    renderSidebar()
 
-    const newChatButton = screen.getByRole('button', { name: 'Новий чат' })
-    expect(newChatButton).toHaveTextContent('Новий чат')
-    fireEvent.click(newChatButton)
-    expect(props.onOpenCompose).toHaveBeenCalledOnce()
+    expect(screen.getByRole('combobox', { name: 'Пошук користувачів' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Повідомлення' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Новий чат' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(2)
     expect(screen.queryByRole('tab', { name: /Згадки/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /дзвін/i })).not.toBeInTheDocument()

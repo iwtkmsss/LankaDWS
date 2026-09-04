@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { SessionView } from '@bert-crm/contracts'
-import { BellRing, Check, KeyRound, Laptop, LogOut, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
+import { AtSign, BadgeCheck, BellRing, BriefcaseBusiness, Building2, CalendarDays, Check, Clock3, KeyRound, Laptop, Languages, LogOut, Mail, Network, PersonStanding, Phone, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
@@ -51,6 +51,7 @@ export default function SettingsPages() {
 
 function ProfileSettings() {
   const { user, refresh } = useAuth()
+  const client = useQueryClient()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [avatarBusy, setAvatarBusy] = useState(false)
@@ -98,7 +99,7 @@ function ProfileSettings() {
       data.set('file', file)
       const result = await api<{ avatarAsset: string }>('/me/avatar', { method: 'POST', body: data })
       await waitForAvatar(result.avatarAsset)
-      await refresh()
+      await Promise.all([refresh(), client.invalidateQueries()])
       setSaved(true)
     } catch {
       setError('Не вдалося завантажити аватар. Оберіть зображення до 2 МБ.')
@@ -112,7 +113,7 @@ function ProfileSettings() {
     setAvatarBusy(true)
     try {
       await api('/me/avatar', { method: 'DELETE' })
-      await refresh()
+      await Promise.all([refresh(), client.invalidateQueries()])
       setSaved(true)
     } catch {
       setError('Не вдалося видалити аватар.')
@@ -146,64 +147,73 @@ function ProfileSettings() {
           </span>
         </div>
       </header>
-      <form className="entity-form" onSubmit={submit}>
-        <label>
-          Ім’я
-          <input value={user.displayName} disabled readOnly />
-        </label>
-        <label>
-          Нікнейм
-          <input value={`@${user.username}`} disabled readOnly />
-          <small>Змінює лише адміністратор</small>
-        </label>
-        <label>
-          Посада
-          <input value={user.jobTitle} disabled readOnly />
-        </label>
-        <label>
-          Тип облікового запису
-          <input value={user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'} disabled readOnly />
-        </label>
-        <label>
-          Компанія
-          <input value={user.company?.name ?? 'Усі компанії'} disabled readOnly />
-        </label>
-        <label>
-          Контактний email
-          <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
-        </label>
-        <label>
-          Телефон
-          <input name="phone" type="tel" defaultValue={user.phone ?? ''} />
-        </label>
-        <label>
-          Стать
-          <select name="gender" defaultValue={user.gender ?? ''}>
-            <option value="">Не вказувати</option>
-            <option value="FEMALE">Жінка</option>
-            <option value="MALE">Чоловік</option>
-            <option value="OTHER">Інше</option>
-          </select>
-        </label>
-        <label>
-          Дата народження
-          <input name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
-        </label>
-        <label>
-          Часовий пояс
-          <select name="timezone" defaultValue={user.timezone}>
-            <option>Europe/Kyiv</option>
-            <option>Europe/Warsaw</option>
-            <option>Europe/London</option>
-          </select>
-        </label>
-        <label>
-          Мова
-          <select name="locale" defaultValue={user.locale}>
-            <option value="uk-UA">Українська</option>
-            <option value="en-US">English</option>
-          </select>
-        </label>
+      <form className="profile-form" onSubmit={submit}>
+        <div className="profile-fields-list" role="group" aria-label="Робочі дані профілю">
+          <label>
+            <span className="profile-field-label"><UserRound size={15} aria-hidden="true" />Ім’я</span>
+            <input value={user.displayName} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><AtSign size={15} aria-hidden="true" />Нік</span>
+            <input value={`@${user.username}`} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><BadgeCheck size={15} aria-hidden="true" />Тип ОЗ</span>
+            <input value={user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><BriefcaseBusiness size={15} aria-hidden="true" />Посада</span>
+            <input value={user.positionTitle} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><Building2 size={15} aria-hidden="true" />Компанія</span>
+            <input value={user.company?.name ?? 'Усі компанії'} disabled readOnly />
+          </label>
+          <div className="profile-org-branch">
+            <span><Network size={15} aria-hidden="true" />Підрозділ</span>
+            <p className={user.orgUnitPath.length ? 'profile-org-branch__value' : undefined}>
+              {user.orgUnitPath[user.orgUnitPath.length - 1]?.name ?? 'Не призначено'}
+            </p>
+          </div>
+        </div>
+        <div className="profile-fields-list" role="group" aria-label="Особисті та контактні дані профілю">
+          <label>
+            <span className="profile-field-label"><PersonStanding size={15} aria-hidden="true" />Стать</span>
+            <select name="gender" defaultValue={user.gender ?? ''}>
+              <option value="">Не вказувати</option>
+              <option value="FEMALE">Жінка</option>
+              <option value="MALE">Чоловік</option>
+              <option value="OTHER">Інше</option>
+            </select>
+          </label>
+          <label>
+            <span className="profile-field-label"><CalendarDays size={15} aria-hidden="true" />День народження</span>
+            <input name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Phone size={15} aria-hidden="true" />Телефон</span>
+            <input name="phone" type="tel" defaultValue={user.phone ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Mail size={15} aria-hidden="true" />Email</span>
+            <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Languages size={15} aria-hidden="true" />Мова</span>
+            <select name="locale" defaultValue={user.locale}>
+              <option value="uk-UA">Українська</option>
+              <option value="en-US">English</option>
+            </select>
+          </label>
+          <label>
+            <span className="profile-field-label"><Clock3 size={15} aria-hidden="true" />Часовий пояс</span>
+            <select name="timezone" defaultValue={user.timezone}>
+              <option>Europe/Kyiv</option>
+              <option>Europe/Warsaw</option>
+              <option>Europe/London</option>
+            </select>
+          </label>
+        </div>
         {error && <div className="form-error span-2">{error}</div>}
         {saved && (
           <p className="success-note span-2">

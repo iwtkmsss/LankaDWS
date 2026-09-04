@@ -42,7 +42,7 @@ export function DirectDraftPane({
       <div className="direct-draft__empty">
         <Avatar size="lg" name={contact.displayName} src={contact.avatarAsset} />
         <strong>Почніть розмову з {contact.displayName}</strong>
-        <span>Діалог з’явиться у списку після першого введеного тексту.</span>
+        <span>Діалог з’явиться у списку після першого повідомлення.</span>
       </div>
 
       <div className="message-composer direct-draft__composer">

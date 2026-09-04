@@ -70,7 +70,7 @@ export class SessionAuthGuard implements CanActivate {
       authAssurance: session.authAssurance,
       restricted,
     }
-    if (now - session.lastSeenAt.getTime() > 60_000) {
+    if (request.header('x-session-check') !== '1' && now - session.lastSeenAt.getTime() > 60_000) {
       const lastSeenAt = new Date()
       const expiresAt = new Date(now + idleLimit)
       await this.prisma.userSession.update({ where: { id: session.id }, data: { lastSeenAt, expiresAt } })

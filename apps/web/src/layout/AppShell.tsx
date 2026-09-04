@@ -8,12 +8,14 @@ import {
   KeyRound,
   LogOut,
   Menu,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Search,
   ShieldCheck,
+  Sun,
   Users,
   X,
 } from 'lucide-react'
@@ -21,11 +23,14 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { RouteMeta } from '../app/routes'
 import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes } from '../app/routes'
 import { CommandPalette } from '../features/search/CommandPalette'
+import { useUserProfile } from '../features/employees/UserProfileDrawer'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
+import { resolveHomePath } from '../shared/auth/home'
+import { applyTheme, getStoredTheme, storeTheme } from '../shared/theme'
 import { Avatar, BrandMark, IconButton } from '../shared/ui'
 import { RightCommunicationPanel } from './RightCommunicationPanel'
-import { TopbarContent, TopbarContentProvider } from './TopbarContent'
+import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -36,7 +41,7 @@ const sidebarNavGroups = [
   { key: 'primary', label: 'Щоденна робота' },
   { key: 'communication', label: 'Комунікації' },
   { key: 'company', label: 'Співпраця' },
-  { key: 'management', label: 'Знання та аналітика' },
+  { key: 'management', label: 'Знання' },
   { key: 'administration', label: 'Адміністрування' },
 ] as const
 
@@ -55,6 +60,7 @@ function sidebarSectionsHeight(sections: SidebarNavSection[]) {
 
 export function AppShell({ children }: PropsWithChildren) {
   const { user, canUseCapability, logout } = useAuth()
+  const { requestedUserId, closeUserProfile } = useUserProfile()
   const location = useLocation()
   const queryClient = useQueryClient()
   const [mobileNav, setMobileNav] = useState(false)
@@ -62,6 +68,7 @@ export function AppShell({ children }: PropsWithChildren) {
     window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [theme, setTheme] = useState(getStoredTheme)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
@@ -78,14 +85,13 @@ export function AppShell({ children }: PropsWithChildren) {
     if (!user?.company?.id) return
 
     const company = user.company.id
-    if (route.path === '/overview') {
-      void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
-    } else if (route.path === '/tasks') {
+    if (route.path === '/tasks') {
       void queryClient.prefetchQuery({
         queryKey: ['tasks', 'RESPONSIBLE', 1, null, '', '', '', '', '', false, '', '', '', '', '', '', '', ''],
         queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&groupId=&assigneeId=&creatorId=&coExecutorId=&observerId='),
       })
     } else if (route.path === '/feed') {
+      void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
       void queryClient.prefetchInfiniteQuery({
         queryKey: ['feed', company, 'ALL', 'ALL', null, null, null, null, null, false, false, false],
         initialPageParam: null as string | null,
@@ -129,7 +135,6 @@ export function AppShell({ children }: PropsWithChildren) {
     [nav],
   )
   const paletteShortcuts = useMemo(() => nav
-    .filter((route) => route.path !== '/admin')
     .map((route) => ({
       path: route.path,
       title: route.title,
@@ -174,7 +179,7 @@ export function AppShell({ children }: PropsWithChildren) {
     .filter((section) => section.items.length > 0)
   const overflowHasActiveRoute = overflowRoutes.some((route) =>
     location.pathname === route.path
-    || (route.path !== '/admin' && location.pathname.startsWith(`${route.path}/`)))
+    || location.pathname.startsWith(`${route.path}/`))
   const mobilePrimaryRoutes = mobileNavigation.primary.flatMap((path) => {
     const route = nav.find((candidate) => candidate.path === path)
     return route ? [route] : []
@@ -206,6 +211,11 @@ export function AppShell({ children }: PropsWithChildren) {
     window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
+  useEffect(() => {
+    applyTheme(theme)
+    storeTheme(theme)
+  }, [theme])
+
   useLayoutEffect(() => {
     const navElement = sidebarNavRef.current
     if (!navElement) return
@@ -226,6 +236,15 @@ export function AppShell({ children }: PropsWithChildren) {
   useEffect(() => {
     if (overflowRoutes.length === 0) setMoreOpen(false)
   }, [overflowRoutes.length])
+
+  useEffect(() => {
+    if (!requestedUserId) return
+    setProfileOpen(false)
+    setMoreOpen(false)
+    setMobileNav(false)
+    setRightPanelOpen(true)
+    setSidebarCollapsed(true)
+  }, [requestedUserId])
 
   useEffect(() => {
     setMoreOpen(false)
@@ -279,13 +298,15 @@ export function AppShell({ children }: PropsWithChildren) {
         setMoreOpen(false)
         setMobileMoreOpen(false)
         setRightPanelOpen(false)
+        closeUserProfile()
       }
     }
     window.addEventListener('keydown', handle)
     return () => window.removeEventListener('keydown', handle)
-  }, [])
+  }, [closeUserProfile])
 
   if (!user) return null
+  const homePath = resolveHomePath(user)
   const scopedPath = (path: string) => path
   function renderNavRoute(route: (typeof routes)[number], menuItem = false) {
     const Icon = route.navIcon ?? Gauge
@@ -294,7 +315,7 @@ export function AppShell({ children }: PropsWithChildren) {
       <NavLink
         key={route.path}
         to={scopedPath(route.path)}
-        end={route.path === '/admin'}
+        end={false}
         role={menuItem ? 'menuitem' : undefined}
         aria-label={sidebarCollapsed ? title : undefined}
         title={sidebarCollapsed ? title : undefined}
@@ -349,11 +370,25 @@ export function AppShell({ children }: PropsWithChildren) {
       {mobileNav && <button className="nav-scrim" aria-label="Закрити меню" onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
         <div className="sidebar__brand">
-          <BrandMark />
-          <span className="sidebar__brand-copy">
-            <strong>Lanka</strong>
-            <small>CORPORATE WORKSPACE</small>
-          </span>
+          <Link
+            className="sidebar__brand-home"
+            to={homePath}
+            aria-label="На головну сторінку"
+            onClick={(event) => {
+              if (location.pathname === homePath) {
+                event.preventDefault()
+                return
+              }
+              setMobileNav(false)
+              setMoreOpen(false)
+            }}
+          >
+            <BrandMark />
+            <span className="sidebar__brand-copy">
+              <strong>Lanka</strong>
+              <small>CORPORATE WORKSPACE</small>
+            </span>
+          </Link>
           <IconButton
             className="sidebar__collapse"
             label={sidebarCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'}
@@ -420,6 +455,17 @@ export function AppShell({ children }: PropsWithChildren) {
                 <ShieldCheck size={15} />
                 Сесії
               </Link>
+              <button
+                type="button"
+                className="profile-theme-toggle"
+                role="switch"
+                aria-checked={theme === 'dark'}
+                onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              >
+                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                <span>Темна тема</span>
+                <span className="theme-switch" aria-hidden="true"><i /></span>
+              </button>
               <button onClick={() => void logout()}>
                 <LogOut size={15} />
                 Вийти
@@ -453,8 +499,11 @@ export function AppShell({ children }: PropsWithChildren) {
           }}>
             <Menu size={21} />
           </IconButton>
-          <div className="topbar__route-content">
-            <TopbarContent fallback={(
+          <div className="topbar__route-content" aria-label="Дії поточного розділу">
+            <TopbarContent />
+          </div>
+          <div className="topbar__center-content">
+            <TopbarCenterContent fallback={(
               <button className="search-trigger" aria-label="Пошук у Lanka" onClick={() => {
                 setProfileOpen(false)
                 setMoreOpen(false)
@@ -477,6 +526,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 setMoreOpen(false)
                 setMobileNav(false)
                 setRightPanelOpen((value) => {
+                  if (value) closeUserProfile()
                   if (!value) setSidebarCollapsed(true)
                   return !value
                 })
@@ -502,7 +552,12 @@ export function AppShell({ children }: PropsWithChildren) {
           <RightCommunicationPanel
             chatUnread={chatUnread}
             notificationUnread={notificationSummary.data?.unread ?? 0}
-            onClose={() => setRightPanelOpen(false)}
+            targetUserId={requestedUserId}
+            onClearTarget={closeUserProfile}
+            onClose={() => {
+              setRightPanelOpen(false)
+              closeUserProfile()
+            }}
           />
         </div>
       )}

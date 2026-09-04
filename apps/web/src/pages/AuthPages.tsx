@@ -4,7 +4,7 @@ import { Navigate, useNavigate } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { removeWhitespace } from '../shared/lib/credentials'
-import { BrandMark, Button } from '../shared/ui'
+import { BrandMark, Button, Skeleton } from '../shared/ui'
 
 export function LoginPage() {
   const auth = useAuth()
@@ -14,6 +14,7 @@ export function LoginPage() {
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
   if (auth.state === 'authenticated') return <Navigate to="/" replace />
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(''); setBusy(true)

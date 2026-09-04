@@ -1,5 +1,6 @@
 import type {
   ChatAttachmentView,
+  ChatContactUser,
   ChatMessageView,
   ChatThreadListItem,
   StructuredMentionInput,
@@ -15,41 +16,54 @@ import {
   ArrowDown,
   Bell,
   BellRing,
+  BriefcaseBusiness,
   Building2,
+  Check,
+  CheckCheck,
   CheckCircle2,
+  CircleAlert,
+  ChevronDown,
   ChevronRight,
   FileText,
   ListTodo,
   LoaderCircle,
+  Mail,
   Megaphone,
   MessageCircle,
+  Network,
   PanelRightClose,
+  Paperclip,
+  Phone,
+  Send,
   ShieldCheck,
-  UserRound,
   UsersRound,
+  X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   getMessagePage,
+  getChatUser,
   getThreadDetail,
   getThreadPage,
+  createThread,
   sendMessage,
   uploadMessageAttachment,
 } from '../features/messages/api/messageApi'
 import { messageKeys } from '../features/messages/api/messageKeys'
 import { formatChatTime } from '../features/messages/lib/chatDates'
 import { MessageComposer } from '../features/messages/components/MessageComposer'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
 import '../features/messages/messages.css'
-import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { api, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { Avatar, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { Avatar, CompactFileName, ErrorState, IconButton, Skeleton } from '../shared/ui'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
-type ChatScreen = 'threads' | 'conversation' | 'profile'
+type ChatScreen = 'threads' | 'conversation'
 type NotificationFilter = 'all' | 'unread' | 'mentions'
 
 interface NotificationItem {
@@ -67,18 +81,24 @@ interface NotificationItem {
 interface EmployeeProfile {
   id: string
   displayName: string
+  username: string
   jobTitle: string
   positionTitle?: string
-  timezone: string
+  primaryCompanyId: string | null
+  primaryCompany?: { id: string; displayName: string } | null
   avatarAsset: string | null
   contactEmail?: string | null
+  phone?: string | null
   orgUnit?: { id: string; name: string; parent: { id: string; name: string } | null } | null
   approver?: { id?: string; displayName: string } | null
+  upcomingPresence?: Array<{ state: string; startAt: string; endAt: string }>
 }
 
 interface RightCommunicationPanelProps {
   chatUnread: number
   notificationUnread: number
+  targetUserId: string | null
+  onClearTarget: () => void
   onClose: () => void
 }
 
@@ -100,6 +120,20 @@ function notificationIcon(category: string) {
   if (category === 'FEED') return <Megaphone size={18} />
   if (category === 'SECURITY') return <ShieldCheck size={18} />
   return <Bell size={18} />
+}
+
+function formatPanelFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
+}
+
+function isPreviewableImage(attachment: ChatAttachmentView): boolean {
+  return attachment.scanStatus === 'CLEAN' && /^image\/(?:png|jpeg|gif|webp)$/.test(attachment.mimeType ?? '')
+}
+
+function panelAttachmentUrl(attachment: ChatAttachmentView): string {
+  return apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)
 }
 
 function notificationRoute(item: NotificationItem) {
@@ -182,7 +216,16 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all')
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
   const [composerError, setComposerError] = useState('')
+  const [profileSummaryOpen, setProfileSummaryOpen] = useState(false)
+  const [chatFilesOpen, setChatFilesOpen] = useState(false)
   const markedReadRef = useRef('')
+  const draftSendAttemptRef = useRef({
+    signature: '',
+    threadId: '',
+    threadKey: '',
+    messageKey: '',
+    attachmentIds: [] as string[],
+  })
 
   useEffect(() => {
     try {
@@ -201,7 +244,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     refetchInterval: 15_000,
     refetchIntervalInBackground: false,
   })
-  const threads = threadPages.data?.pages.flatMap((page) => page.items) ?? []
+  const threads = useMemo(() => [
+    ...new Map(
+      (threadPages.data?.pages.flatMap((page) => page.items) ?? [])
+        .map((thread) => [thread.id, thread]),
+    ).values(),
+  ], [threadPages.data])
   const selectedPreview = threads.find((thread) => thread.id === selectedThreadId)
 
   const detail = useQuery({
@@ -226,14 +274,116 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     () => messagePages.data?.pages.slice().reverse().flatMap((page) => page.items) ?? [],
     [messagePages.data],
   )
+  const sharedAttachments = useMemo(() => [
+    ...new Map(
+      messages.flatMap((message) => message.attachments).map((attachment) => [attachment.id, attachment]),
+    ).values(),
+  ].reverse(), [messages])
   const directParticipant = detail.data?.kind === 'DIRECT'
     ? detail.data.participants.find((participant) => participant.id !== user?.id)
     : null
-
+  const profileUserId = props.targetUserId ?? directParticipant?.id
+  const targetIsCurrentUser = Boolean(props.targetUserId && props.targetUserId === user?.id)
   const profile = useQuery({
-    queryKey: ['employee', directParticipant?.id],
-    queryFn: () => api<EmployeeProfile>(`/employees/${directParticipant!.id}`),
-    enabled: chatScreen === 'profile' && Boolean(directParticipant?.id),
+    queryKey: ['employee', profileUserId],
+    queryFn: () => api<EmployeeProfile>(`/employees/${encodeURIComponent(profileUserId!)}`),
+    enabled: Boolean(profileUserId && (profileSummaryOpen || props.targetUserId)),
+  })
+  const targetContact = useQuery({
+    queryKey: ['right-panel', 'target-contact', 'all', props.targetUserId],
+    queryFn: ({ signal }) => getChatUser(
+      'all',
+      props.targetUserId!,
+      signal,
+    ),
+    enabled: Boolean(
+      props.targetUserId
+      && !targetIsCurrentUser,
+    ),
+  })
+
+  useEffect(() => {
+    if (!props.targetUserId) return
+    setTab('chat')
+    setChatScreen('conversation')
+    setSelectedThreadId(null)
+    setProfileSummaryOpen(true)
+    setChatFilesOpen(false)
+    setAttachments([])
+    setComposerError('')
+    draftSendAttemptRef.current = {
+      signature: '',
+      threadId: '',
+      threadKey: '',
+      messageKey: '',
+      attachmentIds: [],
+    }
+  }, [props.targetUserId])
+
+  useEffect(() => {
+    if (!props.targetUserId || !targetContact.data?.directThreadId) return
+    setSelectedThreadId(targetContact.data.directThreadId)
+  }, [props.targetUserId, targetContact.data?.directThreadId])
+
+  const sendDraft = useMutation({
+    mutationFn: async ({ body, files }: { body: string; files: File[] }) => {
+      const userId = props.targetUserId
+      const companyId = user?.company?.id ?? profile.data?.primaryCompanyId
+      if (!userId || !companyId) throw new Error('chat_target_unavailable')
+
+      const signature = [
+        userId,
+        body,
+        ...files.map((file) => `${file.name}:${file.size}:${file.lastModified}`),
+      ].join('|')
+      if (draftSendAttemptRef.current.signature !== signature) {
+        draftSendAttemptRef.current = {
+          signature,
+          threadId: '',
+          threadKey: idempotencyKey('right-panel-direct'),
+          messageKey: idempotencyKey('right-panel-message'),
+          attachmentIds: [],
+        }
+      }
+      const attempt = draftSendAttemptRef.current
+      if (!attempt.threadId) {
+        const thread = await createThread({
+          companyId,
+          kind: 'DIRECT',
+          participantIds: [userId],
+        }, attempt.threadKey)
+        attempt.threadId = thread.id
+      }
+      if (files.length && attempt.attachmentIds.length !== files.length) {
+        const uploaded = await Promise.all(
+          files.map((file) => uploadMessageAttachment(attempt.threadId, file)),
+        )
+        attempt.attachmentIds = uploaded.map((attachment) => attachment.id)
+      }
+      await sendMessage(attempt.threadId, {
+        body,
+        mentions: [],
+        attachmentIds: attempt.attachmentIds,
+      }, attempt.messageKey)
+      return { threadId: attempt.threadId }
+    },
+    onSuccess: async ({ threadId }) => {
+      setSelectedThreadId(threadId)
+      setComposerError('')
+      draftSendAttemptRef.current = {
+        signature: '',
+        threadId: '',
+        threadKey: '',
+        messageKey: '',
+        attachmentIds: [],
+      }
+      await Promise.all([
+        client.invalidateQueries({ queryKey: messageKeys.pages(threadId) }),
+        client.invalidateQueries({ queryKey: messageKeys.detail(threadId) }),
+        client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] }),
+        client.invalidateQueries({ queryKey: ['threads', 'summary'] }),
+      ])
+    },
   })
 
   const send = useMutation({
@@ -318,8 +468,11 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   })
 
   function selectThread(threadId: string) {
+    props.onClearTarget()
     setSelectedThreadId(threadId)
     setChatScreen('conversation')
+    setProfileSummaryOpen(false)
+    setChatFilesOpen(false)
     setAttachments([])
     setComposerError('')
   }
@@ -390,35 +543,114 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       )}
 
       {tab === 'chat' && chatScreen === 'conversation' && (
-        <section className="right-panel__screen right-panel__conversation" aria-label={`Діалог: ${detail.data?.title ?? selectedPreview?.title ?? ''}`}>
-          <header className="right-panel__conversation-header">
-            <IconButton label="До списку діалогів" onClick={() => setChatScreen('threads')}><ArrowLeft size={19} /></IconButton>
-            <button
-              type="button"
-              className="right-panel__person-trigger"
-              disabled={!directParticipant}
-              onClick={() => directParticipant && setChatScreen('profile')}
-            >
-              <Avatar name={detail.data?.title ?? selectedPreview?.title ?? ''} src={directParticipant?.avatarAsset ?? selectedPreview?.avatarAsset} />
-              <span><strong>{detail.data?.title ?? selectedPreview?.title}</strong><small>{directParticipant ? `@${directParticipant.username}` : `${detail.data?.participants.length ?? 0} учасників`}</small></span>
-              {directParticipant && <ChevronRight size={17} />}
-            </button>
-          </header>
-          {detail.isLoading || messagePages.isLoading ? <div className="right-panel__loading"><Skeleton rows={8} /></div> : detail.isError || messagePages.isError || !detail.data ? (
+        <section
+          className="right-panel__screen right-panel__conversation"
+          aria-label={targetIsCurrentUser
+            ? `Профіль: ${profile.data?.displayName ?? ''}`
+            : `Діалог: ${detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? ''}`}
+        >
+          <div className={`right-panel__person-overview ${profileSummaryOpen ? 'is-open' : ''}`}>
+            <header className="right-panel__conversation-header">
+              <IconButton label="До списку діалогів" onClick={() => { props.onClearTarget(); setChatScreen('threads'); setProfileSummaryOpen(false) }}><ArrowLeft size={19} /></IconButton>
+              <div className="right-panel__person-trigger">
+                <Avatar
+                  size="lg"
+                  name={detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? ''}
+                  src={directParticipant?.avatarAsset ?? selectedPreview?.avatarAsset ?? profile.data?.avatarAsset}
+                />
+                <span>
+                  <strong>{detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? 'Відкриваємо чат…'}</strong>
+                  <small>{directParticipant?.username ? `@${directParticipant.username}` : profile.data?.username ? `@${profile.data.username}` : ''}</small>
+                </span>
+              </div>
+              {profileUserId && (
+                <IconButton
+                  className={`right-panel__profile-toggle ${profileSummaryOpen ? 'is-active' : ''}`}
+                  label={profileSummaryOpen ? 'Згорнути інформацію про користувача' : 'Розгорнути інформацію про користувача'}
+                  aria-expanded={profileSummaryOpen}
+                  onClick={() => setProfileSummaryOpen((value) => {
+                    const nextValue = !value
+                    if (!nextValue) setChatFilesOpen(false)
+                    return nextValue
+                  })}
+                >
+                  <ChevronDown size={15} />
+                </IconButton>
+              )}
+            </header>
+            {profileSummaryOpen && (
+              <CompactProfileSummary
+                profile={profile.data}
+                fallback={directParticipant ?? undefined}
+                loading={profile.isLoading}
+                error={profile.isError}
+                onRetry={() => void profile.refetch()}
+              />
+            )}
+          </div>
+          {props.targetUserId && !selectedThreadId && (profile.isLoading || (!targetIsCurrentUser && targetContact.isLoading)) ? <div className="right-panel__loading"><Skeleton rows={8} /></div> : profile.isError && Boolean(props.targetUserId) || targetContact.isError ? (
+            <ErrorState title="Не вдалося відкрити чат" onRetry={() => {
+              void profile.refetch()
+              void targetContact.refetch()
+            }} />
+          ) : targetIsCurrentUser && profile.data ? (
+            <>
+              <div className="right-panel__empty-spacer" aria-hidden="true" />
+              <ConversationEmptyState
+                title="Це ваш профіль"
+                description="Контактна й робоча інформація доступна вище."
+              />
+            </>
+          ) : props.targetUserId && !selectedThreadId && targetContact.data ? (
+            <>
+              <div className="right-panel__empty-spacer" aria-hidden="true" />
+              <ConversationEmptyState
+                title={`Почніть розмову з ${targetContact.data.displayName}`}
+                description="Чат з’явиться у списку після першого повідомлення."
+              />
+              <DirectDraftComposer
+                key={targetContact.data.id}
+                contact={targetContact.data}
+                sending={sendDraft.isPending}
+                error={sendDraft.isError ? 'Не вдалося надіслати. Текст і файли збережено, можна повторити.' : ''}
+                onEdit={() => sendDraft.reset()}
+                onSend={async (input) => {
+                  try {
+                    await sendDraft.mutateAsync(input)
+                    return true
+                  } catch {
+                    return false
+                  }
+                }}
+              />
+            </>
+          ) : detail.isLoading || messagePages.isLoading ? <div className="right-panel__loading"><Skeleton rows={8} /></div> : detail.isError || messagePages.isError || !detail.data ? (
             <ErrorState title="Не вдалося відкрити діалог" onRetry={() => { void detail.refetch(); void messagePages.refetch() }} />
           ) : (
             <>
-              <PanelMessageStream
-                key={selectedThreadId}
-                messages={messages}
-                currentUserId={user?.id ?? ''}
-                canLoadOlder={Boolean(messagePages.hasNextPage)}
-                loadingOlder={messagePages.isFetchingNextPage}
-                onLoadOlder={() => messagePages.fetchNextPage()}
-              />
+              {messages.length === 0 && <ConversationEmptyState title="Почніть розмову" />}
+              {profileSummaryOpen && sharedAttachments.length > 0 && (
+                <ChatFilesDropdown
+                  files={sharedAttachments}
+                  open={chatFilesOpen}
+                  onToggle={() => setChatFilesOpen((value) => !value)}
+                />
+              )}
+              {chatFilesOpen ? (
+                <ChatFilesGrid files={sharedAttachments} />
+              ) : (
+                <PanelMessageStream
+                  key={`stream:${selectedThreadId}`}
+                  messages={messages}
+                  currentUserId={user?.id ?? ''}
+                  canLoadOlder={Boolean(messagePages.hasNextPage)}
+                  loadingOlder={messagePages.isFetchingNextPage}
+                  onLoadOlder={() => messagePages.fetchNextPage()}
+                />
+              )}
               {detail.data.canPost && (
                 <MessageComposer
-                  key={detail.data.id}
+                  key={`composer:${detail.data.id}`}
                   threadId={detail.data.id}
                   replyTo={null}
                   attachments={attachments}
@@ -440,18 +672,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
               )}
             </>
           )}
-        </section>
-      )}
-
-      {tab === 'chat' && chatScreen === 'profile' && (
-        <section className="right-panel__screen right-panel__profile" aria-label="Інформація про користувача">
-          <header className="right-panel__profile-header">
-            <IconButton label="Повернутися до чату" onClick={() => setChatScreen('conversation')}><ArrowLeft size={19} /></IconButton>
-            <h2>Інформація про користувача</h2>
-          </header>
-          {profile.isLoading ? <Skeleton rows={7} /> : profile.isError || !profile.data ? (
-            <ErrorState title="Не вдалося завантажити профіль" onRetry={() => void profile.refetch()} />
-          ) : <ProfileContent profile={profile.data} />}
         </section>
       )}
 
@@ -501,6 +721,247 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   )
 }
 
+function CompactProfileSummary({
+  profile,
+  fallback,
+  loading,
+  error,
+  onRetry,
+}: {
+  profile?: EmployeeProfile
+  fallback?: { displayName: string; username: string; jobTitle: string }
+  loading: boolean
+  error: boolean
+  onRetry: () => void
+}) {
+  if (loading && !fallback) return <div className="right-panel__profile-summary"><Skeleton rows={2} /></div>
+  return (
+    <section className="right-panel__profile-summary" aria-label="Коротка інформація про користувача">
+      {(error || (!profile && !loading)) && (
+        <div className="right-panel__profile-notice" role="status">
+          <CircleAlert size={16} />
+          <span><strong>Деталі профілю недоступні</strong><small>Чат і файли продовжують працювати.</small></span>
+          <button type="button" onClick={onRetry}>Повторити</button>
+        </div>
+      )}
+      <dl>
+        <div>
+          <dt><Building2 size={17} />Компанія</dt>
+          <dd>{profile?.primaryCompany?.displayName ?? 'Не вказано'}</dd>
+        </div>
+        <div>
+          <dt><Network size={17} />Підрозділ</dt>
+          <dd>{profile?.orgUnit?.name ?? 'Не вказано'}</dd>
+        </div>
+        <div>
+          <dt><BriefcaseBusiness size={17} />Посада</dt>
+          <dd>{profile?.positionTitle || profile?.jobTitle || fallback?.jobTitle || 'Не вказано'}</dd>
+        </div>
+        <div>
+          <dt><Phone size={17} />Телефон</dt>
+          <dd>{profile?.phone ? <a href={`tel:${profile.phone}`}>{profile.phone}</a> : 'Не вказано'}</dd>
+        </div>
+        <div>
+          <dt><Mail size={17} />Email</dt>
+          <dd>{profile?.contactEmail ? <a href={`mailto:${profile.contactEmail}`}>{profile.contactEmail}</a> : 'Не вказано'}</dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
+
+function ChatFilesDropdown({
+  files,
+  open,
+  onToggle,
+}: {
+  files: ChatAttachmentView[]
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <section className="right-panel__chat-files" aria-label="Файли в чаті">
+      <button
+        type="button"
+        className={open ? 'is-open' : ''}
+        aria-expanded={open}
+        aria-controls="right-panel-chat-files-grid"
+        onClick={onToggle}
+      >
+        <span>Файли в чаті</span>
+        <b>{files.length}</b>
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+    </section>
+  )
+}
+
+function ChatFilesGrid({ files }: { files: ChatAttachmentView[] }) {
+  return (
+    <div className="right-panel__chat-files-grid" id="right-panel-chat-files-grid">
+      {files.map((file) => file.scanStatus === 'CLEAN' ? (
+        <a key={file.id} href={panelAttachmentUrl(file)} target="_blank" rel="noreferrer" title={file.fileName}>
+          {isPreviewableImage(file)
+            ? <img src={panelAttachmentUrl(file)} alt={file.fileName} loading="lazy" />
+            : <span><FileText size={20} /></span>}
+          <small>{file.fileName}</small>
+        </a>
+      ) : (
+        <div key={file.id} title={file.fileName}>
+          <span><FileText size={20} /></span>
+          <small>{file.fileName}</small>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DirectDraftComposer({
+  contact,
+  sending,
+  error,
+  onEdit,
+  onSend,
+}: {
+  contact: ChatContactUser
+  sending: boolean
+  error: string
+  onEdit: () => void
+  onSend: (input: { body: string; files: File[] }) => Promise<boolean>
+}) {
+  const [body, setBody] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const submittingRef = useRef(false)
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => textareaRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [contact.id])
+
+  useEffect(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = '0'
+    textarea.style.height = `${Math.min(144, textarea.scrollHeight)}px`
+  }, [body])
+
+  function addFiles(nextFiles: File[]) {
+    if (!nextFiles.length || sending) return
+    onEdit()
+    setFiles((current) => [...current, ...nextFiles].slice(0, 5))
+  }
+
+  async function submit() {
+    if ((!body.trim() && files.length === 0) || sending || submittingRef.current) return
+    submittingRef.current = true
+    try {
+      const sent = await onSend({ body: body.trim(), files })
+      if (sent) {
+        setBody('')
+        setFiles([])
+      }
+    } finally {
+      submittingRef.current = false
+    }
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pastedFiles = [...event.clipboardData.files]
+    if (!pastedFiles.length) return
+    event.preventDefault()
+    addFiles(pastedFiles)
+  }
+
+  return (
+    <div className="message-composer right-panel__draft-composer">
+      {files.length > 0 && (
+        <div className="message-composer__attachments">
+          {files.map((file, index) => (
+            <span key={`${file.name}:${file.size}:${file.lastModified}:${index}`}>
+              <FileText size={15} />
+              {file.name}
+              <button
+                type="button"
+                aria-label={`Прибрати ${file.name}`}
+                disabled={sending}
+                onClick={() => {
+                  onEdit()
+                  setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
+                }}
+              >
+                <X size={14} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="message-composer__row">
+        <input
+          ref={inputRef}
+          type="file"
+          hidden
+          multiple
+          disabled={sending || files.length >= 5}
+          onChange={(event) => {
+            addFiles([...event.target.files ?? []])
+            event.target.value = ''
+          }}
+        />
+        <button
+          type="button"
+          aria-label="Додати файли"
+          disabled={sending || files.length >= 5}
+          onClick={() => inputRef.current?.click()}
+        >
+          <Paperclip size={21} />
+        </button>
+        <textarea
+          ref={textareaRef}
+          className="message-composer__input"
+          aria-label="Повідомлення"
+          rows={1}
+          maxLength={8_000}
+          value={body}
+          placeholder="Напишіть повідомлення…"
+          disabled={sending}
+          onChange={(event) => {
+            onEdit()
+            setBody(event.target.value)
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            void submit()
+          }}
+          onPaste={handlePaste}
+        />
+        <button
+          type="button"
+          className="message-composer__send"
+          aria-label="Надіслати"
+          disabled={(!body.trim() && files.length === 0) || sending}
+          onClick={() => void submit()}
+        >
+          {sending ? <LoaderCircle className="is-spinning" size={20} /> : <Send size={20} />}
+        </button>
+      </div>
+      <div className="message-composer__status" role="status" aria-live="polite">{error}</div>
+    </div>
+  )
+}
+
+function ConversationEmptyState({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="right-panel__conversation-empty">
+      <MessageCircle size={28} />
+      <strong>{title}</strong>
+      {description && <span>{description}</span>}
+    </div>
+  )
+}
+
 function PanelMessageStream({
   messages,
   currentUserId,
@@ -545,6 +1006,8 @@ function PanelMessageStream({
         ref={scroll.containerRef}
         className="right-panel__messages"
         aria-live="polite"
+        onKeyDown={scroll.onUserScrollIntent}
+        onPointerDown={scroll.onUserScrollIntent}
         onScroll={() => {
           scroll.onScroll()
           const element = scroll.containerRef.current
@@ -552,6 +1015,8 @@ function PanelMessageStream({
           setShowBottom(element.scrollHeight - element.scrollTop - element.clientHeight > 180)
           if (element.scrollTop <= 72) loadOlder()
         }}
+        onTouchStart={scroll.onUserScrollIntent}
+        onWheel={scroll.onUserScrollIntent}
       >
         {loadingOlder && (
           <div className="right-panel__messages-loader" role="status">
@@ -559,9 +1024,11 @@ function PanelMessageStream({
             Завантажуємо попередні повідомлення…
           </div>
         )}
-        {messages.length ? messages.map((message) => (
-          <CompactMessage key={message.id} message={message} own={message.authorId === currentUserId} />
-        )) : <div className="right-panel__empty"><MessageCircle size={28} /><strong>Почніть розмову</strong></div>}
+        <div ref={scroll.contentRef} className="right-panel__message-list">
+          {messages.map((message) => (
+            <CompactMessage key={message.id} message={message} own={message.authorId === currentUserId} />
+          ))}
+        </div>
       </div>
       {showBottom && (
         <IconButton
@@ -577,43 +1044,77 @@ function PanelMessageStream({
 }
 
 function CompactMessage({ message, own }: { message: ChatMessageView; own: boolean }) {
+  const singleImageAttachment = message.attachments.length === 1 && isPreviewableImage(message.attachments[0]!)
+    ? message.attachments[0]
+    : null
+  const deliveryLabel = message.id.startsWith('optimistic:')
+    ? 'Надсилається'
+    : message.readByCount > 0
+      ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
+      : 'Відправлено'
+  const messageMeta = (
+    <footer className="right-panel__message-meta">
+      {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
+      <time>{formatChatTime(message.createdAt)}{message.editedAt ? ' · змінено' : ''}</time>
+      {own && (
+        <span
+          className={`right-panel__message-delivery ${message.readByCount > 0 ? 'is-read' : ''}`}
+          title={deliveryLabel}
+        >
+          {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
+        </span>
+      )}
+    </footer>
+  )
   return (
     <article className={`right-panel__message ${own ? 'is-own' : ''}`}>
-      {!own && <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />}
+      {!own && (
+        <UserProfileLink
+          className="right-panel__message-author-avatar"
+          userId={message.author.id}
+          aria-label={`Відкрити профіль ${message.author.displayName}`}
+        >
+          <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
+        </UserProfileLink>
+      )}
       <div>
-        {!own && <strong>{message.author.displayName}</strong>}
-        {message.deletedAt ? <p className="is-deleted">Повідомлення видалено</p> : <p>{message.body}</p>}
-        {message.attachments.map((attachment) => (
-          <span className="right-panel__message-file" key={attachment.id}><FileText size={14} />{attachment.fileName}</span>
+        {!own && <UserProfileLink className="right-panel__message-author" userId={message.author.id}>{message.author.displayName}</UserProfileLink>}
+        {message.deletedAt ? (
+          <div className="right-panel__message-content">
+            <p className="is-deleted">Повідомлення видалено</p>
+            {messageMeta}
+          </div>
+        ) : message.body ? (
+          <div className="right-panel__message-content">
+            <p>{message.body}</p>
+            {messageMeta}
+          </div>
+        ) : null}
+        {message.attachments.map((attachment) => isPreviewableImage(attachment) ? (
+          <a
+            className="right-panel__message-image"
+            key={attachment.id}
+            href={panelAttachmentUrl(attachment)}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Відкрити ${attachment.fileName}`}
+          >
+            <img src={panelAttachmentUrl(attachment)} alt={attachment.fileName} loading="lazy" />
+            {singleImageAttachment?.id !== attachment.id && (
+              <span><CompactFileName fileName={attachment.fileName} /></span>
+            )}
+          </a>
+        ) : attachment.scanStatus === 'CLEAN' ? (
+          <a className="right-panel__message-file" key={attachment.id} href={panelAttachmentUrl(attachment)} target="_blank" rel="noreferrer">
+            <FileText size={15} /><span>{attachment.fileName}</span><small>{formatPanelFileSize(attachment.bytes)}</small>
+          </a>
+        ) : (
+          <span className="right-panel__message-file is-disabled" key={attachment.id}>
+            <FileText size={15} /><span>{attachment.fileName}</span><small>Перевіряється</small>
+          </span>
         ))}
-        <time>{formatChatTime(message.createdAt)}{message.editedAt ? ' · змінено' : ''}</time>
+        {!message.body && !message.deletedAt && messageMeta}
       </div>
     </article>
-  )
-}
-
-function ProfileContent({ profile }: { profile: EmployeeProfile }) {
-  return (
-    <div className="right-panel__profile-content">
-      <div className="right-panel__profile-summary">
-        <Avatar size="lg" name={profile.displayName} src={profile.avatarAsset} />
-        <span><i aria-hidden="true" /></span>
-        <h3>{profile.displayName}</h3>
-        <p>{profile.positionTitle || profile.jobTitle}</p>
-        <div>
-          <Link className="button button--secondary" to={`/employees/${profile.id}`}><UserRound size={16} />Профіль</Link>
-        </div>
-      </div>
-      <section>
-        <h4>Контакти</h4>
-        {profile.contactEmail ? <a href={`mailto:${profile.contactEmail}`}>{profile.contactEmail}</a> : <p>Контактний email не вказано</p>}
-        <p>Часовий пояс · {profile.timezone}</p>
-      </section>
-      <section>
-        <h4>Компанія</h4>
-        {profile.orgUnit ? <p><Building2 size={15} />{profile.orgUnit.parent ? `${profile.orgUnit.parent.name} → ` : ''}{profile.orgUnit.name}</p> : <p>Підрозділ не вказано</p>}
-        {profile.approver && <p>Керівник · {profile.approver.displayName}</p>}
-      </section>
-    </div>
   )
 }

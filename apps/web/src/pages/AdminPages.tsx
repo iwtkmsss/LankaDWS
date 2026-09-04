@@ -1,21 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
-  ArrowRight,
-  Building2,
   Check,
-  ChevronRight,
-  CircleAlert,
   Download,
-  FileClock,
   KeyRound,
   Plus,
-  RefreshCw,
   Search,
-  ServerCog,
-  ShieldCheck,
-  Users,
-  UsersRound,
 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { removeWhitespace } from '../shared/lib/credentials'
@@ -32,17 +22,8 @@ import {
   PageHeader,
   Skeleton,
   StatusBadge,
-  Tabs,
 } from '../shared/ui'
 
-interface AdminOverview {
-  users: { active: number; inactive: number }
-  departments: number
-  administrators: number
-  twoFactorCoverage: number
-  attention: { without2fa: number; failedJobs: number }
-  recentAudit: AuditEvent[]
-}
 interface AdminUser {
   id: string
   displayName: string
@@ -67,125 +48,9 @@ interface AuditEvent {
   correlationId: string
   createdAt: string
 }
-interface Job {
-  id: string
-  type: string
-  state: string
-  attempts: number
-  maxAttempts: number
-  lastErrorCode?: string | null
-  updatedAt: string
-}
-
 export default function AdminPages() {
   const path = useLocation().pathname
-  if (path === '/admin') return <AdminOverviewPage />
-  if (path.startsWith('/admin/users')) return <UsersPage />
-  if (path.startsWith('/admin/audit')) return <AuditPage />
-  return <SystemPage />
-}
-
-function AdminOverviewPage() {
-  const query = useQuery({
-    queryKey: ['admin-overview'],
-    queryFn: () => api<AdminOverview>('/admin'),
-  })
-  if (query.isLoading)
-    return (
-      <>
-        <PageHeader title="Адміністрування" />
-        <Skeleton rows={7} />
-      </>
-    )
-  if (query.isError || !query.data) return <ErrorState />
-  const data = query.data
-  const scoped = (path: string) => path
-  const attentionItems = [
-    {
-      id: 'failed-jobs',
-      count: data.attention.failedJobs,
-      label: 'Фонових робіт з помилкою',
-      action: 'Перевірити фонові роботи',
-      href: scoped('/admin/system?tab=jobs'),
-      icon: ServerCog,
-    },
-  ].filter((item) => item.count > 0)
-  const attentionTotal = attentionItems.reduce((total, item) => total + item.count, 0)
-  const primaryAttention = attentionItems[0]
-  return (
-    <div className="admin-overview">
-      <PageHeader title="Адміністрування" description="Користувачі, доступи та безпека в одному робочому огляді" />
-      <section className="admin-hero">
-        <div className="admin-hero__intro">
-          <span className="eyebrow">
-            <ShieldCheck size={15} /> Системний фокус
-          </span>
-          <h2>{attentionTotal ? 'Спочатку усуньте критичні ризики.' : 'Критичних ризиків не виявлено.'}</h2>
-          <p>
-            {attentionTotal
-              ? `${attentionTotal} ${attentionTotal === 1 ? 'запис потребує' : 'записів потребують'} перевірки.`
-              : 'Стан користувачів, доступів і фонових робіт стабільний.'}
-          </p>
-        </div>
-        <div className="admin-hero__next">
-          <span>{primaryAttention ? 'Пріоритетна дія' : 'Наступний крок'}</span>
-          <strong>{primaryAttention?.label ?? 'Перегляньте останні системні зміни'}</strong>
-          <Link className="button button--primary" to={primaryAttention?.href ?? scoped('/admin/audit')}>
-            {primaryAttention?.action ?? 'Відкрити журнал'} <ArrowRight size={16} />
-          </Link>
-        </div>
-      </section>
-      <div className="kpi-grid">
-        <Kpi icon={Users} value={data.users.active} label="Активні користувачі" href={scoped('/admin/users')} />
-        <Kpi icon={Building2} value={data.departments} label="Підрозділи" href="/organization?view=structure" />
-        <Kpi
-          icon={UsersRound}
-          value={data.administrators}
-          label="Глобальні адміністратори"
-          href={scoped('/admin/users?accountType=ADMIN')}
-        />
-      </div>
-      <div className="admin-grid">
-        <Card>
-          <header className="card-title">
-            <h2>Потребує уваги</h2>
-          </header>
-          <div className="attention-list">
-            {attentionItems.length ? (
-              attentionItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <Link to={item.href} key={item.id}>
-                    <Icon />
-                    <span>
-                      <strong>{item.count}</strong>
-                      <small>{item.label}</small>
-                    </span>
-                    <ChevronRight />
-                  </Link>
-                )
-              })
-            ) : (
-              <div className="attention-list__clear">
-                <ShieldCheck size={22} />
-                <span>
-                  <strong>Усе гаразд</strong>
-                  <small>Активних блокерів немає.</small>
-                </span>
-              </div>
-            )}
-          </div>
-        </Card>
-        <Card>
-          <header className="card-title">
-            <h2>Останні дії</h2>
-            <Link to={scoped('/admin/audit')}>Відкрити журнал</Link>
-          </header>
-          <AuditList items={data.recentAudit} />
-        </Card>
-      </div>
-    </div>
-  )
+  return path.startsWith('/admin/users') ? <UsersPage /> : <AuditPage />
 }
 
 function UsersPage() {
@@ -264,7 +129,7 @@ function UsersPage() {
                       </Link>
                     </td>
                     <td>
-                      <strong>{user.accountType === 'ADMIN' ? 'Глобальний ADMIN' : 'USER'}</strong>
+                      <strong>{!user.isActive ? 'Неактивний користувач' : user.accountType === 'ADMIN' ? 'Глобальний ADMIN' : 'USER'}</strong>
                       <small>{user.company?.name ?? 'Без прив’язки до компанії'}</small>
                     </td>
                     <td>
@@ -344,9 +209,130 @@ function UserFilters({ params, onChange }: { params: URLSearchParams; onChange: 
   )
 }
 
+interface UserAccountProfile {
+  orgUnit: { id: string; name: string } | null
+  firstName: string
+  lastName: string
+  middleName: string | null
+  username: string
+  contactEmail: string | null
+  phone: string | null
+  gender: string | null
+  birthDate: string | null
+  jobTitle: string
+  company: { id: string; name: string } | null
+}
+
+function UserAccountFields({ user, isActive, setIsActive, accountType, onAccountTypeChange, companyId, onCompanyChange, companies, units, unitsLoading }: {
+  user?: UserAccountProfile
+  isActive: boolean
+  setIsActive: (value: boolean) => void
+  accountType: 'USER' | 'ADMIN'
+  onAccountTypeChange: (value: 'USER' | 'ADMIN') => void
+  companyId: string
+  onCompanyChange: (value: string) => void
+  companies: Array<{ id: string; name: string; isActive: boolean }>
+  units: Array<{ id: string; name: string }>
+  unitsLoading: boolean
+}) {
+  const [orgSelection, setOrgSelection] = useState({ companyId, id: user?.orgUnit?.id ?? '' })
+  return (
+    <>
+      <label>
+        Тип облікового запису
+        <select value={isActive ? accountType : 'INACTIVE'} onChange={(event) => {
+          const value = event.target.value
+          setIsActive(value !== 'INACTIVE')
+          if (value === 'ADMIN' || value === 'USER') onAccountTypeChange(value)
+        }}>
+          <option value="USER">Користувач компанії</option>
+          <option value="ADMIN">Глобальний адміністратор</option>
+          <option value="INACTIVE">Неактивний користувач</option>
+        </select>
+      </label>
+      <label>
+        Логін
+        <input name="username" defaultValue={user?.username ?? ''} required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+      </label>
+      <label>
+        Ім’я
+        <input name="firstName" defaultValue={user?.firstName ?? ''} required autoComplete="given-name" />
+      </label>
+      <label>
+        Прізвище
+        <input name="lastName" defaultValue={user?.lastName ?? ''} required autoComplete="family-name" />
+      </label>
+      <label>
+        По батькові
+        <input name="middleName" defaultValue={user?.middleName ?? ''} />
+      </label>
+      <label>
+        Стать
+        <select name="gender" defaultValue={user?.gender ?? ''}><option value="">Не вказувати</option><option value="FEMALE">Жінка</option><option value="MALE">Чоловік</option><option value="OTHER">Інше</option></select>
+      </label>
+      <label>
+        Телефон
+        <input name="phone" defaultValue={user?.phone ?? ''} type="tel" />
+      </label>
+      <label>
+        Email
+        <input name="contactEmail" defaultValue={user?.contactEmail ?? ''} type="email" required={!user} autoComplete="email" />
+      </label>
+      <label>
+        {user ? 'Новий пароль (за потреби)' : 'Пароль'}
+        <input name="password" type="password" required={!user} minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+      </label>
+      <label>
+        {user ? 'Підтвердження нового паролю' : 'Підтвердження паролю'}
+        <input name="passwordConfirmation" type="password" required={!user} minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+      </label>
+      <label>
+        День народження
+        <input name="birthDate" defaultValue={user?.birthDate ?? ''} type="date" />
+      </label>
+      <label>
+        Фотографія
+        <input name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+      </label>
+      <label className="span-2">
+        Посада
+        <input name="jobTitle" defaultValue={user?.jobTitle ?? ''} />
+      </label>
+      {accountType === 'USER' && (
+        <label className="span-2">
+          Компанія
+          <select name="companyId" required value={companyId} onChange={(event) => onCompanyChange(event.target.value)}>
+            <option disabled value="">
+              Оберіть компанію
+            </option>
+            {companies
+              .filter((company) => company.isActive)
+              .map((company) => (
+                <option value={company.id} key={company.id}>
+                  {company.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {accountType === 'USER' && (
+        <label className="span-2">
+          Підрозділ
+          <select name="orgUnitId" disabled={!companyId || unitsLoading} value={orgSelection.companyId === companyId ? orgSelection.id : ''} onChange={(event) => setOrgSelection({ companyId, id: event.target.value })}>
+            <option value="">Оберіть підрозділ</option>
+            {units.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
+          </select>
+          {!companyId && <small>Спочатку оберіть компанію.</small>}
+        </label>
+      )}
+    </>
+  )
+}
+
 function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => void; defaultCompanyId?: string }) {
   const client = useQueryClient()
   const [accountType, setAccountType] = useState<'USER' | 'ADMIN'>('USER')
+  const [isActive, setIsActive] = useState(true)
   const [result, setResult] = useState<{ userId: string; username: string } | null>(null)
   const [companyId, setCompanyId] = useState(defaultCompanyId)
   const companies = useQuery({
@@ -378,8 +364,8 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
         passwordConfirmation: data.get('passwordConfirmation'),
         accountType,
         companyId: accountType === 'USER' ? companyId : undefined,
-        orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || units.data?.items[0]?.id) : undefined,
-        isActive: true,
+        orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || undefined) : undefined,
+        isActive,
       }),
     })
     const photo = data.get('photo')
@@ -419,93 +405,8 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
         </div>
       ) : (
         <form className="entity-form account-form" onSubmit={(event) => void submit(event)}>
-          <div className="form-section">
-            <span className="eyebrow">Основне</span>
-            <p>Адміністратор задає доступ, кадрові дані та підрозділ. Пароль не зберігається у відкритому вигляді.</p>
-          </div>
-          <label>
-            Ім’я
-            <input name="firstName" required autoComplete="given-name" />
-          </label>
-          <label>
-            Прізвище
-            <input name="lastName" required autoComplete="family-name" />
-          </label>
-          <label className="span-2">
-            По батькові <small>(необов’язково)</small>
-            <input name="middleName" />
-          </label>
-          <label>
-            Логін
-            <input name="username" required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          <label>
-            Email
-            <input name="contactEmail" type="email" required autoComplete="email" />
-          </label>
-          <label>
-            Пароль
-            <input name="password" type="password" required minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          <label>
-            Підтвердження паролю
-            <input name="passwordConfirmation" type="password" required minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          <label>
-            Телефон <small>(необов’язково)</small>
-            <input name="phone" type="tel" />
-          </label>
-          <label>
-            Стать <small>(необов’язково)</small>
-            <select name="gender"><option value="">Не вказувати</option><option value="FEMALE">Жінка</option><option value="MALE">Чоловік</option><option value="OTHER">Інше</option></select>
-          </label>
-          <label>
-            День народження <small>(необов’язково)</small>
-            <input name="birthDate" type="date" />
-          </label>
-          <label>
-            Фотографія <small>(необов’язково, до 2 МБ)</small>
-            <input name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
-          </label>
-          <label className="span-2">
-            Посада <small>(необов’язково)</small>
-            <input name="jobTitle" />
-          </label>
-          <label>
-            Тип облікового запису
-            <select value={accountType} onChange={(event) => setAccountType(event.target.value as 'USER' | 'ADMIN')}>
-              <option value="USER">Користувач компанії</option>
-              <option value="ADMIN">Глобальний адміністратор</option>
-            </select>
-          </label>
-          {accountType === 'USER' && (
-            <label className="span-2">
-              Компанія
-              <select name="companyId" required value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
-                <option disabled value="">
-                  Оберіть компанію
-                </option>
-                {companies.data?.items
-                  .filter((company) => company.isActive)
-                  .map((company) => (
-                    <option value={company.id} key={company.id}>
-                      {company.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
+          <UserAccountFields isActive={isActive} setIsActive={setIsActive} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
           <Button className="span-2">Створити доступ</Button>
-          {accountType === 'USER' && (
-            <label className="span-2">
-              Підрозділ
-              <select name="orgUnitId" required disabled={!companyId || units.isLoading} defaultValue="">
-                <option disabled value="">Оберіть підрозділ</option>
-                {units.data?.items.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
-              </select>
-              {!companyId && <small>Спочатку оберіть компанію.</small>}
-            </label>
-          )}
         </form>
       )}
     </Drawer>
@@ -513,7 +414,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
 }
 
 function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  interface Detail {
+  interface Detail extends UserAccountProfile {
     id: string
     displayName: string
     username: string
@@ -539,80 +440,21 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryKey: ['admin-user', id],
     queryFn: () => api<Detail>(`/admin/users/${id}`),
   })
-  const [editing, setEditing] = useState(false)
-  return (
-    <>
-      <Drawer title="Користувач" onRequestClose={() => onClose()}>
-        {query.isLoading ? (
-          <Skeleton />
-        ) : query.isError || !query.data ? (
-          <ErrorState />
-        ) : (
-          <div className="detail-stack">
-            <div className="user-detail-head">
-              <Avatar size="lg" name={query.data.displayName} />
-              <div>
-                <StatusBadge status={query.data.isActive ? 'ACTIVE' : 'INACTIVE'} />
-                <h3>{query.data.displayName}</h3>
-                <p>
-                  @{query.data.username} · {query.data.jobTitle}
-                </p>
-              </div>
-            </div>
-            <dl className="detail-grid">
-              <div>
-                <dt>Тип доступу</dt>
-                <dd>
-                  {query.data.accountType === 'ADMIN'
-                    ? 'Глобальний ADMIN'
-                    : `USER · ${query.data.company?.name ?? '—'}`}
-                </dd>
-              </div>
-              <div>
-                <dt>2FA</dt>
-                <dd>{query.data.security.twoFactor ? 'Увімкнено' : 'Не налаштовано'}</dd>
-              </div>
-              <div>
-                <dt>Активні сесії</dt>
-                <dd>{query.data.security.activeSessions}</dd>
-              </div>
-            </dl>
-            <p className="privacy-note">
-              <ShieldCheck size={16} />
-              Перевірка доступу не створює сесію від імені користувача.
-            </p>
-            {(query.data.leadership.companies.length + query.data.leadership.orgUnits.length) > 0 && <Card className="leadership-warning">
-              <strong>Керівні маркери</strong>
-              <span>{[
-                ...query.data.leadership.companies.map((company) => company.name),
-                ...query.data.leadership.orgUnits.map((unit) => unit.name),
-              ].join(', ')}</span>
-              <small>Під час деактивації, переведення в іншу компанію або зміни типу на ADMIN ці маркери буде очищено.</small>
-            </Card>}
-            <Button variant="secondary" onClick={() => setEditing(true)}>
-              Редагувати користувача
-            </Button>
-          </div>
-        )}
+  if (query.isLoading || query.isError || !query.data) {
+    return (
+      <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
+        {query.isLoading ? <Skeleton /> : <ErrorState />}
       </Drawer>
-      {editing && query.data && (
-        <UserEditor
-          user={query.data}
-          onClose={() => {
-            setEditing(false)
-            void query.refetch()
-          }}
-        />
-      )}
-    </>
-  )
+    )
+  }
+  return <UserEditor key={id} user={query.data} onClose={onClose} />
 }
 
 function UserEditor({
   user,
   onClose,
 }: {
-  user: {
+  user: UserAccountProfile & {
     id: string
     displayName: string
     username: string
@@ -631,6 +473,7 @@ function UserEditor({
 }) {
   const client = useQueryClient()
   const [accountType, setAccountType] = useState(user.accountType)
+  const [isActive, setIsActive] = useState(user.isActive)
   const [companyId, setCompanyId] = useState(user.company?.id ?? '')
   const companies = useQuery({
     queryKey: ['admin-companies'],
@@ -642,7 +485,14 @@ function UserEditor({
     enabled: accountType === 'USER' && Boolean(companyId),
   })
   const mutation = useMutation({
-    mutationFn: (body: object) => api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) }),
+    mutationFn: async ({ body, photo }: { body: object; photo: FormDataEntryValue | null }) => {
+      await api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) })
+      if (photo instanceof File && photo.size > 0) {
+        const avatar = new FormData()
+        avatar.set('file', photo)
+        await api(`/admin/users/${user.id}/avatar`, { method: 'POST', body: avatar })
+      }
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['admin-users'] })
       void client.invalidateQueries({ queryKey: ['admin-user', user.id] })
@@ -652,103 +502,38 @@ function UserEditor({
       onClose()
     },
   })
-  const names = user.displayName.split(' ')
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    mutation.mutate({
+    mutation.mutate({ photo: data.get('photo'), body: {
       firstName: data.get('firstName'),
       lastName: data.get('lastName'),
       middleName: data.get('middleName') || undefined,
       username: data.get('username'),
       accountType,
       companyId: accountType === 'USER' ? companyId : undefined,
-      orgUnitId: accountType === 'USER' ? data.get('orgUnitId') : undefined,
-      isActive: data.get('isActive') === 'on',
+      orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || undefined) : undefined,
+      isActive,
       contactEmail: data.get('contactEmail') || null,
+      phone: data.get('phone') || null,
+      gender: data.get('gender') || null,
+      birthDate: data.get('birthDate') || null,
       jobTitle: data.get('jobTitle'),
       password: data.get('password') || undefined,
       passwordConfirmation: data.get('passwordConfirmation') || undefined,
-    })
+    } })
   }
   return (
     <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
       <form className="entity-form account-form" onSubmit={submit}>
-        <label>
-          Ім’я
-          <input name="firstName" required defaultValue={names[1] ?? names[0]} />
-        </label>
-        <label>
-          Прізвище
-          <input name="lastName" required defaultValue={names.length > 1 ? names[0] : ''} />
-        </label>
-        <label className="span-2">
-          По батькові
-          <input name="middleName" defaultValue={names.slice(2).join(' ')} />
-        </label>
-        <label>
-          Логін
-          <input name="username" required defaultValue={user.username} onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-        </label>
-        <label>
-          Посада
-          <input name="jobTitle" defaultValue={user.jobTitle} />
-        </label>
-        <label>
-          Новий пароль <small>(за потреби)</small>
-          <input name="password" type="password" minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-        </label>
-        <label>
-          Підтвердження нового паролю
-          <input name="passwordConfirmation" type="password" minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-        </label>
-        <label className="span-2">
-          Email
-          <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
-        </label>
-        <label>
-          Тип
-          <select value={accountType} onChange={(event) => setAccountType(event.target.value as 'ADMIN' | 'USER')}>
-            <option value="USER">Користувач компанії</option>
-            <option value="ADMIN">Глобальний адміністратор</option>
-          </select>
-        </label>
-        {accountType === 'USER' && (
-          <label>
-            Компанія
-            <select name="companyId" required value={companyId} onChange={(event) => setCompanyId(event.target.value)}>
-              <option value="" disabled>
-                Оберіть компанію
-              </option>
-              {companies.data?.items
-                .filter((company) => company.isActive)
-                .map((company) => (
-                  <option value={company.id} key={company.id}>
-                    {company.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-        )}
-        {accountType === 'USER' && (
-          <label className="span-2">
-            Підрозділ
-            <select name="orgUnitId" required disabled={!companyId || units.isLoading} defaultValue={companyId === user.company?.id ? user.orgUnit?.id ?? '' : ''} key={companyId}>
-              <option value="" disabled>Оберіть підрозділ</option>
-              {units.data?.items.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
-            </select>
-          </label>
-        )}
+        <UserAccountFields isActive={isActive} setIsActive={setIsActive} user={user} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
         {(user.leadership.companies.length + user.leadership.orgUnits.length) > 0 && <p className="privacy-note span-2">
           Зміна компанії, типу доступу або деактивація очистить керівні маркери: {[
             ...user.leadership.companies.map((company) => company.name),
             ...user.leadership.orgUnits.map((unit) => unit.name),
           ].join(', ')}.
         </p>}
-        <label className="check-row span-2">
-          <input name="isActive" type="checkbox" defaultChecked={user.isActive} />
-          Обліковий запис активний
-        </label>
+        {!isActive && <p className="privacy-note span-2">Вхід і доступ до системи заблоковано. Після збереження всі сеанси користувача будуть завершені.</p>}
         {mutation.isError && <p className="form-error span-2">Не вдалося зберегти зміни.</p>}
         <Button className="span-2" disabled={mutation.isPending}>
           Зберегти зміни
@@ -925,167 +710,5 @@ function AuditEventDetail({ event }: { event: AuditEvent }) {
         </dd>
       </div>
     </dl>
-  )
-}
-
-function SystemPage() {
-  const [params, setParams] = useSearchParams()
-  const tab = params.get('tab') ?? 'processes'
-  const client = useQueryClient()
-  const jobs = useQuery({
-    queryKey: ['jobs'],
-    queryFn: () => api<{ items: Job[] }>('/admin/system/jobs'),
-    enabled: tab === 'jobs',
-  })
-  const retry = useMutation({
-    mutationFn: (id: string) => api(`/admin/system/jobs/${id}/retry`, { method: 'POST' }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['jobs'] }),
-  })
-  return (
-    <div>
-      <PageHeader title="Система" description="Конфігурація внутрішніх workflow і фонових процесів" />
-      <Card className="list-card">
-        <div className="list-toolbar">
-          <Tabs
-            value={tab}
-            onChange={(value) => setParams({ tab: value })}
-            items={[
-              { value: 'processes', label: 'Процеси' },
-              { value: 'directories', label: 'Довідники' },
-              { value: 'notifications', label: 'Сповіщення' },
-              { value: 'brand', label: 'Бренд' },
-              { value: 'jobs', label: 'Фонові роботи' },
-            ]}
-          />
-        </div>
-        {tab === 'jobs' ? (
-          jobs.isLoading ? (
-            <Skeleton rows={7} />
-          ) : jobs.isError ? (
-            <ErrorState />
-          ) : jobs.data?.items.length ? (
-            <div className="responsive-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Робота</th>
-                    <th>Спроби</th>
-                    <th>Оновлено</th>
-                    <th>Стан</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.data.items.map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <span className="job-name">
-                          <ServerCog size={18} />
-                          <span>
-                            <strong>{job.type}</strong>
-                            <small>{job.id}</small>
-                          </span>
-                        </span>
-                      </td>
-                      <td>
-                        {job.attempts} / {job.maxAttempts}
-                      </td>
-                      <td>{formatDateTime(job.updatedAt)}</td>
-                      <td>
-                        <StatusBadge status={job.state} />
-                      </td>
-                      <td>
-                        {job.state === 'FAILED' && (
-                          <Button variant="secondary" onClick={() => retry.mutate(job.id)}>
-                            <RefreshCw size={15} />
-                            Повторити
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState title="Фонових робіт немає" description="Черга порожня." />
-          )
-        ) : (
-          <SystemTab tab={tab} />
-        )}
-      </Card>
-    </div>
-  )
-}
-function SystemTab({ tab }: { tab: string }) {
-  const content: Record<string, { icon: typeof ServerCog; title: string; text: string; items: string[] }> = {
-    processes: {
-      icon: FileClock,
-      title: 'Процеси',
-      text: 'Активні версійовані маршрути заявок та шаблони життєвого циклу.',
-      items: ['Маршрут відсутності', 'Шаблон онбордингу', 'Шаблон офбордингу'],
-    },
-    directories: {
-      icon: Building2,
-      title: 'Довідники',
-      text: 'Активні типи заявок, категорії документів та оголошень.',
-      items: ['Типи заявок', 'Категорії документів', 'Причини відсутності'],
-    },
-    notifications: {
-      icon: CircleAlert,
-      title: 'Матриця сповіщень',
-      text: 'Безпечні канали й пріоритети для кожної категорії подій.',
-      items: ['Погодження', 'Безпека', 'Задачі та згадки'],
-    },
-    brand: {
-      icon: ShieldCheck,
-      title: 'Бренд Lanka',
-      text: 'Runtime wordmark, кольори та локальні assets застосунку.',
-      items: ['Cobalt #1F5EFF', 'Roboto', 'Lanka'],
-    },
-  }
-  const value = content[tab] ?? content.processes!
-  const Icon = value.icon
-  return (
-    <div className="system-summary">
-      <Icon size={30} />
-      <h2>{value.title}</h2>
-      <p>{value.text}</p>
-      <div>
-        {value.items.map((item) => (
-          <span key={item}>
-            <Check size={15} />
-            {item}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function Kpi({
-  icon: Icon,
-  value,
-  label,
-  href,
-  attention = false,
-}: {
-  icon: typeof Users
-  value: string | number
-  label: string
-  href: string
-  attention?: boolean
-}) {
-  return (
-    <Link to={href} className={`kpi-link ${attention ? 'kpi-link--attention' : ''}`}>
-      <span>
-        <Icon size={20} />
-      </span>
-      <div>
-        <strong>{value}</strong>
-        <small>{label}</small>
-      </div>
-      <ChevronRight size={18} />
-    </Link>
   )
 }

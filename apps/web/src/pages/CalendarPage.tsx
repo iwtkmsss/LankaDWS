@@ -174,31 +174,29 @@ export default function CalendarPage() {
   }, [setParams])
 
   const calendarTitle = useMemo(() => calendarHeading(view, date), [selectedDate, view])
-  const calendarControls = useMemo(() => (
-    <div className="calendar-actions calendar-actions--topbar">
-      <div className="calendar-nav">
-        <Button variant="secondary" onClick={moveToToday}>Сьогодні</Button>
-        <Button variant="secondary" onClick={() => move(-1)} aria-label="Попередній місяць">
-          <ChevronLeft size={17} />
-        </Button>
-        <strong>{calendarTitle}</strong>
-        <Button variant="secondary" onClick={() => move(1)} aria-label="Наступний місяць">
-          <ChevronRight size={17} />
-        </Button>
-      </div>
-      {canCreate && (
-        <Button onClick={() => {
-          setCreateDate(null)
-          setCreateTitle('')
-          setCreateOpen(true)
-        }}>
-          <CalendarPlus size={17} />
-          Створити подію
-        </Button>
-      )}
+  const calendarAction = useMemo(() => canCreate ? (
+    <Button className="calendar-create-action" onClick={() => {
+      setCreateDate(null)
+      setCreateTitle('')
+      setCreateOpen(true)
+    }}>
+      <CalendarPlus size={17} />
+      <span>Створити подію</span>
+    </Button>
+  ) : null, [canCreate])
+  const calendarNavigation = useMemo(() => (
+    <div className="calendar-nav calendar-nav--topbar">
+      <Button variant="secondary" onClick={moveToToday}>Сьогодні</Button>
+      <Button variant="secondary" onClick={() => move(-1)} aria-label="Попередній місяць">
+        <ChevronLeft size={17} />
+      </Button>
+      <strong>{calendarTitle}</strong>
+      <Button variant="secondary" onClick={() => move(1)} aria-label="Наступний місяць">
+        <ChevronRight size={17} />
+      </Button>
     </div>
-  ), [calendarTitle, canCreate, move, moveToToday])
-  useTopbarContent(calendarControls)
+  ), [calendarTitle, move, moveToToday])
+  useTopbarContent(calendarAction)
 
   return (
     <div>
@@ -223,6 +221,7 @@ export default function CalendarPage() {
                   { value: 'schedule', label: 'Розклад' },
                 ]}
               />
+              {calendarNavigation}
               <Tabs
                 value={scope}
                 onChange={(value) => setParams((current) => {

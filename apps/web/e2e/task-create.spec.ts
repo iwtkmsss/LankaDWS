@@ -90,13 +90,13 @@ test('shared modal shell traps focus, guards dirty closure and stays responsive'
   await confirmation.getByRole('button', { name: 'Продовжити редагування' }).click()
   await expect(confirmation).toHaveCount(0)
 
-  await page.locator('.sidebar a[href="/overview"]').evaluate((element) => {
+  await page.locator('.sidebar a[href="/feed"]').evaluate((element) => {
     (element as HTMLElement).click()
   })
   await expect(confirmation).toBeVisible()
   await expect(page).toHaveURL(/\/tasks\/new$/)
   await confirmation.getByRole('button', { name: 'Зберегти чернетку і закрити' }).click()
-  await expect(page).toHaveURL(/\/overview$/)
+  await expect(page).toHaveURL(/\/feed$/)
   await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe('')
 })
 

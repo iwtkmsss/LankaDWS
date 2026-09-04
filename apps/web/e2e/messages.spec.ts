@@ -34,8 +34,9 @@ test('messages workspace covers user-only search, direct history and real chat a
   await login(page)
   await page.goto('/messages')
 
-  await expect(page.getByRole('heading', { name: 'Повідомлення', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Новий чат' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Повідомлення', exact: true })).toHaveCount(0)
+  await expect(page.locator('.topbar').getByRole('button', { name: 'Новий чат' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Пошук користувачів' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Створити', exact: true })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: /Усі/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Непрочитані/ })).toBeVisible()
@@ -137,7 +138,8 @@ test('messages workspace covers user-only search, direct history and real chat a
     await expect(page.locator('.bottom-nav')).toBeHidden()
     await conversation.getByRole('button', { name: 'До списку діалогів' }).click()
     await expect(page).toHaveURL(/\/messages(?:\?|$)/)
-    await expect(page.getByRole('heading', { name: 'Повідомлення' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Повідомлення' })).toHaveCount(0)
+    await expect(page.getByRole('combobox', { name: 'Пошук користувачів' })).toBeVisible()
   }
 })
 

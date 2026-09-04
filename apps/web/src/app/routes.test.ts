@@ -19,11 +19,8 @@ describe('canonical route registry', () => {
     expect(routes.find((route) => route.path === '/employees/org')?.nav).toBeUndefined()
     expect(routes.find((route) => route.path === '/companies')).toMatchObject({ title: 'Організація' })
     expect(routes.find((route) => route.path === '/companies')?.nav).toBeUndefined()
-    expect(routes.find((route) => route.path === '/overview')).toMatchObject({
-      title: 'Огляд',
-      navGroup: 'primary',
-      navOrder: 8,
-    })
+    expect(routes.find((route) => route.path === '/overview')).toBeUndefined()
+    expect(routes.find((route) => route.path === '/analytics')).toBeUndefined()
     expect(routes.find((route) => route.path === '/feed')).toMatchObject({
       title: 'Жива стрічка',
       capability: 'FEED',
@@ -33,7 +30,8 @@ describe('canonical route registry', () => {
   })
 
   it('resolves stable titles for list and deep-link routes', () => {
-    expect(routeTitle('/overview')).toBe('Огляд')
+    expect(routeTitle('/overview')).toBe('Сторінку не знайдено')
+    expect(routeTitle('/analytics')).toBe('Сторінку не знайдено')
     expect(routeTitle('/feed')).toBe('Жива стрічка')
     expect(routeTitle('/requests/req_123')).toBe('Сторінку не знайдено')
     expect(routeTitle('/admin/users/usr_123')).toBe('Користувач')
@@ -42,7 +40,7 @@ describe('canonical route registry', () => {
 
   it('keeps the approved mobile footer and overflow order explicit', () => {
     expect(mobileNavigation.primary).toEqual(['/feed', '/tasks', '/messages', '/drive'])
-    expect(mobileNavigation.more).toEqual(['/calendar', '/organization', '/overview'])
+    expect(mobileNavigation.more).toEqual(['/calendar', '/organization'])
     expect(mobileNavigationLabels['/organization']).toBe('Організація')
     const configuredRoutes = [...mobileNavigation.primary, ...mobileNavigation.more]
     expect(new Set(configuredRoutes).size).toBe(configuredRoutes.length)
@@ -50,7 +48,7 @@ describe('canonical route registry', () => {
   })
 
   it('exposes preloaders for the primary desktop destinations', () => {
-    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/organization', '/overview']) {
+    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/organization']) {
       expect(routes.find((route) => route.path === path)?.preload).toEqual(expect.any(Function))
     }
   })
@@ -66,15 +64,13 @@ describe('canonical route registry', () => {
       ]),
     )
     expect(pathsByGroup).toEqual({
-      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/overview'],
+      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar'],
       communication: ['/notifications'],
       company: ['/groups', '/organization'],
-      management: ['/knowledge', '/analytics'],
+      management: ['/knowledge'],
       administration: [
-        '/admin',
         '/admin/users',
         '/admin/audit',
-        '/admin/system',
       ],
     })
     const sidebarPaths = routes.filter((route) => route.nav).map((route) => route.path)
@@ -86,7 +82,8 @@ describe('canonical route registry', () => {
       false,
       (capability) => capability !== 'FEED' && capability !== 'GROUPS_UI',
     ).map((route) => route.path)
-    expect(visiblePaths).toContain('/overview')
+    expect(visiblePaths).not.toContain('/overview')
+    expect(visiblePaths).not.toContain('/analytics')
     expect(visiblePaths).not.toContain('/feed')
     expect(visiblePaths).not.toContain('/groups')
   })

@@ -12,13 +12,18 @@ export class AnnouncementsController {
     return this.announcements.list(principalFrom(request), company, state)
   }
 
+  @Get('audiences')
+  audiences(@Req() request: BertRequest) {
+    return this.announcements.audiences(principalFrom(request))
+  }
+
   @Post('audience-preview')
-  audience(@Req() request: BertRequest, @Body() body: { companyIds: string[]; roleIds?: string[]; userIds?: string[] }) {
+  audience(@Req() request: BertRequest, @Body() body: { companyIds: string[] }) {
     return this.announcements.audiencePreview(principalFrom(request), body)
   }
 
   @Post()
-  create(@Req() request: BertRequest, @Body() body: { title: string; body: string; companyIds: string[]; roleIds?: string[]; userIds?: string[]; isPinned?: boolean; publishAt?: string; expiresAt?: string }) {
+  create(@Req() request: BertRequest, @Body() body: { title: string; body: string; companyIds: string[]; isPinned?: boolean; publishAt?: string; expiresAt?: string }) {
     return this.announcements.createDraft(principalFrom(request), body)
   }
 

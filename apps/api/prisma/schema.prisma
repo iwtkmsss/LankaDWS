@@ -759,6 +759,7 @@ model OrgUnit {
   sourceKey      String?
   parentId       String?
   name           String
+  description    String?
   normalizedName String
   managerId      String?
   status         RecordStatus        @default(ACTIVE)

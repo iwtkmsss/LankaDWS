@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { StructuredMentionView } from '@bert-crm/contracts'
-import { Link } from 'react-router-dom'
+import { UserProfileLink } from '../../features/employees/UserProfileDrawer'
 
 export function MentionText({ body, mentions }: { body: string; mentions: StructuredMentionView[] }) {
   const ordered = mentions
@@ -14,9 +14,9 @@ export function MentionText({ body, mentions }: { body: string; mentions: Struct
     const text = body.slice(mention.start, mention.end)
     content.push(mention.active
       ? (
-          <Link className="structured-mention" to={`/organization?view=people&employeeId=${mention.userId}`} key={`${mention.start}:${mention.userId}`}>
+          <UserProfileLink className="structured-mention" userId={mention.userId} key={`${mention.start}:${mention.userId}`}>
             {text}
-          </Link>
+          </UserProfileLink>
         )
       : <span className="structured-mention is-inactive" key={`${mention.start}:${mention.userId}`}>{text}</span>)
     cursor = mention.end

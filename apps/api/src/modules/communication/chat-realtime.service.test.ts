@@ -23,6 +23,11 @@ describe('ChatRealtimeService user stream', () => {
   it('publishes one typed event to each active scoped participant', async () => {
     const groupMemberFindMany = vi.fn()
     const prismaMock = {
+      userSession: { findUnique: vi.fn(({ where }: { where: { id: string } }) => Promise.resolve({
+        userId: where.id === 'session-1' ? 'usr_one' : 'usr_two',
+        revokedAt: null, expiresAt: new Date(Date.now() + 60_000), lastSeenAt: new Date(), authorizationVersion: 1,
+        user: { isActive: true, accountType: 'USER', authorizationVersion: 1, primaryCompany: { isActive: true } },
+      })) },
       messageThread: {
         findUnique: vi.fn().mockResolvedValue({
           companyId: 'company-1',
@@ -52,6 +57,8 @@ describe('ChatRealtimeService user stream', () => {
 
     await realtime.publish('thread-1', 'message.created', 'message-1')
 
+    await vi.waitFor(() => expect(first.filter((event) => event.type === 'chat')).toHaveLength(1))
+    await vi.waitFor(() => expect(second.filter((event) => event.type === 'chat')).toHaveLength(1))
     for (const events of [first, second]) {
       expect(events.filter((event) => event.type === 'chat')).toHaveLength(1)
       const event = chatRealtimeEventSchema.parse(
@@ -65,5 +72,38 @@ describe('ChatRealtimeService user stream', () => {
     expect(groupMemberFindMany).not.toHaveBeenCalled()
     firstSubscription.unsubscribe()
     secondSubscription.unsubscribe()
+  })
+})
+
+
+describe('ChatRealtimeService revoked sessions', () => {
+  it.each(['user', 'thread'])('closes an existing %s stream after deactivation without delivering another event', async (kind) => {
+    let active = true
+    const prisma = {
+      userSession: { findUnique: vi.fn(() => Promise.resolve({
+        userId: principal.userId, revokedAt: active ? null : new Date(),
+        expiresAt: new Date(Date.now() + 60_000), lastSeenAt: new Date(), authorizationVersion: 1,
+        user: { isActive: active, accountType: 'USER', authorizationVersion: active ? 1 : 2, primaryCompany: { isActive: true } },
+      })) },
+      messageThread: { findFirst: vi.fn().mockResolvedValue({ id: 'thread-1' }) },
+    }
+    const realtime = new ChatRealtimeService(prisma as never)
+    const events: MessageEvent[] = []
+    const error = vi.fn()
+    const stream = kind === 'user' ? realtime.userStream(principal) : realtime.stream({ ...principal, accountType: 'ADMIN' }, 'thread-1')
+    vi.useFakeTimers()
+    const subscription = stream.subscribe({ next: (event) => events.push(event), error })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(events).toHaveLength(1)
+    active = false
+    try {
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ status: 401 }))
+      expect(events).toHaveLength(1)
+      expect(subscription.closed).toBe(true)
+    } finally {
+      subscription.unsubscribe()
+      vi.useRealTimers()
+    }
   })
 })

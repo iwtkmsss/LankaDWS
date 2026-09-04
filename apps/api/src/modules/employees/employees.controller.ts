@@ -124,20 +124,24 @@ export class EmployeesController {
     const user = await this.prisma.user.findFirst({
       where: {
         id: employeeId,
+        workspaceId: principal.workspaceId,
         isActive: true,
-        accountType: 'USER',
-        primaryCompanyId: { in: companyIds },
+        OR: [
+          { accountType: 'USER', primaryCompanyId: { in: companyIds } },
+          { accountType: 'ADMIN' },
+        ],
       },
       select: {
         id: true,
         displayName: true,
+        username: true,
         jobTitle: true,
         primaryCompanyId: true,
-        timezone: true,
-        locale: true,
+        primaryCompany: { select: { id: true, displayName: true } },
         avatarAsset: true,
         approverId: true,
         contactEmail: true,
+        phone: true,
         orgAssignments: {
           where: { companyId: { in: companyIds }, endedAt: null, orgUnit: { status: 'ACTIVE' } },
           select: {

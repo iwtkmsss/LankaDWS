@@ -106,7 +106,7 @@ export class MeController {
 
   @Get('avatar/:fileId')
   async avatar(@Param('fileId') fileId: string, @Req() request: BertRequest, @Res() response: Response) {
-    const file = await this.files.download(principalFrom(request), fileId)
+    const file = await this.files.downloadAvatar(principalFrom(request), fileId)
     if (!file.mime.startsWith('image/')) throw badRequest('avatar_type')
     response.setHeader('Content-Type', file.mime)
     response.setHeader('Content-Disposition', 'inline')

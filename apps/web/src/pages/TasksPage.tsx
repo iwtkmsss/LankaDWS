@@ -42,6 +42,7 @@ import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { TaskListColumnsControl, useTaskListColumnsPreference } from '../features/tasks/list/TaskListColumns'
 import {
   TaskDetailCustomization,
@@ -222,6 +223,12 @@ function TasksListPage() {
       <PageHeader
         title="Завдання"
         description="Окремі робочі списки за вашою роллю в кожному завданні"
+        action={(
+          <Link className="button button--primary" to="/tasks/new">
+            <Plus size={17} />
+            Створити завдання
+          </Link>
+        )}
       />
       <Card className="list-card task-list-card">
         <div className="list-toolbar">
@@ -549,10 +556,14 @@ function TasksListPage() {
                       {task.responsibles.length ? (
                         <span className="person-cell task-responsibles">
                           {task.responsibles.map((responsible) => (
-                            <span key={responsible.id}>
+                            <UserProfileLink
+                              className="task-list-person"
+                              key={responsible.id}
+                              userId={responsible.id}
+                            >
                               <Avatar size="sm" name={responsible.displayName} src={responsible.avatarAsset} />
                               {responsible.displayName}
-                            </span>
+                            </UserProfileLink>
                           ))}
                         </span>
                       ) : '—'}
@@ -569,7 +580,7 @@ function TasksListPage() {
                       ) : '—'}
                     </td>}
                     {taskListColumns.visible.includes('status') && <td data-label="Статус"><StatusBadge status={task.status} /></td>}
-                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><span className="person-cell"><Avatar size="sm" name={task.reporter.displayName} src={task.reporter.avatarAsset} />{task.reporter.displayName}</span></td>}
+                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><UserProfileLink className="person-cell" userId={task.reporter.id}><Avatar size="sm" name={task.reporter.displayName} src={task.reporter.avatarAsset} />{task.reporter.displayName}</UserProfileLink></td>}
                     {taskListColumns.visible.includes('group') && <td data-label="Група">{task.group?.name ?? '—'}</td>}
                     {taskListColumns.visible.includes('priority') && <td data-label="Пріоритет">{taskPriorityLabel(task.priority)}</td>}
                     {taskListColumns.visible.includes('subtaskProgress') && <td data-label="Підзадачі">{task.subtaskProgress.total ? `${task.subtaskProgress.done}/${task.subtaskProgress.total}` : '—'}</td>}
@@ -590,13 +601,6 @@ function TasksListPage() {
           <EmptyState
             title={taskRoleEmptyState(role).title}
             description={taskRoleEmptyState(role).description}
-            action={
-              (
-                <Link className="button button--primary" to="/tasks/new">
-                  Створити завдання
-                </Link>
-              )
-            }
           />
         )}
         {query.data && query.data.total > query.data.pageSize && (
@@ -1381,18 +1385,23 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             </header>
             {query.data.approval.current ? (
               <div className="task-approval__current">
-                <Avatar
-                  size="sm"
-                  name={query.data.approval.current.approver.displayName}
-                  src={query.data.approval.current.approver.avatarAsset}
-                />
-                <span>
-                  <strong>{query.data.approval.current.approver.displayName}</strong>
-                  <small>
-                    Очікуємо рішення від {formatDateTime(query.data.approval.current.requestedAt)}.
-                    Зміна змісту поверне завдання в роботу й закриє цей раунд.
-                  </small>
-                </span>
+                <UserProfileLink
+                  className="task-approval__person"
+                  userId={query.data.approval.current.approver.id}
+                >
+                  <Avatar
+                    size="sm"
+                    name={query.data.approval.current.approver.displayName}
+                    src={query.data.approval.current.approver.avatarAsset}
+                  />
+                  <span>
+                    <strong>{query.data.approval.current.approver.displayName}</strong>
+                    <small>
+                      Очікуємо рішення від {formatDateTime(query.data.approval.current.requestedAt)}.
+                      Зміна змісту поверне завдання в роботу й закриє цей раунд.
+                    </small>
+                  </span>
+                </UserProfileLink>
               </div>
             ) : query.data.approval.canRequest ? (
               <div className="task-approval__request">
@@ -1509,8 +1518,10 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <div>
               <dt>Виконавець</dt>
               <dd>
-                <Avatar size="sm" name={query.data.assignee.displayName} />
-                {query.data.assignee.displayName}
+                <UserProfileLink className="detail-person" userId={query.data.assignee.id}>
+                  <Avatar size="sm" name={query.data.assignee.displayName} />
+                  {query.data.assignee.displayName}
+                </UserProfileLink>
               </dd>
             </div>
             <div>
@@ -1523,7 +1534,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             </div>
             <div>
               <dt>Автор</dt>
-              <dd>{query.data.creator?.displayName}</dd>
+              <dd><UserProfileLink userId={query.data.creator.id}>{query.data.creator.displayName}</UserProfileLink></dd>
             </div>
           </dl>
           <TaskDetailCustomization controller={detailPreference} />
@@ -1657,21 +1668,21 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <div className="task-role-grid">
               <div className="task-role-group">
                 <span>Відповідальний</span>
-                <div className="task-person-chip">
+                <UserProfileLink className="task-person-chip" userId={query.data.assignee.id}>
                   <Avatar
                     size="sm"
                     name={query.data.assignee.displayName}
                     src={query.data.assignee.avatarAsset}
                   />
                   <strong>{query.data.assignee.displayName}</strong>
-                </div>
+                </UserProfileLink>
               </div>
               <div className="task-role-group">
                 <span>Постановник</span>
-                <div className="task-person-chip">
+                <UserProfileLink className="task-person-chip" userId={query.data.creator.id}>
                   <Avatar size="sm" name={query.data.creator.displayName} />
                   <strong>{query.data.creator.displayName}</strong>
-                </div>
+                </UserProfileLink>
               </div>
               <TaskParticipantGroup
                 label="Співвиконавці"
@@ -2112,14 +2123,20 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               <div className="task-comments">
                 {query.data.comments.map((item) => (
                   <article className={item.replyToCommentId ? 'is-reply' : ''} key={item.id}>
-                    <Avatar
-                      size="sm"
-                      name={item.author.displayName}
-                      src={item.author.avatarAsset}
-                    />
+                    <UserProfileLink
+                      className="task-comment__author-avatar"
+                      userId={item.author.id}
+                      aria-label={`Відкрити профіль ${item.author.displayName}`}
+                    >
+                      <Avatar
+                        size="sm"
+                        name={item.author.displayName}
+                        src={item.author.avatarAsset}
+                      />
+                    </UserProfileLink>
                     <div>
                       <header>
-                        <strong>{item.author.displayName}</strong>
+                        <UserProfileLink userId={item.author.id}>{item.author.displayName}</UserProfileLink>
                         <time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
                       </header>
                       {item.replyPreview && (
@@ -2403,12 +2420,14 @@ function TaskParticipantGroup({
         <div className="task-role-people">
           {participants.map((participant) => (
             <div className="task-person-chip" key={participant.id}>
-              <Avatar
-                size="sm"
-                name={participant.user.displayName}
-                src={participant.user.avatarAsset}
-              />
-              <strong>{participant.user.displayName}</strong>
+              <UserProfileLink className="task-person-chip__profile" userId={participant.user.id}>
+                <Avatar
+                  size="sm"
+                  name={participant.user.displayName}
+                  src={participant.user.avatarAsset}
+                />
+                <strong>{participant.user.displayName}</strong>
+              </UserProfileLink>
               {canRemove && (
                 <button
                   type="button"

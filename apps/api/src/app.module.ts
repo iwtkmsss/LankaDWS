@@ -3,7 +3,6 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core'
 import { ProblemFilter } from './common/errors.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { AdminModule } from './modules/admin/admin.module.js'
-import { AnalyticsModule } from './modules/analytics/analytics.module.js'
 import { AnnouncementsModule } from './modules/announcements/announcements.module.js'
 import { AuditModule } from './modules/audit/audit.module.js'
 import { AuthModule } from './modules/auth/auth.module.js'
@@ -49,7 +48,6 @@ import { UiPreferencesModule } from './modules/preferences/ui-preferences.module
     LifecycleModule,
     AnnouncementsModule,
     CommunicationModule,
-    AnalyticsModule,
     DashboardModule,
     AdminModule,
     CompaniesModule,

@@ -10,7 +10,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
-type ManagerRow = { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null }
+type ManagerRow = { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null; accountType: 'ADMIN' | 'USER' }
 const normalizeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 const normalizedName = (value: string) => normalizeName(value).toLocaleLowerCase('uk')
 
@@ -30,7 +30,7 @@ export class OrgService {
   }
 
   private managerView(manager: ManagerRow | null, companyId: string) {
-    if (!manager?.isActive || manager.primaryCompanyId !== companyId) return null
+    if (!manager?.isActive || (manager.accountType !== 'ADMIN' && manager.primaryCompanyId !== companyId)) return null
     return { id: manager.id, displayName: manager.displayName, jobTitle: manager.jobTitle }
   }
 
@@ -38,8 +38,8 @@ export class OrgService {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, workspaceId: principal.workspaceId },
       select: {
-        id: true, displayName: true, version: true,
-        manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
+        id: true, displayName: true, description: true, version: true,
+        manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } },
       },
     })
     if (!company) throw notFound()
@@ -48,7 +48,7 @@ export class OrgService {
 
   private async manager(principal: AuthPrincipal, companyId: string, managerId: string) {
     const manager = await this.prisma.user.findFirst({
-      where: { id: managerId, workspaceId: principal.workspaceId, primaryCompanyId: companyId, accountType: 'USER', isActive: true },
+      where: { id: managerId, workspaceId: principal.workspaceId, isActive: true, OR: [{ accountType: 'ADMIN' }, { accountType: 'USER', primaryCompanyId: companyId }] },
       select: { id: true },
     })
     if (!manager) throw notFound()
@@ -97,8 +97,8 @@ export class OrgService {
 
   private unitSelect(companyId: string) {
     return {
-      id: true, companyId: true, parentId: true, name: true, status: true, sortOrder: true, version: true,
-      manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
+      id: true, companyId: true, parentId: true, name: true, description: true, status: true, sortOrder: true, version: true,
+      manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } },
       _count: { select: {
         children: { where: { status: 'ACTIVE' as const } },
         assignments: { where: { endedAt: null, isPrimary: true, user: { isActive: true, accountType: 'USER' as const, primaryCompanyId: companyId } } },
@@ -107,12 +107,12 @@ export class OrgService {
   }
 
   private unitView(unit: {
-    id: string; companyId: string; parentId: string | null; name: string; manager: ManagerRow | null
+    id: string; companyId: string; parentId: string | null; name: string; description: string | null; manager: ManagerRow | null
     status: 'ACTIVE' | 'ARCHIVED' | 'INACTIVE'; sortOrder: number; version: number
     _count: { children: number; assignments: number }
   }): OrgUnitView {
     return {
-      id: unit.id, companyId: unit.companyId, parentId: unit.parentId, name: unit.name,
+      id: unit.id, companyId: unit.companyId, parentId: unit.parentId, name: unit.name, description: unit.description,
       manager: this.managerView(unit.manager, unit.companyId), activeEmployeeCount: unit._count.assignments,
       childCount: unit._count.children, sortOrder: unit.sortOrder, version: unit.version,
     }
@@ -130,7 +130,7 @@ export class OrgService {
       select: this.unitSelect(companyId), orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
     return {
-      company: { id: company.id, name: company.displayName, manager: this.managerView(company.manager, company.id), version: company.version },
+      company: { id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
       items: units.map((unit) => this.unitView(unit)),
     }
   }
@@ -145,7 +145,7 @@ export class OrgService {
       select: this.unitSelect(companyId), orderBy: [{ status: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
     return {
-      company: { id: company.id, name: company.displayName, manager: this.managerView(company.manager, company.id), version: company.version },
+      company: { id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
       items: units.map((unit) => ({ ...this.unitView(unit), status: unit.status as 'ACTIVE' | 'ARCHIVED' })),
     }
   }
@@ -160,13 +160,13 @@ export class OrgService {
     const sortOrder = await this.nextSortOrder(companyId, parentId)
     const unit = await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
       const created = await tx.orgUnit.create({ data: {
-        id: unitId, workspaceId: principal.workspaceId, companyId, parentId, name: normalizeName(input.name),
+        id: unitId, workspaceId: principal.workspaceId, companyId, parentId, name: normalizeName(input.name), description: input.description || null,
         normalizedName: normalizedName(input.name), managerId: input.managerId ?? null, sortOrder,
       } })
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.created', entityType: 'ORG_UNIT', entityId: unitId, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ parentId, managerId: input.managerId ?? null }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ parentId, description: input.description || null, managerId: input.managerId ?? null }), correlationId: id('corr'),
       } })
       return created
     }))
@@ -178,6 +178,7 @@ export class OrgService {
     if (!unit) throw notFound()
     if (unit.version !== input.expectedVersion) throw conflict('Підрозділ уже змінено іншим адміністратором.')
     const nextName = input.name ?? unit.name
+    const nextDescription = input.description !== undefined ? input.description || null : unit.description
     const nextParentId = input.parentId !== undefined ? input.parentId : unit.parentId
     if (nextParentId === unit.id) throw conflict('Підрозділ не може бути батьком самого себе.')
     if (input.parentId !== undefined && nextParentId) {
@@ -192,7 +193,7 @@ export class OrgService {
       const updated = await tx.orgUnit.updateMany({
         where: { id: unit.id, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE', version: input.expectedVersion },
         data: {
-          name: normalizeName(nextName), normalizedName: normalizedName(nextName), parentId: nextParentId, sortOrder,
+          name: normalizeName(nextName), description: nextDescription, normalizedName: normalizedName(nextName), parentId: nextParentId, sortOrder,
           ...(input.managerId !== undefined ? { managerId: input.managerId } : {}), version: { increment: 1 },
         },
       })
@@ -200,7 +201,7 @@ export class OrgService {
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.updated', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ name: normalizeName(nextName), parentId: nextParentId, managerId: input.managerId }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId }), correlationId: id('corr'),
       } })
     }))
     return { id: unit.id, version: input.expectedVersion + 1 }

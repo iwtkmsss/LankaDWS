@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   login: vi.fn(),
   refresh: vi.fn(),
   api: vi.fn(),
+  state: 'anonymous' as 'loading' | 'anonymous',
 }))
 
 vi.mock('react-router-dom', async (importOriginal) => ({
@@ -16,7 +17,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 }))
 
 vi.mock('../shared/auth/AuthProvider', () => ({
-  useAuth: () => ({ state: 'anonymous', login: mocks.login, refresh: mocks.refresh }),
+  useAuth: () => ({ state: mocks.state, login: mocks.login, refresh: mocks.refresh }),
 }))
 
 vi.mock('../shared/api/client', () => ({
@@ -34,6 +35,7 @@ describe('auth completion navigation', () => {
     mocks.login.mockReset()
     mocks.refresh.mockReset().mockResolvedValue(undefined)
     mocks.api.mockReset().mockResolvedValue(undefined)
+    mocks.state = 'anonymous'
   })
 
   it('sends password login completion to the canonical root', async () => {
@@ -43,6 +45,13 @@ describe('auth completion navigation', () => {
     fireEvent.change(document.querySelector('input[autocomplete="current-password"]')!, { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: 'Увійти' }))
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true }))
+  })
+
+  it('keeps the login form hidden while the existing session is being checked', () => {
+    mocks.state = 'loading'
+    renderPage(<LoginPage />)
+    expect(screen.getByRole('status', { name: 'Завантаження' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Увійти до Lanka' })).not.toBeInTheDocument()
   })
 
   it.each([

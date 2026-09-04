@@ -9,8 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 export class CompaniesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private view(company: { id: string; displayName: string; code: string; description: string | null; isActive: boolean; timezone: string; version: number; createdAt: Date; updatedAt: Date; manager?: { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null } | null }) {
-    const manager = company.manager?.isActive && company.manager.primaryCompanyId === company.id
+  private view(company: { id: string; displayName: string; code: string; description: string | null; isActive: boolean; timezone: string; version: number; createdAt: Date; updatedAt: Date; manager?: { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null; accountType: 'ADMIN' | 'USER' } | null }) {
+    const manager = company.manager?.isActive && (company.manager.accountType === 'ADMIN' || company.manager.primaryCompanyId === company.id)
       ? { id: company.manager.id, displayName: company.manager.displayName, jobTitle: company.manager.jobTitle }
       : null
     return { id: company.id, name: company.displayName, slug: company.code, description: company.description, isActive: company.isActive, timezone: company.timezone, version: company.version, manager, createdAt: company.createdAt.toISOString(), updatedAt: company.updatedAt.toISOString() }
@@ -19,14 +19,14 @@ export class CompaniesService {
   async list(principal: AuthPrincipal, activeOnly = false) {
     const companies = await this.prisma.company.findMany({
       where: { workspaceId: principal.workspaceId, ...(activeOnly ? { isActive: true } : {}) },
-      include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } }, _count: { select: { primaryUsers: true, orgUnits: true } } },
+      include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } }, _count: { select: { primaryUsers: true, orgUnits: true } } },
       orderBy: { displayName: 'asc' },
     })
     return { items: companies.map((company) => ({ ...this.view(company), userCount: company._count.primaryUsers, unitCount: company._count.orgUnits })) }
   }
 
   async detail(principal: AuthPrincipal, companyId: string, activeOnly = false) {
-    const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId, ...(activeOnly ? { isActive: true } : {}) }, include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } } } })
+    const company = await this.prisma.company.findFirst({ where: { id: companyId, workspaceId: principal.workspaceId, ...(activeOnly ? { isActive: true } : {}) }, include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } } } })
     if (!company) throw notFound()
     const [users, units, members] = await Promise.all([
       this.prisma.user.count({ where: { workspaceId: principal.workspaceId, primaryCompanyId: companyId } }),
@@ -49,7 +49,7 @@ export class CompaniesService {
     if (!existing) throw notFound()
     const sameSlug = await this.prisma.company.findFirst({ where: { workspaceId: principal.workspaceId, code: input.slug, id: { not: companyId } } })
     if (sameSlug) throw conflict('company_slug_taken')
-    const company = await this.prisma.company.update({ where: { id: companyId }, data: { displayName: input.name, legalName: input.name, code: input.slug, description: input.description, timezone: input.timezone, isActive: input.isActive, version: { increment: 1 } }, include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } } } })
+    const company = await this.prisma.company.update({ where: { id: companyId }, data: { displayName: input.name, legalName: input.name, code: input.slug, description: input.description, timezone: input.timezone, isActive: input.isActive, version: { increment: 1 } }, include: { manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } } } })
     return this.view(company)
   }
 
@@ -59,7 +59,7 @@ export class CompaniesService {
     if (company.version !== input.expectedVersion) throw conflict('Компанію вже змінено іншим адміністратором.')
     if (input.managerId) {
       const manager = await this.prisma.user.findFirst({
-        where: { id: input.managerId, workspaceId: principal.workspaceId, primaryCompanyId: companyId, accountType: 'USER', isActive: true },
+        where: { id: input.managerId, workspaceId: principal.workspaceId, isActive: true, OR: [{ accountType: 'ADMIN' }, { accountType: 'USER', primaryCompanyId: companyId }] },
         select: { id: true },
       })
       if (!manager) throw notFound()

@@ -213,10 +213,37 @@ export class AuthService {
   async me(principal: AuthPrincipal, csrfToken: string): Promise<PrincipalView> {
     const user = await this.prisma.user.findUnique({
       where: { id: principal.userId },
-      include: { primaryCompany: true },
+      include: {
+        primaryCompany: true,
+        orgAssignments: {
+          where: { endedAt: null },
+          orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
+          select: { companyId: true, orgUnitId: true, positionTitle: true },
+        },
+      },
     })
     if (!user) throw notFound()
-    const capabilities = await this.capabilities.forOrganizations(principal.allowedCompanyIds)
+    const assignment = user.primaryCompanyId
+      ? user.orgAssignments.find((item) => item.companyId === user.primaryCompanyId)
+      : undefined
+    const [capabilities, orgUnits] = await Promise.all([
+      this.capabilities.forOrganizations(principal.allowedCompanyIds),
+      assignment && user.primaryCompanyId
+        ? this.prisma.orgUnit.findMany({
+            where: { workspaceId: principal.workspaceId, companyId: user.primaryCompanyId },
+            select: { id: true, name: true, parentId: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const unitsById = new Map(orgUnits.map((unit) => [unit.id, unit]))
+    const orgUnitPath: Array<{ id: string; name: string }> = []
+    const visited = new Set<string>()
+    let currentUnit = assignment ? unitsById.get(assignment.orgUnitId) : undefined
+    while (currentUnit && !visited.has(currentUnit.id)) {
+      visited.add(currentUnit.id)
+      orgUnitPath.unshift({ id: currentUnit.id, name: currentUnit.name })
+      currentUnit = currentUnit.parentId ? unitsById.get(currentUnit.parentId) : undefined
+    }
     return {
       id: user.id,
       displayName: user.displayName,
@@ -224,6 +251,8 @@ export class AuthService {
       jobTitle: user.jobTitle,
       avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset,
       company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, description: user.primaryCompany.description, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
+      positionTitle: assignment?.positionTitle ?? user.jobTitle,
+      orgUnitPath,
       accountType: user.accountType,
       contactEmail: user.contactEmail,
       phone: user.phone,

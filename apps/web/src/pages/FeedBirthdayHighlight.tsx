@@ -1,6 +1,6 @@
 import type { FeedBirthdayView } from '@bert-crm/contracts'
 import { CakeSlice, ChevronRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { Avatar, Card } from '../shared/ui'
 
 export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayView[] }) {
@@ -15,10 +15,10 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
       </header>
       <div className="feed-birthday-highlight__people">
         {birthdays.map((birthday) => (
-          <Link
+          <UserProfileLink
             key={birthday.id}
             className={birthday.isToday ? 'is-today' : undefined}
-            to={`/organization?view=people&employeeId=${birthday.id}`}
+            userId={birthday.id}
           >
             <Avatar name={birthday.displayName} src={birthday.avatarAsset} />
             <span>
@@ -26,7 +26,7 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
               <small>День народження · {formatBirthdayDate(birthday.birthdayDate)}</small>
             </span>
             <ChevronRight size={17} aria-hidden />
-          </Link>
+          </UserProfileLink>
         ))}
       </div>
     </Card>

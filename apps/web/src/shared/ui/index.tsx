@@ -1,6 +1,7 @@
 import { useEffect, useId, useState, type ButtonHTMLAttributes, type PropsWithChildren, type ReactNode } from 'react'
 import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle } from 'lucide-react'
 import { statusLabels } from '../lib/format'
+import { useTopbarContent } from '../../layout/TopbarContent'
 
 export {
   ConfirmationDialog,
@@ -43,9 +44,32 @@ export function BrandMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
 
 export function Card({ children, className = '' }: PropsWithChildren<{ className?: string }>) { return <section className={`card ${className}`}>{children}</section> }
 
-export function Avatar({ name, src, size = 'md' }: { name: string; src?: string | null; size?: 'sm' | 'md' | 'lg' }) {
-  const initials = name.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase()
-  return <span className={`avatar avatar--${size}`}>{src ? <img src={src} alt="" width={size === 'lg' ? 72 : size === 'sm' ? 28 : 38} height={size === 'lg' ? 72 : size === 'sm' ? 28 : 38} /> : initials}</span>
+export function Avatar({ src, size = 'md' }: { name: string; src?: string | null; size?: 'sm' | 'md' | 'lg' }) {
+  const imageSrc = src?.startsWith('file_')
+    ? `/api/v1/me/avatar/${encodeURIComponent(src)}`
+    : src
+  const [failedSrc, setFailedSrc] = useState<string | null>(null)
+  const showImage = Boolean(imageSrc && imageSrc !== failedSrc)
+
+  return <span className={`avatar avatar--${size}${showImage ? '' : ' avatar--placeholder'}`}>
+    {showImage
+      ? <img src={imageSrc!} alt="" width={size === 'lg' ? 72 : size === 'sm' ? 28 : 38} height={size === 'lg' ? 72 : size === 'sm' ? 28 : 38} onError={() => setFailedSrc(imageSrc!)} />
+      : <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="#c8c8c8"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-5 0-9 2.5-9 5.5V21h18v-1.5c0-3-4-5.5-9-5.5Z" /></svg>}
+  </span>
+}
+
+export function CompactFileName({ fileName, className = '' }: { fileName: string; className?: string }) {
+  const extensionStart = fileName.lastIndexOf('.')
+  const hasExtension = extensionStart > 0 && extensionStart < fileName.length - 1
+  const stem = hasExtension ? fileName.slice(0, extensionStart) : fileName
+  const extension = hasExtension ? fileName.slice(extensionStart) : ''
+
+  return (
+    <span className={`compact-file-name ${className}`.trim()} title={fileName}>
+      <span className="compact-file-name__stem">{stem}</span>
+      {extension && <span className="compact-file-name__extension">{extension}</span>}
+    </span>
+  )
 }
 
 export function StatusBadge({ status }: { status: string }) {
@@ -147,6 +171,6 @@ export function Tabs({ value, items, onChange }: { value: string; items: Array<{
 }
 
 export function PageHeader({ action }: { title: string; description?: string; action?: ReactNode }) {
-  if (!action) return null
-  return <header className="page-header page-header--actions-only">{action}</header>
+  useTopbarContent(action ?? null)
+  return null
 }

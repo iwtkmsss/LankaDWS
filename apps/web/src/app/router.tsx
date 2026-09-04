@@ -8,6 +8,7 @@ import { routes, routeTitle, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
 import { ModuleUnavailablePage } from '../pages/ModuleUnavailablePage'
+import { UserProfileProvider } from '../features/employees/UserProfileDrawer'
 
 function DocumentTitle() {
   const location = useLocation()
@@ -31,7 +32,9 @@ function ProtectedRoot() {
     <>
       <DocumentTitle />
       <OverlayProvider>
-        <AppShell><Outlet /></AppShell>
+        <UserProfileProvider>
+          <AppShell><Outlet /></AppShell>
+        </UserProfileProvider>
       </OverlayProvider>
     </>
   )

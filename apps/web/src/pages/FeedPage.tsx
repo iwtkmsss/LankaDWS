@@ -32,6 +32,7 @@ import {
   MessageCircle,
   MoreHorizontal,
   Pencil,
+  Plus,
   Reply,
   Send,
   ShieldCheck,
@@ -60,8 +61,10 @@ import {
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { FeedComposerForm, formatBytes } from './FeedComposerForm'
 import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
+import { FeedOverview } from './FeedOverview'
 
 export function FeedPage() {
   const { user } = useAuth()
@@ -211,7 +214,17 @@ export function FeedPage() {
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
+        action={(
+          <Button onClick={() => {
+            setComposerDirty(false)
+            setComposerOpen(true)
+          }}>
+            <Plus size={17} />
+            Створити публікацію
+          </Button>
+        )}
       />
+      {!hasLegacyFilter && <FeedOverview />}
       <div className="feed-layout">
         <div className="feed-main">
           {hasLegacyFilter && (
@@ -287,15 +300,6 @@ export function FeedPage() {
           {!hasLegacyFilter && (
             <FeedBirthdayHighlight birthdays={firstPage.birthdays} />
           )}
-          <Button
-            className="feed-create-post"
-            onClick={() => {
-              setComposerDirty(false)
-              setComposerOpen(true)
-            }}
-          >
-            Створити публікацію
-          </Button>
         </aside>
       </div>
       {composerOpen && (
@@ -367,7 +371,11 @@ function FeedSourceCard({
         {item.summary && <p>{item.summary}</p>}
         <div className="feed-source-card__meta">
           {item.metadata.map((entry) => <span key={entry}>{entry}</span>)}
-          {item.actor && <span>{item.actor.displayName}</span>}
+          {item.actor && (
+            <UserProfileLink className="feed-source-card__actor" userId={item.actor.id}>
+              {item.actor.displayName}
+            </UserProfileLink>
+          )}
         </div>
       </div>
       <div className="feed-source-card__actions">
@@ -548,11 +556,17 @@ function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => vo
   return (
     <Card className="feed-card">
       <header className="feed-card__header">
-        <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
-        <div>
-          <strong>{item.author.displayName}</strong>
-          <span>{item.audienceLabel} · <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time></span>
-        </div>
+        <UserProfileLink
+          className="feed-card__author"
+          userId={item.author.id}
+          aria-label={`Відкрити профіль ${item.author.displayName}`}
+        >
+          <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
+          <span>
+            <strong>{item.author.displayName}</strong>
+            <small>{item.audienceLabel} · <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time></small>
+          </span>
+        </UserProfileLink>
         <div className="feed-card__header-actions">
           <FavoriteButton
             itemId={item.itemId}
@@ -695,10 +709,16 @@ function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => vo
             <div className="feed-comments__list">
               {item.comments.map((entry) => (
                 <article key={entry.id} className={entry.replyToCommentId ? 'is-reply' : ''}>
-                  <Avatar name={entry.author.displayName} src={entry.author.avatarAsset} size="sm" />
+                  <UserProfileLink
+                    className="feed-comment__author-avatar"
+                    userId={entry.author.id}
+                    aria-label={`Відкрити профіль ${entry.author.displayName}`}
+                  >
+                    <Avatar name={entry.author.displayName} src={entry.author.avatarAsset} size="sm" />
+                  </UserProfileLink>
                   <div>
                     <header>
-                      <strong>{entry.author.displayName}</strong>
+                      <UserProfileLink userId={entry.author.id}>{entry.author.displayName}</UserProfileLink>
                       <time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time>
                     </header>
                     <p><MentionText body={entry.body} mentions={entry.mentions} /></p>

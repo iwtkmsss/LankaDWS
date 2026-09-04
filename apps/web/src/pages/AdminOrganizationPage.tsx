@@ -1,9 +1,11 @@
 import type { AdminOrgUnitView, OrgCompanyView, OrgUnitEmployeeView } from '@bert-crm/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Eye, Pencil, PencilRuler, Plus, RotateCcw, UserRound, X } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Archive, Building2, Eye, List, Pencil, PencilRuler, Plus, RotateCcw, X } from 'lucide-react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { OrganizationMap } from '../features/organization/OrganizationMap'
+import { useTopbarContent } from '../layout/TopbarContent'
+import { CompanyEditor } from './CompaniesPage'
 import { api, jsonBody } from '../shared/api/client'
 import { Button, Card, ConfirmationDialog, Drawer, EmptyState, ErrorState, Skeleton, StatusBadge } from '../shared/ui'
 
@@ -11,6 +13,22 @@ interface AdminUserOption {
   id: string
   displayName: string
   jobTitle: string
+  accountType: 'ADMIN' | 'USER'
+}
+
+interface CompanySettings {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  timezone: string
+  isActive: boolean
+  version: number
+}
+
+interface CompanyOption {
+  id: string
+  name: string
 }
 
 function descendantIds(unitId: string, units: AdminOrgUnitView[]) {
@@ -29,11 +47,14 @@ function descendantIds(unitId: string, units: AdminOrgUnitView[]) {
 
 export default function AdminOrganizationPage() {
   const { companyId = '' } = useParams()
+  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const client = useQueryClient()
   const [editor, setEditor] = useState<{ unit?: AdminOrgUnitView; parentId?: string | null } | null>(null)
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState(() => params.get('editing') === '1')
+  const [creatingCompany, setCreatingCompany] = useState(false)
+  const [companySelected, setCompanySelected] = useState(false)
   const [pendingMove, setPendingMove] = useState<{ employeeId: string; employeeName: string; target: AdminOrgUnitView } | null>(null)
   const query = useQuery({
     queryKey: ['admin-org-units', companyId],
@@ -45,9 +66,20 @@ export default function AdminOrganizationPage() {
     queryFn: () => api<{ items: AdminUserOption[] }>(`/admin/users?companyId=${encodeURIComponent(companyId)}&isActive=true&accountType=USER`),
     enabled: Boolean(companyId),
   })
+  const administrators = useQuery({
+    queryKey: ['admin-users', 'manager-options', 'administrators'],
+    queryFn: () => api<{ items: AdminUserOption[] }>('/admin/users?isActive=true&accountType=ADMIN'),
+  })
+  const companies = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api<{ items: CompanyOption[] }>('/companies'),
+  })
   const archived = query.data?.items.filter((unit) => unit.status === 'ARCHIVED') ?? []
   const selectedId = params.get('unit')
   const selected = query.data?.items.find((unit) => unit.id === selectedId) ?? null
+  const managerCandidates = [...(users.data?.items ?? []), ...(administrators.data?.items ?? [])]
+  const editStructureAction = useMemo(() => <button className={`topbar-action admin-org-edit-toggle ${editing ? 'is-active' : ''}`} type="button" aria-pressed={editing} onClick={() => setEditing((value) => !value)}>{editing ? <PencilRuler size={17} /> : <Eye size={17} />}{editing ? 'Завершити редагування' : 'Редагувати структуру'}</button>, [editing])
+  useTopbarContent(editStructureAction)
   const moveEmployee = useMutation({
     mutationFn: ({ employeeId, target }: { employeeId: string; target: AdminOrgUnitView }) => api(`/admin/companies/${companyId}/org-units/${target.id}/employees`, {
       method: 'PUT', body: jsonBody({ employeeIds: [employeeId], expectedVersion: target.version }),
@@ -61,6 +93,7 @@ export default function AdminOrganizationPage() {
   })
 
   const selectUnit = (unitId: string) => {
+    setCompanySelected(false)
     const next = new URLSearchParams(params)
     next.set('unit', unitId)
     setParams(next)
@@ -77,6 +110,8 @@ export default function AdminOrganizationPage() {
     await client.invalidateQueries({ queryKey: ['admin-org-units', companyId] })
     await client.invalidateQueries({ queryKey: ['admin-company', companyId] })
     await client.invalidateQueries({ queryKey: ['org-units'] })
+    await client.invalidateQueries({ queryKey: ['companies'] })
+    await client.invalidateQueries({ queryKey: ['admin-companies'] })
   }
 
   if (query.isLoading) return <Skeleton rows={7} />
@@ -86,30 +121,37 @@ export default function AdminOrganizationPage() {
     <div className="admin-org-page" onClick={(event) => {
       const target = event.target as HTMLElement
       if (target.closest('.organization-map__panel, .organization-map__node, .admin-org-archive--map button')) return
+      setCompanySelected(false)
       clearSelection()
     }}>
-      <div className="admin-org-subtoolbar">
-        <Link className="admin-org-back" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=structure`}>← До структури</Link>
-        <div className="admin-org-map-actions">
-          {editing ? (
-            <Link className="admin-org-edit-toggle is-active" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=structure`}>
-              <PencilRuler size={17} />Редагування увімкнено
-            </Link>
-          ) : (
-            <button className="admin-org-edit-toggle" type="button" aria-pressed="false" onClick={() => setEditing(true)}>
-              <Eye size={17} />Режим перегляду
-            </button>
-          )}
-          {editing && <Button onClick={() => setEditor({ parentId: selected?.status === 'ACTIVE' ? selected.id : null })}><Plus size={17} />Новий підрозділ</Button>}
-          <button className="button button--secondary" type="button" onClick={() => setShowArchived((value) => !value)}><Archive size={16} />Архів ({archived.length})</button>
+      <Card className="organization-context-bar admin-org-context-bar">
+        <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => {
+          setCompanySelected(false)
+          setEditor(null)
+          setPendingMove(null)
+          navigate(`/admin/companies/${encodeURIComponent(event.target.value)}/structure${editing ? '?editing=1' : ''}`)
+        }}>{(companies.data?.items ?? [query.data.company]).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+          <div className="organization-heading-actions admin-org-context-actions">
+          <div className="admin-org-map-actions">
+            {editing && <Button className="admin-org-create-company" type="button" aria-label="Нова компанія" onClick={() => setCreatingCompany(true)}><Plus size={17} />Нова компанія</Button>}
+            {editing && <Button onClick={() => setEditor({ parentId: selected?.status === 'ACTIVE' ? selected.id : null })}><Plus size={17} />Новий підрозділ</Button>}
+            <button className="button button--secondary" type="button" onClick={() => setShowArchived((value) => !value)}><Archive size={16} />Архів ({archived.length})</button>
+          </div>
+          <div className="organization-view-switch" role="group" aria-label="Режим перегляду">
+            <Link to={`/organization?companyId=${encodeURIComponent(companyId)}&view=people`}><List size={16} />Працівники</Link>
+            <Link className="is-active" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=structure`}><Building2 size={16} />Структура</Link>
+          </div>
         </div>
-      </div>
-      {editing && <CompanyManagerCard company={query.data.company} users={users.data?.items ?? []} companyId={companyId} onSaved={refresh} />}
+      </Card>
       <OrganizationMap
         company={query.data.company}
         units={query.data.items.filter((unit) => unit.status === 'ACTIVE')}
         selectedId={selected?.status === 'ACTIVE' ? selected.id : null}
         onSelect={selectUnit}
+        onSelectCompany={() => {
+          setCompanySelected(true)
+          clearSelection()
+        }}
         editing={editing}
         compactOutline="none"
         onAddRoot={() => setEditor({ parentId: null })}
@@ -121,7 +163,14 @@ export default function AdminOrganizationPage() {
           if (target && employee) setPendingMove({ employeeId, employeeName: employee.displayName, target })
         } : undefined}
         emptyState={<EmptyState title="Підрозділів ще немає" description="Увімкніть редагування та створіть перший відділ." />}
-        sidePanel={selected ? editing ? <UnitDetail
+        sidePanel={companySelected ? <CompanyDetail
+          key={`${query.data.company.id}:${query.data.company.version}`}
+          company={query.data.company}
+          users={managerCandidates}
+          companyId={companyId}
+          editing={editing}
+          onSaved={refresh}
+        /> : selected ? editing ? <UnitDetail
           unit={selected}
           units={query.data.items}
           companyId={companyId}
@@ -130,7 +179,7 @@ export default function AdminOrganizationPage() {
         /> : <header className="admin-org-preview">
           <span className="eyebrow">{selected.status === 'ACTIVE' ? 'Підрозділ' : 'Архівований підрозділ'}</span>
           <h2>{selected.name}</h2>
-          <p>{selected.manager ? `Керівник: ${selected.manager.displayName}` : 'Керівника не призначено'}</p>
+          <p>{selected.description?.trim() || (selected.manager ? `Керівник: ${selected.manager.displayName}` : 'Керівника не призначено')}</p>
           <dl className="admin-org-stats"><div><dt>Працівники</dt><dd>{selected.activeEmployeeCount}</dd></div><div><dt>Дочірні вузли</dt><dd>{selected.childCount}</dd></div></dl>
           <small>Увімкніть редагування, щоб змінити, перенести або архівувати цей вузол.</small>
         </header> : undefined}
@@ -146,8 +195,13 @@ export default function AdminOrganizationPage() {
         unit={editor.unit}
         defaultParentId={editor.parentId}
         users={users.data?.items ?? []}
+        managerCandidates={managerCandidates}
         onClose={() => setEditor(null)}
         onSaved={async (unitId) => { await refresh(); selectUnit(unitId); setEditor(null) }}
+      />}
+      {creatingCompany && <CompanyEditor
+        onClose={() => setCreatingCompany(false)}
+        onCreated={(company) => navigate(`/admin/companies/${encodeURIComponent(company.id)}/structure?editing=1`)}
       />}
       {pendingMove && <ConfirmationDialog
         title="Перевести працівника?"
@@ -165,36 +219,79 @@ export default function AdminOrganizationPage() {
   )
 }
 
-function CompanyManagerCard({ company, users, companyId, onSaved }: { company: OrgCompanyView; users: AdminUserOption[]; companyId: string; onSaved: () => Promise<void> }) {
-  const mutation = useMutation({
-    mutationFn: (managerId: string | null) => api(`/admin/companies/${companyId}/manager`, {
-      method: 'PATCH', body: jsonBody({ managerId, expectedVersion: company.version }),
-    }),
-    onSuccess: onSaved,
+function CompanyDetail({ company, users, companyId, editing, onSaved }: { company: OrgCompanyView; users: AdminUserOption[]; companyId: string; editing: boolean; onSaved: () => Promise<void> }) {
+  const client = useQueryClient()
+  const [managerId, setManagerId] = useState<string | null>(company.manager?.id ?? null)
+  const [managerQuery, setManagerQuery] = useState(company.manager?.displayName ?? '')
+  const [name, setName] = useState(company.name)
+  const [description, setDescription] = useState(company.description ?? '')
+  const settings = useQuery({
+    queryKey: ['admin-company', companyId],
+    queryFn: () => api<CompanySettings>(`/admin/companies/${companyId}`),
+    enabled: editing,
   })
-  return <Card className="admin-org-company-manager">
-    <div><UserRound size={20} /><span><strong>Керівник компанії</strong><small>{company.manager?.displayName ?? 'Керівника не призначено'}</small></span></div>
-    <form key={`${company.version}-${company.manager?.id ?? 'none'}-${users.length}`} onSubmit={(event) => {
+  useEffect(() => {
+    if (!settings.data) return
+    setName(settings.data.name)
+    setDescription(settings.data.description ?? '')
+  }, [settings.data?.id, settings.data?.version])
+  const normalizedManagerQuery = managerQuery.trim().toLocaleLowerCase('uk')
+  const managerOptions = normalizedManagerQuery.length
+    ? users.filter((user) => `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedManagerQuery))
+    : []
+  const mutation = useMutation({
+    mutationFn: async ({ name, description, nextManagerId }: { name: string; description: string; nextManagerId: string | null }) => {
+      let version = company.version
+      let currentSettings = settings.data ?? await api<CompanySettings>(`/admin/companies/${companyId}`)
+      if (name !== currentSettings.name || description !== (currentSettings.description ?? '')) {
+        currentSettings = await api<CompanySettings>(`/admin/companies/${companyId}`, {
+          method: 'PATCH', body: jsonBody({ name, slug: currentSettings.slug, description, timezone: currentSettings.timezone, isActive: currentSettings.isActive }),
+        })
+        version = currentSettings.version
+      }
+      if (nextManagerId !== (company.manager?.id ?? null)) {
+        const manager = await api<{ version: number }>(`/admin/companies/${companyId}/manager`, {
+          method: 'PATCH', body: jsonBody({ managerId: nextManagerId, expectedVersion: version }),
+        })
+        currentSettings = { ...currentSettings, version: manager.version }
+      }
+      return currentSettings
+    },
+    onSuccess: async (saved) => {
+      client.setQueryData(['admin-company', companyId], saved)
+      await onSaved()
+    },
+  })
+  if (!editing) return <header className="admin-org-preview"><span className="eyebrow">Компанія</span><h2>{company.name}</h2><p>{company.description?.trim() || (company.manager ? `Керівник: ${company.manager.displayName}` : 'Керівника не призначено')}</p><small>Увімкніть редагування, щоб змінити назву або призначити керівника.</small></header>
+  if (settings.isLoading || !settings.data) return <header className="admin-org-preview"><span className="eyebrow">Компанія</span><h2>{company.name}</h2><p>{settings.isError ? 'Не вдалося завантажити параметри компанії.' : 'Завантажуємо параметри компанії…'}</p></header>
+  return <>
+    <header><span className="eyebrow">Компанія</span><h2>{company.name}</h2><p>Редагуйте назву, опис та керівника безпосередньо для головного вузла.</p></header>
+    <form className="entity-form admin-org-form admin-org-company-form" onSubmit={(event) => {
       event.preventDefault()
-      const value = new FormData(event.currentTarget).get('managerId')?.toString() || null
-      mutation.mutate(value)
+      mutation.mutate({ name: name.trim(), description: description.trim(), nextManagerId: managerId })
     }}>
-      <select name="managerId" aria-label="Керівник компанії" defaultValue={company.manager?.id ?? ''}>
-        <option value="">Не призначено</option>
-        {users.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.jobTitle || 'без посади'}</option>)}
-      </select>
-      <Button disabled={mutation.isPending}>Зберегти</Button>
+      <label>Назва<input name="name" required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label className="span-2">Опис<textarea name="description" rows={4} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається компанія та за що відповідає команда" /></label>
+      <div className="admin-org-person-picker">
+        <label>Керівник<input type="search" value={managerQuery} onChange={(event) => { setManagerQuery(event.target.value); setManagerId(null) }} placeholder="Почніть вводити ім’я або посаду" aria-autocomplete="list" aria-controls="company-manager-options" /></label>
+        {managerId && <button type="button" className="admin-org-person-picker__clear" aria-label="Очистити керівника" onClick={() => { setManagerId(null); setManagerQuery('') }}><X size={15} /></button>}
+        {normalizedManagerQuery.length > 0 && !managerId && <div id="company-manager-options" className="admin-org-person-picker__options" role="listbox" aria-label="Варіанти керівника">
+          {managerOptions.length ? managerOptions.map((user) => <button key={user.id} type="button" role="option" onClick={() => { setManagerId(user.id); setManagerQuery(user.displayName) }}><strong>{user.displayName}</strong><small>{user.accountType === 'ADMIN' ? 'Адміністратор' : user.jobTitle || 'Без посади'}</small></button>) : <p>Користувача не знайдено.</p>}
+        </div>}
+      </div>
+      {mutation.isError && <p role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Не вдалося зберегти зміни. Оновіть структуру та повторіть.'}</p>}
+      <Button disabled={mutation.isPending}>Зберегти зміни</Button>
     </form>
-    {mutation.isError && <p role="alert">Не вдалося змінити керівника. Оновіть сторінку й повторіть.</p>}
-  </Card>
+  </>
 }
 
-function UnitEditor({ companyId, unit, defaultParentId, users, onClose, onSaved }: {
-  companyId: string; unit?: AdminOrgUnitView; defaultParentId?: string | null; users: AdminUserOption[]
+function UnitEditor({ companyId, unit, defaultParentId, users, managerCandidates, onClose, onSaved }: {
+  companyId: string; unit?: AdminOrgUnitView; defaultParentId?: string | null; users: AdminUserOption[]; managerCandidates: AdminUserOption[]
   onClose: () => void; onSaved: (unitId: string) => Promise<void>
 }) {
   const [managerId, setManagerId] = useState<string | null>(unit?.manager?.id ?? null)
   const [managerQuery, setManagerQuery] = useState(unit?.manager?.displayName ?? '')
+  const [description, setDescription] = useState(unit?.description ?? '')
   const [employeeQuery, setEmployeeQuery] = useState('')
   const [addedEmployeeIds, setAddedEmployeeIds] = useState<string[]>([])
   const employees = useQuery({
@@ -204,7 +301,7 @@ function UnitEditor({ companyId, unit, defaultParentId, users, onClose, onSaved 
   })
   const normalizedManagerQuery = managerQuery.trim().toLocaleLowerCase('uk')
   const managerOptions = normalizedManagerQuery.length
-    ? users.filter((user) => `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedManagerQuery))
+    ? managerCandidates.filter((user) => `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedManagerQuery))
     : []
   const normalizedEmployeeQuery = employeeQuery.trim().toLocaleLowerCase('uk')
   const currentEmployeeIds = new Set(employees.data?.items.map((employee) => employee.id) ?? [])
@@ -236,6 +333,7 @@ function UnitEditor({ companyId, unit, defaultParentId, users, onClose, onSaved 
     const data = new FormData(event.currentTarget)
     mutation.mutate({
       name: data.get('name'),
+      description: description.trim(),
       parentId: unit?.parentId ?? defaultParentId ?? null,
       managerId,
       ...(unit ? { expectedVersion: unit.version } : {}),
@@ -244,11 +342,12 @@ function UnitEditor({ companyId, unit, defaultParentId, users, onClose, onSaved 
   return <Drawer title={unit ? 'Редагувати підрозділ' : 'Новий підрозділ'} onRequestClose={onClose}>
     <form className="entity-form admin-org-form" onSubmit={submit}>
       <label className="span-2">Назва<input name="name" required maxLength={120} defaultValue={unit?.name} /></label>
+      <label className="span-2">Опис<textarea name="description" rows={4} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається цей відділ" /></label>
       <div className="span-2 admin-org-person-picker">
         <label>Керівник<input type="search" value={managerQuery} onChange={(event) => { setManagerQuery(event.target.value); setManagerId(null) }} placeholder="Почніть вводити ім’я або посаду" aria-autocomplete="list" aria-controls="manager-options" /></label>
         {managerId && <button type="button" className="admin-org-person-picker__clear" aria-label="Очистити керівника" onClick={() => { setManagerId(null); setManagerQuery('') }}><X size={15} /></button>}
         {normalizedManagerQuery.length > 0 && !managerId && <div id="manager-options" className="admin-org-person-picker__options" role="listbox" aria-label="Варіанти керівника">
-          {managerOptions.length ? managerOptions.map((user) => <button key={user.id} type="button" role="option" onClick={() => { setManagerId(user.id); setManagerQuery(user.displayName) }}><strong>{user.displayName}</strong><small>{user.jobTitle || 'Без посади'}</small></button>) : <p>Працівника не знайдено.</p>}
+          {managerOptions.length ? managerOptions.map((user) => <button key={user.id} type="button" role="option" onClick={() => { setManagerId(user.id); setManagerQuery(user.displayName) }}><strong>{user.displayName}</strong><small>{user.accountType === 'ADMIN' ? 'Адміністратор' : user.jobTitle || 'Без посади'}</small></button>) : <p>Користувача не знайдено.</p>}
         </div>}
       </div>
       <section className="span-2 admin-org-employees-picker">
@@ -304,7 +403,7 @@ function UnitDetail({ unit, units, companyId, onEdit, onChanged }: {
   </>
   const destinationName = parent?.name ?? targets.find((candidate) => candidate.id === targetId)?.name
   return <>
-    <header><span className="eyebrow">Активний підрозділ</span><h2>{unit.name}</h2><p>{unit.manager ? `Керівник: ${unit.manager.displayName}` : 'Керівника не призначено'}</p></header>
+    <header><span className="eyebrow">Активний підрозділ</span><h2>{unit.name}</h2><p>{unit.description?.trim() || (unit.manager ? `Керівник: ${unit.manager.displayName}` : 'Керівника не призначено')}</p></header>
     <dl className="admin-org-stats"><div><dt>Працівники</dt><dd>{unit.activeEmployeeCount}</dd></div><div><dt>Дочірні вузли</dt><dd>{unit.childCount}</dd></div></dl>
     <section className="admin-org-draggable-employees" aria-label="Працівники підрозділу">
       <strong>Працівники</strong>

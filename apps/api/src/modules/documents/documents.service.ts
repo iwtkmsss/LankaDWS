@@ -121,7 +121,26 @@ export class DocumentsService {
   async detail(principal: AuthPrincipal, documentId: string) {
     const document = await this.prisma.document.findFirst({ where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, OR: [{ ownerId: principal.userId }, { confidentiality: { in: ['GENERAL', 'INTERNAL'] } }, { id: { in: await this.allowedDocumentIds(principal) } }] }, include: { versions: { orderBy: { version: 'desc' } } } })
     if (!document) throw notFound()
-    return document
+    const files = await this.prisma.fileObject.findMany({
+      where: { id: { in: document.versions.map((version) => version.fileId) } },
+      select: { id: true, safeFilename: true, bytes: true, declaredMime: true, detectedMime: true, scanStatus: true },
+    })
+    const fileById = new Map(files.map((file) => [file.id, file]))
+    return {
+      ...document,
+      versions: document.versions.map((version) => {
+        const file = fileById.get(version.fileId)
+        return {
+          ...version,
+          file: file ? {
+            name: file.safeFilename,
+            mimeType: file.detectedMime ?? file.declaredMime,
+            bytes: file.bytes,
+            scanStatus: file.scanStatus,
+          } : null,
+        }
+      }),
+    }
   }
 
   async create(principal: AuthPrincipal, input: { companyId?: string; name: string; fileId: string; changeSummary?: string }) {

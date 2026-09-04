@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { Avatar, Card, EmptyState, ErrorState, PageHeader, Skeleton } from '../shared/ui'
 
 interface OrgTreeRow {
@@ -141,7 +142,7 @@ export default function OrganizationPage() {
         </section>
         <section className="org-team" aria-live="polite">
           {selectedUnit ? <><header><span className="eyebrow">Обраний підрозділ</span><h2>{selectedUnit.name}</h2><p>{selectedUnit.manager ? `Керівник: ${selectedUnit.manager.displayName}` : 'Керівника ще не призначено'}</p></header>
-            {employeesQuery.isLoading ? <Skeleton rows={4} /> : employeesQuery.isError ? <ErrorState onRetry={() => void employeesQuery.refetch()} /> : employeesQuery.data?.items.length ? <div className="org-people">{employeesQuery.data.items.map((employee) => <Link key={employee.id} to={`/employees/${employee.id}`}><Avatar name={employee.displayName} src={employee.avatarAsset} /><span><strong>{employee.displayName}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span><ChevronRight size={17} aria-hidden /></Link>)}</div> : <EmptyState title="У підрозділі поки нікого немає" description="Активні призначення з’являться тут автоматично." />}
+            {employeesQuery.isLoading ? <Skeleton rows={4} /> : employeesQuery.isError ? <ErrorState onRetry={() => void employeesQuery.refetch()} /> : employeesQuery.data?.items.length ? <div className="org-people">{employeesQuery.data.items.map((employee) => <UserProfileLink key={employee.id} userId={employee.id}><Avatar name={employee.displayName} src={employee.avatarAsset} /><span><strong>{employee.displayName}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span><ChevronRight size={17} aria-hidden /></UserProfileLink>)}</div> : <EmptyState title="У підрозділі поки нікого немає" description="Активні призначення з’являться тут автоматично." />}
           </> : <EmptyState title="Оберіть підрозділ" description="Ліворуч показано доступну структуру організації." />}
         </section>
       </Card>

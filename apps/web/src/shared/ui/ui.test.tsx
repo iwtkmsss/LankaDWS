@@ -8,6 +8,8 @@ import {
 } from 'react-router-dom'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+  Avatar,
+  CompactFileName,
   ConfirmationDialog,
   Drawer,
   Modal,
@@ -35,10 +37,33 @@ function withOverlays(node: ReactNode) {
 }
 
 describe('shared UI primitives', () => {
+  it('uses a neutral silhouette when a user has no avatar', () => {
+    const { container, rerender } = render(<Avatar name="Марія Іваненко" />)
+    expect(container.querySelector('.avatar--placeholder svg')).toBeInTheDocument()
+    expect(container.querySelector('.avatar')).not.toHaveTextContent('МІ')
+
+    rerender(<Avatar name="Марія Іваненко" src="/avatar.jpg" />)
+    expect(container.querySelector('.avatar--placeholder')).not.toBeInTheDocument()
+    expect(container.querySelector('.avatar img')).toHaveAttribute('src', '/avatar.jpg')
+
+    rerender(<Avatar name="Марія Іваненко" src="file_avatar123" />)
+    expect(container.querySelector('.avatar img')).toHaveAttribute('src', '/api/v1/me/avatar/file_avatar123')
+
+    fireEvent.error(container.querySelector('.avatar img')!)
+    expect(container.querySelector('.avatar--placeholder svg')).toBeInTheDocument()
+  })
+
   it('localizes status and exposes semantic tab state', () => {
     render(<><StatusBadge status="APPROVED" /><Tabs value="mine" items={[{ value: 'mine', label: 'Мої' }, { value: 'all', label: 'Усі' }]} onChange={() => undefined} /></>)
     expect(screen.getByText('Погоджено')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Мої' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('keeps a file extension separate from the truncated name', () => {
+    const { container } = render(<CompactFileName fileName="Screenshot of a very long dashboard name.png" />)
+    expect(container.querySelector('.compact-file-name__stem')).toHaveTextContent('Screenshot of a very long dashboard name')
+    expect(container.querySelector('.compact-file-name__extension')).toHaveTextContent('.png')
+    expect(container.querySelector('.compact-file-name')).toHaveAttribute('title', 'Screenshot of a very long dashboard name.png')
   })
 
   it('reports Escape and close-button reasons and exposes dialog semantics', () => {

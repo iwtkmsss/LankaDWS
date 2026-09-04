@@ -54,7 +54,7 @@ export class AdminService {
   async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; password: string; contactEmail: string; phone?: string; gender?: string | null; birthDate?: string | null; jobTitle?: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean }) {
     const username = input.username.trim().toLowerCase()
     const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
-    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && (!input.companyId || !input.orgUnitId)) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
+    if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
     assertPasswordPolicy(input.password, username, false)
     const [reservation, company, orgUnit] = await Promise.all([
       this.prisma.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } }),
@@ -62,7 +62,7 @@ export class AdminService {
       input.orgUnitId ? this.prisma.orgUnit.findFirst({ where: { id: input.orgUnitId, workspaceId: principal.workspaceId, companyId: input.companyId, status: 'ACTIVE' } }) : Promise.resolve(null),
     ])
     if (reservation) throw conflict('Нікнейм уже використаний або зарезервований.')
-    if (input.accountType === 'USER' && (!company || !orgUnit)) throw badRequest('user_assignment')
+    if (input.accountType === 'USER' && (!company || (input.orgUnitId && !orgUnit))) throw badRequest('user_assignment')
     const userId = id('usr')
     const passwordHash = await hashPassword(input.password)
     await this.prisma.$transaction(async (tx) => {
@@ -99,7 +99,7 @@ export class AdminService {
     }
     const updated = await this.prisma.$transaction(async (tx) => {
       const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, phone: input.phone === undefined ? user.phone : input.phone?.trim() || null, gender: input.gender === undefined ? user.gender : input.gender, birthDate: input.birthDate === undefined ? user.birthDate : input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
-      const clearsLeadership = !input.isActive || input.accountType !== 'USER' || user.primaryCompanyId !== company?.id
+      const clearsLeadership = !input.isActive || (input.accountType === 'USER' && user.primaryCompanyId !== company?.id)
       if (clearsLeadership) {
         await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })
         await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })

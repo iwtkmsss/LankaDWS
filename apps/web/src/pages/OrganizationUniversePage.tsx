@@ -1,12 +1,12 @@
 import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, CheckSquare2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search } from 'lucide-react'
+import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { Avatar, Card, Drawer, EmptyState, ErrorState, Skeleton } from '../shared/ui'
+import { Avatar, Card, EmptyState, ErrorState, Skeleton } from '../shared/ui'
 
 interface Company { id: string; name: string; description: string | null }
 interface Employee {
@@ -34,7 +34,6 @@ export default function OrganizationUniversePage() {
   const view = requestedView === 'structure' ? 'structure' : 'people'
   const companyId = params.get('companyId') ?? ''
   const selectedUnitId = params.get('unitId')
-  const employeeId = params.get('employeeId')
   const search = params.get('q') ?? ''
   const orgUnitId = params.get('orgUnit') ?? ''
   const managerId = params.get('manager') ?? ''
@@ -148,7 +147,6 @@ export default function OrganizationUniversePage() {
           />
         </section>
       )}
-      {employeeId && <EmployeeDrawer id={employeeId} onClose={() => update('employeeId', '')} />}
     </div>
   )
 }
@@ -249,18 +247,4 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, presenc
       ) : <EmptyState title="Нікого не знайдено" description="Змініть локальні фільтри або пошуковий запит." illustration="search" />}
     </Card>
   )
-}
-
-function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const { user } = useAuth()
-  const query = useQuery({ queryKey: ['employee', id], queryFn: () => api<Employee>(`/employees/${id}`) })
-  return <Drawer title="Профіль працівника" onRequestClose={onClose}>{query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : <div className="employee-detail">
-    <Avatar size="lg" name={query.data.displayName} src={query.data.avatarAsset} /><h3>{query.data.displayName}</h3><p>{query.data.positionTitle || query.data.jobTitle}</p>
-    <div className="employee-actions">
-      {query.data.id !== user?.id && <Link className="button button--primary" to={`/messages?new=1&to=${encodeURIComponent(query.data.id)}`}><MessageCircle size={16} />Написати</Link>}
-      <Link className="button button--secondary" to={`/tasks/new?assigneeId=${encodeURIComponent(query.data.id)}`}><CheckSquare2 size={16} />Поставити завдання</Link>
-    </div>
-    {query.data.orgUnit?.parent && <p className="employee-hierarchy"><Building2 size={15} />{query.data.orgUnit.parent.name} → {query.data.orgUnit.name}</p>}
-    <dl className="detail-grid">{query.data.orgUnit && <div><dt>Підрозділ</dt><dd>{query.data.orgUnit.name}</dd></div>}<div><dt>Керівник</dt><dd>{query.data.approver?.displayName ?? 'Не вказано'}</dd></div>{query.data.contactEmail && <div><dt>Контакт</dt><dd><a href={`mailto:${query.data.contactEmail}`}>{query.data.contactEmail}</a></dd></div>}</dl>
-  </div>}</Drawer>
 }

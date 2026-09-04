@@ -1,7 +1,9 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
-import { Observable, Subject } from 'rxjs'
+import { concatMap, Observable, Subject } from 'rxjs'
 import type { ChatRealtimeEvent } from '@bert-crm/contracts'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { unauthorized } from '../../common/errors.js'
+import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
@@ -90,7 +92,10 @@ export class ChatRealtimeService {
         subscription.unsubscribe()
         if (!source.observed) this.threadStreams.delete(threadId)
       }
-    })
+    }).pipe(concatMap(async (event) => {
+      await this.assertSession(principal)
+      return event
+    }))
   }
 
   userStream(principal: AuthPrincipal): Observable<MessageEvent> {
@@ -112,7 +117,25 @@ export class ChatRealtimeService {
         subscription.unsubscribe()
         if (!source.observed) this.userStreams.delete(principal.userId)
       }
+    }).pipe(concatMap(async (event) => {
+      await this.assertSession(principal)
+      return event
+    }))
+  }
+
+  private async assertSession(principal: AuthPrincipal): Promise<void> {
+    const session = await this.prisma.userSession.findUnique({
+      where: { id: principal.sessionId },
+      include: { user: { include: { primaryCompany: true } } },
     })
+    const now = Date.now()
+    if (!session || session.userId !== principal.userId || session.revokedAt || !session.user.isActive
+      || session.expiresAt.getTime() <= now
+      || session.lastSeenAt.getTime() + getConfig().SESSION_IDLE_MINUTES * 60_000 <= now
+      || session.authorizationVersion !== session.user.authorizationVersion
+      || (session.user.accountType === 'USER' && !session.user.primaryCompany?.isActive)) {
+      throw unauthorized()
+    }
   }
 
   async publish(

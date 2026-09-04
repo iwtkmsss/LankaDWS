@@ -17,7 +17,7 @@ import {
   Plus,
   ShieldCheck,
 } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -45,6 +45,11 @@ interface AnnouncementDetail {
   createdAt: string
   receipt: { readAt: string | null }
   audience: { companyIds: string[]; roleIds: string[]; userIds: string[] }
+}
+interface AnnouncementAudienceCompany {
+  id: string
+  name: string
+  shortName: string
 }
 interface Notification {
   id: string
@@ -180,8 +185,39 @@ function AnnouncementCreate() {
   const navigate = useNavigate()
   const selectedCompanyId = user?.company?.id ?? ''
   const [preview, setPreview] = useState<number | null>(null)
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([])
+  const audienceInitialized = useRef(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const companies = useQuery({
+    queryKey: ['announcement-audiences'],
+    queryFn: () => api<{ items: AnnouncementAudienceCompany[] }>('/announcements/audiences'),
+  })
+  const availableCompanyIds = companies.data?.items.map((company) => company.id) ?? []
+  const selectedCompanies = companies.data?.items.filter((company) => selectedCompanyIds.includes(company.id)) ?? []
+  const allCompaniesSelected = availableCompanyIds.length > 0 && selectedCompanies.length === availableCompanyIds.length
+  const audienceInput = {
+    companyIds: selectedCompanyIds,
+  }
+
+  useEffect(() => {
+    if (!companies.data || audienceInitialized.current) return
+    audienceInitialized.current = true
+    setSelectedCompanyIds(companies.data.items.map((company) => company.id))
+  }, [companies.data])
+
+  function selectAllCompanies(checked: boolean) {
+    setSelectedCompanyIds(checked ? availableCompanyIds : [])
+    setPreview(null)
+  }
+
+  function selectCompany(companyId: string, checked: boolean) {
+    setSelectedCompanyIds((current) => checked
+      ? [...new Set([...current, companyId])]
+      : current.filter((id) => id !== companyId))
+    setPreview(null)
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setBusy(true)
@@ -190,7 +226,7 @@ function AnnouncementCreate() {
     const input = {
       title: form.get('title'),
       body: form.get('body'),
-      companyIds: [selectedCompanyId],
+      ...audienceInput,
       isPinned: form.get('pinned') === 'on',
       publishAt: form.get('publishAt') || undefined,
     }
@@ -213,7 +249,7 @@ function AnnouncementCreate() {
   async function audience() {
     const result = await api<{ recipientCount: number }>('/announcements/audience-preview', {
       method: 'POST',
-      body: jsonBody({ companyIds: [selectedCompanyId] }),
+      body: jsonBody(audienceInput),
     })
     setPreview(result.recipientCount)
   }
@@ -241,11 +277,39 @@ function AnnouncementCreate() {
             <input type="checkbox" name="pinned" />
             Закріпити у верхній частині
           </label>
+          <fieldset className="announcement-audience span-2">
+            <legend>Компанії, які побачать оголошення у живій стрічці</legend>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={allCompaniesSelected}
+                onChange={(event) => selectAllCompanies(event.currentTarget.checked)}
+              />
+              Усі
+            </label>
+            <div className="announcement-audience__companies">
+              {companies.isLoading && <small>Завантажуємо компанії…</small>}
+              {companies.isError && <small>Не вдалося завантажити список компаній.</small>}
+              {companies.data?.items.map((company) => (
+                <label className="check-label" key={company.id}>
+                  <input
+                    type="checkbox"
+                    checked={selectedCompanyIds.includes(company.id)}
+                    onChange={(event) => selectCompany(company.id, event.currentTarget.checked)}
+                  />
+                  {company.name}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="audience-preview span-2">
             <ShieldCheck size={18} />
             <span>
               <strong>
-                Аудиторія: вся організація
+                <span>Аудиторія:&nbsp;</span>
+                <span className="audience-preview__names" title={allCompaniesSelected ? 'Усі' : selectedCompanies.map((company) => company.name).join(', ')}>
+                  {allCompaniesSelected ? 'Усі' : selectedCompanies.map((company) => company.shortName).join(', ') || 'Не обрано'}
+                </span>
               </strong>
               <small>
                 {preview === null
@@ -253,7 +317,7 @@ function AnnouncementCreate() {
                   : `${preview} отримувачів матимуть доступ.`}
               </small>
             </span>
-            <Button type="button" variant="secondary" onClick={() => void audience()}>
+            <Button type="button" variant="secondary" disabled={selectedCompanyIds.length === 0} onClick={() => void audience()}>
               Перевірити
             </Button>
           </div>
@@ -262,7 +326,7 @@ function AnnouncementCreate() {
             <Button type="button" variant="secondary" onClick={() => navigate(`/announcements?company=${encodeURIComponent(selectedCompanyId)}`)}>
               Скасувати
             </Button>
-            <Button disabled={busy}>Опублікувати</Button>
+            <Button disabled={busy || selectedCompanyIds.length === 0}>Опублікувати</Button>
           </div>
         </form>
       </Card>

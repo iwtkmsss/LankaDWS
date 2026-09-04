@@ -14,7 +14,8 @@ import {
   X,
 } from 'lucide-react'
 import { useState } from 'react'
-import { Avatar, Button } from '../../../shared/ui'
+import { Avatar, Button, CompactFileName } from '../../../shared/ui'
+import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { MentionText } from '../../../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../../../shared/mentions/mentionText'
@@ -63,6 +64,24 @@ export function MessageBubble({
     : message.readByCount > 0
       ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
       : 'Відправлено'
+  const singleImageAttachment = message.attachments.length === 1
+    && message.attachments[0]?.scanStatus === 'CLEAN'
+    && /^image\/(?:png|jpeg|gif|webp)$/.test(message.attachments[0].mimeType ?? '')
+    ? message.attachments[0]
+    : null
+  const messageMeta = (
+    <footer className="message-bubble__meta">
+      {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
+      {message.editedAt && <span>змінено</span>}
+      <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
+      {own && (
+        <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} title={deliveryLabel}>
+          {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
+          <span>{deliveryLabel}</span>
+        </span>
+      )}
+    </footer>
+  )
 
   if (message.deletedAt) {
     return (
@@ -70,7 +89,15 @@ export function MessageBubble({
         id={`message-${message.id}`}
         className={`message-row ${own ? 'is-own' : 'is-other'}`}
       >
-        {!own && <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />}
+        {!own && (
+          <UserProfileLink
+            className="message-author-avatar"
+            userId={message.author.id}
+            aria-label={`Відкрити профіль ${message.author.displayName}`}
+          >
+            <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
+          </UserProfileLink>
+        )}
         <div className="message-bubble is-deleted">
           <em>Повідомлення видалено</em>
           <time>{formatChatTime(message.createdAt)}</time>
@@ -88,9 +115,21 @@ export function MessageBubble({
         highlighted ? 'is-highlighted' : '',
       ].filter(Boolean).join(' ')}
     >
-      {!own && <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />}
+      {!own && (
+        <UserProfileLink
+          className="message-author-avatar"
+          userId={message.author.id}
+          aria-label={`Відкрити профіль ${message.author.displayName}`}
+        >
+          <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
+        </UserProfileLink>
+      )}
       <div className="message-bubble">
-        {!own && <strong className="message-bubble__author">{message.author.displayName}</strong>}
+        {!own && (
+          <UserProfileLink className="message-bubble__author" userId={message.author.id}>
+            {message.author.displayName}
+          </UserProfileLink>
+        )}
         {message.replyPreview && (
           <button
             type="button"
@@ -148,7 +187,10 @@ export function MessageBubble({
             </div>
           </form>
         ) : message.body ? (
-          <p><MentionText body={message.body} mentions={message.mentions} /></p>
+          <div className="message-bubble__content">
+            <p><MentionText body={message.body} mentions={message.mentions} /></p>
+            {messageMeta}
+          </div>
         ) : null}
 
         {message.attachments.length > 0 && (
@@ -173,7 +215,7 @@ export function MessageBubble({
                   <span className="message-attachment__icon"><FileText size={18} /></span>
                 )}
                 <span className="message-attachment__copy">
-                  <strong>{attachment.fileName}</strong>
+                  {singleImageAttachment?.id !== attachment.id && <CompactFileName fileName={attachment.fileName} />}
                   <small>
                     {formatBytes(attachment.bytes)}
                     {attachment.scanStatus !== 'CLEAN' ? ` · ${attachment.scanStatus === 'SCANNING' || attachment.scanStatus === 'QUARANTINED' ? 'Перевіряється' : 'Недоступний'}` : ''}
@@ -198,16 +240,7 @@ export function MessageBubble({
           </div>
         )}
 
-        <footer>
-          {message.editedAt && <span>змінено</span>}
-          <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
-          {own && (
-            <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} title={deliveryLabel}>
-              {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
-              <span>{deliveryLabel}</span>
-            </span>
-          )}
-        </footer>
+        {(editing || !message.body) && messageMeta}
 
         {!editing && (
           <div className="message-bubble__actions">

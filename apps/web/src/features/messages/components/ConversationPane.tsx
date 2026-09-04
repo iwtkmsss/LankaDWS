@@ -94,11 +94,20 @@ export function ConversationPane(props: ConversationPaneProps) {
         <IconButton className="conversation-header__back" label="До списку діалогів" onClick={props.onBack}>
           <ArrowLeft size={21} />
         </IconButton>
-        <ConversationAvatar thread={props.thread} preview={props.preview} />
-        <div className="conversation-header__copy">
-          <h1>{props.thread.title}</h1>
-          <span>{subtitle}</span>
-        </div>
+        <h1 className="conversation-header__person-heading">
+          <button
+            type="button"
+            className="conversation-header__person"
+            aria-label={`Інформація та файли: ${props.thread.title}`}
+            onClick={props.onInfo}
+          >
+            <ConversationAvatar thread={props.thread} preview={props.preview} />
+            <span className="conversation-header__copy">
+              <strong>{props.thread.title}</strong>
+              <span>{subtitle}</span>
+            </span>
+          </button>
+        </h1>
         <div className="conversation-header__actions">
           <IconButton
             label="Пошук у діалозі"

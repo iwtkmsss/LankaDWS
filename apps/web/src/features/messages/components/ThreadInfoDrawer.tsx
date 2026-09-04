@@ -8,6 +8,7 @@ import { Avatar, Button, Drawer, Skeleton } from '../../../shared/ui'
 import { searchChatUsers } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
 import { normalizedCodePointLength } from '../lib/messageText'
+import { UserProfileLink } from '../../employees/UserProfileDrawer'
 
 export function ThreadInfoDrawer({
   thread,
@@ -142,14 +143,27 @@ export function ThreadInfoDrawer({
           <h3>Учасники</h3>
           {thread.participants.map((participant) => (
             <article key={participant.id}>
-              <Avatar name={participant.displayName} src={participant.avatarAsset} />
-              <span>
-                <strong>{participant.displayName}{participant.id === currentUserId ? ' · ви' : ''}</strong>
-                <small>
-                  @{participant.username}
-                  {participant.jobTitle ? ` · ${participant.jobTitle}` : ''}
-                </small>
-              </span>
+              {participant.id === currentUserId ? (
+                <div className="thread-info__participant-profile">
+                  <Avatar name={participant.displayName} src={participant.avatarAsset} />
+                  <span>
+                    <strong>{participant.displayName} · ви</strong>
+                    <small>@{participant.username}{participant.jobTitle ? ` · ${participant.jobTitle}` : ''}</small>
+                  </span>
+                </div>
+              ) : (
+                <UserProfileLink
+                  className="thread-info__participant-profile"
+                  userId={participant.id}
+                  onClick={() => onClose()}
+                >
+                  <Avatar name={participant.displayName} src={participant.avatarAsset} />
+                  <span>
+                    <strong>{participant.displayName}</strong>
+                    <small>@{participant.username}{participant.jobTitle ? ` · ${participant.jobTitle}` : ''}</small>
+                  </span>
+                </UserProfileLink>
+              )}
               {participant.role === 'OWNER' && <Crown size={16} aria-label="Власник" />}
               {thread.canManageParticipants && (
                 <div>

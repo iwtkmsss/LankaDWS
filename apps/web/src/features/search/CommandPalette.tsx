@@ -5,6 +5,7 @@ import { routes } from '../../app/routes'
 import { api } from '../../shared/api/client'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { DialogBase, IconButton } from '../../shared/ui'
+import { useUserProfile } from '../employees/UserProfileDrawer'
 
 interface PaletteItem {
   id: string
@@ -38,6 +39,7 @@ export function CommandPalette({ onClose, shortcuts }: {
   const paletteRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
+  const { openUserProfile } = useUserProfile()
   const {
     debouncedValue: debouncedQuery,
     isComposing,
@@ -88,7 +90,8 @@ export function CommandPalette({ onClose, shortcuts }: {
   const items = hasSearchQuery ? results : shortcutItems
 
   function open(item: PaletteItem) {
-    navigate(item.route)
+    if (item.type === 'EMPLOYEE') openUserProfile(item.id)
+    else navigate(item.route)
     onClose()
   }
 

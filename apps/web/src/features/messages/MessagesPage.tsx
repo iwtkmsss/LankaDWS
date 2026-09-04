@@ -19,8 +19,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiProblem, jsonBody, randomId } from '../../shared/api/client'
 import { useAuth } from '../../shared/auth/AuthProvider'
+import { useTopbarContent } from '../../layout/TopbarContent'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
-import { EmptyState, ErrorState, Skeleton } from '../../shared/ui'
+import { Button, EmptyState, ErrorState, Skeleton } from '../../shared/ui'
 import {
   createThread,
   getChatUser,
@@ -41,6 +42,7 @@ import { MessagesSidebar } from './components/MessagesSidebar'
 import { NewChatDrawer } from './components/NewChatDrawer'
 import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
+import { useUserProfile } from '../employees/UserProfileDrawer'
 import { useMessageRealtime } from './hooks/useMessageRealtime'
 import {
   addOptimisticMessage,
@@ -93,6 +95,7 @@ export function MessagesPage() {
   const navigate = useNavigate()
   const client = useQueryClient()
   const { user, canUseCapability } = useAuth()
+  const { openUserProfile } = useUserProfile()
   const threadCompanyScope = chatThreadCompanyScope(user)
   const adminCompanies = useQuery({
     queryKey: ['admin-companies'],
@@ -454,15 +457,6 @@ export function MessagesPage() {
     }, { replace: true })
   }
 
-  function openCompose() {
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      next.set('new', '1')
-      next.delete('to')
-      return next
-    })
-  }
-
   function openGroup() {
     setParams((current) => {
       const next = new URLSearchParams(current)
@@ -476,6 +470,19 @@ export function MessagesPage() {
   const canConvertToTask = true
   const canConvertToEvent = canUseCapability(OrganizationCapability.CalendarWrite)
     && canUseCapability(OrganizationCapability.CalendarWrite)
+  const newChatAction = useMemo(() => (
+    <Button type="button" onClick={() => {
+      setParams((current) => {
+        const next = new URLSearchParams(current)
+        next.set('new', '1')
+        next.delete('to')
+        return next
+      })
+    }}>
+      <MessageCircle size={16} /> Новий чат
+    </Button>
+  ), [setParams])
+  useTopbarContent(newChatAction)
 
   return (
     <div className={`messages-workspace ${threadId || targetUserId ? 'has-thread' : ''}`}>
@@ -502,7 +509,6 @@ export function MessagesPage() {
         onUnreadChange={updateUnread}
         onSelectThread={(id) => navigate(`/messages/${id}${unreadOnly ? '?unread=true' : ''}`)}
         onStartDirect={openDirect}
-        onOpenCompose={openCompose}
         onLoadMore={() => void threadPages.fetchNextPage()}
         onRetryThreads={() => void threadPages.refetch()}
       />
@@ -528,7 +534,13 @@ export function MessagesPage() {
           initialComposerBody={composerSeed?.threadId === threadId ? composerSeed.body : undefined}
           onInitialComposerBodyConsumed={() => setComposerSeed(null)}
           onBack={() => navigate(`/messages?${params}`)}
-          onInfo={() => setInfoOpen(true)}
+          onInfo={() => {
+            const directParticipant = detail.data?.kind === 'DIRECT'
+              ? detail.data.participants.find((participant) => participant.id !== user?.id)
+              : null
+            if (directParticipant) openUserProfile(directParticipant.id)
+            else setInfoOpen(true)
+          }}
           onToggleMute={() => {
             if (!detail.data) return
             void api(`/messages/threads/${threadId}/preferences`, {

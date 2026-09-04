@@ -258,6 +258,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     }
     const users = await this.prisma.user.findMany({
       where: {
+        workspaceId: announcement.workspaceId,
         isActive: true,
         OR: [
           { id: { in: announcement.users.map((entry) => entry.userId) } },
