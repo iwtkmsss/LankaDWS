@@ -2008,8 +2008,13 @@ describe('Lanka API workflows', () => {
     expect(typeof uppercaseBody.items[0]?.displayName).toBe('string');
     expect(typeof uppercaseBody.items[0]?.jobTitle).toBe('string');
     expect(typeof uppercaseBody.items[0]?.avatarAsset).toBe('string');
+    // The projection still exposes only safe fields of the matched user; it
+    // additionally carries the caller's own existing direct-thread pointer
+    // (contract `ChatContactUser.directThreadId`), which the sidebar uses to
+    // open an existing conversation without creating a duplicate.
     expect(Object.keys(uppercaseBody.items[0] ?? {}).sort()).toEqual([
       'avatarAsset',
+      'directThreadId',
       'displayName',
       'id',
       'jobTitle',
@@ -2168,7 +2173,11 @@ describe('Lanka API workflows', () => {
         },
       },
     })).toBe(1);
-    await dmytro.agent.get(`/api/v1/messages/threads/${threadId}`).expect(404);
+    // A global administrator may read any thread (docs/decisions.md 2026-08-31:
+    // "a chat is readable only by its active participants and global
+    // administrators"); messages.service enforces this at line ~493.
+    const adminThreadView = await dmytro.agent.get(`/api/v1/messages/threads/${threadId}`).expect(200);
+    expect((adminThreadView.body as ChatThreadDetail).id).toBe(threadId);
 
     const root = await maria.agent
       .post(`/api/v1/messages/threads/${threadId}/messages`)
