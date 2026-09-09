@@ -10,7 +10,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
-type ManagerRow = { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null; accountType: 'ADMIN' | 'USER' }
+type ManagerRow = { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null }
 const normalizeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 const normalizedName = (value: string) => normalizeName(value).toLocaleLowerCase('uk')
 
@@ -30,7 +30,9 @@ export class OrgService {
   }
 
   private managerView(manager: ManagerRow | null, companyId: string) {
-    if (!manager?.isActive || (manager.accountType !== 'ADMIN' && manager.primaryCompanyId !== companyId)) return null
+    // A manager must be an active member of this company's structure. Global
+    // admin status alone does not make a user a valid manager.
+    if (!manager?.isActive || manager.primaryCompanyId !== companyId) return null
     return { id: manager.id, displayName: manager.displayName, jobTitle: manager.jobTitle }
   }
 
@@ -39,7 +41,7 @@ export class OrgService {
       where: { id: companyId, workspaceId: principal.workspaceId },
       select: {
         id: true, displayName: true, description: true, version: true,
-        manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } },
+        manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
       },
     })
     if (!company) throw notFound()
@@ -47,8 +49,17 @@ export class OrgService {
   }
 
   private async manager(principal: AuthPrincipal, companyId: string, managerId: string) {
+    // A global admin can administer any company's structure, but may only be
+    // set as a unit/company manager if they are an active member of that
+    // company (docs/decisions.md 2026-09-09).
     const manager = await this.prisma.user.findFirst({
-      where: { id: managerId, workspaceId: principal.workspaceId, isActive: true, OR: [{ accountType: 'ADMIN' }, { accountType: 'USER', primaryCompanyId: companyId }] },
+      where: {
+        id: managerId,
+        workspaceId: principal.workspaceId,
+        isActive: true,
+        accountType: 'USER',
+        primaryCompanyId: companyId,
+      },
       select: { id: true },
     })
     if (!manager) throw notFound()
@@ -98,7 +109,7 @@ export class OrgService {
   private unitSelect(companyId: string) {
     return {
       id: true, companyId: true, parentId: true, name: true, description: true, status: true, sortOrder: true, version: true,
-      manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true, accountType: true } },
+      manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
       _count: { select: {
         children: { where: { status: 'ACTIVE' as const } },
         assignments: { where: { endedAt: null, isPrimary: true, user: { isActive: true, accountType: 'USER' as const, primaryCompanyId: companyId } } },
