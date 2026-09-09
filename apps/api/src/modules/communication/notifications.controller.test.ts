@@ -37,7 +37,7 @@ describe('NotificationsController chat read reconciliation', () => {
         recipientId: 'user-1',
         readAt: null,
       },
-      data: { readAt: expect.any(Date) },
+      data: { readAt: expect.any(Date) as unknown },
     })
   })
 })
