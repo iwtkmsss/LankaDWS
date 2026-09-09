@@ -2,6 +2,18 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-09-09 — Live Feed is always available; unread badges refresh over a realtime summary channel
+
+This supersedes the `FEED` company capability from the 2026-07-28 routing decision without deleting its rollout history. The `FEED` capability code is retired: Feed authorization is `feed.read` plus company scope only, and `/feed` is an unconditional authenticated route. `docs/architecture.md`, `CODEX_CONTEXT_MAP.md` and the demo seed no longer reference a `FEED` capability. This decision does **not** change the read-cursor / unread-count semantics — the precise model for "read = actually seen" remains open.
+
+A `FeedPost` audience may target several companies (`COMPANIES`); each targeted company gets its own immutable `FeedItem` and `FeedSourceHead`, and the rendered stream de-duplicates by post. How and when those per-company items are marked read is part of the still-open read-cursor model, not this decision.
+
+Notification, chat and feed unread badges are refreshed primarily by a **user-scoped SSE `summary` event** (`ChatRealtimeService.publishSummary`, delivered on the existing `GET /messages/events` stream). One connection is opened at the app shell for every authenticated route; feature pages do not open their own. Because several notification sources emit no realtime signal (job-worker task reminders, task participation/approval changes, admin credential resets) and SSE connections can be dropped without replay, each badge query also keeps a slow (60s, foreground-only) fallback poll plus refetch-on-window-focus. The chat badge counts unread **messages**, not threads with unread messages.
+
+## 2026-09-09 — A unit or company manager must be an active member of that company
+
+A global administrator may administer the organizational structure of any company, but may only be **set as** an `OrgUnit` or `Company` manager if they are an active `USER` whose primary company is that company. Global-admin status alone does not make a user a valid manager, and such a manager is never rendered in structure projections. Company membership here is the existing `primaryCompanyId` signal; this is not extended to `UserOrgAssignment`-based membership.
+
 ## 2026-08-31 — Companies are workspace organization, not authorization boundaries
 
 This decision supersedes the runtime-scope part of “One organization with recursive departments” and any same-company participant requirement. Every authenticated principal receives all active companies in the workspace; company IDs remain persistence keys and optional UI filters. Inactive companies are visible only through administration. Module capabilities and existing record ACLs still apply.
