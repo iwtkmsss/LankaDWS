@@ -197,20 +197,34 @@ export function AppShell({ children }: PropsWithChildren) {
   const isMessagesRoute = location.pathname === '/messages'
     || location.pathname.startsWith('/messages/')
   const isMessageThreadRoute = location.pathname.startsWith('/messages/')
+  // Realtime `summary` SSE events (useMessageRealtime) are the primary refresh
+  // path for these badges. This slow fallback poll bounds staleness for
+  // notifications created without any realtime signal — job-worker task
+  // reminders (jobs.service), task participation/approval changes,
+  // admin credential resets — and for SSE connections dropped by a proxy,
+  // which EventSource reconnects but does not replay.
+  const summaryBadgeFallback = {
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  } as const
   const notificationSummary = useQuery({
     queryKey: ['notifications', 'summary'],
     queryFn: () => api<{ action: number; unread: number }>('/notifications/summary'),
     enabled: Boolean(user),
+    ...summaryBadgeFallback,
   })
   const chatSummary = useQuery({
     queryKey: ['threads', 'summary', companyId],
     queryFn: () => api<{ all: number; unread: number }>('/messages/summary'),
     enabled: Boolean(user),
+    ...summaryBadgeFallback,
   })
   const feedSummary = useQuery({
     queryKey: ['feed', 'summary', feedCompanyScope],
     queryFn: () => api<FeedSummary>(`/feed/summary?company=${encodeURIComponent(feedCompanyScope)}`),
     enabled: Boolean(user),
+    ...summaryBadgeFallback,
   })
   const chatUnread = chatSummary.data?.unread ?? 0
   const feedUnread = feedSummary.data?.unreadCount ?? 0

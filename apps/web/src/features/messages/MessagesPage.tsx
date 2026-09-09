@@ -43,7 +43,6 @@ import { NewChatDrawer } from './components/NewChatDrawer'
 import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useUserProfile } from '../employees/UserProfileDrawer'
-import { useMessageRealtime } from './hooks/useMessageRealtime'
 import { replyPreviewText } from './lib/replyPreview'
 import {
   addOptimisticMessage,
@@ -135,7 +134,8 @@ export function MessagesPage() {
   const directStartingRef = useRef('')
   const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
   const draftBodyRef = useRef('')
-  useMessageRealtime()
+  // The message SSE stream is opened once at the shell level (AppShell);
+  // mounting it here as well would open a second EventSource per user.
 
   useEffect(() => {
     setParams((current) => {
