@@ -7,10 +7,8 @@ import {
   Link2,
   ListChecks,
   LoaderCircle,
-  PackageOpen,
   RotateCcw,
   Save,
-  Users,
 } from 'lucide-react'
 import {
   useCallback,
@@ -45,8 +43,15 @@ import {
 } from './types'
 import './task-create.css'
 
-type DetailSection = 'context' | Exclude<TaskCreateSection, 'main'>
+type DetailSection = Exclude<TaskCreateSection, 'main' | 'participants'>
 type DraftSaveState = 'saving' | 'saved' | 'error'
+
+function localDateTimeNow(): string {
+  const now = new Date()
+  now.setSeconds(0, 0)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+}
 
 function defaultDraft(
   userId: string,
@@ -61,7 +66,7 @@ function defaultDraft(
     parentTaskId: '',
     reporterId: userId,
     priority: 'MEDIUM',
-    startsAt: '',
+    startsAt: localDateTimeNow(),
     dueAt: '',
     estimatedMinutes: '',
     participants: [{
@@ -298,7 +303,7 @@ export function TaskCreateModal({
     if (issue) {
       setServerMessage('')
       setValidation(issue)
-      if (issue.section !== 'main') openSection(issue.section)
+      if (issue.section !== 'main' && issue.section !== 'participants') openSection(issue.section)
       window.setTimeout(() => {
         const field = issue.field === 'title'
           ? titleRef.current
@@ -312,16 +317,6 @@ export function TaskCreateModal({
     create.mutate()
   }
 
-  const participantCount = new Set([
-    draft.reporterId,
-    ...draft.participants.map((item) => item.userId),
-  ].filter(Boolean)).size
-  const projectName = options.data?.projects.find((item) => item.id === draft.projectId)?.name
-  const contextSummary = [
-    projectName,
-    draft.tagIds.length ? `${draft.tagIds.length} тег.` : '',
-    draft.attachments.length ? `${draft.attachments.length} файл.` : '',
-  ].filter(Boolean).join(' · ') || 'Не налаштовано'
   const planningSummary = [
     draft.reminders.length ? `${draft.reminders.length} нагад.` : '',
     draft.recurrence ? 'Повторення увімкнено' : '',
@@ -354,7 +349,7 @@ export function TaskCreateModal({
         title="Нове завдання"
         description={groupId
           ? 'Контекст робочої групи вже застосовано. Спочатку опишіть результат і відповідальних.'
-          : 'Спочатку опишіть результат і відповідальних; додаткові параметри можна налаштувати нижче.'}
+          : undefined}
         onRequestClose={closeGuard.requestClose}
         closeDisabled={create.isPending}
         initialFocusRef={titleRef}
@@ -382,7 +377,7 @@ export function TaskCreateModal({
 
           {restoredVisible && (
             <div className="task-create-restored" role="status">
-              <RotateCcw size={17} aria-hidden />
+              <RotateCcw size={14} aria-hidden />
               <span><strong>Чернетку відновлено.</strong> Перевірте дані перед створенням.</span>
               <button type="button" onClick={() => setRestoredVisible(false)}>Гаразд</button>
             </div>
@@ -408,66 +403,25 @@ export function TaskCreateModal({
             invalidField={validation?.field}
           />
 
+          <section className="task-create-primary-participants" aria-label="Учасники">
+            <TaskParticipantsSection
+              draft={draft}
+              options={options.data}
+              currentUser={user}
+              optionsLoading={options.isLoading}
+              optionsError={options.isError}
+              update={update}
+              onRetryOptions={retryOptions}
+            />
+          </section>
+
           <div className="task-create-details" aria-label="Додаткові параметри">
             <div className="task-create-details__intro">
               <div>
                 <span className="task-create-kicker">Необов’язково</span>
                 <h3>Додаткові параметри</h3>
               </div>
-              <p>Відкрийте лише ті секції, які потрібні для цього завдання.</p>
             </div>
-
-            <TaskDisclosure
-              id="context"
-              title="Контекст і матеріали"
-              description="Проєкт, ієрархія, теги та вкладення"
-              summary={contextSummary}
-              icon={<PackageOpen size={18} aria-hidden />}
-              open={openSections.has('context')}
-              onToggle={() => toggleSection('context')}
-            >
-              <TaskContextSection
-                draft={draft}
-                options={options.data}
-                optionsLoading={options.isLoading}
-                optionsError={options.isError}
-                update={update}
-                onRetryOptions={retryOptions}
-                onOptionsChanged={retryOptions}
-              />
-            </TaskDisclosure>
-
-            <TaskDisclosure
-              id="participants"
-              title="Учасники"
-              description="Відповідальний, постановник, співвиконавці та спостерігачі"
-              summary={`${participantCount} ${participantCount === 1 ? 'людина' : 'людей'}`}
-              icon={<Users size={18} aria-hidden />}
-              open={openSections.has('participants')}
-              onToggle={() => toggleSection('participants')}
-            >
-              <TaskParticipantsSection
-                draft={draft}
-                options={options.data}
-                currentUser={user}
-                optionsLoading={options.isLoading}
-                optionsError={options.isError}
-                update={update}
-                onRetryOptions={retryOptions}
-              />
-            </TaskDisclosure>
-
-            <TaskDisclosure
-              id="checklist"
-              title="Чек-ліст"
-              description="Конкретні кроки до готового результату"
-              summary={draft.checklistItems.length ? `${draft.checklistItems.length} пункт.` : 'Не додано'}
-              icon={<ListChecks size={18} aria-hidden />}
-              open={openSections.has('checklist')}
-              onToggle={() => toggleSection('checklist')}
-            >
-              <TaskChecklistSection draft={draft} update={update} />
-            </TaskDisclosure>
 
             <TaskDisclosure
               id="planning"
@@ -495,6 +449,18 @@ export function TaskCreateModal({
             </TaskDisclosure>
 
             <TaskDisclosure
+              id="checklist"
+              title="Чек-ліст"
+              description="Конкретні кроки до готового результату"
+              summary={draft.checklistItems.length ? `${draft.checklistItems.length} пункт.` : 'Не додано'}
+              icon={<ListChecks size={18} aria-hidden />}
+              open={openSections.has('checklist')}
+              onToggle={() => toggleSection('checklist')}
+            >
+              <TaskChecklistSection draft={draft} update={update} />
+            </TaskDisclosure>
+
+            <TaskDisclosure
               id="relations"
               title="Зв’язки"
               description="Батьківське завдання, залежності та дублікати"
@@ -503,15 +469,26 @@ export function TaskCreateModal({
               open={openSections.has('relations')}
               onToggle={() => toggleSection('relations')}
             >
-              {options.data ? (
-                <TaskRelationsSection draft={draft} options={options.data} update={update} />
-              ) : (
-                <OptionsSectionState
-                  loading={options.isLoading}
-                  label="доступні завдання і зв’язки"
-                  onRetry={retryOptions}
+              <div className="task-create-relations-layout">
+                <TaskContextSection
+                  draft={draft}
+                  options={options.data}
+                  optionsLoading={options.isLoading}
+                  optionsError={options.isError}
+                  update={update}
+                  onRetryOptions={retryOptions}
+                  onOptionsChanged={retryOptions}
                 />
-              )}
+                {options.data ? (
+                  <TaskRelationsSection draft={draft} options={options.data} update={update} />
+                ) : (
+                  <OptionsSectionState
+                    loading={options.isLoading}
+                    label="доступні завдання і зв’язки"
+                    onRetry={retryOptions}
+                  />
+                )}
+              </div>
             </TaskDisclosure>
           </div>
         </form>

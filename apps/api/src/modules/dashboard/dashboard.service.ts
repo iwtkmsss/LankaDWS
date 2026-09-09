@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import {
-  OrganizationCapability,
   type AnnouncementListItem,
   type DashboardActivityItem,
   type DashboardLifecycleItem,
@@ -35,11 +34,6 @@ export class DashboardService {
       },
       select: {
         timezone: true,
-        capabilities: {
-          where: { code: OrganizationCapability.Feed },
-          select: { enabled: true },
-          take: 1,
-        },
       },
     })
     const timezone = organization?.timezone ?? 'Europe/Kyiv'
@@ -54,7 +48,7 @@ export class DashboardService {
       announcements: true,
       messages: true,
       notifications: true,
-      activity: Boolean(organization?.capabilities[0]?.enabled),
+      activity: true,
       lifecycle: true,
     }
 

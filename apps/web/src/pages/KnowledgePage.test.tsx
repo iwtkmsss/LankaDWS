@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -85,14 +85,13 @@ describe('knowledge management', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Видалити' }))
     await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ expectedVersion: 2 }) })))
   })
-  it('shows an inline image preview for an attached file', async () => {
+  it('opens an attached image in the shared CRM preview', async () => {
     mount('/knowledge/policy')
     const preview = await screen.findByRole('region', { name: 'Прикріплений файл guide.jpg' })
-    expect(screen.getByRole('img', { name: 'guide.jpg' })).toHaveAttribute('src', '/api/v1/files/file_image/download?inline=true')
     expect(preview).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Згорнути передперегляд guide.jpg' }))
-    expect(screen.queryByRole('img', { name: 'guide.jpg' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Переглянути guide.jpg' }))
-    expect(screen.getByRole('img', { name: 'guide.jpg' })).toBeVisible()
+    const dialog = screen.getByRole('dialog', { name: 'guide.jpg' })
+    expect(within(dialog).getByRole('img', { name: 'guide.jpg' })).toHaveAttribute('src', '/api/v1/files/file_image/download?inline=true')
+    expect(within(dialog).getByRole('button', { name: 'Закрити' })).toBeVisible()
   })
 })

@@ -1,11 +1,12 @@
-import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
+import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
 import {
   CalendarPlus,
   Check,
   CheckCheck,
   Download,
-  ExternalLink,
+  Eye,
   FileText,
+  Heart,
   ListTodo,
   MoreHorizontal,
   Pencil,
@@ -21,15 +22,18 @@ import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../../../shared/mentions/mentionText'
 import { apiUrl } from '../../../shared/api/client'
 import { formatChatTime } from '../lib/chatDates'
+import { FilePreviewModal } from '../../../shared/files/FilePreviewModal'
 
 interface MessageBubbleProps {
   threadId: string
   message: ChatMessageView
   own: boolean
   highlighted?: boolean
+  isNew?: boolean
   canConvertToTask: boolean
   canConvertToEvent: boolean
   onReply: (message: ChatMessageView) => void
+  onLike: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
@@ -46,9 +50,11 @@ export function MessageBubble({
   message,
   own,
   highlighted,
+  isNew,
   canConvertToTask,
   canConvertToEvent,
   onReply,
+  onLike,
   onEdit,
   onDelete,
   onConvert,
@@ -59,6 +65,7 @@ export function MessageBubble({
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
     editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
+  const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
   const deliveryLabel = message.id.startsWith('optimistic:')
     ? 'Надсилається'
     : message.readByCount > 0
@@ -73,13 +80,13 @@ export function MessageBubble({
     <footer className="message-bubble__meta">
       {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
       {message.editedAt && <span>змінено</span>}
-      <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
       {own && (
         <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} title={deliveryLabel}>
           {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
           <span>{deliveryLabel}</span>
         </span>
       )}
+      <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
     </footer>
   )
 
@@ -113,7 +120,12 @@ export function MessageBubble({
         'message-row',
         own ? 'is-own' : 'is-other',
         highlighted ? 'is-highlighted' : '',
+        isNew ? 'is-new' : '',
       ].filter(Boolean).join(' ')}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+        onReply(message)
+      }}
     >
       {!own && (
         <UserProfileLink
@@ -189,7 +201,6 @@ export function MessageBubble({
         ) : message.body ? (
           <div className="message-bubble__content">
             <p><MentionText body={message.body} mentions={message.mentions} /></p>
-            {messageMeta}
           </div>
         ) : null}
 
@@ -198,19 +209,18 @@ export function MessageBubble({
             {message.attachments.map((attachment) => (
               <div className="message-attachment" key={attachment.id}>
                 {attachment.scanStatus === 'CLEAN' && /^image\/(?:png|jpeg|gif|webp)$/.test(attachment.mimeType ?? '') ? (
-                  <a
+                  <button
+                    type="button"
                     className="message-attachment__preview"
-                    href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label={`Відкрити ${attachment.fileName}`}
+                    aria-label={`Переглянути ${attachment.fileName}`}
+                    onClick={() => setPreviewFile(attachment)}
                   >
                     <img
                       src={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
                       alt={attachment.fileName}
                       loading="lazy"
                     />
-                  </a>
+                  </button>
                 ) : (
                   <span className="message-attachment__icon"><FileText size={18} /></span>
                 )}
@@ -222,13 +232,12 @@ export function MessageBubble({
                   </small>
                   {attachment.scanStatus === 'CLEAN' && (
                     <span className="message-attachment__actions">
-                      <a
-                        href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => setPreviewFile(attachment)}
                       >
-                        <ExternalLink size={13} /> Відкрити
-                      </a>
+                        <Eye size={13} /> Переглянути
+                      </button>
                       <a href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download`)} download>
                         <Download size={13} /> Завантажити
                       </a>
@@ -240,10 +249,15 @@ export function MessageBubble({
           </div>
         )}
 
-        {(editing || !message.body) && messageMeta}
+        {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+
+        {messageMeta}
 
         {!editing && (
           <div className="message-bubble__actions">
+            <button type="button" aria-label="Подобається" onClick={() => onLike(message)}>
+              <Heart size={16} />
+            </button>
             <button type="button" aria-label="Відповісти" onClick={() => onReply(message)}>
               <Reply size={16} />
             </button>

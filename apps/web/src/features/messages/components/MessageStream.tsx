@@ -1,7 +1,6 @@
 import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
-import { ArrowDown, LoaderCircle, MessageCircle } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { usePreservedChatScroll } from '../hooks/usePreservedChatScroll'
+import { MessageCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { chatDayKey, formatChatDay } from '../lib/chatDates'
 import { MessageBubble } from './MessageBubble'
 
@@ -9,7 +8,6 @@ interface MessageStreamProps {
   threadId: string
   messages: ChatMessageView[]
   currentUserId: string
-  lastReadMessageId: string | null
   highlightedMessageId?: string | null
   canLoadOlder: boolean
   loadingOlder: boolean
@@ -17,24 +15,23 @@ interface MessageStreamProps {
   canConvertToEvent: boolean
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
+  onLike: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
 }
 
 export function MessageStream(props: MessageStreamProps) {
-  const [showBottom, setShowBottom] = useState(false)
-  const scroll = usePreservedChatScroll(props.messages.length, props.threadId)
-  const readIndex = props.lastReadMessageId
-    ? props.messages.findIndex((message) => message.id === props.lastReadMessageId)
-    : -1
-  const firstUnreadIndex = readIndex >= 0 && readIndex < props.messages.length - 1
-    ? readIndex + 1
-    : -1
-
+  const lastScrollTopRef = useRef<number | null>(null)
+  const scrollingUpRef = useRef(false)
+  const touchStartYRef = useRef<number | null>(null)
+  const loadingOlderRef = useRef(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const openedAtRef = useRef(Date.now())
+  const [liveMessageIds, setLiveMessageIds] = useState<Set<string>>(() => new Set())
   useEffect(() => {
     if (!props.highlightedMessageId) return
-    scroll.stopFollowingBottom()
     requestAnimationFrame(() => {
       document.getElementById(`message-${props.highlightedMessageId}`)?.scrollIntoView({
         block: 'center',
@@ -43,36 +40,79 @@ export function MessageStream(props: MessageStreamProps) {
     })
   }, [props.highlightedMessageId, props.messages])
 
+  useEffect(() => {
+    openedAtRef.current = Date.now()
+    setLiveMessageIds(new Set())
+    lastScrollTopRef.current = null
+    scrollingUpRef.current = false
+    touchStartYRef.current = null
+    loadingOlderRef.current = false
+  }, [props.threadId])
+
+  useEffect(() => {
+    const openedAt = openedAtRef.current
+    const newIds = props.messages
+      .filter((message) => (
+        message.authorId !== props.currentUserId
+        && Date.parse(message.createdAt) >= openedAt
+      ))
+      .map((message) => message.id)
+    if (!newIds.length) return
+    setLiveMessageIds((current) => {
+      const next = new Set(current)
+      newIds.forEach((id) => next.add(id))
+      return next
+    })
+  }, [props.currentUserId, props.messages])
+
+  function loadOlderAfterScrollingUp(element: HTMLDivElement) {
+    const previousScrollTop = lastScrollTopRef.current
+    const scrolledUp = scrollingUpRef.current
+      || (previousScrollTop !== null && element.scrollTop < previousScrollTop)
+    lastScrollTopRef.current = element.scrollTop
+    scrollingUpRef.current = false
+    if (
+      !scrolledUp
+      || element.scrollTop > -Math.max(0, element.scrollHeight - element.clientHeight - 80)
+      || !props.canLoadOlder
+      || props.loadingOlder
+      || loadingOlderRef.current
+    ) return
+    loadingOlderRef.current = true
+    void props.onLoadOlder().finally(() => {
+      loadingOlderRef.current = false
+    })
+  }
+
   return (
     <div
-      ref={scroll.containerRef}
+      ref={containerRef}
       className="message-stream"
-      onKeyDown={scroll.onUserScrollIntent}
-      onPointerDown={scroll.onUserScrollIntent}
-      onScroll={() => {
-        scroll.onScroll()
-        const element = scroll.containerRef.current
-        setShowBottom(Boolean(element && element.scrollHeight - element.scrollTop - element.clientHeight > 220))
+      onKeyDown={(event) => {
+        if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) scrollingUpRef.current = true
       }}
-      onTouchStart={scroll.onUserScrollIntent}
-      onWheel={scroll.onUserScrollIntent}
+      onPointerDown={() => {
+        lastScrollTopRef.current = containerRef.current?.scrollTop ?? null
+      }}
+      onScroll={(event) => {
+        const element = event.currentTarget
+        loadOlderAfterScrollingUp(element)
+      }}
+      onTouchStart={(event) => {
+        touchStartYRef.current = event.touches[0]?.clientY ?? null
+      }}
+      onTouchMove={(event) => {
+        const touchY = event.touches[0]?.clientY
+        if (touchY !== undefined && touchStartYRef.current !== null) {
+          scrollingUpRef.current = touchY < touchStartYRef.current
+          touchStartYRef.current = touchY
+        }
+      }}
+      onWheel={(event) => {
+        scrollingUpRef.current = event.deltaY < 0
+      }}
     >
-      <div ref={scroll.contentRef} className="message-stream__content">
-        {props.canLoadOlder && (
-          <button
-            type="button"
-            className="message-stream__older"
-            disabled={props.loadingOlder}
-            onClick={() => {
-              scroll.rememberBeforePrepend()
-              void props.onLoadOlder()
-            }}
-          >
-            {props.loadingOlder && <LoaderCircle className="is-spinning" size={15} />}
-            {props.loadingOlder ? 'Завантажуємо…' : 'Раніші повідомлення'}
-          </button>
-        )}
-
+      <div ref={contentRef} className="message-stream__content">
         {!props.messages.length ? (
           <div className="message-stream__empty">
             <MessageCircle size={34} />
@@ -81,22 +121,21 @@ export function MessageStream(props: MessageStreamProps) {
           </div>
         ) : (
           props.messages.map((message, index) => {
-            const previous = props.messages[index - 1]
-            const showDay = !previous || chatDayKey(previous.createdAt) !== chatDayKey(message.createdAt)
+            const next = props.messages[index + 1]
+            const showDay = !next || chatDayKey(next.createdAt) !== chatDayKey(message.createdAt)
             return (
               <div key={message.id}>
                 {showDay && <div className="message-day-separator"><span>{formatChatDay(message.createdAt)}</span></div>}
-                {index === firstUnreadIndex && (
-                  <div className="message-unread-separator"><span>Непрочитані</span></div>
-                )}
                 <MessageBubble
                   threadId={props.threadId}
                   message={message}
                   own={message.authorId === props.currentUserId}
                   highlighted={message.id === props.highlightedMessageId}
+                  isNew={liveMessageIds.has(message.id)}
                   canConvertToTask={props.canConvertToTask}
                   canConvertToEvent={props.canConvertToEvent}
                   onReply={props.onReply}
+                  onLike={props.onLike}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
                   onConvert={props.onConvert}
@@ -107,16 +146,6 @@ export function MessageStream(props: MessageStreamProps) {
         )}
       </div>
 
-      {showBottom && (
-        <button
-          type="button"
-          className="message-stream__bottom"
-          aria-label="До нових повідомлень"
-          onClick={() => scroll.scrollToBottom()}
-        >
-          <ArrowDown size={19} />
-        </button>
-      )}
     </div>
   )
 }

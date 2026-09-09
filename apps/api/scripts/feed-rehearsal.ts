@@ -18,7 +18,6 @@ import { PrismaClient } from '../src/generated/prisma/client.js'
 import type { AuthPrincipal } from '../src/common/request-context.js'
 import { normalizeUserSearchValue } from '../src/common/user-search.js'
 import type { PrismaService } from '../src/prisma/prisma.service.js'
-import { CapabilitiesService } from '../src/modules/authorization/capabilities.service.js'
 import { ScopeService } from '../src/modules/authorization/scope.service.js'
 import { FeedService } from '../src/modules/feed/feed.service.js'
 import type { FilesService } from '../src/modules/files/files.service.js'
@@ -1145,9 +1144,8 @@ async function main(): Promise<void> {
     await prisma.$executeRawUnsafe('PRAGMA busy_timeout = 5000')
     const prismaService = prisma as unknown as PrismaService
     const scope = new ScopeService()
-    const capabilities = new CapabilitiesService(prismaService, scope)
     const files = null as unknown as FilesService
-    const feed = new FeedService(prismaService, capabilities, files)
+    const feed = new FeedService(prismaService, scope, files)
     const baseQuery: FeedListQuery = {
       company: 'all',
       filter: 'ALL',

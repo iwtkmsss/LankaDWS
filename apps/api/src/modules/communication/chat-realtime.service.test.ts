@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MessageEvent } from '@nestjs/common'
-import { chatRealtimeEventSchema } from '@bert-crm/contracts'
+import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@bert-crm/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import type { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
@@ -72,6 +72,25 @@ describe('ChatRealtimeService user stream', () => {
     expect(groupMemberFindMany).not.toHaveBeenCalled()
     firstSubscription.unsubscribe()
     secondSubscription.unsubscribe()
+  })
+
+  it('publishes a summary refresh only to the requested connected user', async () => {
+    const prisma = {
+      userSession: { findUnique: vi.fn().mockResolvedValue({
+        userId: principal.userId, revokedAt: null, expiresAt: new Date(Date.now() + 60_000), lastSeenAt: new Date(), authorizationVersion: 1,
+        user: { isActive: true, accountType: 'USER', authorizationVersion: 1, primaryCompany: { isActive: true } },
+      }) },
+    }
+    const realtime = new ChatRealtimeService(prisma as never)
+    const events: MessageEvent[] = []
+    const subscription = realtime.userStream(principal).subscribe((event) => events.push(event))
+
+    realtime.publishSummary([principal.userId], ['feed', 'notifications'])
+
+    await vi.waitFor(() => expect(events.some((event) => event.type === 'summary')).toBe(true))
+    const summary = realtimeSummaryChangedSchema.parse(events.find((event) => event.type === 'summary')?.data)
+    expect(summary.kinds).toEqual(['feed', 'notifications'])
+    subscription.unsubscribe()
   })
 })
 

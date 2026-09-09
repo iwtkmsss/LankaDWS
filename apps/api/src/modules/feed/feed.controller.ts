@@ -30,6 +30,11 @@ export class FeedController {
     return this.feed.list(principalFrom(request), parsed.data)
   }
 
+  @Get('summary')
+  summary(@Req() request: BertRequest, @Query('company') company?: string) {
+    return this.feed.summary(principalFrom(request), company)
+  }
+
   @Get('audiences')
   audiences(@Req() request: BertRequest, @Query('company') company?: string) {
     return this.feed.audiences(principalFrom(request), company)

@@ -19,11 +19,11 @@ import {
   CheckCircle2,
   ChevronRight,
   CirclePlus,
-  Download,
   Eye,
   FileText,
   Flag,
   History,
+  Heart,
   Link2,
   MessageCircle,
   Paperclip,
@@ -53,6 +53,7 @@ import {
 import { MentionText } from '../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
   Avatar,
   Button,
@@ -934,20 +935,23 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       attachmentIds: string[]
       mentions: StructuredMentionInput[]
       key: string
+      keepDraft?: boolean
     }) => {
-      const { key, ...body } = input
+      const { key, keepDraft: _keepDraft, ...body } = input
       return api(`/tasks/${id}/comments`, {
         method: 'POST',
         headers: { 'idempotency-key': key },
         body: jsonBody(body),
       })
     },
-    onSuccess: () => {
-      setComment('')
-      setCommentMentions([])
-      commentAttemptRef.current = { signature: '', key: '' }
-      setReplyTo(null)
-      setCommentAttachmentIds([])
+    onSuccess: (_result, input) => {
+      if (!input.keepDraft) {
+        setComment('')
+        setCommentMentions([])
+        commentAttemptRef.current = { signature: '', key: '' }
+        setReplyTo(null)
+        setCommentAttachmentIds([])
+      }
       setContentMessage('')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
@@ -2154,20 +2158,38 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                         </div>
                       )}
                       {!item.replyToCommentId && (
-                        <button
-                          type="button"
-                          className="task-comment-reply"
-                          onClick={() => {
-                            setReplyTo({
-                              id: item.id,
-                              authorName: item.author.displayName,
-                              body: item.body,
-                            })
-                          }}
-                        >
-                          <Reply size={14} />
-                          Відповісти
-                        </button>
+                        <div className="task-comment-actions">
+                          <button
+                            type="button"
+                            className="task-comment-reply"
+                            disabled={post.isPending}
+                            aria-label="Подобається"
+                            onClick={() => post.mutate({
+                              body: '👍',
+                              mentions: [],
+                              replyToCommentId: item.id,
+                              attachmentIds: [],
+                              key: idempotencyKey('task-comment-like'),
+                              keepDraft: true,
+                            })}
+                          >
+                            <Heart size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="task-comment-reply"
+                            onClick={() => {
+                              setReplyTo({
+                                id: item.id,
+                                authorName: item.author.displayName,
+                                body: item.body,
+                              })
+                            }}
+                          >
+                            <Reply size={14} />
+                            Відповісти
+                          </button>
+                        </div>
                       )}
                     </div>
                   </article>
@@ -2353,6 +2375,7 @@ function TaskAttachment({
   attachment: TaskAttachmentView
   compact?: boolean
 }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
   const status = useQuery({
     queryKey: ['file-status', attachment.id],
     queryFn: () => api<{ scanStatus: TaskAttachmentView['scanStatus'] }>(
@@ -2378,17 +2401,22 @@ function TaskAttachment({
             : taskAttachmentStateLabel(scanStatus)}
         </small>
       </span>
-      {scanStatus === 'CLEAN' && <Download size={15} />}
+      {scanStatus === 'CLEAN' && <Eye size={15} />}
     </>
   )
   if (scanStatus === 'CLEAN') {
     return (
-      <a
-        className={compact ? 'task-attachment is-compact' : 'task-attachment'}
-        href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}
-      >
-        {content}
-      </a>
+      <>
+        <button
+          type="button"
+          className={compact ? 'task-attachment is-compact' : 'task-attachment'}
+          aria-label={`Переглянути ${attachment.fileName}`}
+          onClick={() => setPreviewOpen(true)}
+        >
+          {content}
+        </button>
+        {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+      </>
     )
   }
   return (

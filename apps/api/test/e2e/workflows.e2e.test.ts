@@ -65,6 +65,137 @@ async function login(username: string) {
 }
 
 describe('Lanka API workflows', () => {
+  it('publishes one post to multiple companies with distinct feed projections', async () => {
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now().toString(36);
+    const secondCompanyId = `cmp_feed_${suffix}`;
+    await prisma.company.create({
+      data: {
+        id: secondCompanyId,
+        workspaceId: 'ws_bert',
+        displayName: `Друга компанія ${suffix}`,
+        legalName: `Друга компанія ${suffix}`,
+        code: `feed-${suffix}`,
+      },
+    });
+    try {
+      const maria = await login('maria');
+      const response = await maria.agent
+        .post('/api/v1/feed')
+        .set('x-csrf-token', maria.csrf)
+        .set('idempotency-key', `feed-multi-company-${suffix}`)
+        .send({
+          companyId: 'cmp_bert_ua',
+          body: 'Оновлення для кількох компаній.',
+          audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', secondCompanyId] },
+          requiresAcknowledgement: true,
+        })
+        .expect(201);
+      const postId = (response.body as { id: string }).id;
+      const items = await prisma.feedItem.findMany({
+        where: { postId },
+        select: { companyId: true, eventKey: true },
+        orderBy: { companyId: 'asc' },
+      });
+      expect(items).toHaveLength(2);
+      expect(new Set(items.map((item) => item.eventKey)).size).toBe(2);
+      expect(items.map((item) => item.companyId)).toEqual(['cmp_bert_ua', secondCompanyId].sort());
+    } finally {
+      await prisma.company.update({ where: { id: secondCompanyId }, data: { isActive: false } });
+    }
+  });
+
+  it('reports new unread feed updates in the compact summary', async () => {
+    const maria = await login('maria');
+    const visible = await maria.agent.get('/api/v1/feed?company=all&limit=50').expect(200);
+    const markers = (visible.body as FeedListResult).readMarkers;
+    if (markers.length > 0) {
+      await maria.agent
+        .post('/api/v1/feed/read')
+        .set('x-csrf-token', maria.csrf)
+        .send({ markers })
+        .expect(201);
+    }
+    const before = await maria.agent.get('/api/v1/feed/summary?company=all').expect(200);
+    const beforeCount = (before.body as { unreadCount: number }).unreadCount;
+
+    const andrii = await login('andrii');
+    await andrii.agent
+      .post('/api/v1/feed')
+      .set('x-csrf-token', andrii.csrf)
+      .set('idempotency-key', `feed-summary-${Date.now()}`)
+      .send({
+        companyId: 'cmp_bert_ua',
+        body: 'Нове оновлення для лічильника стрічки.',
+        audience: { type: 'COMPANY' },
+        requiresAcknowledgement: false,
+      })
+      .expect(201);
+
+    const after = await maria.agent.get('/api/v1/feed/summary?company=all').expect(200);
+    expect((after.body as { unreadCount: number }).unreadCount).toBe(beforeCount + 1);
+  });
+
+  it('clears the unread badge for every company of a de-duplicated multi-company post', async () => {
+    const prisma = app.get(PrismaService);
+    const suffix = Date.now().toString(36);
+    const secondCompanyId = `cmp_mcread_${suffix}`;
+    await prisma.company.create({
+      data: {
+        id: secondCompanyId,
+        workspaceId: 'ws_bert',
+        displayName: `Компанія лічильника ${suffix}`,
+        legalName: `Компанія лічильника ${suffix}`,
+        code: `mcread-${suffix}`,
+      },
+    });
+    try {
+      const maria = await login('maria');
+      const readEverything = async () => {
+        const visible = await maria.agent.get('/api/v1/feed?company=all&limit=50').expect(200);
+        const markers = (visible.body as FeedListResult).readMarkers;
+        if (markers.length > 0) {
+          await maria.agent
+            .post('/api/v1/feed/read')
+            .set('x-csrf-token', maria.csrf)
+            .send({ markers })
+            .expect(201);
+        }
+        return markers;
+      };
+      const summaryCount = async () =>
+        ((await maria.agent.get('/api/v1/feed/summary?company=all').expect(200)).body as { unreadCount: number }).unreadCount;
+
+      await readEverything();
+      const baseCount = await summaryCount();
+
+      const andrii = await login('andrii');
+      await andrii.agent
+        .post('/api/v1/feed')
+        .set('x-csrf-token', andrii.csrf)
+        .set('idempotency-key', `feed-mcread-${suffix}`)
+        .send({
+          companyId: 'cmp_bert_ua',
+          body: 'Оновлення для двох компаній.',
+          audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', secondCompanyId] },
+          requiresAcknowledgement: false,
+        })
+        .expect(201);
+
+      // One rendered card, but unread activity in both target companies.
+      expect(await summaryCount()).toBe(baseCount + 2);
+
+      // Opening the feed must hand back a read marker for the de-duplicated
+      // company too, so applying the markers clears the badge completely.
+      const markers = await readEverything();
+      expect(markers.map((marker) => marker.companyId)).toContain(secondCompanyId);
+      expect(markers.map((marker) => marker.companyId)).toContain('cmp_bert_ua');
+      expect(await summaryCount()).toBe(baseCount);
+    } finally {
+      await prisma.company.update({ where: { id: secondCompanyId }, data: { isActive: false } });
+    }
+  });
+
   it('creates a complete task aggregate idempotently', async () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
@@ -282,18 +413,11 @@ describe('Lanka API workflows', () => {
   });
 
   it('enforces CSRF and organization-safe authenticated projections', async () => {
-    await app.get(PrismaService).companyCapability.update({
-      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
-      data: { enabled: false, disabledAt: new Date(), version: { increment: 1 } },
-    });
     const { agent } = await login('maria');
     const me = await agent.get('/api/v1/me').expect(200);
     const principal = me.body as PrincipalView;
     expect(principal.username).toBe('maria');
     expect(principal.accountType).toBe('USER');
-    const feedCapability = principal.capabilities.find((item) => item.code === 'FEED');
-    expect(feedCapability).toMatchObject({ code: 'FEED', enabled: false });
-    expect(typeof feedCapability?.version).toBe('number');
     await agent.post('/api/v1/auth/logout').expect(403);
     const dashboard = await agent.get('/api/v1/dashboard').expect(200);
     const dashboardBody = dashboard.body as DashboardView;
@@ -304,46 +428,46 @@ describe('Lanka API workflows', () => {
       },
       availability: {
         tasks: true,
-        activity: false,
+        activity: true,
       },
       kpis: {
         activeTasks: { href: '/tasks?preset=ACTIVE' },
       },
     });
-    expect(dashboardBody.activity).toEqual([]);
+    expect(dashboardBody.activity).toEqual(expect.any(Array));
     expect(JSON.stringify(dashboardBody)).not.toContain('privateHrComment');
   });
 
   it('rolls an organization capability out atomically with version, audit, and outbox evidence', async () => {
     const dmytro = await login('dmytro');
     await app.get(PrismaService).companyCapability.update({
-      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
+      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'CALENDAR_WRITE' } },
       data: { enabled: false, disabledAt: new Date(), version: { increment: 1 } },
     });
     const before = await dmytro.agent
       .get('/api/v1/admin/organization/capabilities')
       .expect(200);
-    const feed = (before.body as { items: OrganizationCapabilityView[] }).items.find((item) => item.code === 'FEED');
-    if (!feed) throw new Error('FEED capability is missing from the organization response');
-    expect(feed).toMatchObject({ enabled: false });
+    const calendarWrite = (before.body as { items: OrganizationCapabilityView[] }).items.find((item) => item.code === 'CALENDAR_WRITE');
+    if (!calendarWrite) throw new Error('CALENDAR_WRITE capability is missing from the organization response');
+    expect(calendarWrite).toMatchObject({ enabled: false });
 
     const updated = await dmytro.agent
-      .patch('/api/v1/admin/organization/capabilities/FEED')
+      .patch('/api/v1/admin/organization/capabilities/CALENDAR_WRITE')
       .set('x-csrf-token', dmytro.csrf)
-      .send({ enabled: true, expectedVersion: feed.version })
+      .send({ enabled: true, expectedVersion: calendarWrite.version })
       .expect(200);
-    expect(updated.body as OrganizationCapabilityView).toMatchObject({ code: 'FEED', enabled: true, version: feed.version + 1 });
+    expect(updated.body as OrganizationCapabilityView).toMatchObject({ code: 'CALENDAR_WRITE', enabled: true, version: calendarWrite.version + 1 });
 
     await dmytro.agent
-      .patch('/api/v1/admin/organization/capabilities/FEED')
+      .patch('/api/v1/admin/organization/capabilities/CALENDAR_WRITE')
       .set('x-csrf-token', dmytro.csrf)
-      .send({ enabled: false, expectedVersion: feed.version })
+      .send({ enabled: false, expectedVersion: calendarWrite.version })
       .expect(409);
 
     const me = await dmytro.agent.get('/api/v1/me').expect(200);
     const principal = me.body as PrincipalView;
     expect(principal.capabilities).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: 'FEED', enabled: true, version: feed.version + 1 }),
+      expect.objectContaining({ code: 'CALENDAR_WRITE', enabled: true, version: calendarWrite.version + 1 }),
     ]));
     const prisma = app.get(PrismaService);
     expect(await prisma.auditEvent.findFirst({ where: { action: 'company.capability_changed', companyId: 'cmp_bert_ua' } })).not.toBeNull();
@@ -3224,10 +3348,6 @@ describe('Lanka API workflows', () => {
 
   it('supports canonical structured Feed mentions without weakening audience access', async () => {
     const prisma = app.get(PrismaService);
-    await prisma.companyCapability.update({
-      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'FEED' } },
-      data: { enabled: true, disabledAt: null },
-    });
     const maria = await login('maria');
     const olena = await login('olena');
     const suffix = Date.now().toString(36);

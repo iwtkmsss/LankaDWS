@@ -151,10 +151,10 @@
 .right-panel__chat-files > button.is-open { border-color: var(--cobalt-300); background: linear-gradient(135deg, var(--cobalt-50), color-mix(in srgb, var(--cobalt-100) 72%, var(--surface))); color: var(--cobalt-700); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cobalt-500) 7%, transparent); }
 .right-panel__chat-files > button.is-open > svg { color: var(--cobalt-700); }
 .right-panel__chat-files-grid { display: grid; min-height: 0; flex: 1; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-flow: row; align-content: start; align-items: start; overflow-y: auto; gap: 8px; padding: 12px; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.right-panel__chat-files-grid > a, .right-panel__chat-files-grid > div { display: grid; overflow: hidden; min-width: 0; aspect-ratio: 1 / 1; grid-template-rows: minmax(0, 1fr) 24px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink-600); box-shadow: 0 2px 7px rgba(18, 35, 70, .035); }
-.right-panel__chat-files-grid > a:hover { border-color: var(--cobalt-300); box-shadow: 0 4px 12px rgba(31, 94, 255, .1); }
+.right-panel__chat-files-grid > button, .right-panel__chat-files-grid > div { display: grid; overflow: hidden; min-width: 0; aspect-ratio: 1 / 1; grid-template-rows: minmax(0, 1fr) 24px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink-600); padding: 0; text-align: left; box-shadow: 0 2px 7px rgba(18, 35, 70, .035); }
+.right-panel__chat-files-grid > button:hover { border-color: var(--cobalt-300); box-shadow: 0 4px 12px rgba(31, 94, 255, .1); }
 .right-panel__chat-files-grid img { width: 100%; height: 100%; object-fit: cover; }
-.right-panel__chat-files-grid > a > span, .right-panel__chat-files-grid > div > span { display: grid; place-items: center; background: var(--surface-soft); color: var(--cobalt-600); }
+.right-panel__chat-files-grid > button > span, .right-panel__chat-files-grid > div > span { display: grid; place-items: center; background: var(--surface-soft); color: var(--cobalt-600); }
 .right-panel__chat-files-grid small { overflow: hidden; padding: 5px 6px; font-size: 8.5px; text-overflow: ellipsis; white-space: nowrap; }
 
 .right-panel__message-stage { position: relative; min-height: 0; flex: 1; }
@@ -178,12 +178,12 @@
 .right-panel__message-meta > .compact-file-name { min-width: 0; max-width: 150px; color: var(--ink-500); }
 .right-panel__message-delivery { display: inline-flex; align-items: center; color: var(--ink-400); }
 .right-panel__message-delivery.is-read { color: var(--cobalt-600); }
-.right-panel__message-file { display: grid; min-width: 150px; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; margin-top: 7px; border-radius: 8px; background: var(--surface); color: var(--ink-600); padding: 7px 8px; font-size: 9.5px; }
+.right-panel__message-file { display: grid; min-width: 150px; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 6px; margin-top: 7px; border: 0; border-radius: 8px; background: var(--surface); color: var(--ink-600); padding: 7px 8px; font-size: 9.5px; text-align: left; }
 .right-panel__message-file:hover { background: var(--surface-hover); color: var(--cobalt-700); }
 .right-panel__message-file > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .right-panel__message-file > small { color: var(--ink-400); font-size: 8.5px; white-space: nowrap; }
 .right-panel__message-file.is-disabled { opacity: .7; }
-.right-panel__message-image { display: grid; overflow: hidden; width: min(220px, 64vw); margin-top: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-600); }
+.right-panel__message-image { display: grid; overflow: hidden; width: min(220px, 64vw); margin-top: 7px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink-600); padding: 0; text-align: left; }
 .right-panel__message-image img { display: block; width: 100%; max-height: 180px; object-fit: cover; }
 .right-panel__message-image > span { overflow: hidden; padding: 6px 8px; font-size: 9.5px; white-space: nowrap; }
 .right-panel__message-image .compact-file-name { width: 100%; }

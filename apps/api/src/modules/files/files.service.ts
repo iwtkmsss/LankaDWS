@@ -363,11 +363,10 @@ export class FilesService {
         where: {
           id: { in: postIds },
           workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
           status: 'PUBLISHED',
-          company: { capabilities: { some: { code: 'FEED', enabled: true } } },
           OR: [
             { authorId: principal.userId },
+            { companyId: { in: principal.allowedCompanyIds } },
             {
               recipients: {
                 some: {

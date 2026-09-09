@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  OrganizationCapability,
   bitrixSnapshotManifestPayloadSchema,
   bitrixSnapshotSealRequestSchema,
   companyMappingArtifactSchema,
@@ -162,7 +161,7 @@ describe('transport schemas', () => {
   })
 
   it('keeps capability rollout explicit and company-scoped', () => {
-    expect(organizationCapabilityCodeSchema.parse('FEED')).toBe(OrganizationCapability.Feed)
+    expect(organizationCapabilityCodeSchema.safeParse('FEED').success).toBe(false)
     expect(() => organizationCapabilityCodeSchema.parse('TASKS')).toThrow()
     expect(updateOrganizationCapabilitySchema.parse({ enabled: true, expectedVersion: 2 })).toEqual({
       enabled: true,
@@ -236,6 +235,14 @@ describe('transport schemas', () => {
       audience: { type: 'USERS', userIds: ['usr_one', 'usr_two'] },
       attachmentIds: ['file_one'],
       requiresAcknowledgement: false,
+    })
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_bert',
+      body: '',
+      audience: { type: 'COMPANIES', companyIds: ['cmp_bert', 'cmp_other', 'cmp_other'] },
+      attachmentIds: ['file_one'],
+    })).toMatchObject({
+      audience: { type: 'COMPANIES', companyIds: ['cmp_bert', 'cmp_other'] },
     })
     expect(createFeedCommentSchema.parse({
       body: ' Відповідь ',

@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { OrganizationCapability, type DocumentListItem, type GroupDetailView, type GroupListResult } from '@bert-crm/contracts'
-import { Archive, ArchiveRestore, BookOpenCheck, Building2, Check, CheckSquare2, Download, Eye, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, Maximize2, MessageCircle, Network, Newspaper, Pencil, Plus, Search, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
+import { Archive, ArchiveRestore, BookOpenCheck, Building2, Check, CheckSquare2, Download, Eye, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, MessageCircle, Network, Newspaper, Pencil, Plus, Search, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody, randomId } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
   Avatar,
   Button,
@@ -362,7 +363,6 @@ function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onC
 function GroupDrawer({ id, company, onClose }: { id: string; company: string; onClose: () => void }) {
   const client = useQueryClient()
   const navigate = useNavigate()
-  const { canUseCapability } = useAuth()
   const [settingsError, setSettingsError] = useState('')
   const [settingsDirty, setSettingsDirty] = useState(false)
   const closeGuard = useModalCloseGuard({
@@ -444,12 +444,10 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
             <section className="group-workspace">
               <h4>Робота групи</h4>
               <div>
-                {canUseCapability(OrganizationCapability.Feed) && (
-                  <Link to={`/feed?groupId=${encodeURIComponent(id)}`}>
-                    <Newspaper size={19} />
-                    <span><strong>Стрічка</strong><small>Оновлення групи</small></span>
-                  </Link>
-                )}
+                <Link to={`/feed?groupId=${encodeURIComponent(id)}`}>
+                  <Newspaper size={19} />
+                  <span><strong>Стрічка</strong><small>Оновлення групи</small></span>
+                </Link>
                 {(
                   <Link to={`/tasks?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
                     <CheckSquare2 size={19} />
@@ -893,7 +891,7 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
           <small>Файли буде прикріплено після перевірки безпеки.</small>
         </label>
         {attachmentFiles.length > 0 && <ul className="knowledge-file-list" aria-label="Вибрані файли">{attachmentFiles.map((file) => <li key={`${file.name}-${file.size}`}><FileIcon size={16} />{file.name}</li>)}</ul>}
-        {draft?.attachments.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{draft.attachments.map((file) => <li key={file.id}><FileIcon size={16} /><a href={`/api/v1/files/${file.id}/download`}>{file.safeFilename}</a><small>{file.scanStatus === 'CLEAN' ? 'Готовий' : 'Перевіряється'}</small></li>)}</ul></section> : null}
+        {draft?.attachments.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{draft.attachments.map((file) => <KnowledgeExistingFile key={file.id} file={file} />)}</ul></section> : null}
         {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
         <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending}>{save.isPending ? 'Зберігаємо…' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
       </form>}
@@ -903,25 +901,39 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
 }
 
 function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
-  const [previewId, setPreviewId] = useState<string | null>(null)
   const client = useQueryClient(); const query = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`) })
   const ack = useMutation({ mutationFn: () => api(`/knowledge/articles/${slug}/acknowledge`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }) }), onSuccess: () => void client.invalidateQueries({ queryKey: ['article', slug] }) })
-  const firstPreviewable = query.data?.attachments.find(isKnowledgePreviewable)?.id ?? null
-  const expandedId = previewId ?? firstPreviewable
-  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.attachments.length > 0 && <section className="knowledge-existing-files"><strong>Прикріплені файли</strong><div className="knowledge-attachment-list">{query.data.attachments.map((file) => <KnowledgeAttachmentPreview key={file.id} attachment={file} expanded={file.id === expandedId} onToggle={() => setPreviewId(file.id === expandedId ? '' : file.id)} />)}</div></section>}{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
+  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.attachments.length > 0 && <section className="knowledge-existing-files"><strong>Прикріплені файли</strong><div className="knowledge-attachment-list">{query.data.attachments.map((file) => <KnowledgeAttachmentPreview key={file.id} attachment={file} />)}</div></section>}{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
 }
 
-function isKnowledgePreviewable(file: KnowledgeAttachment) {
-  return file.scanStatus === 'CLEAN' && (file.mimeType === 'application/pdf' || file.mimeType?.startsWith('image/'))
+function KnowledgeExistingFile({ file }: { file: KnowledgeAttachment }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return (
+    <li>
+      <FileIcon size={16} />
+      {file.scanStatus === 'CLEAN' ? (
+        <button type="button" className="knowledge-file-list__preview" onClick={() => setPreviewOpen(true)}>
+          {file.safeFilename}
+        </button>
+      ) : <span className="knowledge-file-list__name">{file.safeFilename}</span>}
+      <small>{file.scanStatus === 'CLEAN' ? 'Готовий' : 'Перевіряється'}</small>
+      {previewOpen && (
+        <FilePreviewModal
+          file={{ id: file.id, fileName: file.safeFilename, mimeType: file.mimeType, bytes: file.bytes }}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+    </li>
+  )
 }
 
-function KnowledgeAttachmentPreview({ attachment, expanded, onToggle }: { attachment: KnowledgeAttachment; expanded: boolean; onToggle: () => void }) {
-  const url = `/api/v1/files/${attachment.id}/download?inline=true`
-  const previewable = isKnowledgePreviewable(attachment)
-  return <section className="document-preview knowledge-attachment-preview" aria-label={`Прикріплений файл ${attachment.safeFilename}`}>{previewable && expanded && (attachment.mimeType?.startsWith('image/') ? <img src={url} alt={attachment.safeFilename} /> : <iframe title={`Перегляд ${attachment.safeFilename}`} src={url} />)}<div className="knowledge-attachment-preview__footer"><span title={attachment.safeFilename}>{attachment.safeFilename}</span><div>{previewable && <Button variant="ghost" aria-expanded={expanded} aria-label={`${expanded ? 'Згорнути передперегляд' : 'Переглянути'} ${attachment.safeFilename}`} onClick={onToggle}>{expanded ? 'Згорнути' : <><Eye size={16} />Переглянути</>}</Button>}{previewable && <a className="icon-button" aria-label={`Відкрити окремо ${attachment.safeFilename}`} href={url} target="_blank" rel="noreferrer"><Maximize2 size={17} /></a>}<a className="icon-button" aria-label={`Завантажити ${attachment.safeFilename}`} href={`/api/v1/files/${attachment.id}/download`}><Download size={17} /></a></div></div></section>
+function KnowledgeAttachmentPreview({ attachment }: { attachment: KnowledgeAttachment }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return <section className="document-preview knowledge-attachment-preview" aria-label={`Прикріплений файл ${attachment.safeFilename}`}><div className="knowledge-attachment-preview__footer"><span title={attachment.safeFilename}>{attachment.safeFilename}</span><div><Button variant="ghost" aria-label={`Переглянути ${attachment.safeFilename}`} disabled={attachment.scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><Eye size={16} />Переглянути</Button><a className="icon-button" aria-label={`Завантажити ${attachment.safeFilename}`} href={`/api/v1/files/${attachment.id}/download`}><Download size={17} /></a></div></div>{previewOpen && <FilePreviewModal file={{ id: attachment.id, fileName: attachment.safeFilename, mimeType: attachment.mimeType, bytes: attachment.bytes }} onClose={() => setPreviewOpen(false)} />}</section>
 }
 
 function DocumentPreview({ version }: { version: { fileId: string; version: number; file: { name: string; mimeType: string; bytes: number; scanStatus: string } | null } }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
   const file = version.file
   const url = `/api/v1/files/${version.fileId}/download?inline=true`
   const canPreview = file?.scanStatus === 'CLEAN' && (file.mimeType === 'application/pdf' || file.mimeType.startsWith('image/'))
@@ -930,9 +942,7 @@ function DocumentPreview({ version }: { version: { fileId: string; version: numb
       <div className="document-preview__header">
         <span><Eye size={18} />Перегляд · версія {version.version}</span>
         <div>
-          <a className="button button--secondary" href={url} target="_blank" rel="noreferrer">
-            <Maximize2 size={16} />Відкрити окремо
-          </a>
+          {file && <Button variant="secondary" onClick={() => setPreviewOpen(true)}><Eye size={16} />Відкрити переглядач</Button>}
           <a className="icon-button" aria-label="Завантажити файл" href={`/api/v1/files/${version.fileId}/download`}><Download size={17} /></a>
         </div>
       </div>
@@ -948,6 +958,7 @@ function DocumentPreview({ version }: { version: { fileId: string; version: numb
           <a className="button button--secondary" href={`/api/v1/files/${version.fileId}/download`}><Download size={16} />Завантажити файл</a>
         </div>
       )}
+      {previewOpen && file && <FilePreviewModal file={{ id: version.fileId, fileName: file.name, mimeType: file.mimeType, bytes: file.bytes }} onClose={() => setPreviewOpen(false)} />}
     </section>
   )
 }

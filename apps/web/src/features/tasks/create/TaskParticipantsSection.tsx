@@ -237,17 +237,6 @@ export function TaskParticipantsSection({
 
   return (
     <div className="task-create-participants">
-      <div className="task-create-participants__intro">
-        <div>
-          <strong>Ролі в завданні</strong>
-          <span>Знайдіть людину та одразу призначте її потрібну роль.</span>
-        </div>
-        <span>{new Set([
-          draft.reporterId,
-          ...draft.participants.map((item) => item.userId),
-        ].filter(Boolean)).size} людей</span>
-      </div>
-
       <div className="task-create-role-grid">
         <ParticipantRoleCard
           role="RESPONSIBLE"

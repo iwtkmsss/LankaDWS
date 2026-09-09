@@ -60,6 +60,7 @@ import { api, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { Avatar, CompactFileName, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
@@ -241,8 +242,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: tab === 'chat',
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: false,
   })
   const threads = useMemo(() => [
     ...new Map(
@@ -267,8 +266,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.olderCursor ?? undefined,
     enabled: tab === 'chat' && Boolean(selectedThreadId),
-    refetchInterval: 15_000,
-    refetchIntervalInBackground: false,
   })
   const messages = useMemo(
     () => messagePages.data?.pages.slice().reverse().flatMap((page) => page.items) ?? [],
@@ -449,8 +446,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       counts: { action: number; unread: number }
     }>(`/notifications?tab=${notificationFilter}`),
     enabled: tab === 'notifications',
-    refetchInterval: 30_000,
-    refetchIntervalInBackground: false,
   })
   const markNotification = useMutation({
     mutationFn: ({ id, read }: { id: string; read: boolean }) => api(`/notifications/${id}`, {
@@ -797,22 +792,26 @@ function ChatFilesDropdown({
 }
 
 function ChatFilesGrid({ files }: { files: ChatAttachmentView[] }) {
+  const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
   return (
-    <div className="right-panel__chat-files-grid" id="right-panel-chat-files-grid">
-      {files.map((file) => file.scanStatus === 'CLEAN' ? (
-        <a key={file.id} href={panelAttachmentUrl(file)} target="_blank" rel="noreferrer" title={file.fileName}>
-          {isPreviewableImage(file)
-            ? <img src={panelAttachmentUrl(file)} alt={file.fileName} loading="lazy" />
-            : <span><FileText size={20} /></span>}
-          <small>{file.fileName}</small>
-        </a>
-      ) : (
-        <div key={file.id} title={file.fileName}>
-          <span><FileText size={20} /></span>
-          <small>{file.fileName}</small>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="right-panel__chat-files-grid" id="right-panel-chat-files-grid">
+        {files.map((file) => file.scanStatus === 'CLEAN' ? (
+          <button type="button" key={file.id} title={file.fileName} onClick={() => setPreviewFile(file)}>
+            {isPreviewableImage(file)
+              ? <img src={panelAttachmentUrl(file)} alt={file.fileName} loading="lazy" />
+              : <span><FileText size={20} /></span>}
+            <small>{file.fileName}</small>
+          </button>
+        ) : (
+          <div key={file.id} title={file.fileName}>
+            <span><FileText size={20} /></span>
+            <small>{file.fileName}</small>
+          </div>
+        ))}
+      </div>
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+    </>
   )
 }
 
@@ -1044,6 +1043,7 @@ function PanelMessageStream({
 }
 
 function CompactMessage({ message, own }: { message: ChatMessageView; own: boolean }) {
+  const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
   const singleImageAttachment = message.attachments.length === 1 && isPreviewableImage(message.attachments[0]!)
     ? message.attachments[0]
     : null
@@ -1091,28 +1091,28 @@ function CompactMessage({ message, own }: { message: ChatMessageView; own: boole
           </div>
         ) : null}
         {message.attachments.map((attachment) => isPreviewableImage(attachment) ? (
-          <a
+          <button
+            type="button"
             className="right-panel__message-image"
             key={attachment.id}
-            href={panelAttachmentUrl(attachment)}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`Відкрити ${attachment.fileName}`}
+            aria-label={`Переглянути ${attachment.fileName}`}
+            onClick={() => setPreviewFile(attachment)}
           >
             <img src={panelAttachmentUrl(attachment)} alt={attachment.fileName} loading="lazy" />
             {singleImageAttachment?.id !== attachment.id && (
               <span><CompactFileName fileName={attachment.fileName} /></span>
             )}
-          </a>
+          </button>
         ) : attachment.scanStatus === 'CLEAN' ? (
-          <a className="right-panel__message-file" key={attachment.id} href={panelAttachmentUrl(attachment)} target="_blank" rel="noreferrer">
+          <button type="button" className="right-panel__message-file" key={attachment.id} onClick={() => setPreviewFile(attachment)}>
             <FileText size={15} /><span>{attachment.fileName}</span><small>{formatPanelFileSize(attachment.bytes)}</small>
-          </a>
+          </button>
         ) : (
           <span className="right-panel__message-file is-disabled" key={attachment.id}>
             <FileText size={15} /><span>{attachment.fileName}</span><small>Перевіряється</small>
           </span>
         ))}
+        {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
         {!message.body && !message.deletedAt && messageMeta}
       </div>
     </article>

@@ -177,6 +177,28 @@ describe('MessagesPage realtime flow', () => {
     expect(client.getQueryState(messageKeys.pages('thread-1'))?.isInvalidated).toBe(true)
   })
 
+  it('refreshes feed and notification data only when the server reports a changed summary', async () => {
+    const client = new QueryClient()
+    client.setQueryData(['feed', 'summary', 'company-1'], { unreadCount: 1 })
+    client.setQueryData(['notifications', 'summary'], { unread: 1, action: 0 })
+    render(
+      <QueryClientProvider client={client}>
+        <RealtimeHarness />
+      </QueryClientProvider>,
+    )
+    const source = FakeEventSource.instances[0]
+
+    await act(async () => {
+      source?.dispatchEvent(new MessageEvent('summary', { data: JSON.stringify({
+        kinds: ['feed', 'notifications'],
+        occurredAt: '2026-07-28T12:01:00.000Z',
+      }) }))
+    })
+
+    expect(client.getQueryState(['feed', 'summary', 'company-1'])?.isInvalidated).toBe(true)
+    expect(client.getQueryState(['notifications', 'summary'])?.isInvalidated).toBe(true)
+  })
+
   it('reconciles an own optimistic row when SSE wins the response race', () => {
     const client = new QueryClient()
     const optimistic = {

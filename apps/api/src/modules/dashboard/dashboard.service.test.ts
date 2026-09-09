@@ -22,7 +22,6 @@ function setup() {
   const prisma = {
     company: { findFirst: vi.fn().mockResolvedValue({
       timezone: 'Europe/Kyiv',
-      capabilities: [{ enabled: true }],
     }) },
     event: {
       findMany: vi.fn().mockResolvedValue([]),

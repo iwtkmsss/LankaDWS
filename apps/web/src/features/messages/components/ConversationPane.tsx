@@ -37,6 +37,7 @@ interface ConversationPaneProps {
   onLatest: () => void
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
+  onLike: (message: ChatMessageView) => void
   onReplyCancel: () => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
@@ -179,7 +180,6 @@ export function ConversationPane(props: ConversationPaneProps) {
         threadId={props.thread.id}
         messages={props.messages}
         currentUserId={props.currentUserId}
-        lastReadMessageId={props.thread.lastReadMessageId}
         highlightedMessageId={props.highlightedMessageId}
         canLoadOlder={props.canLoadOlder}
         loadingOlder={props.loadingOlder}
@@ -187,6 +187,7 @@ export function ConversationPane(props: ConversationPaneProps) {
         canConvertToEvent={props.canConvertToEvent}
         onLoadOlder={props.onLoadOlder}
         onReply={props.onReply}
+        onLike={props.onLike}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
         onConvert={props.onConvert}

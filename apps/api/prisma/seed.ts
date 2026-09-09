@@ -44,7 +44,7 @@ async function seed(): Promise<void> {
   await prisma.companyCapability.updateMany({
     where: {
       companyId: 'cmp_bert_ua',
-      code: { in: ['FEED', 'CALENDAR_WRITE'] },
+      code: 'CALENDAR_WRITE',
       enabled: false,
     },
     data: {

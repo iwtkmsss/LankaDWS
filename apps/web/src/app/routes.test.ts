@@ -23,9 +23,9 @@ describe('canonical route registry', () => {
     expect(routes.find((route) => route.path === '/analytics')).toBeUndefined()
     expect(routes.find((route) => route.path === '/feed')).toMatchObject({
       title: 'Жива стрічка',
-      capability: 'FEED',
       navGroup: 'primary',
     })
+    expect(routes.find((route) => route.path === '/feed')?.capability).toBeUndefined()
     expect(routes.find((route) => route.path === '/notifications')).toMatchObject({ navGroup: 'communication' })
   })
 
@@ -80,11 +80,11 @@ describe('canonical route registry', () => {
   it('applies account-type and capability gates to the shared sidebar configuration', () => {
     const visiblePaths = navigationRoutes(
       false,
-      (capability) => capability !== 'FEED' && capability !== 'GROUPS_UI',
+      (capability) => capability !== 'GROUPS_UI',
     ).map((route) => route.path)
     expect(visiblePaths).not.toContain('/overview')
     expect(visiblePaths).not.toContain('/analytics')
-    expect(visiblePaths).not.toContain('/feed')
+    expect(visiblePaths).toContain('/feed')
     expect(visiblePaths).not.toContain('/groups')
   })
 })

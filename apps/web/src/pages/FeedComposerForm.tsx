@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   FeedAttachmentView,
@@ -6,55 +6,49 @@ import type {
   StructuredMentionInput,
 } from '@bert-crm/contracts'
 import {
-  CalendarPlus2,
-  CheckCircle2,
+  ChevronDown,
   FileText,
-  FileUp,
   Paperclip,
   Send,
 } from 'lucide-react'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
-import { Button } from '../shared/ui'
+import { Button, ConfirmationDialog } from '../shared/ui'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
 
 export function FeedComposerForm({
-  company,
-  canShareFiles,
   onPostCreated,
   onFeedChanged,
   onBusyChange,
   onDirtyChange,
-  onNavigate,
 }: {
-  company: string
-  canShareFiles: boolean
   onPostCreated: () => void
   onFeedChanged: () => void
   onBusyChange: (busy: boolean) => void
   onDirtyChange: (dirty: boolean) => void
-  onNavigate: (path: string) => void
 }) {
   const [body, setBody] = useState('')
   const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
-  const [audienceKey, setAudienceKey] = useState('')
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[] | null>(null)
   const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(false)
   const [attachments, setAttachments] = useState<FeedAttachmentView[]>([])
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false)
+  const [audienceOpen, setAudienceOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [sharingFile, setSharingFile] = useState(false)
+  const [confirmFileOnly, setConfirmFileOnly] = useState(false)
   const [message, setMessage] = useState('')
+  const attachmentControlRef = useRef<HTMLDivElement>(null)
   const audiences = useQuery({
-    queryKey: ['feed-audiences', company],
+    queryKey: ['feed-audiences', 'all'],
     queryFn: () => api<{ items: FeedAudienceOption[] }>(
-      `/feed/audiences?company=${encodeURIComponent(company)}`,
+      '/feed/audiences?company=all',
     ),
-    enabled: company !== 'all',
   })
   const create = useMutation({
     mutationFn: (input: {
       companyId: string
       body: string
-      audience: { type: 'COMPANY' } | { type: 'GROUP'; groupId: string }
+      audience: { type: 'COMPANIES'; companyIds: string[] }
       requiresAcknowledgement: boolean
       attachmentIds: string[]
       mentions: StructuredMentionInput[]
@@ -66,7 +60,7 @@ export function FeedComposerForm({
     onSuccess: () => {
       setBody('')
       setMentions([])
-      setAudienceKey('')
+      setSelectedCompanyIds(null)
       setRequiresAcknowledgement(false)
       setAttachments([])
       setMessage('')
@@ -74,10 +68,10 @@ export function FeedComposerForm({
       onPostCreated()
     },
   })
-  const busy = create.isPending || uploading || sharingFile
+  const busy = create.isPending || uploading
   const dirty = Boolean(
     body.trim()
-    || audienceKey
+    || selectedCompanyIds !== null
     || requiresAcknowledgement
     || attachments.length,
   )
@@ -91,29 +85,46 @@ export function FeedComposerForm({
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
 
-  const options = audiences.data?.items ?? []
-  const selectedKey = audienceKey || (options[0] ? `${options[0].type}:${options[0].id}` : '')
-  const selectedAudience = options.find((item) => `${item.type}:${item.id}` === selectedKey)
-  const mentionCandidateUrl = selectedAudience
+  useEffect(() => {
+    if (!attachmentsOpen) return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!attachmentControlRef.current?.contains(event.target as Node)) setAttachmentsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAttachmentsOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [attachmentsOpen])
+
+  const companies = (audiences.data?.items ?? []).filter((item) => item.type === 'COMPANY')
+  const effectiveCompanyIds = selectedCompanyIds ?? companies.map((item) => item.companyId)
+  const selectedCompanies = companies.filter((item) => effectiveCompanyIds.includes(item.companyId))
+  const primaryCompany = selectedCompanies[0]
+  const audienceSummary = selectedCompanies.length === companies.length && companies.length > 0
+    ? 'Усі'
+    : selectedCompanies.length > 0
+      ? selectedCompanies.map((item) => item.label).join(', ')
+      : 'Ніхто'
+  const mentionCandidateUrl = selectedCompanies.length === 1
     ? `/feed/mention-candidates?${new URLSearchParams({
-        company,
-        audienceType: selectedAudience.type,
-        ...(selectedAudience.type === 'GROUP' ? { audienceId: selectedAudience.id } : {}),
+        company: selectedCompanies[0].companyId,
+        audienceType: 'COMPANY',
       })}`
     : null
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    const option = selectedAudience
+  async function publish() {
     const prepared = trimMentionValue(body, mentions)
-    if (!option || !prepared.body) return
+    if (!primaryCompany || (!prepared.body && attachments.length === 0)) return
     setMessage('')
     await create.mutateAsync({
-      companyId: company,
+      companyId: primaryCompany.companyId,
       body: prepared.body,
-      audience: option.type === 'GROUP'
-        ? { type: 'GROUP', groupId: option.id }
-        : { type: 'COMPANY' },
+      audience: { type: 'COMPANIES', companyIds: selectedCompanies.map((item) => item.companyId) },
       requiresAcknowledgement,
       attachmentIds: attachments.map((attachment) => attachment.id),
       mentions: prepared.mentions,
@@ -122,8 +133,23 @@ export function FeedComposerForm({
     })
   }
 
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    const prepared = trimMentionValue(body, mentions)
+    if (!primaryCompany || (!prepared.body && attachments.length === 0)) return
+    if (!prepared.body) {
+      setConfirmFileOnly(true)
+      return
+    }
+    void publish()
+  }
+
   async function uploadSelected(files: FileList | null) {
     if (!files?.length) return
+    if (!primaryCompany) {
+      setMessage('Спочатку оберіть, хто побачить публікацію.')
+      return
+    }
     const remaining = Math.max(0, 10 - attachments.length)
     const selected = [...files].slice(0, remaining)
     if (selected.length === 0) {
@@ -138,7 +164,7 @@ export function FeedComposerForm({
         const form = new FormData()
         form.append('file', file)
         uploaded.push(await api<FeedAttachmentView>(
-          `/feed/attachments?company=${encodeURIComponent(company)}`,
+          `/feed/attachments?company=${encodeURIComponent(primaryCompany.companyId)}`,
           { method: 'POST', body: form },
         ))
       }
@@ -150,43 +176,8 @@ export function FeedComposerForm({
     }
   }
 
-  async function shareSelected(fileList: FileList | null) {
-    const file = fileList?.[0]
-    const option = options.find((item) => `${item.type}:${item.id}` === selectedKey)
-    if (!file || !option) {
-      setMessage('Спочатку оберіть точну аудиторію файлу.')
-      return
-    }
-    setSharingFile(true)
-    setMessage('')
-    try {
-      const form = new FormData()
-      form.append('file', file)
-      const uploaded = await api<FeedAttachmentView>(
-        `/feed/attachments?company=${encodeURIComponent(company)}`,
-        { method: 'POST', body: form },
-      )
-      await api(`/feed/file-shares/${encodeURIComponent(uploaded.id)}`, {
-        method: 'POST',
-        headers: { 'idempotency-key': idempotencyKey('feed-file-share') },
-        body: jsonBody({
-          companyId: company,
-          audience: option.type === 'GROUP'
-            ? { type: 'GROUP', groupId: option.id }
-            : { type: 'COMPANY' },
-        }),
-      })
-      setMessage('Файл поширено. Завантаження відкриється після безпечної перевірки.')
-      onFeedChanged()
-    } catch {
-      setMessage('Не вдалося поширити файл. Перевірте доступ, формат і розмір.')
-    } finally {
-      setSharingFile(false)
-    }
-  }
-
   return (
-    <form className="feed-composer" onSubmit={(event) => void submit(event)}>
+    <form className="feed-composer" onSubmit={submit}>
       <MentionTextarea
         className="feed-composer__body"
         label="Текст публікації"
@@ -203,46 +194,69 @@ export function FeedComposerForm({
           setMentions(nextMentions)
         }}
       />
-      {attachments.length > 0 && (
-        <div className="feed-composer__attachments" aria-label="Додані файли">
-          {attachments.map((attachment) => (
-            <span key={attachment.id}>
-              <FileText size={15} />
-              <span>
-                <strong>{attachment.fileName}</strong>
-                <small>{formatBytes(attachment.bytes)} · перевіряється</small>
-              </span>
-              <button
-                type="button"
-                disabled={busy}
-                aria-label={`Прибрати ${attachment.fileName}`}
-                onClick={() => setAttachments((current) =>
-                  current.filter((item) => item.id !== attachment.id))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
       <div className="feed-composer__controls">
-        <label>
-          <span>Хто побачить</span>
-          <select
-            value={selectedKey}
-            disabled={busy || audiences.isLoading || options.length === 0}
-            onChange={(event) => {
-              setAudienceKey(event.target.value)
-              setMentions([])
-            }}
+        <div
+          ref={attachmentControlRef}
+          className={`feed-attachment-control${attachmentsOpen ? ' is-open' : ''}`}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAttachmentsOpen(false)
+          }}
+        >
+          <label className="feed-attachment-picker">
+            <Paperclip size={17} />
+            <span>
+              <strong>{uploading ? 'Додаємо файли…' : 'Додати файли'}</strong>
+              <small>
+                {attachments.length > 0
+                  ? `${attachments.length} із 10 прикріплено`
+                  : 'До 10 файлів у публікації'}
+              </small>
+            </span>
+            <input
+              aria-label="Додати файл"
+              type="file"
+              multiple
+              disabled={busy || !primaryCompany || attachments.length >= 10}
+              onChange={(event) => {
+                void uploadSelected(event.target.files)
+                event.currentTarget.value = ''
+              }}
+            />
+          </label>
+          <button
+            className="feed-attachment-control__toggle"
+            type="button"
+            aria-label="Показати прикріплені файли"
+            aria-expanded={attachmentsOpen}
+            onClick={() => setAttachmentsOpen((current) => !current)}
           >
-            {options.map((option) => (
-              <option key={`${option.type}:${option.id}`} value={`${option.type}:${option.id}`}>
-                {option.type === 'GROUP' ? `Група · ${option.label}` : option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <ChevronDown size={17} />
+          </button>
+          {attachmentsOpen && (
+            <div className="feed-composer__attachments" aria-label="Додані файли">
+              {attachments.length > 0 ? attachments.map((attachment) => (
+                <span key={attachment.id}>
+                  <FileText size={15} />
+                  <span>
+                    <strong>{attachment.fileName}</strong>
+                    <small>{formatBytes(attachment.bytes)} · перевіряється</small>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Прибрати ${attachment.fileName}`}
+                    onClick={() => setAttachments((current) =>
+                      current.filter((item) => item.id !== attachment.id))}
+                  >
+                    ×
+                  </button>
+                </span>
+              )) : (
+                <span className="feed-composer__attachments-empty">Файлів ще немає</span>
+              )}
+            </div>
+          )}
+        </div>
         <label className="feed-ack-option">
           <input
             type="checkbox"
@@ -251,54 +265,70 @@ export function FeedComposerForm({
             onChange={(event) => setRequiresAcknowledgement(event.target.checked)}
           />
           <span>
-            <strong>Потрібне підтвердження</strong>
-            <small>Кожен адресат має натиснути окрему кнопку</small>
+            <strong>Пункт «Ознайомився»</strong>
+            <small>Адресати підтверджують окремо</small>
           </span>
         </label>
-        <Button disabled={!body.trim() || !selectedKey || busy}>
+        <Button disabled={!primaryCompany || busy || (!body.trim() && attachments.length === 0)}>
           <Send size={16} /> {create.isPending ? 'Публікуємо…' : 'Опублікувати'}
         </Button>
       </div>
       <footer>
-        <div className="feed-composer__file-actions">
-          <label className="feed-attachment-picker">
-            <Paperclip size={15} />
-            {uploading ? 'Додаємо…' : 'Додати файл'}
-            <input
-              type="file"
-              multiple
-              disabled={busy || attachments.length >= 10}
-              onChange={(event) => {
-                void uploadSelected(event.target.files)
-                event.currentTarget.value = ''
-              }}
-            />
-          </label>
-          {canShareFiles && (
-            <label className="feed-file-share-picker" title="Окрема картка без текстової публікації">
-              <FileUp size={15} />
-              {sharingFile ? 'Поширюємо…' : 'Поширити файл'}
-              <input
-                type="file"
-                disabled={busy || !selectedKey}
-                onChange={(event) => {
-                  void shareSelected(event.target.files)
-                  event.currentTarget.value = ''
-                }}
-              />
-            </label>
+        <div className={`feed-audience-select${audienceOpen ? ' is-open' : ''}`}>
+          <button
+            className="feed-audience-select__trigger"
+            type="button"
+            disabled={busy}
+            aria-expanded={audienceOpen}
+            onClick={() => setAudienceOpen((current) => !current)}
+          >
+            <ChevronDown size={16} />
+            <span>Бачать: <strong>{audiences.isLoading ? 'завантаження…' : audienceSummary}</strong></span>
+          </button>
+          {audienceOpen && (
+            <fieldset className="feed-company-audience" disabled={busy || audiences.isLoading}>
+              <legend className="sr-only">Хто побачить</legend>
+              {companies.length > 0 ? companies.map((option) => (
+                <label key={option.companyId} title={option.label}>
+                  <span>{option.label}</span>
+                  <input
+                    type="checkbox"
+                    checked={effectiveCompanyIds.includes(option.companyId)}
+                    onChange={(event) => {
+                      setSelectedCompanyIds((current) => {
+                        const currentIds = current ?? companies.map((item) => item.companyId)
+                        return event.target.checked
+                          ? [...currentIds, option.companyId]
+                          : currentIds.filter((id) => id !== option.companyId)
+                      })
+                      setMentions([])
+                    }}
+                  />
+                </label>
+              )) : (
+                <span className="feed-company-audience__empty">
+                  {audiences.isLoading ? 'Завантажуємо…' : audiences.isError ? 'Не вдалося завантажити' : 'Немає доступних компаній'}
+                </span>
+              )}
+            </fieldset>
           )}
-        </div>
-        <div className="feed-composer__secondary-actions" aria-label="Інші дії">
-          <button type="button" disabled={busy} onClick={() => onNavigate('/tasks/new')}>
-            <CheckCircle2 size={15} /> Створити завдання
-          </button>
-          <button type="button" disabled={busy} onClick={() => onNavigate('/calendar?new=1')}>
-            <CalendarPlus2 size={15} /> Додати подію
-          </button>
         </div>
         {message && <span role="status">{message}</span>}
       </footer>
+      {confirmFileOnly && (
+        <ConfirmationDialog
+          title="Опублікувати лише файл?"
+          description="Текст публікації порожній. Файл з’явиться у стрічці без пояснення."
+          confirmLabel={create.isPending ? 'Публікуємо…' : 'Опублікувати файл'}
+          confirmVariant="primary"
+          confirmDisabled={busy}
+          onRequestClose={() => { if (!busy) setConfirmFileOnly(false) }}
+          onConfirm={() => {
+            setConfirmFileOnly(false)
+            void publish()
+          }}
+        />
+      )}
     </form>
   )
 }

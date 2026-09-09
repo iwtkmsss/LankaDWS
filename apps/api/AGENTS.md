@@ -4,10 +4,12 @@ These instructions extend the repository root `AGENTS.md`.
 
 ## Backend navigation
 
-- Module registry: `src/app.module.ts`.
+- Module registry: `src/app.module.ts`. Wired modules: admin, announcements, audit, auth, authorization, calendar, communication, companies, dashboard, documents, employees, feed, files, groups, health, import-control, jobs, knowledge, lifecycle, org, preferences, retention, tasks. (`src/modules/analytics` and `src/modules/requests` are empty placeholders, not wired.)
 - Global search: `src/modules/communication/search.controller.ts`.
 - Chat API: `src/modules/communication/messages.controller.ts`.
 - Chat business logic: `src/modules/communication/messages.service.ts`.
+- Chat realtime / SSE: `src/modules/realtime/*` (owns `ChatRealtimeService`; imported by `CommunicationModule`).
+- Feed: `src/modules/feed/*`. Companies admin: `src/modules/companies/*`. Overview data: `src/modules/dashboard/*`.
 - Employees directory/profile: `src/modules/employees/employees.controller.ts`.
 - Org hierarchy: `src/modules/org/org.controller.ts` and `org.service.ts`.
 - Groups: `src/modules/groups/*`.
@@ -17,6 +19,7 @@ These instructions extend the repository root `AGENTS.md`.
 - Notifications: `src/modules/communication/notifications.controller.ts`.
 - Authentication/session endpoints: `src/modules/auth/auth.controller.ts` and `auth.service.ts`.
 - Authorization helpers: `src/modules/authorization/*`.
+- Retention / legal hold: `src/modules/retention/*`. Import control plane: `src/modules/import-control/*`. Health: `src/modules/health/*`. UI preferences: `src/modules/preferences/*`.
 - Database source of truth: `prisma/schema.prisma`.
 - Shared request schemas/types: `../../packages/contracts/src/*`.
 

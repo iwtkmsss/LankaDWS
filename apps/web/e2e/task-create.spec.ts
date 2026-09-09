@@ -90,7 +90,7 @@ test('shared modal shell traps focus, guards dirty closure and stays responsive'
   await confirmation.getByRole('button', { name: 'Продовжити редагування' }).click()
   await expect(confirmation).toHaveCount(0)
 
-  await page.locator('.sidebar a[href="/feed"]').evaluate((element) => {
+  await page.locator('.sidebar .nav-section a[href="/feed"]').evaluate((element) => {
     (element as HTMLElement).click()
   })
   await expect(confirmation).toBeVisible()
@@ -98,6 +98,12 @@ test('shared modal shell traps focus, guards dirty closure and stays responsive'
   await confirmation.getByRole('button', { name: 'Зберегти чернетку і закрити' }).click()
   await expect(page).toHaveURL(/\/feed$/)
   await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe('')
+
+  await page.goto('/tasks/new')
+  const restoredNotice = page.getByRole('status').filter({ hasText: 'Чернетку відновлено.' })
+  await expect(restoredNotice).toBeVisible()
+  await expect(restoredNotice).toHaveCSS('font-size', '10px')
+  await expect(restoredNotice.getByRole('button', { name: 'Гаразд' })).toBeVisible()
 })
 
 test('creates a task through the complete modal workflow', async ({ page }, testInfo) => {
@@ -109,16 +115,21 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   await expect(page.getByLabel('Назва завдання')).toBeFocused()
   await expect(page.evaluate(() => document.body.style.overflow)).resolves.toBe('hidden')
 
-  const contextToggle = dialog.getByRole('button', { name: /^Контекст і матеріали/ })
-  const participantsToggle = dialog.getByRole('button', { name: /^Учасники/ })
-  const checklistToggle = dialog.getByRole('button', { name: /^Чек-ліст/ })
   const planningToggle = dialog.getByRole('button', { name: /^Планування/ })
+  const checklistToggle = dialog.getByRole('button', { name: /^Чек-ліст/ })
   const relationsToggle = dialog.getByRole('button', { name: /^Зв’язки/ })
-  await expect(contextToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(participantsToggle).toHaveAttribute('aria-expanded', 'false')
-  await expect(checklistToggle).toHaveAttribute('aria-expanded', 'false')
   await expect(planningToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(checklistToggle).toHaveAttribute('aria-expanded', 'false')
   await expect(relationsToggle).toHaveAttribute('aria-expanded', 'false')
+  await expect(dialog.locator('.task-create-role-card')).toHaveCount(4)
+  expect(await dialog.locator('.task-create-core, .task-create-primary-participants, .task-create-details').evaluateAll(
+    (elements) => elements.map((element) => element.className),
+  )).toEqual(['task-create-core', 'task-create-primary-participants', 'task-create-details'])
+  expect(await dialog.locator('.task-create-disclosure__copy strong').allTextContents()).toEqual([
+    'Планування',
+    'Чек-ліст',
+    'Зв’язки',
+  ])
 
   const title = `E2E створення · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)
@@ -127,12 +138,6 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   await page.getByLabel('Дата початку').fill(futureLocalDateTime(2))
   await page.getByLabel('Кінцевий термін').fill(futureLocalDateTime(4))
 
-  await contextToggle.click()
-  await expect(contextToggle).toHaveAttribute('aria-expanded', 'true')
-  const projectCombobox = dialog.getByRole('combobox', { name: /^Проєкт/ })
-  await projectCombobox.fill('Веб')
-  await dialog.getByRole('option', { name: /Вебсайт для клієнта/ }).click()
-  await page.getByText('Дизайн', { exact: true }).click()
   const attachmentName = `task-create-${testInfo.project.name}.txt`
   await dialog.locator('input[type="file"]').setInputFiles({
     name: attachmentName,
@@ -141,10 +146,6 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   })
   await expect(dialog.locator('.task-create-attachments li').filter({ hasText: attachmentName })).toBeVisible()
 
-  await participantsToggle.click()
-  await expect(participantsToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(contextToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(dialog.locator('.task-create-role-card')).toHaveCount(4)
   const responsibleSearch = dialog.getByRole('combobox', { name: 'Додати: відповідальний' })
   await responsibleSearch.fill('Андр')
   await dialog.getByRole('option', { name: /Андрій Коваль/ }).click()
@@ -169,6 +170,10 @@ test('creates a task through the complete modal workflow', async ({ page }, test
 
   await relationsToggle.click()
   const relationsPanel = dialog.locator('#task-create-relations-panel')
+  const projectCombobox = relationsPanel.getByRole('combobox', { name: /^Проєкт/ })
+  await projectCombobox.fill('Веб')
+  await relationsPanel.getByRole('option', { name: /Вебсайт для клієнта/ }).click()
+  await relationsPanel.getByText('Дизайн', { exact: true }).click()
   const relationCombobox = relationsPanel.getByRole('combobox', { name: /^Завдання/ })
   await relationCombobox.fill('dashboard')
   await relationsPanel.getByRole('option', { name: /2401.*Підготувати концепцію дизайну dashboard/ }).click()
@@ -292,18 +297,15 @@ test('optional options failures stay local and do not block basic task creation'
   const title = `E2E без довідників · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)
 
-  await dialog.getByRole('button', { name: /^Контекст і матеріали/ }).click()
+  await expect(dialog.getByText(/Не вдалося завантажити учасників/)).toBeVisible()
+
+  await dialog.getByRole('button', { name: /^Зв’язки/ }).click()
   await expect(dialog.getByText('Не вдалося завантажити проєкти й завдання.')).toBeVisible()
   await expect(dialog.getByText('Не вдалося завантажити теги.')).toBeVisible()
-
-  await dialog.getByRole('button', { name: /^Учасники/ }).click()
-  await expect(dialog.getByText(/Не вдалося завантажити учасників/)).toBeVisible()
+  await expect(dialog.getByText(/Не вдалося завантажити доступні завдання і зв’язки/)).toBeVisible()
 
   await dialog.getByRole('button', { name: /^Планування/ }).click()
   await expect(dialog.getByText(/Не вдалося завантажити дані для планування/)).toBeVisible()
-
-  await dialog.getByRole('button', { name: /^Зв’язки/ }).click()
-  await expect(dialog.getByText(/Не вдалося завантажити доступні завдання і зв’язки/)).toBeVisible()
   await expect(page.getByLabel('Назва завдання')).toHaveValue(title)
 
   const createRequestPromise = page.waitForRequest(

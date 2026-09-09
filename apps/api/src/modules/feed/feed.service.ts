@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import {
-  OrganizationCapability,
   type CreateFeedCommentInput,
   type CreateFeedPostInput,
   type FeedAudienceOption,
@@ -28,8 +27,9 @@ import { badRequest, conflict, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
-import { CapabilitiesService } from '../authorization/capabilities.service.js'
+import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 import {
   advanceFeedSourceHead,
   moveFeedFavorites,
@@ -46,6 +46,7 @@ interface ResolvedAudience {
   groupId: string | null
   recipients: Array<{ type: 'COMPANY' | 'GROUP' | 'USER'; recipientId: string }>
   userIds: string[]
+  companyIds: string[]
 }
 
 type ListedFeedItem = Prisma.FeedItemGetPayload<{
@@ -69,8 +70,9 @@ type ListedFeedItem = Prisma.FeedItemGetPayload<{
 export class FeedService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly capabilities: CapabilitiesService,
+    private readonly scope: ScopeService,
     private readonly files: FilesService,
+    private readonly realtime?: ChatRealtimeService,
   ) {}
 
   async uploadAttachment(
@@ -78,8 +80,7 @@ export class FeedService {
     companyId: string,
     file: UploadedBinary,
   ) {
-    await this.capabilities.assertEnabled(principal, companyId, OrganizationCapability.Feed)
-    return this.files.upload(principal, companyId, file)
+    return this.files.upload(principal, this.scope.assertCompany(principal, companyId), file)
   }
 
   async shareFile(
@@ -88,7 +89,7 @@ export class FeedService {
     input: ShareFileToFeedInput,
     idempotencyKey: string,
   ): Promise<{ id: string; fileId: string; version: number; status: 'ACTIVE' }> {
-    await this.capabilities.assertEnabled(principal, input.companyId, OrganizationCapability.Feed)
+    this.scope.assertCompany(principal, input.companyId)
     const existingRequest = await this.prisma.idempotencyRecord.findUnique({
       where: {
         userId_key_operation: {
@@ -140,7 +141,11 @@ export class FeedService {
           companyId: input.companyId,
           fileId: file.id,
           ownerId: principal.userId,
-          audienceType: input.audience.type === 'USERS' ? 'USER' : input.audience.type,
+          audienceType: input.audience.type === 'USERS'
+            ? 'USER'
+            : input.audience.type === 'COMPANIES'
+              ? 'COMPANY'
+              : input.audience.type,
           audienceKey,
           groupId: audience.groupId,
         },
@@ -233,6 +238,7 @@ export class FeedService {
       }
       throw error
     }
+    this.realtime?.publishSummary(audience.userIds, ['feed'])
     return { id: shareId, fileId: file.id, version: 1, status: 'ACTIVE' }
   }
 
@@ -249,7 +255,6 @@ export class FeedService {
       },
     })
     if (!share) throw notFound()
-    await this.capabilities.assertEnabled(principal, share.companyId, OrganizationCapability.Feed)
     if (share.ownerId !== principal.userId && !isGlobalAdmin(principal)) throw notFound()
     if (share.status === 'REVOKED') return { revoked: true, version: share.version }
     if (share.version !== expectedVersion) throw conflict()
@@ -291,11 +296,7 @@ export class FeedService {
   }
 
   async audiences(principal: AuthPrincipal, company?: string): Promise<{ items: FeedAudienceOption[] }> {
-    const companyIds = await this.capabilities.effectiveOrganizationIds(
-      principal,
-      company,
-      OrganizationCapability.Feed,
-    )
+    const companyIds = this.scope.allowedCompanies(principal, company)
     if (companyIds.length === 0) return { items: [] }
     const [companies, groups] = await Promise.all([
       this.prisma.company.findMany({
@@ -342,7 +343,7 @@ export class FeedService {
     query: FeedMentionCandidatesQuery,
   ): Promise<{ items: MentionCandidateView[] }> {
     if (query.company === 'all') throw badRequest('company_required')
-    await this.capabilities.assertEnabled(principal, query.company, OrganizationCapability.Feed)
+    this.scope.assertCompany(principal, query.company)
     const audience = await this.resolveAudience(principal, query.company, query.audienceType === 'GROUP'
       ? { type: 'GROUP', groupId: query.audienceId! }
       : { type: 'COMPANY' })
@@ -417,11 +418,7 @@ export class FeedService {
     principal: AuthPrincipal,
     company?: string,
   ): Promise<{ items: FeedAudienceFacetOption[] }> {
-    const companyIds = await this.capabilities.effectiveOrganizationIds(
-      principal,
-      company,
-      OrganizationCapability.Feed,
-    )
+    const companyIds = this.scope.allowedCompanies(principal, company)
     if (companyIds.length === 0) return { items: [] }
     const access = await this.accessiblePostWhere(principal, companyIds)
     const fileShareAccess = this.accessibleFileShareWhere(principal, companyIds)
@@ -522,11 +519,7 @@ export class FeedService {
   }
 
   async authors(principal: AuthPrincipal, company?: string): Promise<{ items: FeedAuthorOption[] }> {
-    const companyIds = await this.capabilities.effectiveOrganizationIds(
-      principal,
-      company,
-      OrganizationCapability.Feed,
-    )
+    const companyIds = this.scope.allowedCompanies(principal, company)
     if (companyIds.length === 0) return { items: [] }
     const access = await this.accessiblePostWhere(principal, companyIds)
     const [posts, sourceItems] = await Promise.all([
@@ -586,11 +579,7 @@ export class FeedService {
   }
 
   async list(principal: AuthPrincipal, query: FeedListQuery): Promise<FeedListResult> {
-    const companyIds = await this.capabilities.effectiveOrganizationIds(
-      principal,
-      query.company,
-      OrganizationCapability.Feed,
-    )
+    const companyIds = this.scope.allowedCompanies(principal, query.company)
     if (companyIds.length === 0) {
       return {
         items: [],
@@ -674,8 +663,11 @@ export class FeedService {
       take: scanLimit,
     })
     const currentItems: ListedFeedItem[] = []
+    const seenPostIds = new Set<string>()
     for (const { item } of rawHeads) {
       if (item.post) {
+        if (seenPostIds.has(item.post.id)) continue
+        seenPostIds.add(item.post.id)
         const needsCurrentAcknowledgement = item.post.requiresAcknowledgement
           && item.post.acknowledgementRecipients.some((entry) =>
             entry.userId === principal.userId
@@ -726,8 +718,16 @@ export class FeedService {
       this.birthdayHighlights(principal, companyIds, query),
     ])
     const readMarkers = new Map<string, string>()
-    for (const item of page) {
-      if (!readMarkers.has(item.companyId)) readMarkers.set(item.companyId, item.id)
+    // Advance the read marker for every accessible company in the scanned set.
+    // Iterate the raw per-company heads rather than the rendered page or the
+    // post-deduplicated list: a post addressed to several companies keeps only
+    // one company's FeedItem after `seenPostIds` de-duplication, and a company
+    // whose newest head sits past the first rendered page never reaches `page`.
+    // Either gap leaves that company's read cursor un-advanced, so its unread
+    // contribution can never be cleared just by opening the feed. Every entry in
+    // `rawHeads` already passed the same access filter that `markRead` re-checks.
+    for (const head of rawHeads) {
+      if (!readMarkers.has(head.companyId)) readMarkers.set(head.companyId, head.itemId)
     }
     const last = page.at(-1)
     const lastScanned = rawHeads.at(-1)
@@ -753,6 +753,13 @@ export class FeedService {
       attention: { pendingAcknowledgements, overdueTasks },
       readMarkers: [...readMarkers].map(([companyId, lastItemId]) => ({ companyId, lastItemId })),
     }
+  }
+
+  async summary(principal: AuthPrincipal, company?: string): Promise<{ unreadCount: number }> {
+    const companyIds = this.scope.allowedCompanies(principal, company)
+    if (companyIds.length === 0) return { unreadCount: 0 }
+    const access = await this.accessiblePostWhere(principal, companyIds)
+    return { unreadCount: await this.unreadCount(principal, companyIds, access) }
   }
 
   async setFavorite(
@@ -818,7 +825,6 @@ export class FeedService {
     input: CreateFeedPostInput,
     idempotencyKey: string,
   ): Promise<{ id: string; version: number }> {
-    await this.capabilities.assertEnabled(principal, input.companyId, OrganizationCapability.Feed)
     const existing = await this.prisma.idempotencyRecord.findUnique({
       where: {
         userId_key_operation: {
@@ -843,9 +849,18 @@ export class FeedService {
     this.assertMentions(mentionedUserIds, audience.userIds, principal.userId)
     await this.files.assertAttachable(principal, input.companyId, input.attachmentIds)
     const postId = id('feed')
-    const itemId = id('fitem')
+    const itemIds = audience.companyIds.map((companyId) => ({ companyId, itemId: id('fitem') }))
     const now = new Date()
     const acknowledgementVersion = input.requiresAcknowledgement ? 1 : 0
+    const acknowledgementUserIds = input.requiresAcknowledgement
+      ? audience.userIds.filter((userId) => userId !== principal.userId)
+      : []
+    const notificationUserIds = [
+      ...new Set([
+        ...acknowledgementUserIds,
+        ...mentionedUserIds.filter((userId) => userId !== principal.userId),
+      ]),
+    ]
     await this.prisma.$transaction(async (tx) => {
       await tx.feedPost.create({
         data: {
@@ -867,9 +882,6 @@ export class FeedService {
           ...recipient,
         })),
       })
-      const acknowledgementUserIds = input.requiresAcknowledgement
-        ? audience.userIds.filter((userId) => userId !== principal.userId)
-        : []
       if (acknowledgementUserIds.length > 0) {
         await tx.feedAcknowledgementRecipient.createMany({
           data: acknowledgementUserIds.map((userId) => ({
@@ -880,28 +892,30 @@ export class FeedService {
           })),
         })
       }
-      await tx.feedItem.create({
-        data: this.itemData(principal, {
-          id: itemId,
-          postId,
-          companyId: input.companyId,
+      for (const { companyId, itemId } of itemIds) {
+        await tx.feedItem.create({
+          data: this.itemData(principal, {
+            id: itemId,
+            postId,
+            companyId,
+            sourceVersion: 1,
+            action: 'PUBLISHED',
+            body: input.body,
+            occurredAt: now,
+            visibility: input.audience.type,
+          }),
+        })
+        await advanceFeedSourceHead(tx, {
+          workspaceId: principal.workspaceId,
+          companyId,
+          sourceType: 'POST',
+          sourceId: postId,
+          itemId,
           sourceVersion: 1,
-          action: 'PUBLISHED',
-          body: input.body,
+          countsAsUnread: true,
           occurredAt: now,
-          visibility: input.audience.type,
-        }),
-      })
-      await advanceFeedSourceHead(tx, {
-        workspaceId: principal.workspaceId,
-        companyId: input.companyId,
-        sourceType: 'POST',
-        sourceId: postId,
-        itemId,
-        sourceVersion: 1,
-        countsAsUnread: true,
-        occurredAt: now,
-      })
+        })
+      }
       if (input.attachmentIds.length > 0) {
         await tx.fileLink.createMany({
           data: input.attachmentIds.map((fileId) => ({
@@ -943,11 +957,7 @@ export class FeedService {
         })),
       })
       const acknowledgementUsers = new Set(acknowledgementUserIds)
-      const notificationUsers = new Set([
-        ...acknowledgementUserIds,
-        ...mentionedUserIds.filter((userId) => userId !== principal.userId),
-      ])
-      for (const userId of notificationUsers) {
+      for (const userId of notificationUserIds) {
         const requiresAction = acknowledgementUsers.has(userId)
         const dedupeKey = `feed-post:${postId}:${requiresAction ? 'ack' : 'mention'}:${userId}`
         await tx.notification.upsert({
@@ -997,10 +1007,12 @@ export class FeedService {
           aggregateId: postId,
           aggregateVersion: 1,
           eventType: 'feed.post.published',
-          safePayload: JSON.stringify({ postId, companyId: input.companyId, itemId }),
+          safePayload: JSON.stringify({ postId, companyIds: audience.companyIds, itemIds: itemIds.map((item) => item.itemId) }),
         },
       })
     })
+    this.realtime?.publishSummary(audience.userIds, ['feed'])
+    this.realtime?.publishSummary(notificationUserIds, ['notifications'])
     return { id: postId, version: 1 }
   }
 
@@ -1040,6 +1052,9 @@ export class FeedService {
       : []
     const previousMentioned = new Set(previousMentionedUserIds.map((mention) => mention.userId))
     const newlyMentionedUserIds = nextMentionedUserIds.filter((userId) => !previousMentioned.has(userId))
+    const feedRecipientIds = storedAudienceUserIds.length > 0
+      ? storedAudienceUserIds
+      : await this.expandStoredAudience(post.companyId, post.recipients)
     const itemId = id('fitem')
     const now = new Date()
     await this.prisma.$transaction(async (tx) => {
@@ -1165,6 +1180,11 @@ export class FeedService {
         },
       })
     })
+    this.realtime?.publishSummary(feedRecipientIds, ['feed'])
+    this.realtime?.publishSummary(
+      newlyMentionedUserIds.filter((userId) => userId !== principal.userId),
+      ['notifications'],
+    )
     return { id: postId, version: nextVersion, acknowledgementVersion: nextAcknowledgementVersion }
   }
 
@@ -1178,6 +1198,7 @@ export class FeedService {
     const nextVersion = post.version + 1
     const now = new Date()
     const itemId = id('fitem')
+    const feedRecipientIds = await this.expandStoredAudience(post.companyId, post.recipients)
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.feedPost.updateMany({
         where: { id: post.id, version: expectedVersion, status: 'PUBLISHED' },
@@ -1229,6 +1250,7 @@ export class FeedService {
         },
       })
     })
+    this.realtime?.publishSummary(feedRecipientIds, ['feed'])
     return { id: postId, version: nextVersion, archived: true }
   }
 
@@ -1262,6 +1284,7 @@ export class FeedService {
       select: { id: true },
     })
     const activeNotificationUserIds = activeNotificationUsers.map((user) => user.id)
+    const notificationUserIds: string[] = []
     const commentId = id('cmt')
     const result = await this.prisma.$transaction(async (tx) => {
       const created = await tx.comment.create({
@@ -1322,6 +1345,7 @@ export class FeedService {
       for (const subscription of subscriptions) {
         const isMention = mentioned.has(subscription.userId)
         if (subscription.mode === 'MENTIONS' && !isMention) continue
+        notificationUserIds.push(subscription.userId)
         await tx.notification.upsert({
           where: { dedupeKey: `feed-comment:${commentId}:${subscription.userId}` },
           create: {
@@ -1347,6 +1371,7 @@ export class FeedService {
       })
       return created
     })
+    this.realtime?.publishSummary(notificationUserIds, ['notifications'])
     return { ...result, createdAt: result.createdAt.toISOString() }
   }
 
@@ -1450,7 +1475,7 @@ export class FeedService {
   ): Promise<{ updated: number }> {
     const resolved: Array<{ companyId: string; item: { id: string; occurredAt: Date } }> = []
     for (const marker of input.markers) {
-      await this.capabilities.assertEnabled(principal, marker.companyId, OrganizationCapability.Feed)
+      this.scope.assertCompany(principal, marker.companyId)
       const access = await this.accessiblePostWhere(principal, [marker.companyId])
       const item = await this.prisma.feedItem.findFirst({
         where: {
@@ -1465,7 +1490,7 @@ export class FeedService {
       if (!item) throw notFound()
       resolved.push({ companyId: marker.companyId, item })
     }
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       let updated = 0
       for (const marker of resolved) {
         const current = await tx.feedReadCursor.findUnique({
@@ -1493,17 +1518,15 @@ export class FeedService {
       }
       return { updated }
     })
+    if (result.updated > 0) this.realtime?.publishSummary([principal.userId], ['feed'])
+    return result
   }
 
   private async accessibleItem(
     principal: AuthPrincipal,
     itemId: string,
   ): Promise<ListedFeedItem> {
-    const companyIds = await this.capabilities.effectiveOrganizationIds(
-      principal,
-      'all',
-      OrganizationCapability.Feed,
-    )
+    const companyIds = this.scope.allowedCompanies(principal, 'all')
     if (companyIds.length === 0) throw notFound()
     const access = await this.accessiblePostWhere(principal, companyIds)
     const item = await this.prisma.feedItem.findFirst({
@@ -1534,13 +1557,20 @@ export class FeedService {
   }
 
   private async accessiblePost(principal: AuthPrincipal, postId: string) {
+    const companyIds = this.scope.allowedCompanies(principal, 'all')
     const candidate = await this.prisma.feedPost.findFirst({
-      where: { id: postId, workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds } },
+      where: {
+        id: postId,
+        workspaceId: principal.workspaceId,
+        OR: [
+          { companyId: { in: companyIds } },
+          { recipients: { some: { type: 'COMPANY', recipientId: { in: companyIds } } } },
+        ],
+      },
       select: { companyId: true },
     })
     if (!candidate) throw notFound()
-    await this.capabilities.assertEnabled(principal, candidate.companyId, OrganizationCapability.Feed)
-    const access = await this.accessiblePostWhere(principal, [candidate.companyId])
+    const access = await this.accessiblePostWhere(principal, companyIds)
     const post = await this.prisma.feedPost.findFirst({
       where: { id: postId, status: 'PUBLISHED', ...access },
       include: { recipients: true },
@@ -1570,7 +1600,6 @@ export class FeedService {
     const groupIds = memberships.map((item) => item.groupId)
     return {
       workspaceId: principal.workspaceId,
-      companyId: { in: companyIds },
       OR: [
         { authorId: principal.userId },
         {
@@ -1724,6 +1753,7 @@ export class FeedService {
         groupId: null,
         recipients: [{ type: 'COMPANY', recipientId: companyId }],
         userIds: users,
+        companyIds: [companyId],
       }
     }
     if (audience.type === 'GROUP') {
@@ -1752,6 +1782,20 @@ export class FeedService {
         groupId: group.id,
         recipients: [{ type: 'GROUP', recipientId: group.id }],
         userIds: [...new Set(group.members.map((member) => member.userId))],
+        companyIds: [companyId],
+      }
+    }
+    if (audience.type === 'COMPANIES') {
+      if (!audience.companyIds.includes(companyId)) throw badRequest('feed_company_audience')
+      const companyIds = [...new Set(audience.companyIds)]
+      const allowed = this.scope.allowedCompanies(principal, 'all')
+      if (companyIds.some((id) => !allowed.includes(id))) throw badRequest('feed_company_audience')
+      const userIds = (await Promise.all(companyIds.map((id) => this.activeCompanyUserIds(id)))).flat()
+      return {
+        groupId: null,
+        recipients: companyIds.map((id) => ({ type: 'COMPANY' as const, recipientId: id })),
+        userIds: [...new Set(userIds)],
+        companyIds,
       }
     }
     const users = await this.prisma.user.findMany({
@@ -1768,6 +1812,7 @@ export class FeedService {
       groupId: null,
       recipients: users.map((user) => ({ type: 'USER', recipientId: user.id })),
       userIds: users.map((user) => user.id),
+      companyIds: [companyId],
     }
   }
 
@@ -1780,7 +1825,7 @@ export class FeedService {
     for (const recipient of recipients) {
       if (recipient.type === 'USER') userIds.add(recipient.recipientId)
       if (recipient.type === 'COMPANY') {
-        for (const userId of await this.activeCompanyUserIds(companyId)) userIds.add(userId)
+        for (const userId of await this.activeCompanyUserIds(recipient.recipientId)) userIds.add(userId)
       }
     }
     if (groupIds.length > 0) {
@@ -2239,7 +2284,9 @@ export class FeedService {
     },
     directNameById: Map<string, string>,
   ): string {
-    if (post.recipients.some((entry) => entry.type === 'COMPANY')) return 'Вся організація'
+    const companyAudienceCount = post.recipients.filter((entry) => entry.type === 'COMPANY').length
+    if (companyAudienceCount > 1) return `Обрані компанії · ${companyAudienceCount}`
+    if (companyAudienceCount === 1) return 'Вся організація'
     if (post.group) return post.group.name
     const names = post.recipients
       .filter((entry) => entry.type === 'USER')
@@ -2545,7 +2592,7 @@ export class FeedService {
       sourceId: input.postId,
       sourceVersion: input.sourceVersion,
       action: input.action,
-      eventKey: `feed:post:${input.postId}:v${input.sourceVersion}:${input.action.toLowerCase()}`,
+      eventKey: `feed:post:${input.postId}:${input.companyId}:v${input.sourceVersion}:${input.action.toLowerCase()}`,
       actorId: principal.userId,
       visibility: input.visibility,
       safePayload: JSON.stringify({

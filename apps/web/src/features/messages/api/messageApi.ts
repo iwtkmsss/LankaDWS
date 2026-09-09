@@ -79,7 +79,7 @@ export function getChatUser(companyId: string, userId: string, signal?: AbortSig
 }
 
 export function getRecommendedChatUsers(companyId: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ company: companyId, limit: '6' })
+  const query = new URLSearchParams({ company: companyId, limit: '5' })
   return api<RecommendedChatUsersPage>(`/messages/users/recommended?${query}`, { signal })
 }
 

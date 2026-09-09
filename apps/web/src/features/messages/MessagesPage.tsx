@@ -44,6 +44,7 @@ import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useUserProfile } from '../employees/UserProfileDrawer'
 import { useMessageRealtime } from './hooks/useMessageRealtime'
+import { replyPreviewText } from './lib/replyPreview'
 import {
   addOptimisticMessage,
   removeMessageCache,
@@ -134,7 +135,7 @@ export function MessagesPage() {
   const directStartingRef = useRef('')
   const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
   const draftBodyRef = useRef('')
-  const realtimeConnected = useMessageRealtime()
+  useMessageRealtime()
 
   useEffect(() => {
     setParams((current) => {
@@ -152,8 +153,6 @@ export function MessagesPage() {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(threadCompanyScope),
-    refetchInterval: realtimeConnected ? false : 15_000,
-    refetchIntervalInBackground: false,
   })
   const threads = threadPages.data?.pages.flatMap((page) => page.items) ?? []
   const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
@@ -189,11 +188,9 @@ export function MessagesPage() {
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.olderCursor ?? undefined,
     enabled: Boolean(threadId),
-    refetchInterval: realtimeConnected ? false : 15_000,
-    refetchIntervalInBackground: false,
   })
   const messages = useMemo(
-    () => messagePages.data?.pages.slice().reverse().flatMap((page) => page.items) ?? [],
+    () => messagePages.data?.pages.flatMap((page) => page.items.slice().reverse()) ?? [],
     [messagePages.data],
   )
   const selectedPreview = threads.find((thread) => thread.id === threadId)
@@ -391,7 +388,7 @@ export function MessagesPage() {
       replyPreview: replyTo ? {
         id: replyTo.id,
         authorName: replyTo.author.displayName,
-        body: replyTo.body.slice(0, 180),
+        body: replyPreviewText(replyTo),
       } : null,
       author: {
         id: user.id,
@@ -434,6 +431,23 @@ export function MessagesPage() {
       next.delete('to')
       return next
     }, { replace: true })
+  }
+
+  async function likeMessage(message: ChatMessageView) {
+    if (!threadId) return
+    setComposerError('')
+    try {
+      const result = await sendMessage(threadId, {
+        body: '👍',
+        replyToId: message.id,
+        attachmentIds: [],
+        mentions: [],
+      }, `chat-like:${randomId()}`)
+      upsertMessageCache(client, threadId, await getMessage(result.id))
+      await client.invalidateQueries({ queryKey: messageKeys.detail(threadId) })
+    } catch (error) {
+      setComposerError(visibleApiError(error, 'Не вдалося надіслати лайк.'))
+    }
   }
 
   function openDirect(contact: ChatContactUser) {
@@ -555,6 +569,7 @@ export function MessagesPage() {
           onLatest={() => void returnToLatest()}
           onLoadOlder={() => messagePages.fetchNextPage()}
           onReply={(message) => setReplyTo(message)}
+          onLike={likeMessage}
           onReplyCancel={() => setReplyTo(null)}
           onEdit={editMessage}
           onDelete={deleteMessage}

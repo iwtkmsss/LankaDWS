@@ -44,7 +44,7 @@ Web: `http://localhost:5173`. API: `http://localhost:3000/api/v1`. Swagger UI: `
 To open the development instance from other devices on the same local network, run:
 
 ```bash
-npm run dev:lan
+npm run dev:public
 ```
 
 The command loads `.env.public` before it starts either process. Copy `.env.public.example` to the ignored `.env.public`, set `PUBLIC_HOST`, and use `PUBLIC_CLIENT_PORT` and `PUBLIC_SERVER_PORT` to change the default ports (`5173` and `3000`). This is intended only for a trusted local network; it is not a production deployment.

@@ -39,7 +39,10 @@ describe('drive previews', () => {
     mount()
     const preview = await screen.findByRole('region', { name: 'Перегляд версії 2' })
     expect(within(preview).getByRole('img', { name: 'report.png' })).toHaveAttribute('src', '/api/v1/files/file_image/download?inline=true')
-    expect(within(preview).getByRole('link', { name: 'Відкрити окремо' })).toHaveAttribute('href', '/api/v1/files/file_image/download?inline=true')
+    fireEvent.click(within(preview).getByRole('button', { name: 'Відкрити переглядач' }))
+    const dialog = screen.getByRole('dialog', { name: 'report.png' })
+    expect(within(dialog).getByRole('img', { name: 'report.png' })).toHaveAttribute('src', '/api/v1/files/file_image/download?inline=true')
+    expect(within(dialog).getByRole('link', { name: 'Завантажити' })).toHaveAttribute('href', '/api/v1/files/file_image/download')
   })
 
   it('switches the preview to an earlier PDF version', async () => {

@@ -2,6 +2,8 @@
 
 Read only the flow relevant to the request. This is a navigation map, not an architecture manual. Route sources are `apps/web/src/app/routes.ts` and `apps/web/src/app/router.tsx`; the machine-readable endpoint source is `artifacts/openapi.json`.
 
+Check for context-wasting tracked files with `node scripts/audit-codex-context.mjs`; regenerate the endpoint index with `node scripts/generate-codex-api-map.mjs` (see bottom of this file).
+
 ## Global search / command palette
 
 | Field | Current path |
@@ -26,6 +28,8 @@ The palette debounces queries from one Unicode character and returns only permis
 Keep permission/capability gates and reuse the destination form.
 
 ## Messages and user search
+
+> Note: the messaging realtime layer is mid-redesign (`apps/api/src/modules/realtime/*`, `packages/contracts/src/realtime.ts`, `apps/web/src/features/messages/*`). Verify against current code before relying on the rows below.
 
 | Field | Current path |
 |---|---|
@@ -52,27 +56,17 @@ metadata; in-thread search can open an anchored `around` window.
 
 Direct threads are canonical: reuse the returned thread and navigate to `/messages/:threadId`; never create a duplicate conversation.
 
-## Employees
+## Organization (directory + hierarchy + companies)
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/employees`, `/employees/:employeeId`) |
-| API request | `GET /api/v1/employees`, `GET /api/v1/employees/:id` |
-| Controller / service | `modules/employees/employees.controller.ts` / controller-owned Prisma projection |
-| Contract / model | `packages/contracts/src/org.ts`; `User`, `UserOrgAssignment` |
+| Frontend entry | `apps/web/src/pages/OrganizationUniversePage.tsx` (`/organization`). `/employees`, `/employees/org`, `/employees/:id`, `/companies*` are `apps/web/src/pages/LegacyRouteRedirectPage.tsx`; company-structure admin is `apps/web/src/pages/AdminOrganizationPage.tsx` (`/admin/companies/:companyId/structure`). |
+| API request | `GET /api/v1/employees`, `GET /api/v1/employees/:id`; `GET /api/v1/org/units`, `GET /api/v1/org/units/:id/employees`; companies routes under `modules/companies`. |
+| Controller / service | `modules/employees/employees.controller.ts` (controller-owned Prisma projection); `modules/org/org.controller.ts` / `org.service.ts`; `modules/companies/*` |
+| Contract / model | `packages/contracts/src/org.ts`; `User`, `UserOrgAssignment`, `OrgUnit.parentId`, `Company` |
 | Focused test | `apps/web/e2e/app.spec.ts` or a focused web scenario |
 
-## Organization hierarchy
-
-| Field | Current path |
-|---|---|
-| Frontend entry | `apps/web/src/pages/OrganizationPage.tsx` (`/employees/org`) |
-| API request | `GET /api/v1/org/units`, `GET /api/v1/org/units/:id/employees` |
-| Controller / service | `modules/org/org.controller.ts` / `org.service.ts` |
-| Contract / model | `packages/contracts/src/org.ts`; `OrgUnit.parentId`, `UserOrgAssignment` |
-| Focused test | Focused web E2E when the tree interaction changes |
-
-Build the displayed tree from the safe flat list. Do not add another hierarchy model.
+Build the displayed tree from the safe flat list. Do not add another hierarchy model. Companies are organizational groups within one workspace, not authorization scopes (see `docs/decisions.md` 2026-08-31).
 
 ## Groups
 

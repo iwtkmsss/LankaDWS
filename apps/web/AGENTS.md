@@ -8,8 +8,9 @@ These instructions extend the repository root `AGENTS.md`.
 - Router/guards: `src/app/router.tsx`.
 - App shell, quick create and global command palette: `src/layout/AppShell.tsx`.
 - Chat and notifications: `src/pages/CommunicationPages.tsx`.
-- Groups, Drive, Employees and Knowledge: `src/pages/ContentPages.tsx`.
-- Organization tree: `src/pages/OrganizationPage.tsx`.
+- Groups, Drive and Knowledge: `src/pages/ContentPages.tsx`.
+- Live Feed: `src/pages/FeedPage.tsx`.
+- Organization (combined directory + structure + companies): `/organization` → `src/pages/OrganizationUniversePage.tsx`. `/employees*` and `/companies*` are `src/pages/LegacyRouteRedirectPage.tsx`; company structure admin is `src/pages/AdminOrganizationPage.tsx`.
 - Calendar: `src/pages/CalendarPage.tsx`.
 - Profile, notification, security and session settings: `src/pages/SettingsPages.tsx`.
 - Shared UI: `src/shared/ui/index.tsx`.
@@ -22,7 +23,7 @@ These instructions extend the repository root `AGENTS.md`.
 - Search results must remain permission-safe because the API is the authority.
 - Keep keyboard navigation, focus trap, Escape, ArrowUp/ArrowDown and Enter behavior.
 - Keep mobile master/detail behavior for chat.
-- Use existing Onest/navy/cobalt tokens and Lucide icons.
+- Use existing design tokens from `src/styles/tokens.css` (Roboto Variable `--font`, navy/cobalt palette) and Lucide icons.
 - Avoid decorative images on dense work surfaces.
 - Keep URL/search-param behavior stable unless the task explicitly changes it.
 - Preserve accessible labels, focus order, keyboard navigation and responsive layouts.

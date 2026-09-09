@@ -123,7 +123,6 @@ async function createTaskThroughModal(
   await page.getByLabel('Назва завдання').fill(title)
   if (options.description) await page.getByLabel('Опис').fill(options.description)
   if (options.additionalResponsible) {
-    await page.getByRole('button', { name: /^Учасники/ }).click()
     const responsibleSearch = page.getByRole('combobox', { name: 'Додати: відповідальний' })
     await responsibleSearch.fill(options.additionalResponsible)
     await page.getByRole('option', { name: new RegExp(options.additionalResponsible) }).click()

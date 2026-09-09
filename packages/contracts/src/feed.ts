@@ -60,6 +60,11 @@ export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQue
 
 export const feedAudienceInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('COMPANY') }),
+  z.object({
+    type: z.literal('COMPANIES'),
+    companyIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+      .transform((items) => [...new Set(items)]),
+  }),
   z.object({ type: z.literal('GROUP'), groupId: z.string().trim().min(1).max(120) }),
   z.object({
     type: z.literal('USERS'),
@@ -77,7 +82,7 @@ export type ShareFileToFeedInput = z.infer<typeof shareFileToFeedSchema>
 
 export const createFeedPostSchema = z.object({
   companyId: z.string().trim().min(1).max(120),
-  body: z.string().trim().min(1).max(10_000),
+  body: z.string().trim().max(10_000),
   audience: feedAudienceInputSchema,
   requiresAcknowledgement: z.boolean().default(false),
   attachmentIds: z.array(z.string().trim().min(1).max(120)).max(10)
@@ -87,6 +92,13 @@ export const createFeedPostSchema = z.object({
     .transform((items) => [...new Set(items)])
     .default([]),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).superRefine((value, context) => {
+  if (!value.body && value.attachmentIds.length === 0) {
+    context.addIssue({ code: 'custom', path: ['body'], message: 'Post requires text or an attachment.' })
+  }
+  if (value.audience.type === 'COMPANIES' && !value.audience.companyIds.includes(value.companyId)) {
+    context.addIssue({ code: 'custom', path: ['companyId'], message: 'Primary company must be selected.' })
+  }
 })
 export type CreateFeedPostInput = z.infer<typeof createFeedPostSchema>
 
@@ -253,4 +265,8 @@ export interface FeedListResult {
     overdueTasks: number
   }
   readMarkers: Array<{ companyId: string; lastItemId: string }>
+}
+
+export interface FeedSummary {
+  unreadCount: number
 }

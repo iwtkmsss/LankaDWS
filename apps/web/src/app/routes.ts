@@ -64,7 +64,7 @@ export const routes: RouteMeta[] = [
   { path: '/announcements/new', title: 'Нове оголошення', component: Communication },
   { path: '/announcements/:announcementId', title: 'Оголошення', component: Communication },
   { path: '/notifications', title: 'Сповіщення', nav: true, navGroup: 'communication', navOrder: 4, navIcon: Bell, component: Communication },
-  { path: '/feed', title: 'Жива стрічка', capability: 'FEED', nav: true, navGroup: 'primary', navOrder: 1, navIcon: Newspaper, component: Feed, preload: loadFeed },
+  { path: '/feed', title: 'Жива стрічка', nav: true, navGroup: 'primary', navOrder: 1, navIcon: Newspaper, component: Feed, preload: loadFeed },
   { path: '/messages', title: 'Чат', nav: true, navGroup: 'primary', navOrder: 3, navIcon: MessageCircle, component: Communication, preload: loadCommunication },
   { path: '/messages/:threadId', title: 'Діалог', component: Communication },
   { path: '/groups', title: 'Робочі групи', capability: 'GROUPS_UI', nav: true, navGroup: 'company', navOrder: 1, navIcon: Building2, releaseState: 'released', component: Content },

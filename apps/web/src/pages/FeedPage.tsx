@@ -26,6 +26,7 @@ import {
   Check,
   CheckCircle2,
   Download,
+  Eye,
   FileText,
   Heart,
   Megaphone,
@@ -40,11 +41,11 @@ import {
   SquareCheckBig,
   Star,
 } from 'lucide-react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { organizationQueryScope, withCompanyScope } from '../shared/lib/navigation'
+import { organizationQueryScope } from '../shared/lib/navigation'
 import { MentionText } from '../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../shared/mentions/mentionText'
@@ -62,13 +63,13 @@ import {
   useModalCloseGuard,
 } from '../shared/ui'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FeedComposerForm, formatBytes } from './FeedComposerForm'
 import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
 import { FeedOverview } from './FeedOverview'
 
 export function FeedPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const queryClient = useQueryClient()
   const [composerOpen, setComposerOpen] = useState(false)
@@ -82,6 +83,8 @@ export function FeedPage() {
     },
   })
   const readKey = useRef('')
+  const initialFeedItemIdsRef = useRef<Set<string> | null>(null)
+  const [newFeedItemIds, setNewFeedItemIds] = useState<Set<string>>(() => new Set())
   const company = organizationQueryScope(user?.company?.id)
   const filter = parseFilter(params.get('filter'))
   const itemType = parseItemType(params.get('type'))
@@ -93,6 +96,10 @@ export function FeedPage() {
   const mentioned = params.get('mentioned') === 'true'
   const favorite = params.get('favorite') === 'true'
   const important = params.get('important') === 'true'
+  const feedSessionKey = [
+    company, filter, itemType, authorId, groupId, audienceId, dateFrom, dateTo,
+    mentioned, favorite, important,
+  ].join('|')
   const pages = useInfiniteQuery({
     queryKey: [
       'feed',
@@ -142,6 +149,14 @@ export function FeedPage() {
   const markRead = useMutation({
     mutationFn: (markers: FeedListResult['readMarkers']) =>
       api('/feed/read', { method: 'POST', body: jsonBody({ markers }) }),
+    onSuccess: () => {
+      queryClient.setQueriesData<{ unreadCount: number }>(
+        { queryKey: ['feed', 'summary'] },
+        (current) => current ? { ...current, unreadCount: 0 } : current,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
+    },
+    onError: () => { readKey.current = '' },
   })
   const firstPage = pages.data?.pages[0]
   const items = pages.data?.pages.flatMap((page) => page.items) ?? []
@@ -149,6 +164,25 @@ export function FeedPage() {
   useEffect(() => {
     document.title = 'Жива стрічка — Lanka'
   }, [])
+
+  useEffect(() => {
+    initialFeedItemIdsRef.current = null
+    setNewFeedItemIds(new Set())
+  }, [feedSessionKey])
+
+  useEffect(() => {
+    if (!firstPage || !user) return
+    const knownIds = initialFeedItemIdsRef.current
+    if (!knownIds) {
+      initialFeedItemIdsRef.current = new Set(firstPage.items.map((item) => item.itemId))
+      return
+    }
+    const newIds = firstPage.items
+      .filter((item) => !knownIds.has(item.itemId) && !isOwnFeedItem(item, user.id))
+      .map((item) => item.itemId)
+    firstPage.items.forEach((item) => knownIds.add(item.itemId))
+    if (newIds.length) setNewFeedItemIds((current) => new Set([...current, ...newIds]))
+  }, [firstPage, user])
 
   useEffect(() => {
     if (
@@ -242,6 +276,7 @@ export function FeedPage() {
                     <FeedCard
                       key={item.itemId}
                       item={item}
+                      isNew={newFeedItemIds.has(item.itemId)}
                       onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
                     />
                   )
@@ -249,6 +284,7 @@ export function FeedPage() {
                     <FeedSourceCard
                       key={item.itemId}
                       item={item}
+                      isNew={newFeedItemIds.has(item.itemId)}
                       onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
                     />
                   )
@@ -310,18 +346,16 @@ export function FeedPage() {
           onRequestClose={composerCloseGuard.requestClose}
         >
           <FeedComposerForm
-            company={company}
-            canShareFiles
             onBusyChange={setComposerBusy}
             onDirtyChange={setComposerDirty}
-            onFeedChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+            onFeedChanged={() => {
+              void queryClient.invalidateQueries({ queryKey: ['feed'] })
+              void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
+            }}
             onPostCreated={() => composerCloseGuard.closeForSuccess(() => {
               setComposerDirty(false)
               setComposerOpen(false)
             })}
-            onNavigate={(path) => {
-              navigate(withCompanyScope(path, company))
-            }}
           />
         </Modal>
       )}
@@ -332,12 +366,15 @@ export function FeedPage() {
 
 function FeedSourceCard({
   item,
+  isNew,
   onChanged,
 }: {
   item: FeedSourceView
+  isNew: boolean
   onChanged: () => void
 }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false)
+  const [filePreviewOpen, setFilePreviewOpen] = useState(false)
   const revoke = useMutation({
     mutationFn: () => api(`/feed/file-shares/${encodeURIComponent(item.id)}`, {
       method: 'DELETE',
@@ -357,10 +394,10 @@ function FeedSourceCard({
     : item.sourceType === 'EVENT'
       ? 'Відкрити подію'
       : item.sourceType === 'FILE'
-        ? 'Завантажити'
+        ? 'Переглянути файл'
         : 'Відкрити оголошення'
   return (
-    <Card className={`feed-source-card feed-source-card--${item.sourceType.toLowerCase()}`}>
+    <Card className={`feed-source-card feed-source-card--${item.sourceType.toLowerCase()}${isNew ? ' is-new' : ''}`}>
       <div className="feed-source-card__icon" aria-hidden><Icon size={20} /></div>
       <div className="feed-source-card__content">
         <header>
@@ -387,9 +424,9 @@ function FeedSourceCard({
         {item.sourceType === 'FILE'
           ? item.actionState === 'AVAILABLE'
             ? (
-                <a className="feed-source-card__action" href={item.href}>
-                  <Download size={15} /> {actionLabel}
-                </a>
+                <button type="button" className="feed-source-card__action" onClick={() => setFilePreviewOpen(true)}>
+                  <Eye size={15} /> {actionLabel}
+                </button>
               )
             : (
                 <span className={`feed-source-card__action is-${item.actionState.toLowerCase()}`} aria-disabled="true">
@@ -424,8 +461,45 @@ function FeedSourceCard({
               )
         )}
       </div>
+      {filePreviewOpen && item.sourceType === 'FILE' && (
+        <FilePreviewModal
+          file={{
+            id: fileIdFromDownloadHref(item.href),
+            fileName: item.title,
+            mimeType: item.metadata.find((entry) => entry === 'application/pdf' || entry.startsWith('image/'))
+              ?? mimeTypeFromFileName(item.title),
+          }}
+          onClose={() => setFilePreviewOpen(false)}
+        />
+      )}
     </Card>
   )
+}
+
+function fileIdFromDownloadHref(href: string): string {
+  const match = href.match(/\/files\/([^/]+)\/download/)
+  if (!match?.[1]) return ''
+  try {
+    return decodeURIComponent(match[1])
+  } catch {
+    return match[1]
+  }
+}
+
+function isOwnFeedItem(item: FeedPostView | FeedSourceView, userId: string): boolean {
+  return item.kind === 'POST'
+    ? item.author.id === userId
+    : item.actor?.id === userId
+}
+
+function mimeTypeFromFileName(fileName: string): string | null {
+  const extension = fileName.split('.').pop()?.toLowerCase()
+  if (extension === 'pdf') return 'application/pdf'
+  if (extension === 'png') return 'image/png'
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
+  if (extension === 'gif') return 'image/gif'
+  if (extension === 'webp') return 'image/webp'
+  return null
 }
 
 function FavoriteButton({
@@ -459,7 +533,7 @@ function FavoriteButton({
   )
 }
 
-function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => void }) {
+function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boolean; onChanged: () => void }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [comment, setComment] = useState('')
   const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
@@ -554,7 +628,7 @@ function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => vo
   }
 
   return (
-    <Card className="feed-card">
+    <Card className={`feed-card${isNew ? ' is-new' : ''}`}>
       <header className="feed-card__header">
         <UserProfileLink
           className="feed-card__author"
@@ -759,7 +833,8 @@ function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => vo
   )
 }
 
-function FeedAttachment({ attachment }: { attachment: FeedAttachmentView }) {
+export function FeedAttachment({ attachment }: { attachment: FeedAttachmentView }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
   const status = useQuery({
     queryKey: ['file-status', attachment.id],
     queryFn: () => api<{ scanStatus: FeedAttachmentView['scanStatus'] }>(`/files/${attachment.id}/status`),
@@ -772,14 +847,32 @@ function FeedAttachment({ attachment }: { attachment: FeedAttachmentView }) {
   const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
   if (scanStatus === 'CLEAN') {
     return (
-      <a href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}>
-        <FileText size={17} />
-        <span>
-          <strong>{attachment.fileName}</strong>
-          <small>{formatBytes(attachment.bytes)}</small>
-        </span>
-        <Download size={15} />
-      </a>
+      <>
+        <div className="feed-attachment">
+          <button
+            type="button"
+            className="feed-attachment__preview-trigger"
+            aria-label={`Переглянути ${attachment.fileName}`}
+            onClick={() => setPreviewOpen(true)}
+          >
+            <FileText size={17} />
+            <span>
+              <strong>{attachment.fileName}</strong>
+              <small>{formatBytes(attachment.bytes)}</small>
+            </span>
+          </button>
+          <a
+            className="feed-attachment__download"
+            aria-label={`Завантажити ${attachment.fileName}`}
+            href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}
+          >
+            <Download size={15} />
+          </a>
+        </div>
+        {previewOpen && (
+          <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />
+        )}
+      </>
     )
   }
   return (

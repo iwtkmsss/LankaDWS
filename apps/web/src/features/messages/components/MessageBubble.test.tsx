@@ -1,8 +1,9 @@
 import type { ChatMessageView } from '@bert-crm/contracts'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from './MessageBubble'
+import { OverlayProvider } from '../../../shared/ui'
 
 function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
   return {
@@ -27,6 +28,7 @@ function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
 
 const handlers = {
   onReply: vi.fn(),
+  onLike: vi.fn(),
   onEdit: vi.fn(),
   onDelete: vi.fn(),
   onConvert: vi.fn(),
@@ -47,35 +49,90 @@ describe('MessageBubble', () => {
       </MemoryRouter>,
     )
     expect(screen.getByTitle('Прочитано')).toBeInTheDocument()
-    expect(container.querySelector('.message-bubble__content > .message-bubble__meta')).toBeInTheDocument()
+    expect(container.querySelector('.message-bubble > .message-bubble__meta')).toBeInTheDocument()
+  })
+
+  it('starts a reply when the message is double-clicked', () => {
+    const onReply = vi.fn()
+    const target = message({ body: 'Вітаю' })
+    render(
+      <MemoryRouter>
+        <MessageBubble
+          threadId="thread-1"
+          message={target}
+          own
+          canConvertToTask={false}
+          canConvertToEvent={false}
+          {...handlers}
+          onReply={onReply}
+        />
+      </MemoryRouter>,
+    )
+
+    fireEvent.doubleClick(screen.getByText('Вітаю'))
+
+    expect(onReply).toHaveBeenCalledWith(target)
+  })
+
+  it('marks a newly received message for the current chat session', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <MessageBubble threadId="thread-1" message={message({ body: 'Нове' })} own={false} isNew canConvertToTask={false} canConvertToEvent={false} {...handlers} />
+      </MemoryRouter>,
+    )
+
+    expect(container.querySelector('.message-row')).toHaveClass('is-new')
+  })
+
+  it('sends a like as a reply message', () => {
+    const onLike = vi.fn()
+    const target = message({ body: 'Вітаю' })
+    render(
+      <MemoryRouter>
+        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onLike={onLike} />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Подобається' }))
+
+    expect(onLike).toHaveBeenCalledWith(target)
   })
 
   it('renders an image preview plus open and download actions for a clean image', () => {
     const { container } = render(
       <MemoryRouter>
-        <MessageBubble
-          threadId="thread-1"
-          message={message({
-            attachments: [{
-              id: 'file-1',
-              fileName: 'photo.png',
-              bytes: 1024,
-              mimeType: 'image/png',
-              scanStatus: 'CLEAN',
-            }],
-          })}
-          own
-          canConvertToTask={false}
-          canConvertToEvent={false}
-          {...handlers}
-        />
+        <OverlayProvider>
+          <MessageBubble
+            threadId="thread-1"
+            message={message({
+              attachments: [{
+                id: 'file-1',
+                fileName: 'photo.png',
+                bytes: 1024,
+                mimeType: 'image/png',
+                scanStatus: 'CLEAN',
+              }],
+            })}
+            own
+            canConvertToTask={false}
+            canConvertToEvent={false}
+            {...handlers}
+          />
+        </OverlayProvider>
       </MemoryRouter>,
     )
     expect(screen.getByRole('img', { name: 'photo.png' })).toHaveAttribute(
       'src',
       '/api/v1/files/file-1/download?inline=true',
     )
-    expect(screen.getAllByRole('link', { name: /Відкрити/ }).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Переглянути photo.png' }))
+    const preview = screen.getByRole('dialog', { name: 'photo.png' })
+    expect(within(preview).getByRole('img', { name: 'photo.png' })).toHaveAttribute(
+      'src',
+      '/api/v1/files/file-1/download?inline=true',
+    )
+    fireEvent.click(within(preview).getByRole('button', { name: 'Збільшити' }))
+    expect(within(preview).getByRole('button', { name: 'Відновити масштаб 100%' })).toHaveTextContent('125%')
     expect(screen.getByRole('link', { name: /Завантажити/ })).toHaveAttribute(
       'href',
       '/api/v1/files/file-1/download',

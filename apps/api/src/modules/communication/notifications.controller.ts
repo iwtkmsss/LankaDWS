@@ -5,10 +5,14 @@ import type { BertRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { ChatRealtimeService } from './chat-realtime.service.js'
 
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly realtime?: ChatRealtimeService,
+  ) {}
 
   private tabWhere(tab: string) {
     const startOfToday = new Date()
@@ -104,6 +108,7 @@ export class NotificationsController {
       }
       return saved
     })
+    if (notification.id === notificationId) this.realtime?.publishSummary([recipient.id], ['notifications'])
     return { id: notification.id, created: notification.id === notificationId }
   }
 
@@ -121,13 +126,16 @@ export class NotificationsController {
       },
       data: { readAt: new Date() },
     })
+    if (result.count > 0) this.realtime?.publishSummary([principal.userId], ['notifications'])
     return { updated: result.count }
   }
 
   @Patch(':id')
   async read(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
-    const result = await this.prisma.notification.updateMany({ where: { id, recipientId: principalFrom(request).userId }, data: { readAt: body.read ? new Date() : null } })
+    const principal = principalFrom(request)
+    const result = await this.prisma.notification.updateMany({ where: { id, recipientId: principal.userId }, data: { readAt: body.read ? new Date() : null } })
     if (!result.count) throw notFound()
+    this.realtime?.publishSummary([principal.userId], ['notifications'])
     return { read: body.read }
   }
 

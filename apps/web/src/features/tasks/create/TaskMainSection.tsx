@@ -23,6 +23,16 @@ export function TaskBasicsSection({
   dueAtRef: RefObject<HTMLInputElement | null>
   invalidField?: string
 }) {
+  const upload = useMutation({
+    mutationFn: stageTaskAttachment,
+    onSuccess: (attachment) => {
+      update((current) => ({
+        ...current,
+        attachments: [...current.attachments, attachment],
+      }))
+    },
+  })
+
   return (
     <section className="task-create-core" aria-labelledby="task-create-basics-title">
       <header className="task-create-core__header">
@@ -30,7 +40,6 @@ export function TaskBasicsSection({
           <span className="task-create-kicker">Основне</span>
           <h3 id="task-create-basics-title">Що потрібно зробити</h3>
         </div>
-        <p>Сформулюйте результат так, щоб завдання можна було почати без додаткових уточнень.</p>
       </header>
       <div className="task-create-fields">
         <label className="span-2">
@@ -65,6 +74,47 @@ export function TaskBasicsSection({
           />
         </label>
       </div>
+      <section className="task-create-attachments-section" aria-labelledby="task-create-attachments-title">
+        <div className="task-create-subgroup__heading">
+          <div>
+            <h4 id="task-create-attachments-title">Вкладення</h4>
+            <p>До 10 файлів; перевірка починається одразу після вибору.</p>
+          </div>
+          <label className="button button--secondary task-create-file-picker">
+            <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
+            <input
+              type="file"
+              disabled={upload.isPending || draft.attachments.length >= 10}
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) upload.mutate(file)
+                event.target.value = ''
+              }}
+            />
+          </label>
+        </div>
+        {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
+        {draft.attachments.length > 0 && (
+          <ul className="task-create-attachments">
+            {draft.attachments.map((attachment) => (
+              <li key={attachment.id}>
+                <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Вилучити ${attachment.fileName}`}
+                  onClick={() => update((current) => ({
+                    ...current,
+                    attachments: current.attachments.filter((item) => item.id !== attachment.id),
+                  }))}
+                >
+                  <Trash2 size={15} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       <div className="task-create-core__meta">
         <label>
           Пріоритет
@@ -161,16 +211,6 @@ export function TaskContextSection({
       onOptionsChanged()
     },
   })
-  const upload = useMutation({
-    mutationFn: stageTaskAttachment,
-    onSuccess: (attachment) => {
-      update((current) => ({
-        ...current,
-        attachments: [...current.attachments, attachment],
-      }))
-    },
-  })
-
   return (
     <div className="task-create-context">
       <section className="task-create-subgroup" aria-labelledby="task-create-context-project-title">
@@ -334,50 +374,6 @@ export function TaskContextSection({
             )}
             {tagMutation.isError && <p className="form-error">Не вдалося створити тег.</p>}
           </>
-        )}
-      </section>
-
-      <section className="task-create-subgroup" aria-labelledby="task-create-context-files-title">
-        <div className="task-create-subgroup__heading">
-          <div>
-            <h4 id="task-create-context-files-title">Вкладення</h4>
-            <p>До 10 файлів; перевірка починається одразу після вибору.</p>
-          </div>
-          <label className="button button--secondary task-create-file-picker">
-            <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
-            <input
-              type="file"
-              disabled={upload.isPending || draft.attachments.length >= 10}
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) upload.mutate(file)
-                event.target.value = ''
-              }}
-            />
-          </label>
-        </div>
-        {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
-        {draft.attachments.length > 0 ? (
-          <ul className="task-create-attachments">
-            {draft.attachments.map((attachment) => (
-              <li key={attachment.id}>
-                <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`Вилучити ${attachment.fileName}`}
-                  onClick={() => update((current) => ({
-                    ...current,
-                    attachments: current.attachments.filter((item) => item.id !== attachment.id),
-                  }))}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="task-create-help">Файлів ще немає.</p>
         )}
       </section>
     </div>

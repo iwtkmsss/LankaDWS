@@ -1,6 +1,6 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
 import { concatMap, Observable, Subject } from 'rxjs'
-import type { ChatRealtimeEvent } from '@bert-crm/contracts'
+import type { ChatRealtimeEvent, RealtimeSummaryChanged } from '@bert-crm/contracts'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { unauthorized } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
@@ -191,6 +191,21 @@ export class ChatRealtimeService {
         select: { userId: true },
       })
       recipientIds = memberships.map((membership) => membership.userId)
+    }
+    for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
+  }
+
+  publishSummary(userIds: Iterable<string>, kinds: RealtimeSummaryChanged['kinds']): void {
+    const recipientIds = new Set(userIds)
+    if (!recipientIds.size) return
+    this.sequence += 1
+    const event: MessageEvent = {
+      id: `${Date.now()}-${this.sequence}`,
+      type: 'summary',
+      data: {
+        kinds,
+        occurredAt: new Date().toISOString(),
+      } satisfies RealtimeSummaryChanged,
     }
     for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
   }

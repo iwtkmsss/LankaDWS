@@ -2,19 +2,28 @@
 
 ## Purpose
 
-Help Codex make small, safe, reviewable changes in this npm-workspaces monorepo without repeatedly scanning unrelated code or running the full release pipeline.
+Help coding agents (Codex, Claude) make small, safe, reviewable changes in this npm-workspaces monorepo without repeatedly scanning unrelated code or running the full release pipeline.
+
+## Naming
+
+Repo and packages are `bert-crm` / `@bert-crm/*`. A product rename to **"Lanka"** is partially applied (web UI strings, `docs/architecture.md`). Treat "BertCRM" and "Lanka" as the same product; do not mass-rename identifiers or packages as part of an unrelated task.
 
 ## Repository map
 
-- `apps/web`: React 19 + Vite + TypeScript client.
-- `apps/api`: NestJS API/worker + Prisma + SQLite.
-- `packages/contracts`: shared Zod schemas, permissions and transport types.
+- `apps/web`: React 19 + Vite 8 + react-router 7 + TanStack Query client. Lint = **oxlint**.
+- `apps/api`: NestJS 11 API/worker + Prisma 7.8 + SQLite (`better-sqlite3`) + Zod 4 + Temporal polyfill. Lint = **eslint**.
+- `packages/contracts`: shared Zod schemas, permissions and transport types (framework-neutral).
+- Toolchain: Node ≥24, npm ≥11, TypeScript ~6, ESM everywhere. Playwright projects: `desktop-chromium`, `mobile-chromium`.
 - `docs/architecture.md`: short architecture overview.
-- `docs/decisions.md`: durable architecture decisions.
+- `docs/decisions.md`: authoritative chronological record of product invariants — consult it before relying on an invariant stated only here.
 - `artifacts/openapi.json`: generated API reference; read only for API-map/OpenAPI work.
 - `docs/bitrix24-*`: migration-only context; do not read for normal product/UI tasks.
 
 Read `CODEX_CONTEXT_MAP.md` for targeted request flows.
+
+Canonical authenticated home is `/overview` (data from `GET /dashboard`); the Live Feed is `/feed`. Import-control has no production `APPLY` path.
+
+There is currently large in-progress uncommitted work in `apps/*` messages, `feed`, and a new `apps/api/src/modules/realtime` module. Keep changes narrowly scoped and expect this area to move.
 
 ## Context budget
 
@@ -39,12 +48,13 @@ Do not run repo-wide `git show`, `git diff HEAD~1`, empty-pattern `rg`, or `find
 
 ## Existing product invariants
 
-- One authenticated organization; `companyId` is an internal persistence key, not a user-facing multi-company selector.
+- One workspace holds multiple active companies, surfaced as organizational groups (`/companies`, `/organization`). `companyId` is a persistence key and UI filter, **not** an authorization boundary; there is no global company switcher in the shell. Every authenticated principal receives all active companies (decision 2026-08-31).
+- Confidentiality is enforced at the aggregate boundary: a task is readable only by its creator/reporter/active participants/admin; a chat only by active participants/admin; a notification only by its recipient.
 - Authorization is server-side. Search, chat, files, groups, tasks and employee projections must preserve current permission/scope checks.
 - Direct chat threads are canonical and idempotent. Reuse `POST /messages/threads`; never create duplicate direct conversations.
 - Org hierarchy already uses recursive `OrgUnit.parentId`; do not add another hierarchy model.
 - Groups already exist and Tasks already have optional `groupId`.
-- There is no approved standalone `Project` model. Do not add Project/schema migrations unless the task explicitly approves a design.
+- `Project` and `Tag` exist in `schema.prisma` as task-catalog records (`Task.projectId`, `Task.tags`). Do not build a standalone project-management aggregate, page or route, and do not treat `Project` as a company/authorization scope.
 - Reuse canonical create routes/forms. Do not duplicate entity forms inside global search.
 - Do not edit generated Prisma Client.
 

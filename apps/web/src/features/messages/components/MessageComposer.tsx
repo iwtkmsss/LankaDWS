@@ -3,6 +3,7 @@ import { FileText, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
+import { replyPreviewText } from '../lib/replyPreview'
 
 interface MessageComposerProps {
   threadId: string
@@ -98,7 +99,7 @@ export function MessageComposer(props: MessageComposerProps) {
         <div className="message-composer__reply">
           <span>
             <strong>Відповідь: {props.replyTo.author.displayName}</strong>
-            <small>{props.replyTo.body}</small>
+            <small>{replyPreviewText(props.replyTo)}</small>
           </span>
           <button type="button" aria-label="Скасувати відповідь" onClick={props.onReplyCancel}>
             <X size={17} />

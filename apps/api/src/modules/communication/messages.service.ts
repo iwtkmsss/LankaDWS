@@ -2036,6 +2036,7 @@ export class MessagesService {
   ): Promise<ChatMessageView[]> {
     if (!messages.length) return []
     const replyIds = messages.flatMap((message) => message.replyToId ? [message.replyToId] : [])
+    const attachmentMessageIds = [...new Set([...messages.map((message) => message.id), ...replyIds])]
     const missingReplyIds = replyIds.filter(
       (replyId) => !messages.some((message) => message.id === replyId),
     )
@@ -2050,7 +2051,7 @@ export class MessagesService {
       this.prisma.fileLink.findMany({
         where: {
           entityType: 'MESSAGE',
-          entityId: { in: messages.map((message) => message.id) },
+          entityId: { in: attachmentMessageIds },
           purpose: 'ATTACHMENT',
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -2124,7 +2125,7 @@ export class MessagesService {
       message,
       messagesById,
       usersById,
-      attachmentsByMessage.get(message.id) ?? [],
+      attachmentsByMessage,
       mentionsByMessage.get(message.id) ?? [],
       thread.participants.filter((participant) => {
         if (participant.leftAt || participant.userId === message.authorId || !participant.lastReadMessageId) return false
@@ -2269,8 +2270,8 @@ export class MessagesService {
       `SELECT
          COUNT(*) AS "allCount",
          COALESCE(SUM(
-           CASE WHEN EXISTS (
-             SELECT 1
+           (
+             SELECT COUNT(*)
              FROM "Message" AS message
              LEFT JOIN "Message" AS marker
                ON marker."id" = participant."lastReadMessageId"
@@ -2285,7 +2286,7 @@ export class MessagesService {
                    AND message."id" > marker."id"
                  )
                )
-           ) THEN 1 ELSE 0 END
+           )
          ), 0) AS "unreadCount"
        FROM "MessageThread" AS thread
        JOIN "ThreadParticipant" AS participant
@@ -2664,7 +2665,7 @@ export class MessagesService {
     message: Message,
     messagesById: Map<string, Message>,
     usersById: Map<string, SafeUser>,
-    attachments: ChatAttachmentView[],
+    attachmentsByMessage: Map<string, ChatAttachmentView[]>,
     mentions: StructuredMentionView[],
     readByCount: number,
   ): ChatMessageView {
@@ -2673,6 +2674,7 @@ export class MessagesService {
     const replyAuthor = reply ? usersById.get(reply.authorId) : null
     const deleted = Boolean(message.deletedAt)
     const canManage = isGlobalAdmin(principal)
+    const attachments = attachmentsByMessage.get(message.id) ?? []
     return {
       id: message.id,
       authorId: message.authorId,
@@ -2687,7 +2689,9 @@ export class MessagesService {
         ? {
             id: reply.id,
             authorName: replyAuthor?.displayName ?? 'Користувач',
-            body: reply.deletedAt ? 'Повідомлення видалено' : reply.body.slice(0, 180),
+            body: reply.deletedAt
+              ? 'Повідомлення видалено'
+              : this.replyPreviewBody(reply.body, attachmentsByMessage.get(reply.id) ?? []),
           }
         : null,
       author: {
@@ -2710,6 +2714,11 @@ export class MessagesService {
       mimeType: file.detectedMime ?? file.declaredMime ?? null,
       scanStatus: file.scanStatus,
     }
+  }
+
+  private replyPreviewBody(body: string, attachments: ChatAttachmentView[]): string {
+    if (attachments.some((attachment) => attachment.mimeType?.startsWith('image/'))) return 'Фото'
+    return body.trim().replace(/\s+/g, ' ').slice(0, 180)
   }
 
   private threadTitle(

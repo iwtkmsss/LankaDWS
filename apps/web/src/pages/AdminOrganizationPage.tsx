@@ -194,10 +194,19 @@ export default function AdminOrganizationPage() {
         companyId={companyId}
         unit={editor.unit}
         defaultParentId={editor.parentId}
+        companies={companies.data?.items ?? [query.data.company]}
         users={users.data?.items ?? []}
         managerCandidates={managerCandidates}
         onClose={() => setEditor(null)}
-        onSaved={async (unitId) => { await refresh(); selectUnit(unitId); setEditor(null) }}
+        onSaved={async (unitId, targetCompanyId) => {
+          await refresh()
+          setEditor(null)
+          if (targetCompanyId !== companyId) {
+            navigate(`/admin/companies/${encodeURIComponent(targetCompanyId)}/structure?editing=1&unit=${encodeURIComponent(unitId)}`)
+            return
+          }
+          selectUnit(unitId)
+        }}
       />}
       {creatingCompany && <CompanyEditor
         onClose={() => setCreatingCompany(false)}
@@ -285,15 +294,26 @@ function CompanyDetail({ company, users, companyId, editing, onSaved }: { compan
   </>
 }
 
-function UnitEditor({ companyId, unit, defaultParentId, users, managerCandidates, onClose, onSaved }: {
-  companyId: string; unit?: AdminOrgUnitView; defaultParentId?: string | null; users: AdminUserOption[]; managerCandidates: AdminUserOption[]
-  onClose: () => void; onSaved: (unitId: string) => Promise<void>
+function UnitEditor({ companyId, unit, defaultParentId, companies, users, managerCandidates, onClose, onSaved }: {
+  companyId: string; unit?: AdminOrgUnitView; defaultParentId?: string | null; companies: CompanyOption[]; users: AdminUserOption[]; managerCandidates: AdminUserOption[]
+  onClose: () => void; onSaved: (unitId: string, targetCompanyId: string) => Promise<void>
 }) {
+  const [targetCompanyId, setTargetCompanyId] = useState(companyId)
   const [managerId, setManagerId] = useState<string | null>(unit?.manager?.id ?? null)
   const [managerQuery, setManagerQuery] = useState(unit?.manager?.displayName ?? '')
   const [description, setDescription] = useState(unit?.description ?? '')
   const [employeeQuery, setEmployeeQuery] = useState('')
   const [addedEmployeeIds, setAddedEmployeeIds] = useState<string[]>([])
+  const targetUsers = useQuery({
+    queryKey: ['admin-users', 'manager-options', targetCompanyId],
+    queryFn: () => api<{ items: AdminUserOption[] }>(`/admin/users?companyId=${encodeURIComponent(targetCompanyId)}&isActive=true&accountType=USER`),
+    enabled: !unit && targetCompanyId !== companyId,
+  })
+  const targetUsersList = targetCompanyId === companyId ? users : (targetUsers.data?.items ?? [])
+  const targetManagerCandidates = targetCompanyId === companyId ? managerCandidates : [
+    ...targetUsersList,
+    ...managerCandidates.filter((user) => user.accountType === 'ADMIN'),
+  ]
   const employees = useQuery({
     queryKey: ['admin-org-unit-employees', companyId, unit?.id],
     queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${unit!.id}/employees?company=${encodeURIComponent(companyId)}`),
@@ -301,32 +321,32 @@ function UnitEditor({ companyId, unit, defaultParentId, users, managerCandidates
   })
   const normalizedManagerQuery = managerQuery.trim().toLocaleLowerCase('uk')
   const managerOptions = normalizedManagerQuery.length
-    ? managerCandidates.filter((user) => `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedManagerQuery))
+    ? targetManagerCandidates.filter((user) => `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedManagerQuery))
     : []
   const normalizedEmployeeQuery = employeeQuery.trim().toLocaleLowerCase('uk')
   const currentEmployeeIds = new Set(employees.data?.items.map((employee) => employee.id) ?? [])
   const selectedEmployees = [
     ...(employees.data?.items ?? []).map((employee) => ({ id: employee.id, displayName: employee.displayName, jobTitle: employee.positionTitle || employee.jobTitle })),
-    ...addedEmployeeIds.filter((employeeId) => !currentEmployeeIds.has(employeeId)).map((employeeId) => users.find((user) => user.id === employeeId)).filter((user): user is AdminUserOption => Boolean(user)),
+    ...addedEmployeeIds.filter((employeeId) => !currentEmployeeIds.has(employeeId)).map((employeeId) => targetUsersList.find((user) => user.id === employeeId)).filter((user): user is AdminUserOption => Boolean(user)),
   ]
   const employeeOptions = normalizedEmployeeQuery.length
-    ? users.filter((user) => !currentEmployeeIds.has(user.id) && !addedEmployeeIds.includes(user.id) && `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedEmployeeQuery))
+    ? targetUsersList.filter((user) => !currentEmployeeIds.has(user.id) && !addedEmployeeIds.includes(user.id) && `${user.displayName} ${user.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedEmployeeQuery))
     : []
   const mutation = useMutation({
     mutationFn: async (body: object) => {
       const saved = await api<{ id: string; version: number }>(unit
         ? `/admin/companies/${companyId}/org-units/${unit.id}`
-        : `/admin/companies/${companyId}/org-units`, {
+        : `/admin/companies/${targetCompanyId}/org-units`, {
         method: unit ? 'PATCH' : 'POST', body: jsonBody(body),
       })
       if (addedEmployeeIds.length) {
-        await api(`/admin/companies/${companyId}/org-units/${saved.id}/employees`, {
+        await api(`/admin/companies/${unit ? companyId : targetCompanyId}/org-units/${saved.id}/employees`, {
           method: 'PUT', body: jsonBody({ employeeIds: addedEmployeeIds, expectedVersion: saved.version }),
         })
       }
       return saved
     },
-    onSuccess: (result) => onSaved(result.id),
+    onSuccess: (result) => onSaved(result.id, unit ? companyId : targetCompanyId),
   })
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -342,6 +362,15 @@ function UnitEditor({ companyId, unit, defaultParentId, users, managerCandidates
   return <Drawer title={unit ? 'Редагувати підрозділ' : 'Новий підрозділ'} onRequestClose={onClose}>
     <form className="entity-form admin-org-form" onSubmit={submit}>
       <label className="span-2">Назва<input name="name" required maxLength={120} defaultValue={unit?.name} /></label>
+      {!unit && <label className="span-2">Компанія<select value={targetCompanyId} onChange={(event) => {
+        setTargetCompanyId(event.target.value)
+        setManagerId(null)
+        setManagerQuery('')
+        setEmployeeQuery('')
+        setAddedEmployeeIds([])
+      }} disabled={defaultParentId !== null && defaultParentId !== undefined}>
+        {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+      </select></label>}
       <label className="span-2">Опис<textarea name="description" rows={4} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається цей відділ" /></label>
       <div className="span-2 admin-org-person-picker">
         <label>Керівник<input type="search" value={managerQuery} onChange={(event) => { setManagerQuery(event.target.value); setManagerId(null) }} placeholder="Почніть вводити ім’я або посаду" aria-autocomplete="list" aria-controls="manager-options" /></label>

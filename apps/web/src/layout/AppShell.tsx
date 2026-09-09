@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { FeedSummary } from '@bert-crm/contracts'
 import {
   ChevronDown,
   Ellipsis,
@@ -31,6 +32,7 @@ import { applyTheme, getStoredTheme, storeTheme } from '../shared/theme'
 import { Avatar, BrandMark, IconButton } from '../shared/ui'
 import { RightCommunicationPanel } from './RightCommunicationPanel'
 import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
+import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -80,6 +82,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
   const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
+  const feedCompanyScope = user?.company?.id ?? 'all'
+  useMessageRealtime(Boolean(user))
   const prefetchNavigationRoute = (route: RouteMeta) => {
     void route.preload?.()
     if (!user?.company?.id) return
@@ -197,16 +201,19 @@ export function AppShell({ children }: PropsWithChildren) {
     queryKey: ['notifications', 'summary'],
     queryFn: () => api<{ action: number; unread: number }>('/notifications/summary'),
     enabled: Boolean(user),
-    refetchInterval: 60_000,
   })
   const chatSummary = useQuery({
     queryKey: ['threads', 'summary', companyId],
     queryFn: () => api<{ all: number; unread: number }>('/messages/summary'),
     enabled: Boolean(user),
-    refetchInterval: location.pathname.startsWith('/messages') ? false : 30_000,
-    refetchIntervalInBackground: false,
+  })
+  const feedSummary = useQuery({
+    queryKey: ['feed', 'summary', feedCompanyScope],
+    queryFn: () => api<FeedSummary>(`/feed/summary?company=${encodeURIComponent(feedCompanyScope)}`),
+    enabled: Boolean(user),
   })
   const chatUnread = chatSummary.data?.unread ?? 0
+  const feedUnread = feedSummary.data?.unreadCount ?? 0
   useEffect(() => {
     window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
@@ -331,6 +338,11 @@ export function AppShell({ children }: PropsWithChildren) {
         {route.path === '/messages' && chatUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${chatUnread} непрочитаних діалогів`}>
             {chatUnread > 99 ? '99+' : chatUnread}
+          </b>
+        )}
+        {route.path === '/feed' && feedUnread > 0 && (
+          <b className="nav-unread-badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
+            {feedUnread > 99 ? '99+' : feedUnread}
           </b>
         )}
         {route.path === '/notifications' && (notificationSummary.data?.unread ?? 0) > 0 && (
@@ -574,6 +586,11 @@ export function AppShell({ children }: PropsWithChildren) {
               {route.path === '/messages' && chatUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${chatUnread} непрочитаних`}>
                   {chatUnread > 99 ? '99+' : chatUnread}
+                </b>
+              )}
+              {route.path === '/feed' && feedUnread > 0 && (
+                <b className="bottom-nav__badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
+                  {feedUnread > 99 ? '99+' : feedUnread}
                 </b>
               )}
             </NavLink>
