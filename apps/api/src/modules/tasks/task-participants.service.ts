@@ -52,7 +52,7 @@ export class TaskParticipantsService {
     return {
       items: await this.prisma.user.findMany({
         where: {
-          ...this.eligibleUserWhere(principal, task.companyId, task.groupId),
+          ...this.eligibleUserWhere(principal, task.groupId),
           ...(normalized
             ? {
                 AND: [{
@@ -86,7 +86,7 @@ export class TaskParticipantsService {
     const uniqueUserIds = [...new Set(userIds)]
     if (!uniqueUserIds.length) return []
     const eligible = await tx.user.findMany({
-      where: this.eligibleUserWhere(principal, task.companyId, task.groupId, uniqueUserIds),
+      where: this.eligibleUserWhere(principal, task.groupId, uniqueUserIds),
       select: { id: true },
     })
     if (eligible.length !== uniqueUserIds.length) throw badRequest('task_mention_outside_scope')
@@ -158,7 +158,7 @@ export class TaskParticipantsService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     const task = await this.access.editableTask(principal, taskId)
-    await this.assertEligibleUser(principal, task.companyId, task.groupId, userId)
+    await this.assertEligibleUser(principal, task.groupId, userId)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     return this.prisma.$transaction(async (tx) => {
@@ -410,12 +410,11 @@ export class TaskParticipantsService {
 
   private async assertEligibleUser(
     principal: AuthPrincipal,
-    companyId: string,
     groupId: string | null,
     userId: string,
   ): Promise<void> {
     const user = await this.prisma.user.findFirst({
-      where: this.eligibleUserWhere(principal, companyId, groupId, [userId]),
+      where: this.eligibleUserWhere(principal, groupId, [userId]),
       select: { id: true },
     })
     if (!user) throw badRequest('task_participant')
@@ -423,7 +422,6 @@ export class TaskParticipantsService {
 
   private eligibleUserWhere(
     principal: AuthPrincipal,
-    companyId: string,
     groupId: string | null,
     userIds?: string[],
   ): Prisma.UserWhereInput {
@@ -431,6 +429,14 @@ export class TaskParticipantsService {
       ...(userIds ? { id: { in: userIds } } : {}),
       workspaceId: principal.workspaceId,
       isActive: true,
+      // A grouped task keeps active group membership as a mandatory boundary
+      // for every role (docs/decisions.md 2026-07-24). An ungrouped task
+      // admits any active workspace user regardless of primary company
+      // (docs/decisions.md 2026-08-31), so company is deliberately not a
+      // filter here.
+      ...(groupId
+        ? { groupMemberships: { some: { groupId, leftAt: null } } }
+        : {}),
     }
   }
 }
