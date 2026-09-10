@@ -60,6 +60,7 @@ import { api, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { Avatar, CompactFileName, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import './right-communication-panel.css'
 
@@ -873,8 +874,17 @@ function DirectDraftComposer({
     addFiles(pastedFiles)
   }
 
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: sending || files.length >= 5,
+    onFiles: addFiles,
+  })
+
   return (
-    <div className="message-composer right-panel__draft-composer">
+    <div
+      className="message-composer right-panel__draft-composer is-file-drop-target"
+      {...dropTargetProps}
+    >
+      <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити" />
       {files.length > 0 && (
         <div className="message-composer__attachments">
           {files.map((file, index) => (
@@ -911,6 +921,7 @@ function DirectDraftComposer({
         <button
           type="button"
           aria-label="Додати файли"
+          title="Додати файли або перетягнути їх сюди"
           disabled={sending || files.length >= 5}
           onClick={() => inputRef.current?.click()}
         >

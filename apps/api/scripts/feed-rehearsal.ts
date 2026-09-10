@@ -1235,18 +1235,6 @@ async function main(): Promise<void> {
         entry.kind === 'POST' && entry.acknowledgementRequiredForMe),
       'acknowledgement filter must contain only unresolved current-version actions',
     )
-    const favoriteResult = await feed.list(principal, {
-      ...baseQuery,
-      favorite: true,
-    })
-    assertCondition(
-      favoriteResult.items.length === Math.min(50, seedEvidence.expectedFavoriteHeads),
-      'favorite filter count must match the current-head fixture',
-    )
-    assertCondition(
-      favoriteResult.items.every((entry) => entry.favoritedByMe),
-      'favorite filter must contain only private favorited heads',
-    )
     const groupResult = await feed.list(principal, {
       ...baseQuery,
       groupId: seedEvidence.visibleGroupId,
@@ -1271,7 +1259,6 @@ async function main(): Promise<void> {
         filter: 'ACK_REQUIRED',
         type: 'POST',
       },
-      favorites: { ...baseQuery, favorite: true },
       exactGroup: { ...baseQuery, groupId: seedEvidence.visibleGroupId },
       files: { ...baseQuery, type: 'FILE' },
     }
@@ -1363,7 +1350,7 @@ async function main(): Promise<void> {
           'no adjacent-page or bounded-traversal source duplicates',
           'current-head unread count matches the deterministic live-delta ACL oracle',
           'post/task/event/announcement/file ACL canaries remain hidden',
-          'acknowledgement, favorite and exact-group facets remain relevant',
+          'acknowledgement and exact-group facets remain relevant',
         ],
       },
       queryPlans: {

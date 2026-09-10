@@ -373,13 +373,6 @@ export async function writeFeedProjection(
     countsAsUnread: !input.historical,
     occurredAt: input.occurredAt,
   })
-  await moveFeedFavorites(tx, {
-    workspaceId: input.workspaceId,
-    companyId: input.companyId,
-    sourceType: input.sourceType,
-    sourceId: input.sourceId,
-    newItemId: itemId,
-  })
   const requestedRecipients = [...new Set(input.recipientIds)]
   const activeRecipients = requestedRecipients.length > 0
     ? await tx.user.findMany({ where: { id: { in: requestedRecipients }, isActive: true, OR: [{ primaryCompanyId: input.companyId }, { accountType: 'ADMIN' }] }, select: { id: true } })
@@ -443,55 +436,3 @@ export async function advanceFeedSourceHead(
   return true
 }
 
-export async function moveFeedFavorites(
-  tx: ProjectionTransaction,
-  input: {
-    workspaceId: string
-    companyId: string
-    sourceType: string
-    sourceId: string
-    newItemId: string
-  },
-): Promise<void> {
-  const previous = await tx.feedUserItemState.findMany({
-    where: {
-      favoritedAt: { not: null },
-      feedItemId: { not: input.newItemId },
-      feedItem: {
-        workspaceId: input.workspaceId,
-        companyId: input.companyId,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-      },
-    },
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-  })
-  if (previous.length === 0) return
-  const latestByUser = new Map<string, Date>()
-  for (const state of previous) {
-    if (state.favoritedAt && !latestByUser.has(state.userId)) {
-      latestByUser.set(state.userId, state.favoritedAt)
-    }
-  }
-  const activeUsers = await tx.user.findMany({ where: { id: { in: [...latestByUser.keys()] }, primaryCompanyId: input.companyId, workspaceId: input.workspaceId, isActive: true }, select: { id: true } })
-  await tx.feedUserItemState.deleteMany({
-    where: {
-      feedItemId: { not: input.newItemId },
-      feedItem: {
-        workspaceId: input.workspaceId,
-        companyId: input.companyId,
-        sourceType: input.sourceType,
-        sourceId: input.sourceId,
-      },
-    },
-  })
-  if (activeUsers.length === 0) return
-  await tx.feedUserItemState.createMany({
-    data: activeUsers.map(({ id: userId }) => ({
-      id: id('fstate'),
-      userId,
-      feedItemId: input.newItemId,
-      favoritedAt: latestByUser.get(userId) ?? new Date(),
-    })),
-  })
-}

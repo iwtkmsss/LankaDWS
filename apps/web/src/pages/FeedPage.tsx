@@ -13,15 +13,11 @@ import type {
   FeedListResult,
   FeedPostView,
   FeedSourceView,
-  FeedSubscriptionMode,
   StructuredMentionInput,
 } from '@bert-crm/contracts'
 import {
   Archive,
   ArrowRight,
-  Bell,
-  BellOff,
-  BellRing,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -39,7 +35,6 @@ import {
   ShieldCheck,
   Sparkles,
   SquareCheckBig,
-  Star,
 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
@@ -94,11 +89,10 @@ export function FeedPage() {
   const dateFrom = parseDateParam(params.get('dateFrom'))
   const dateTo = parseDateParam(params.get('dateTo'))
   const mentioned = params.get('mentioned') === 'true'
-  const favorite = params.get('favorite') === 'true'
   const important = params.get('important') === 'true'
   const feedSessionKey = [
     company, filter, itemType, authorId, groupId, audienceId, dateFrom, dateTo,
-    mentioned, favorite, important,
+    mentioned, important,
   ].join('|')
   const pages = useInfiniteQuery({
     queryKey: [
@@ -112,7 +106,6 @@ export function FeedPage() {
       dateFrom,
       dateTo,
       mentioned,
-      favorite,
       important,
     ],
     initialPageParam: null as string | null,
@@ -129,7 +122,6 @@ export function FeedPage() {
       if (dateFrom) query.set('dateFrom', dateFrom)
       if (dateTo) query.set('dateTo', dateTo)
       if (mentioned) query.set('mentioned', 'true')
-      if (favorite) query.set('favorite', 'true')
       if (important) query.set('important', 'true')
       if (pageParam) query.set('cursor', pageParam)
       return api<FeedListResult>(`/feed?${query}`)
@@ -194,7 +186,6 @@ export function FeedPage() {
       || dateFrom
       || dateTo
       || mentioned
-      || favorite
       || important
     ) return
     const markers = firstPage?.readMarkers ?? []
@@ -208,7 +199,6 @@ export function FeedPage() {
     audienceId,
     dateFrom,
     dateTo,
-    favorite,
     filter,
     firstPage?.readMarkers,
     groupId,
@@ -240,7 +230,6 @@ export function FeedPage() {
     || dateFrom
     || dateTo
     || mentioned
-    || favorite
     || important
 
   return (
@@ -343,9 +332,11 @@ export function FeedPage() {
           title="Створити публікацію"
           description="Поділіться важливим оновленням із потрібною аудиторією."
           closeDisabled={composerBusy}
+          onBeforeClose={composerCloseGuard.shouldClose}
           onRequestClose={composerCloseGuard.requestClose}
         >
           <FeedComposerForm
+            defaultCompanyId={user?.company?.id}
             onBusyChange={setComposerBusy}
             onDirtyChange={setComposerDirty}
             onFeedChanged={() => {
@@ -359,7 +350,11 @@ export function FeedPage() {
           />
         </Modal>
       )}
-      <UnsavedChangesDialog guard={composerCloseGuard} />
+      <UnsavedChangesDialog
+        guard={composerCloseGuard}
+        title="Закрити створення публікації?"
+        description="Текст, аудиторія та додані файли не збережуться."
+      />
     </div>
   )
 }
@@ -416,11 +411,6 @@ function FeedSourceCard({
         </div>
       </div>
       <div className="feed-source-card__actions">
-        <FavoriteButton
-          itemId={item.itemId}
-          favorited={item.favoritedByMe}
-          onChanged={onChanged}
-        />
         {item.sourceType === 'FILE'
           ? item.actionState === 'AVAILABLE'
             ? (
@@ -502,37 +492,6 @@ function mimeTypeFromFileName(fileName: string): string | null {
   return null
 }
 
-function FavoriteButton({
-  itemId,
-  favorited,
-  onChanged,
-}: {
-  itemId: string
-  favorited: boolean
-  onChanged: () => void
-}) {
-  const favorite = useMutation({
-    mutationFn: () => api(`/feed/items/${itemId}/favorite`, {
-      method: favorited ? 'DELETE' : 'PUT',
-    }),
-    onSuccess: onChanged,
-  })
-  const label = favorited ? 'Прибрати з обраного' : 'Додати в обране'
-  return (
-    <button
-      type="button"
-      className={`feed-favorite-button ${favorited ? 'is-active' : ''}`}
-      aria-label={label}
-      aria-pressed={favorited}
-      title={label}
-      disabled={favorite.isPending}
-      onClick={() => favorite.mutate()}
-    >
-      <Star size={17} fill={favorited ? 'currentColor' : 'none'} />
-    </button>
-  )
-}
-
 function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boolean; onChanged: () => void }) {
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [comment, setComment] = useState('')
@@ -543,7 +502,6 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
     editableMentions(item.body, item.mentions))
   const [menuOpen, setMenuOpen] = useState(false)
-  const [subscriptionOpen, setSubscriptionOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const like = useMutation({
     mutationFn: () => api(`/feed/${item.id}/reactions/like`, { method: 'POST' }),
@@ -593,22 +551,6 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
     }),
     onSuccess: onChanged,
   })
-  const subscription = useMutation({
-    mutationFn: (notificationMode: FeedSubscriptionMode) => api(`/feed/${item.id}/subscription`, {
-      method: 'PUT',
-      body: jsonBody({ notificationMode }),
-    }),
-    onSuccess: () => {
-      setSubscriptionOpen(false)
-      onChanged()
-    },
-  })
-  const SubscriptionIcon = item.subscriptionMode === 'ALL'
-    ? BellRing
-    : item.subscriptionMode === 'MENTIONS'
-      ? Bell
-      : BellOff
-
   function submitComment(event: FormEvent) {
     event.preventDefault()
     if (comment.trim()) addComment.mutate()
@@ -638,15 +580,10 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
           <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
           <span>
             <strong>{item.author.displayName}</strong>
-            <small>{item.audienceLabel} · <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time></small>
+            <small><time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time> · {item.audienceLabel}</small>
           </span>
         </UserProfileLink>
         <div className="feed-card__header-actions">
-          <FavoriteButton
-            itemId={item.itemId}
-            favorited={item.favoritedByMe}
-            onChanged={onChanged}
-          />
           {item.canEdit && (
             <div className="feed-card__menu">
               <IconButton
@@ -742,38 +679,6 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
         <button aria-expanded={commentsOpen} onClick={() => setCommentsOpen((value) => !value)}>
           <MessageCircle size={17} /> Коментарі{item.commentCount > 0 ? ` · ${item.commentCount}` : ''}
         </button>
-        <div className="feed-subscription">
-          <button
-            className={item.subscriptionMode !== 'NONE' ? 'is-active' : ''}
-            aria-expanded={subscriptionOpen}
-            aria-haspopup="menu"
-            onClick={() => setSubscriptionOpen((value) => !value)}
-          >
-            <SubscriptionIcon size={17} />
-            {subscriptionModeLabel(item.subscriptionMode)}
-          </button>
-          {subscriptionOpen && (
-            <div role="menu" aria-label="Сповіщення про цю публікацію">
-              {([
-                ['ALL', 'Усі нові коментарі', BellRing],
-                ['MENTIONS', 'Лише згадки', Bell],
-                ['NONE', 'Без сповіщень', BellOff],
-              ] as const).map(([mode, label, Icon]) => (
-                <button
-                  key={mode}
-                  role="menuitemradio"
-                  aria-checked={item.subscriptionMode === mode}
-                  disabled={subscription.isPending}
-                  onClick={() => subscription.mutate(mode)}
-                >
-                  <Icon size={15} />
-                  <span>{label}</span>
-                  {item.subscriptionMode === mode && <Check size={14} aria-hidden />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
         {item.editedAt && <small>Змінено {formatDateTime(item.editedAt)}</small>}
       </footer>
 
@@ -887,7 +792,7 @@ export function FeedAttachment({ attachment }: { attachment: FeedAttachmentView 
 }
 
 function parseFilter(value: string | null): FeedListFilter {
-  return value === 'ACK_REQUIRED' || value === 'MINE' || value === 'FOLLOWING' ? value : 'ALL'
+  return value === 'ACK_REQUIRED' || value === 'MINE' ? value : 'ALL'
 }
 
 function parseItemType(value: string | null): FeedItemType {
@@ -912,10 +817,4 @@ function attachmentStateLabel(status: FeedAttachmentView['scanStatus']): string 
   if (status === 'UNSUPPORTED') return 'Формат не підтримується'
   if (status === 'FAILED') return 'Не вдалося перевірити'
   return 'Перевіряється перед завантаженням'
-}
-
-function subscriptionModeLabel(mode: FeedSubscriptionMode): string {
-  if (mode === 'ALL') return 'Стежу'
-  if (mode === 'MENTIONS') return 'Лише згадки'
-  return 'Стежити'
 }

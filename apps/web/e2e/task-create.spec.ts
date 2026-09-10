@@ -77,6 +77,7 @@ test('shared modal shell traps focus, guards dirty closure and stays responsive'
   await page.keyboard.press('Escape')
   const confirmation = page.getByRole('alertdialog', { name: 'Закрити форму?' })
   await expect(confirmation).toBeVisible()
+  await expect(dialog.locator('..')).not.toHaveClass(/is-closing/)
   await expect(confirmation.getByRole('button', { name: 'Продовжити редагування' })).toBeFocused()
   await expect(dialog).toHaveAttribute('aria-hidden', 'true')
 
@@ -130,6 +131,9 @@ test('creates a task through the complete modal workflow', async ({ page }, test
     'Чек-ліст',
     'Зв’язки',
   ])
+  const initialStart = await page.getByLabel('Дата початку').inputValue()
+  const initialDue = await page.getByLabel('Кінцевий термін').inputValue()
+  expect(new Date(initialDue).getTime() - new Date(initialStart).getTime()).toBe(60 * 60 * 1_000)
 
   const title = `E2E створення · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)

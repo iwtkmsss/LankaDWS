@@ -93,6 +93,8 @@ export function MessageComposer(props: MessageComposerProps) {
     if (availableSlots > 0 && !props.uploading) props.onFiles(files.slice(0, availableSlots))
   }
 
+  const attachmentsFull = props.attachments.length >= 5
+
   return (
     <div className="message-composer">
       {props.replyTo && (
@@ -129,7 +131,7 @@ export function MessageComposer(props: MessageComposerProps) {
           type="file"
           hidden
           multiple
-          disabled={props.uploading || props.attachments.length >= 5}
+          disabled={props.uploading || attachmentsFull}
           onChange={(event) => {
             props.onFiles([...event.target.files ?? []].slice(0, 5 - props.attachments.length))
             event.target.value = ''
@@ -138,7 +140,8 @@ export function MessageComposer(props: MessageComposerProps) {
         <button
           type="button"
           aria-label="Додати файли"
-          disabled={props.uploading || props.attachments.length >= 5}
+          title="Додати файли або перетягнути їх у поле вводу"
+          disabled={props.uploading || attachmentsFull}
           onClick={() => inputRef.current?.click()}
         >
           {props.uploading

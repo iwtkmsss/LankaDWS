@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import {
   acknowledgeFeedPostSchema,
@@ -9,7 +9,6 @@ import {
   mentionSearchQuerySchema,
   markFeedReadSchema,
   shareFileToFeedSchema,
-  updateFeedSubscriptionSchema,
   updateFeedPostSchema,
 } from '@bert-crm/contracts'
 import { badRequest } from '../../common/errors.js'
@@ -111,16 +110,6 @@ export class FeedController {
     return this.feed.revokeFileShare(principalFrom(request), shareId, Number(body.expectedVersion))
   }
 
-  @Put('items/:itemId/favorite')
-  favorite(@Req() request: BertRequest, @Param('itemId') itemId: string) {
-    return this.feed.setFavorite(principalFrom(request), itemId, true)
-  }
-
-  @Delete('items/:itemId/favorite')
-  unfavorite(@Req() request: BertRequest, @Param('itemId') itemId: string) {
-    return this.feed.setFavorite(principalFrom(request), itemId, false)
-  }
-
   @Post()
   create(
     @Req() request: BertRequest,
@@ -167,18 +156,6 @@ export class FeedController {
   @Post(':id/reactions/like')
   like(@Req() request: BertRequest, @Param('id') postId: string) {
     return this.feed.toggleLike(principalFrom(request), postId)
-  }
-
-  @Put(':id/subscription')
-  subscription(@Req() request: BertRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
-    const parsed = updateFeedSubscriptionSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('feed_subscription_invalid')
-    return this.feed.updateSubscription(principalFrom(request), postId, parsed.data.notificationMode)
-  }
-
-  @Delete(':id/subscription')
-  unsubscribe(@Req() request: BertRequest, @Param('id') postId: string) {
-    return this.feed.updateSubscription(principalFrom(request), postId, 'NONE')
   }
 
   @Post(':id/acknowledge')

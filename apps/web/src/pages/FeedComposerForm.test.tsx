@@ -35,6 +35,7 @@ function mount() {
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       })}>
         <FeedComposerForm
+          defaultCompanyId="cmp_bert_ua"
           onPostCreated={vi.fn()}
           onFeedChanged={vi.fn()}
           onBusyChange={vi.fn()}
@@ -68,17 +69,17 @@ afterEach(() => {
 })
 
 describe('FeedComposerForm', () => {
-  it('publishes one post to the checked companies from the all scope', async () => {
+  it('defaults the audience to the author company and publishes the checked companies', async () => {
     mount()
 
-    const audienceTrigger = await screen.findByRole('button', { name: 'Бачать: Усі' })
+    const audienceTrigger = await screen.findByRole('button', { name: 'Бачать: BERT' })
     expect(screen.queryByRole('checkbox', { name: 'BERT' })).not.toBeInTheDocument()
     fireEvent.click(audienceTrigger)
 
     const bert = screen.getByRole('checkbox', { name: 'BERT' })
     const other = screen.getByRole('checkbox', { name: 'Інша компанія' })
     expect(bert).toBeChecked()
-    expect(other).toBeChecked()
+    expect(other).not.toBeChecked()
     fireEvent.click(other)
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Текст публікації' }), {
@@ -91,7 +92,7 @@ describe('FeedComposerForm', () => {
       body: JSON.stringify({
         companyId: 'cmp_bert_ua',
         body: 'Важливе оновлення',
-        audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua'] },
+        audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', 'cmp_other'] },
         requiresAcknowledgement: false,
         attachmentIds: [],
         mentions: [],
@@ -101,7 +102,7 @@ describe('FeedComposerForm', () => {
 
   it('uploads attachments to the selected organization instead of the all scope', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: Усі' })
+    await screen.findByRole('button', { name: 'Бачать: BERT' })
 
     fireEvent.change(screen.getByLabelText('Додати файл'), {
       target: { files: [new File(['оновлення'], 'оновлення.txt', { type: 'text/plain' })] },
@@ -121,7 +122,7 @@ describe('FeedComposerForm', () => {
 
   it('requires confirmation before publishing an attachment without text', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: Усі' })
+    await screen.findByRole('button', { name: 'Бачать: BERT' })
     fireEvent.change(screen.getByLabelText('Додати файл'), {
       target: { files: [new File(['оновлення'], 'оновлення.txt', { type: 'text/plain' })] },
     })
@@ -140,7 +141,7 @@ describe('FeedComposerForm', () => {
 
   it('does not render the removed task and calendar actions', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: Усі' })
+    await screen.findByRole('button', { name: 'Бачать: BERT' })
 
     expect(screen.getByRole('checkbox', { name: /Пункт «Ознайомився»/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Створити завдання' })).not.toBeInTheDocument()

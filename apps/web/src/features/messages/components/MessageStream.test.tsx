@@ -18,6 +18,7 @@ function message(): ChatMessageView {
     author: { id: 'user-1', displayName: 'Марія', avatarAsset: null },
     attachments: [],
     readByCount: 0,
+    reactions: { likeCount: 0, likedByMe: false },
     canEdit: true,
     canDelete: true,
   }
@@ -36,6 +37,7 @@ function renderStream(onLoadOlder = vi.fn(async () => undefined)) {
       onLoadOlder={onLoadOlder}
       onReply={vi.fn()}
       onLike={vi.fn()}
+      onForward={vi.fn()}
       onEdit={vi.fn()}
       onDelete={vi.fn()}
       onConvert={vi.fn()}

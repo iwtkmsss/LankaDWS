@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
 import { Button } from '../../../shared/ui'
+import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
 import { createProject, createTag, loadTaskCreateOptions, stageTaskAttachment } from './api'
 import type {
@@ -31,6 +32,16 @@ export function TaskBasicsSection({
         attachments: [...current.attachments, attachment],
       }))
     },
+  })
+  const freeAttachmentSlots = 10 - draft.attachments.length
+  const uploadFiles = useCallback(async (files: File[]) => {
+    for (const file of files.slice(0, freeAttachmentSlots)) {
+      await upload.mutateAsync(file).catch(() => undefined)
+    }
+  }, [freeAttachmentSlots, upload])
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: upload.isPending || freeAttachmentSlots <= 0,
+    onFiles: (files) => void uploadFiles(files),
   })
 
   return (
@@ -74,20 +85,26 @@ export function TaskBasicsSection({
           />
         </label>
       </div>
-      <section className="task-create-attachments-section" aria-labelledby="task-create-attachments-title">
+      <section
+        className="task-create-attachments-section is-file-drop-target"
+        aria-labelledby="task-create-attachments-title"
+        {...dropTargetProps}
+      >
+        <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб додати їх до завдання" />
         <div className="task-create-subgroup__heading">
           <div>
             <h4 id="task-create-attachments-title">Вкладення</h4>
-            <p>До 10 файлів; перевірка починається одразу після вибору.</p>
+            <p>Перетягніть файли сюди або виберіть їх. До 10 файлів; перевірка починається одразу.</p>
           </div>
           <label className="button button--secondary task-create-file-picker">
             <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
             <input
               type="file"
-              disabled={upload.isPending || draft.attachments.length >= 10}
+              multiple
+              aria-label="Додати файл"
+              disabled={upload.isPending || freeAttachmentSlots <= 0}
               onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) upload.mutate(file)
+                void uploadFiles([...event.target.files ?? []])
                 event.target.value = ''
               }}
             />

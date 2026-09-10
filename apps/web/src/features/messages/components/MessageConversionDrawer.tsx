@@ -75,6 +75,7 @@ export function MessageConversionDrawer({
     <>
       <Drawer
         title={kind === 'task' ? 'Створити завдання' : 'Додати подію'}
+        onBeforeClose={closeGuard.shouldClose}
         onRequestClose={closeGuard.requestClose}
       >
         <form className="message-conversion" onChange={() => setDirty(true)} onSubmit={submit}>
@@ -128,7 +129,13 @@ export function MessageConversionDrawer({
           </div>
         </form>
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title={kind === 'task' ? 'Закрити створення завдання?' : 'Закрити створення події?'}
+        description={kind === 'task'
+          ? 'Нове завдання з повідомлення не буде створене.'
+          : 'Нова подія з повідомлення не буде створена.'}
+      />
     </>
   )
 }

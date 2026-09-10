@@ -122,6 +122,20 @@ describe('Lanka API workflows', () => {
       expect(items).toHaveLength(2);
       expect(new Set(items.map((item) => item.eventKey)).size).toBe(2);
       expect(items.map((item) => item.companyId)).toEqual(['cmp_bert_ua', secondCompanyId].sort());
+      const activeCompanyIds = (await prisma.company.findMany({
+        where: { workspaceId: 'ws_bert', isActive: true },
+        select: { id: true },
+      })).map((company) => company.id);
+      const listed = await maria.agent.get('/api/v1/feed?company=all&limit=50').expect(200);
+      const listedPost = (listed.body as FeedListResult).items.find((item) => item.id === postId);
+      if (!listedPost || listedPost.kind !== 'POST') throw new Error('Multi-company post is missing from the feed');
+      const reachesEveryone = activeCompanyIds.every((id) => id === 'cmp_bert_ua' || id === secondCompanyId);
+      if (reachesEveryone) {
+        expect(listedPost.audienceLabel).toBe('Всім співробітникам');
+      } else {
+        expect(listedPost.audienceLabel).toContain(`Друга компанія ${suffix}`);
+        expect(listedPost.audienceLabel).not.toBe('Всім співробітникам');
+      }
     } finally {
       await prisma.company.update({ where: { id: secondCompanyId }, data: { isActive: false } });
     }
@@ -654,45 +668,22 @@ describe('Lanka API workflows', () => {
       .expect(400);
     expect((nestedReply.body as { code: string }).code).toBe('feed_comment_reply_depth');
 
-    const unsubscribed = await andrii.agent
-      .delete(`/api/v1/feed/${firstBody.id}/subscription`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200);
-    expect(unsubscribed.body as { notificationMode: string }).toEqual({ notificationMode: 'NONE' });
+    // The follow control is retired: subscriptions are implicit and drive only comment
+    // notifications, and the FOLLOWING list filter no longer exists.
     await andrii.agent
-      .post(`/api/v1/feed/${firstBody.id}/comments`)
-      .set('x-csrf-token', andrii.csrf)
-      .send({ body: 'A comment must not silently turn notifications back on.' })
-      .expect(201);
+      .get('/api/v1/feed?company=cmp_bert_ua&filter=FOLLOWING')
+      .expect(400);
     expect(await app.get(PrismaService).feedSubscription.findUniqueOrThrow({
       where: { postId_userId: { postId: firstBody.id, userId: 'usr_andrii' } },
-    })).toMatchObject({ mode: 'NONE' });
-    const notFollowing = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&filter=FOLLOWING')
-      .expect(200);
-    expect((notFollowing.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: firstBody.id }),
-    ]));
-
-    await andrii.agent
-      .put(`/api/v1/feed/${firstBody.id}/subscription`)
-      .set('x-csrf-token', andrii.csrf)
-      .send({ notificationMode: 'MENTIONS' })
-      .expect(200);
-    const following = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&filter=FOLLOWING')
-      .expect(200);
-    expect((following.body as FeedListResult).items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: firstBody.id, subscriptionMode: 'MENTIONS' }),
-    ]));
+    })).toMatchObject({ mode: 'ALL' });
     const ordinaryComment = await maria.agent
       .post(`/api/v1/feed/${firstBody.id}/comments`)
       .set('x-csrf-token', maria.csrf)
-      .send({ body: 'An ordinary comment should not notify mention-only followers.' })
+      .send({ body: 'An ordinary comment notifies everyone in the conversation.' })
       .expect(201);
     expect(await app.get(PrismaService).notification.findFirst({
       where: { dedupeKey: `feed-comment:${(ordinaryComment.body as { id: string }).id}:usr_andrii` },
-    })).toBeNull();
+    })).not.toBeNull();
     const mentionComment = await maria.agent
       .post(`/api/v1/feed/${firstBody.id}/comments`)
       .set('x-csrf-token', maria.csrf)
@@ -759,22 +750,7 @@ describe('Lanka API workflows', () => {
       .get('/api/v1/feed?company=cmp_bert_ua&dateFrom=2026-08-01&dateTo=2026-07-01')
       .expect(400);
 
-    await andrii.agent
-      .put(`/api/v1/feed/items/${firstItemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: true });
-    const favoriteItems = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&favorite=true')
-      .expect(200);
-    expect((favoriteItems.body as FeedListResult).items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: firstBody.id, itemId: firstItemId, favoritedByMe: true }),
-    ]));
-    const mariaFavorites = await maria.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&favorite=true')
-      .expect(200);
-    expect((mariaFavorites.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ itemId: firstItemId }),
-    ]));
+    // Favourites and the follow control are retired; the ?important filter stays.
     const importantItems = await andrii.agent
       .get('/api/v1/feed?company=cmp_bert_ua&type=POST&important=true')
       .expect(200);
@@ -783,14 +759,6 @@ describe('Lanka API workflows', () => {
     ]));
     expect((importantItems.body as FeedListResult).items.every((item) =>
       item.kind === 'POST' && item.requiresAcknowledgement)).toBe(true);
-    await andrii.agent
-      .delete(`/api/v1/feed/items/${firstItemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: false });
-    await andrii.agent
-      .delete(`/api/v1/feed/items/${firstItemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: false });
 
     const liked = await andrii.agent
       .post(`/api/v1/feed/${firstBody.id}/reactions/like`)
@@ -828,10 +796,6 @@ describe('Lanka API workflows', () => {
       })
       .expect(201);
     const privatePostBody = privatePost.body as { id: string };
-    const privateItem = await prisma.feedItem.findFirstOrThrow({
-      where: { postId: privatePostBody.id },
-      select: { id: true },
-    });
     const mariaDirectAudience = await maria.agent
       .get('/api/v1/feed?company=cmp_bert_ua&type=POST&audienceId=usr_maria')
       .expect(200);
@@ -852,15 +816,6 @@ describe('Lanka API workflows', () => {
     expect((outsiderDirectAudience.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: privatePostBody.id }),
     ]));
-    await andrii.agent
-      .put(`/api/v1/feed/items/${privateItem.id}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(404);
-    await andrii.agent
-      .put(`/api/v1/feed/${privatePostBody.id}/subscription`)
-      .set('x-csrf-token', andrii.csrf)
-      .send({ notificationMode: 'ALL' })
-      .expect(404);
     await maria.agent
       .delete(`/api/v1/feed/${privatePostBody.id}`)
       .set('x-csrf-token', maria.csrf)
@@ -873,10 +828,6 @@ describe('Lanka API workflows', () => {
       expect.objectContaining({ id: privatePostBody.id }),
     ]));
 
-    await andrii.agent
-      .put(`/api/v1/feed/items/${firstItemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: true });
     const updated = await maria.agent
       .patch(`/api/v1/feed/${firstBody.id}`)
       .set('x-csrf-token', maria.csrf)
@@ -886,17 +837,12 @@ describe('Lanka API workflows', () => {
       })
       .expect(200);
     expect(updated.body as { version: number; acknowledgementVersion: number }).toMatchObject({ version: 2, acknowledgementVersion: 2 });
-    const favoriteAfterEdit = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&favorite=true')
+    const afterEdit = await andrii.agent
+      .get('/api/v1/feed?company=cmp_bert_ua&type=POST')
       .expect(200);
-    const movedFavorite = (favoriteAfterEdit.body as FeedListResult).items.find((item) => item.id === firstBody.id);
-    if (!movedFavorite) throw new Error('Favourite was not moved to the edited Feed projection');
-    expect(movedFavorite).toMatchObject({ favoritedByMe: true });
-    expect(movedFavorite.itemId).not.toBe(firstItemId);
-    await andrii.agent
-      .delete(`/api/v1/feed/items/${movedFavorite.itemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: false });
+    const editedView = (afterEdit.body as FeedListResult).items.find((item) => item.id === firstBody.id);
+    if (!editedView) throw new Error('Edited Feed projection is missing from the authorized list');
+    expect(editedView.itemId).not.toBe(firstItemId);
     await andrii.agent
       .post(`/api/v1/feed/${firstBody.id}/acknowledge`)
       .set('x-csrf-token', andrii.csrf)
@@ -945,11 +891,6 @@ describe('Lanka API workflows', () => {
       where: { sourceType: 'TASK', sourceId: taskId, action: 'ASSIGNED' },
     });
     expect(storedTaskProjection.safePayload).not.toContain('Перевірити канонічну картку');
-    await andrii.agent
-      .put(`/api/v1/feed/items/${taskFeedItem.itemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: true });
-
     await maria.agent
       .patch(`/api/v1/tasks/${taskId}/status`)
       .set('x-csrf-token', maria.csrf)
@@ -978,18 +919,6 @@ describe('Lanka API workflows', () => {
       sourceVersion: 2,
       countsAsUnread: true,
     });
-    const favoriteTaskFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=TASK&favorite=true')
-      .expect(200);
-    const movedTaskFavorite = (favoriteTaskFeed.body as FeedListResult).items.find((item) => item.id === taskId);
-    if (!movedTaskFavorite) throw new Error('Favourite was not moved to the current Task projection');
-    expect(movedTaskFavorite).toMatchObject({ action: 'BLOCKED', favoritedByMe: true });
-    expect(movedTaskFavorite.itemId).not.toBe(taskFeedItem.itemId);
-    await andrii.agent
-      .delete(`/api/v1/feed/items/${movedTaskFavorite.itemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: false });
-
     const uploaded = await maria.agent
       .post('/api/v1/feed/attachments?company=cmp_bert_ua')
       .set('x-csrf-token', maria.csrf)
@@ -1151,10 +1080,6 @@ describe('Lanka API workflows', () => {
       item.kind === 'SOURCE' && item.id === share.id);
     expect(readyCard).toMatchObject({ id: share.id, actionState: 'AVAILABLE' });
     if (!readyCard) throw new Error('Ready standalone File card is missing');
-    await andrii.agent
-      .put(`/api/v1/feed/items/${readyCard.itemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(200, { favorited: true });
     await andrii.agent.get(`/api/v1/files/${fileId}/download`).expect(200);
 
     await dmytro.agent
@@ -1168,15 +1093,6 @@ describe('Lanka API workflows', () => {
     expect((afterRevoke.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: share.id }),
     ]));
-    expect((await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=FILE&favorite=true')
-      .expect(200)).body.items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: share.id }),
-    ]));
-    await andrii.agent
-      .put(`/api/v1/feed/items/${readyCard.itemId}/favorite`)
-      .set('x-csrf-token', andrii.csrf)
-      .expect(404);
     await andrii.agent.get(`/api/v1/files/${fileId}/status`).expect(404);
     await andrii.agent.get(`/api/v1/files/${fileId}/download`).expect(404);
     expect(await prisma.auditEvent.findFirst({

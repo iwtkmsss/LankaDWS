@@ -124,13 +124,19 @@ export const convertChatMessageToTaskSchema = z.object({
 })
 export type ConvertChatMessageToTaskInput = z.infer<typeof convertChatMessageToTaskSchema>
 
-export const convertChatMessageToEventSchema = z.object({
+const calendarEventFields = {
   title: z.string().trim().min(2).max(180),
+  description: z.string().trim().max(4_000).optional(),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   sourceTimezone: z.string().trim().min(1).max(80).default('Europe/Kyiv'),
   allDay: z.boolean().default(false),
-}).superRefine((value, context) => {
+}
+
+function assertEventWindow(
+  value: { startAt: string; endAt: string },
+  context: z.core.$RefinementCtx,
+): void {
   if (Date.parse(value.endAt) <= Date.parse(value.startAt)) {
     context.addIssue({
       code: 'custom',
@@ -138,20 +144,42 @@ export const convertChatMessageToEventSchema = z.object({
       message: 'Event end must be after its start.',
     })
   }
-})
+}
+
+// PRIVATE keeps an event visible to its owner alone; COMPANIES names every
+// organization whose members may see it.
+export const calendarEventAudienceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('PRIVATE') }),
+  z.object({
+    type: z.literal('COMPANIES'),
+    companyIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+      .transform((items) => [...new Set(items)]),
+  }),
+])
+export type CalendarEventAudienceInput = z.infer<typeof calendarEventAudienceSchema>
+
+export const convertChatMessageToEventSchema = z.object(calendarEventFields)
+  .superRefine(assertEventWindow)
 export type ConvertChatMessageToEventInput = z.infer<typeof convertChatMessageToEventSchema>
 
-export const createCalendarEventSchema = z.intersection(
-  z.object({ companyId: z.string().trim().min(1).max(120) }),
-  convertChatMessageToEventSchema,
-)
+export const createCalendarEventSchema = z.object({
+  ...calendarEventFields,
+  companyId: z.string().trim().min(1).max(120),
+  audience: calendarEventAudienceSchema,
+}).superRefine(assertEventWindow)
 export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>
 
-export const updateCalendarEventSchema = z.intersection(
-  z.object({ expectedVersion: z.number().int().positive() }),
-  convertChatMessageToEventSchema,
-)
+export const updateCalendarEventSchema = z.object({
+  ...calendarEventFields,
+  expectedVersion: z.number().int().positive(),
+  audience: calendarEventAudienceSchema,
+}).superRefine(assertEventWindow)
 export type UpdateCalendarEventInput = z.infer<typeof updateCalendarEventSchema>
+
+export interface CalendarAudienceOption {
+  companyId: string
+  label: string
+}
 
 export const markChatReadSchema = z.object({
   lastReadMessageId: z.string().trim().min(1).max(120),
@@ -268,6 +296,22 @@ export const chatThreadPreviewSchema = z.object({
 })
 export type ChatThreadPreview = z.infer<typeof chatThreadPreviewSchema>
 
+// A like is a reaction on the message itself. It reaches the author through a
+// notification instead of appearing as a separate reply in the conversation.
+export const chatReactionKindSchema = z.enum(['LIKE'])
+export type ChatReactionKind = z.infer<typeof chatReactionKindSchema>
+
+export const chatMessageReactionsSchema = z.object({
+  likeCount: z.number().int().nonnegative(),
+  likedByMe: z.boolean(),
+})
+export type ChatMessageReactions = z.infer<typeof chatMessageReactionsSchema>
+
+export const chatReactionSchema = z.object({
+  kind: chatReactionKindSchema.default('LIKE'),
+})
+export type ChatReactionInput = z.infer<typeof chatReactionSchema>
+
 export const chatMessageViewSchema = z.object({
   id: z.string(),
   authorId: z.string(),
@@ -295,6 +339,7 @@ export const chatMessageViewSchema = z.object({
   }),
   attachments: z.array(chatAttachmentViewSchema),
   readByCount: z.number().int().nonnegative(),
+  reactions: chatMessageReactionsSchema,
   canEdit: z.boolean(),
   canDelete: z.boolean(),
 })

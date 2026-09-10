@@ -184,6 +184,7 @@ export class DashboardService {
         id: event.id,
         companyId: event.companyId,
         title: event.title,
+        description: event.description,
         startAt: event.startAt.toISOString(),
         endAt: event.endAt.toISOString(),
         allDay: event.allDay,

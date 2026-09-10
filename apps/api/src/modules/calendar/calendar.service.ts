@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import {
   OrganizationCapability,
+  type CalendarEventAudienceInput,
   type ConvertChatMessageToEventInput,
   type CreateCalendarEventInput,
   type UpdateCalendarEventInput,
@@ -10,16 +11,49 @@ import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
+import { ScopeService } from '../authorization/scope.service.js'
 
 const createFromMessageOperation = 'calendar.event.create-from-message'
 const createOperation = 'calendar.event.create'
+
+// A private event keeps its owner company row for persistence and relies on
+// PRIVATE visibility to stay out of every shared calendar.
+const privateVisibility = 'PRIVATE'
+const sharedVisibility = 'INTERNAL'
 
 @Injectable()
 export class CalendarService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly capabilities: CapabilitiesService,
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * Every active company in the principal's workspace can be an event audience.
+   * Creating the event itself still requires CALENDAR_WRITE for its owner row.
+   */
+  async audiences(
+    principal: AuthPrincipal,
+    company?: string,
+  ): Promise<{ items: Array<{ companyId: string; label: string }>; ownerCompanyId: string | null }> {
+    const companyIds = this.scope.allowedCompanies(principal, company)
+    const writableCompanyIds = await this.capabilities.effectiveOrganizationIds(
+      principal,
+      company,
+      OrganizationCapability.CalendarWrite,
+    )
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: companyIds }, workspaceId: principal.workspaceId, isActive: true },
+      select: { id: true, displayName: true },
+      orderBy: { displayName: 'asc' },
+    })
+    const availableIds = new Set(companies.map((company) => company.id))
+    return {
+      items: companies.map((item) => ({ companyId: item.id, label: item.displayName })),
+      ownerCompanyId: writableCompanyIds.find((companyId) => availableIds.has(companyId)) ?? null,
+    }
+  }
 
   async create(
     principal: AuthPrincipal,
@@ -31,10 +65,17 @@ export class CalendarService {
       input.companyId,
       OrganizationCapability.CalendarWrite,
     )
+    const audienceCompanyIds = await this.resolveAudience(
+      principal,
+      input.companyId,
+      input.audience,
+    )
     return this.persistEvent(
       principal,
       input.companyId,
       input,
+      audienceCompanyIds,
+      input.audience.type === 'PRIVATE',
       idempotencyKey,
       createOperation,
     )
@@ -60,6 +101,12 @@ export class CalendarService {
       OrganizationCapability.CalendarWrite,
     )
     this.assertTimezone(input.sourceTimezone)
+    const isPrivate = input.audience.type === 'PRIVATE'
+    const audienceCompanyIds = await this.resolveAudience(
+      principal,
+      event.companyId,
+      input.audience,
+    )
     const nextVersion = input.expectedVersion + 1
     await this.prisma.$transaction(async (tx) => {
       const changed = await tx.event.updateMany({
@@ -70,16 +117,26 @@ export class CalendarService {
         },
         data: {
           title: input.title,
+          description: input.description?.trim() || null,
           startAt: new Date(input.startAt),
           endAt: new Date(input.endAt),
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
+          visibility: isPrivate ? privateVisibility : sharedVisibility,
           version: { increment: 1 },
         },
       })
       if (changed.count !== 1) {
         throw conflict('Подія вже змінилася. Оновіть календар.')
       }
+      await tx.eventAudience.deleteMany({ where: { eventId: event.id } })
+      await tx.eventAudience.createMany({
+        data: audienceCompanyIds.map((companyId) => ({
+          id: id('evta'),
+          eventId: event.id,
+          companyId,
+        })),
+      })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -151,16 +208,35 @@ export class CalendarService {
       principal,
       companyId,
       input,
+      [companyId],
+      false,
       idempotencyKey,
       createFromMessageOperation,
       message.id,
     )
   }
 
+  /**
+   * Every audience company must be in the principal's workspace scope.
+   */
+  private async resolveAudience(
+    principal: AuthPrincipal,
+    companyId: string,
+    audience: CalendarEventAudienceInput,
+  ): Promise<string[]> {
+    if (audience.type === 'PRIVATE') return [companyId]
+    const allowed = this.scope.allowedCompanies(principal)
+    const requested = [...new Set(audience.companyIds)]
+    if (requested.some((item) => !allowed.includes(item))) throw badRequest('calendar_audience_invalid')
+    return requested
+  }
+
   private async persistEvent(
     principal: AuthPrincipal,
     companyId: string,
     input: ConvertChatMessageToEventInput,
+    audienceCompanyIds: string[],
+    isPrivate: boolean,
     idempotencyKey: string,
     operation: string,
     messageId?: string,
@@ -169,6 +245,8 @@ export class CalendarService {
     const requestFingerprint = fingerprint(JSON.stringify({
       companyId,
       messageId: messageId ?? null,
+      audienceCompanyIds: [...audienceCompanyIds].sort(),
+      isPrivate,
       ...input,
     }), operation)
     const existing = await this.prisma.idempotencyRecord.findUnique({
@@ -208,12 +286,20 @@ export class CalendarService {
           companyId,
           ownerId: principal.userId,
           title: input.title,
+          description: input.description?.trim() || null,
           startAt,
           endAt,
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
-          visibility: 'INTERNAL',
+          visibility: isPrivate ? privateVisibility : sharedVisibility,
         },
+      })
+      await tx.eventAudience.createMany({
+        data: audienceCompanyIds.map((audienceCompanyId) => ({
+          id: id('evta'),
+          eventId,
+          companyId: audienceCompanyId,
+        })),
       })
       if (messageId) {
         await tx.entityLink.create({

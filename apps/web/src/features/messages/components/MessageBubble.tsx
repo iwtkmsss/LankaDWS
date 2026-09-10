@@ -6,6 +6,7 @@ import {
   Download,
   Eye,
   FileText,
+  Forward,
   Heart,
   ListTodo,
   MoreHorizontal,
@@ -34,6 +35,7 @@ interface MessageBubbleProps {
   canConvertToEvent: boolean
   onReply: (message: ChatMessageView) => void
   onLike: (message: ChatMessageView) => void
+  onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
@@ -55,6 +57,7 @@ export function MessageBubble({
   canConvertToEvent,
   onReply,
   onLike,
+  onForward,
   onEdit,
   onDelete,
   onConvert,
@@ -66,6 +69,13 @@ export function MessageBubble({
     editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
   const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
+  // Editing a long message should show the whole text rather than a three-row
+  // window the author has to scroll. Browsers that support `field-sizing` size
+  // the box from its content; this estimate covers the rest, counting the wraps
+  // a long paragraph produces as well as its explicit line breaks.
+  const editRows = Math.min(24, Math.max(3, editBody
+    .split('\n')
+    .reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 50)), 1)))
   const deliveryLabel = message.id.startsWith('optimistic:')
     ? 'Надсилається'
     : message.readByCount > 0
@@ -76,8 +86,21 @@ export function MessageBubble({
     && /^image\/(?:png|jpeg|gif|webp)$/.test(message.attachments[0].mimeType ?? '')
     ? message.attachments[0]
     : null
+  const likeCount = message.reactions.likeCount
   const messageMeta = (
     <footer className="message-bubble__meta">
+      {likeCount > 0 && (
+        <button
+          type="button"
+          className={`message-bubble__likes${message.reactions.likedByMe ? ' is-mine' : ''}`}
+          aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+          aria-pressed={message.reactions.likedByMe}
+          onClick={() => onLike(message)}
+        >
+          <Heart size={12} />
+          {likeCount}
+        </button>
+      )}
       {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
       {message.editedAt && <span>змінено</span>}
       {own && (
@@ -170,12 +193,13 @@ export function MessageBubble({
             }}
           >
             <MentionTextarea
+              className="message-bubble__edit-input"
               label="Текст повідомлення"
               value={editBody}
               mentions={editMentions}
               candidateUrl={`/messages/threads/${encodeURIComponent(threadId)}/mention-candidates`}
               autoFocus
-              rows={3}
+              rows={editRows}
               maxLength={8_000}
               onChange={(body, mentions) => {
                 setEditBody(body)
@@ -255,7 +279,13 @@ export function MessageBubble({
 
         {!editing && (
           <div className="message-bubble__actions">
-            <button type="button" aria-label="Подобається" onClick={() => onLike(message)}>
+            <button
+              type="button"
+              className={message.reactions.likedByMe ? 'is-active' : ''}
+              aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+              aria-pressed={message.reactions.likedByMe}
+              onClick={() => onLike(message)}
+            >
               <Heart size={16} />
             </button>
             <button type="button" aria-label="Відповісти" onClick={() => onReply(message)}>
@@ -284,6 +314,15 @@ export function MessageBubble({
                     <Pencil size={15} /> Редагувати
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    onForward(message)
+                  }}
+                >
+                  <Forward size={15} /> Переслати
+                </button>
                 {canConvertToTask && (
                   <button type="button" onClick={() => onConvert('task', message)}>
                     <ListTodo size={15} /> Створити завдання

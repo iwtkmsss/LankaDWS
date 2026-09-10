@@ -8,19 +8,11 @@ export type FeedPostStatus = z.infer<typeof feedPostStatusSchema>
 export const feedRecipientTypeSchema = z.enum(['COMPANY', 'GROUP', 'USER'])
 export type FeedRecipientType = z.infer<typeof feedRecipientTypeSchema>
 
-export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE', 'FOLLOWING'])
+export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE'])
 export type FeedListFilter = z.infer<typeof feedListFilterSchema>
 
 export const feedItemTypeSchema = z.enum(['ALL', 'POST', 'TASK', 'EVENT', 'ANNOUNCEMENT', 'FILE'])
 export type FeedItemType = z.infer<typeof feedItemTypeSchema>
-
-export const feedSubscriptionModeSchema = z.enum(['ALL', 'MENTIONS', 'NONE'])
-export type FeedSubscriptionMode = z.infer<typeof feedSubscriptionModeSchema>
-
-export const updateFeedSubscriptionSchema = z.object({
-  notificationMode: feedSubscriptionModeSchema,
-})
-export type UpdateFeedSubscriptionInput = z.infer<typeof updateFeedSubscriptionSchema>
 
 export const feedListQuerySchema = z.object({
   company: companyScopeSchema.optional(),
@@ -30,7 +22,6 @@ export const feedListQuerySchema = z.object({
   groupId: z.string().trim().min(1).max(120).optional(),
   audienceId: z.string().trim().min(1).max(120).optional(),
   mentioned: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  favorite: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
   important: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
@@ -210,8 +201,6 @@ export interface FeedPostView {
   commentCount: number
   comments: FeedCommentView[]
   attachments: FeedAttachmentView[]
-  subscriptionMode: FeedSubscriptionMode
-  favoritedByMe: boolean
   publishedAt: string
   editedAt: string | null
   version: number
@@ -239,7 +228,6 @@ export interface FeedSourceView {
   actionState: 'AVAILABLE' | 'PROCESSING' | 'BLOCKED'
   occurredAt: string
   historical: boolean
-  favoritedByMe: boolean
   version: number
   canRevoke: boolean
 }

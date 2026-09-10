@@ -28,7 +28,7 @@ export class KnowledgeController {
   }
 
   @Patch(':slug')
-  update(@Req() request: BertRequest, @Param('slug') slug: string, @Body() body: { title: string; body: string; changeSummary: string; attachmentIds?: string[]; expectedVersion: number }) {
+  update(@Req() request: BertRequest, @Param('slug') slug: string, @Body() body: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; expectedVersion: number }) {
     return this.knowledge.update(principalFrom(request), slug, body)
   }
 

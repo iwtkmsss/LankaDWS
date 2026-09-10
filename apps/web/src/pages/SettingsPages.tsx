@@ -8,6 +8,7 @@ import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { removeWhitespace } from '../shared/lib/credentials'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 
 export default function SettingsPages() {
   const path = useLocation().pathname
@@ -121,16 +122,27 @@ function ProfileSettings() {
       setAvatarBusy(false)
     }
   }
+  const avatarDrop = useFileDropTarget({
+    disabled: avatarBusy,
+    accept: 'image/png,image/jpeg,image/webp',
+    multiple: false,
+    onFiles: (files) => void uploadAvatar(files[0]),
+  })
+
   return (
     <Card className="settings-card">
-      <header>
+      <header className="is-file-drop-target" {...avatarDrop.dropTargetProps}>
+        <FileDropOverlay active={avatarDrop.isDragging} label="Відпустіть зображення, щоб змінити фото" />
         <Avatar size="lg" name={user.displayName} src={user.avatarAsset} />
         <div>
           <h2>Профіль</h2>
           <p>Дані, які колеги бачать у робочих процесах.</p>
           <span className="avatar-actions">
             {avatarBusy && <span className="avatar-progress" role="status">Обробляємо фото…</span>}
-            <label className={`avatar-upload${avatarBusy ? ' is-disabled' : ''}`}>
+            <label
+              className={`avatar-upload${avatarBusy ? ' is-disabled' : ''}`}
+              title="Виберіть зображення або перетягніть його сюди"
+            >
               Змінити фото
               <input
                 type="file"

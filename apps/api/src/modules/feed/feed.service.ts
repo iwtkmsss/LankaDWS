@@ -12,7 +12,6 @@ import {
   type FeedMentionCandidatesQuery,
   type FeedPostView,
   type FeedSourceView,
-  type FeedSubscriptionMode,
   type MarkFeedReadInput,
   type MentionCandidateView,
   type MentionSearchQuery,
@@ -32,7 +31,6 @@ import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 import {
   advanceFeedSourceHead,
-  moveFeedFavorites,
   writeFeedProjection,
 } from './feed-projection.service.js'
 import { calendarDateInTimeZone, daysUntilBirthday } from './birthday-highlight.js'
@@ -51,7 +49,6 @@ interface ResolvedAudience {
 
 type ListedFeedItem = Prisma.FeedItemGetPayload<{
   include: {
-    userStates: true
     post: {
       include: {
         author: { select: { id: true; displayName: true; avatarAsset: true } }
@@ -60,7 +57,6 @@ type ListedFeedItem = Prisma.FeedItemGetPayload<{
         acknowledgementRecipients: true
         acknowledgements: true
         reactions: true
-        subscriptions: true
       }
     }
   }
@@ -544,7 +540,6 @@ export class FeedService {
         include: {
           item: {
             include: {
-              userStates: { where: { userId: principal.userId } },
               post: {
                 include: {
                   author: { select: { id: true, displayName: true, avatarAsset: true } },
@@ -553,7 +548,6 @@ export class FeedService {
                   acknowledgementRecipients: true,
                   acknowledgements: true,
                   reactions: true,
-                  subscriptions: true,
                 },
               },
             },
@@ -597,9 +591,6 @@ export class FeedService {
       ...access,
       status: 'PUBLISHED',
       ...(query.filter === 'MINE' ? { authorId: principal.userId } : {}),
-      ...(query.filter === 'FOLLOWING'
-        ? { subscriptions: { some: { userId: principal.userId, mode: { not: 'NONE' } } } }
-        : {}),
       ...(query.authorId ? { authorId: query.authorId } : {}),
       ...(query.groupId ? { groupId: query.groupId } : {}),
       ...(query.audienceId
@@ -623,9 +614,6 @@ export class FeedService {
               is: {
                 AND: [
                   itemAccess,
-                  ...(query.favorite
-                    ? [{ userStates: { some: { userId: principal.userId, favoritedAt: { not: null } } } }]
-                    : []),
                   ...(dateAccess ? [dateAccess] : []),
                 ],
               },
@@ -644,7 +632,6 @@ export class FeedService {
       include: {
         item: {
           include: {
-            userStates: { where: { userId: principal.userId } },
             post: {
               include: {
                 author: { select: { id: true, displayName: true, avatarAsset: true } },
@@ -653,7 +640,6 @@ export class FeedService {
                 acknowledgementRecipients: true,
                 acknowledgements: true,
                 reactions: true,
-                subscriptions: true,
               },
             },
           },
@@ -762,47 +748,11 @@ export class FeedService {
     return { unreadCount: await this.unreadCount(principal, companyIds, access) }
   }
 
-  async setFavorite(
-    principal: AuthPrincipal,
-    itemId: string,
-    favorited: boolean,
-  ): Promise<{ favorited: boolean }> {
-    const item = await this.accessibleItem(principal, itemId)
-    const sourceItems = await this.prisma.feedItem.findMany({
-      where: {
-        workspaceId: principal.workspaceId,
-        companyId: item.companyId,
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-      },
-      select: { id: true },
-    })
-    const sourceItemIds = sourceItems.map((entry) => entry.id)
-    const currentItemId = item.id
-    await this.prisma.$transaction(async (tx) => {
-      await tx.feedUserItemState.deleteMany({
-        where: { userId: principal.userId, feedItemId: { in: sourceItemIds } },
-      })
-      if (favorited) {
-        await tx.feedUserItemState.create({
-          data: {
-            id: id('fstate'),
-            userId: principal.userId,
-            feedItemId: currentItemId,
-            favoritedAt: new Date(),
-          },
-        })
-      }
-    })
-    return { favorited }
-  }
-
   async detail(principal: AuthPrincipal, postId: string): Promise<FeedPostView> {
     const post = await this.accessiblePost(principal, postId)
     const item = await this.prisma.feedItem.findFirst({
       where: { postId: post.id, sourceHead: { isNot: null } },
       include: {
-        userStates: { where: { userId: principal.userId } },
         post: {
           include: {
             author: { select: { id: true, displayName: true, avatarAsset: true } },
@@ -811,7 +761,6 @@ export class FeedService {
             acknowledgementRecipients: true,
             acknowledgements: true,
             reactions: true,
-            subscriptions: true,
           },
         },
       },
@@ -1100,13 +1049,6 @@ export class FeedService {
         countsAsUnread: true,
         occurredAt: now,
       })
-      await moveFeedFavorites(tx, {
-        workspaceId: principal.workspaceId,
-        companyId: post.companyId,
-        sourceType: 'POST',
-        sourceId: post.id,
-        newItemId: itemId,
-      })
       await tx.contentMention.deleteMany({
         where: { workspaceId: principal.workspaceId, sourceType: 'FEED_POST', sourceId: postId },
       })
@@ -1226,13 +1168,6 @@ export class FeedService {
         sourceVersion: nextVersion,
         countsAsUnread: true,
         occurredAt: now,
-      })
-      await moveFeedFavorites(tx, {
-        workspaceId: principal.workspaceId,
-        companyId: post.companyId,
-        sourceType: 'POST',
-        sourceId: post.id,
-        newItemId: itemId,
       })
       await tx.auditEvent.create({
         data: this.auditData(principal, post.companyId, 'feed.post.archived', postId, {
@@ -1400,25 +1335,6 @@ export class FeedService {
     return { liked: !existing, count }
   }
 
-  async updateSubscription(
-    principal: AuthPrincipal,
-    postId: string,
-    notificationMode: FeedSubscriptionMode,
-  ): Promise<{ notificationMode: FeedSubscriptionMode }> {
-    await this.accessiblePost(principal, postId)
-    await this.prisma.feedSubscription.upsert({
-      where: { postId_userId: { postId, userId: principal.userId } },
-      create: {
-        id: id('fsub'),
-        postId,
-        userId: principal.userId,
-        mode: notificationMode,
-      },
-      update: { mode: notificationMode },
-    })
-    return { notificationMode }
-  }
-
   async acknowledge(
     principal: AuthPrincipal,
     postId: string,
@@ -1522,40 +1438,6 @@ export class FeedService {
     return result
   }
 
-  private async accessibleItem(
-    principal: AuthPrincipal,
-    itemId: string,
-  ): Promise<ListedFeedItem> {
-    const companyIds = this.scope.allowedCompanies(principal, 'all')
-    if (companyIds.length === 0) throw notFound()
-    const access = await this.accessiblePostWhere(principal, companyIds)
-    const item = await this.prisma.feedItem.findFirst({
-      where: {
-        id: itemId,
-        workspaceId: principal.workspaceId,
-        companyId: { in: companyIds },
-        sourceHead: { isNot: null },
-        ...this.feedItemAccessWhere(principal, { ...access, status: 'PUBLISHED' }),
-      },
-      include: {
-        userStates: { where: { userId: principal.userId } },
-        post: {
-          include: {
-            author: { select: { id: true, displayName: true, avatarAsset: true } },
-            group: { select: { id: true, name: true } },
-            recipients: true,
-            acknowledgementRecipients: true,
-            acknowledgements: true,
-            reactions: true,
-            subscriptions: true,
-          },
-        },
-      },
-    })
-    if (!item || (await this.toEntries(principal, [item])).length === 0) throw notFound()
-    return item
-  }
-
   private async accessiblePost(principal: AuthPrincipal, postId: string) {
     const companyIds = this.scope.allowedCompanies(principal, 'all')
     const candidate = await this.prisma.feedPost.findFirst({
@@ -1636,7 +1518,6 @@ export class FeedService {
     if (allows('POST')) branches.push({ post: { is: postFilters } })
     if (
       query.filter !== 'ACK_REQUIRED'
-      && query.filter !== 'FOLLOWING'
       && !query.mentioned
       && !query.important
     ) {
@@ -2032,7 +1913,6 @@ export class FeedService {
           actionState: 'AVAILABLE',
           occurredAt: item.occurredAt.toISOString(),
           historical,
-          favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
           version: item.sourceVersion,
           canRevoke: false,
         } satisfies FeedSourceView]
@@ -2059,7 +1939,6 @@ export class FeedService {
           actionState: 'AVAILABLE',
           occurredAt: item.occurredAt.toISOString(),
           historical,
-          favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
           version: item.sourceVersion,
           canRevoke: false,
         } satisfies FeedSourceView]
@@ -2083,7 +1962,6 @@ export class FeedService {
           actionState: 'AVAILABLE',
           occurredAt: item.occurredAt.toISOString(),
           historical,
-          favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
           version: item.sourceVersion,
           canRevoke: false,
         } satisfies FeedSourceView]
@@ -2112,7 +1990,6 @@ export class FeedService {
           actionState,
           occurredAt: item.occurredAt.toISOString(),
           historical: false,
-          favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
           version: share.version,
           canRevoke: share.ownerId === principal.userId || isGlobalAdmin(principal),
         } satisfies FeedSourceView]
@@ -2131,7 +2008,10 @@ export class FeedService {
     const directUserIds = posts.flatMap((post) =>
       post.recipients.filter((entry) => entry.type === 'USER').map((entry) => entry.recipientId),
     )
-    const [comments, directUsers, fileLinks] = await Promise.all([
+    const companyRecipientIds = posts.flatMap((post) =>
+      post.recipients.filter((entry) => entry.type === 'COMPANY').map((entry) => entry.recipientId),
+    )
+    const [comments, directUsers, fileLinks, companyRecipients, totalActiveCompanies] = await Promise.all([
       this.prisma.comment.findMany({
         where: { entityType: 'FEED_POST', entityId: { in: postIds }, deletedAt: null },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -2150,6 +2030,13 @@ export class FeedService {
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
+      companyRecipientIds.length > 0
+        ? this.prisma.company.findMany({
+            where: { id: { in: [...new Set(companyRecipientIds)] } },
+            select: { id: true, displayName: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.company.count({ where: { workspaceId: principal.workspaceId, isActive: true } }),
     ])
     const [commentAuthors, files, contentMentions] = await Promise.all([
       this.prisma.user.findMany({
@@ -2192,6 +2079,7 @@ export class FeedService {
     const authorById = new Map(commentAuthors.map((author) => [author.id, author]))
     const mentionUserById = new Map(mentionUsers.map((user) => [user.id, user]))
     const directNameById = new Map(directUsers.map((user) => [user.id, user.displayName]))
+    const companyNameById = new Map(companyRecipients.map((company) => [company.id, company.displayName]))
     const fileById = new Map(files.map((file) => [file.id, file]))
     const mentionsFor = (
       sourceType: 'FEED_POST' | 'FEED_COMMENT',
@@ -2225,7 +2113,7 @@ export class FeedService {
         companyId: post.companyId,
         group: post.group,
         author: post.author,
-        audienceLabel: this.audienceLabel(post, directNameById),
+        audienceLabel: this.audienceLabel(post, directNameById, companyNameById, totalActiveCompanies),
         body: post.body,
         mentions: mentionsFor('FEED_POST', post.id, post.companyId),
         status: post.status,
@@ -2264,10 +2152,6 @@ export class FeedService {
               scanStatus: file.scanStatus,
             }] : []
           }),
-        subscriptionMode: this.subscriptionMode(
-          post.subscriptions.find((subscription) => subscription.userId === principal.userId)?.mode,
-        ),
-        favoritedByMe: item.userStates.some((state) => state.favoritedAt !== null),
         publishedAt: post.publishedAt.toISOString(),
         editedAt: post.editedAt?.toISOString() ?? null,
         version: post.version,
@@ -2283,19 +2167,23 @@ export class FeedService {
       recipients: Array<{ type: 'COMPANY' | 'GROUP' | 'USER'; recipientId: string }>
     },
     directNameById: Map<string, string>,
+    companyNameById: Map<string, string>,
+    totalActiveCompanies: number,
   ): string {
-    const companyAudienceCount = post.recipients.filter((entry) => entry.type === 'COMPANY').length
-    if (companyAudienceCount > 1) return `Обрані компанії · ${companyAudienceCount}`
-    if (companyAudienceCount === 1) return 'Вся організація'
+    const companyRecipientIds = post.recipients
+      .filter((entry) => entry.type === 'COMPANY')
+      .map((entry) => entry.recipientId)
+    if (companyRecipientIds.length > 1) {
+      return companyRecipientIds.length >= totalActiveCompanies
+        ? 'Всім співробітникам'
+        : companyRecipientIds.map((companyId) => companyNameById.get(companyId) ?? 'Компанія').join(', ')
+    }
+    if (companyRecipientIds.length === 1) return 'Вся організація'
     if (post.group) return post.group.name
-    const names = post.recipients
+    return post.recipients
       .filter((entry) => entry.type === 'USER')
       .map((entry) => directNameById.get(entry.recipientId) ?? 'Працівник')
-    return names.length <= 2 ? names.join(', ') : `${names.slice(0, 2).join(', ')} та ще ${names.length - 2}`
-  }
-
-  private subscriptionMode(value: string | undefined): FeedSubscriptionMode {
-    return value === 'ALL' || value === 'MENTIONS' ? value : 'NONE'
+      .join(', ')
   }
 
   private historicalProjection(safePayload: string): boolean {
@@ -2503,7 +2391,6 @@ export class FeedService {
       && !query.dateFrom
       && !query.dateTo
       && !query.mentioned
-      && !query.favorite
       && !query.important
   }
 

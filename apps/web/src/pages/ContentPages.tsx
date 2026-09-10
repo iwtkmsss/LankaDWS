@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { OrganizationCapability, type DocumentListItem, type GroupDetailView, type GroupListResult } from '@bert-crm/contracts'
 import { Archive, ArchiveRestore, BookOpenCheck, Building2, Check, CheckSquare2, Download, Eye, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, MessageCircle, Network, Newspaper, Pencil, Plus, Search, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody, randomId } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { FileDropzone } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
   Avatar,
@@ -16,6 +17,7 @@ import {
   Drawer,
   EmptyState,
   ErrorState,
+  Modal,
   PageDataLoader,
   PageHeader,
   Skeleton,
@@ -26,7 +28,8 @@ import {
 
 interface ArticleList { id: string; slug: string; title: string; changeSummary: string; reviewAt: string | null; version: number; updatedAt: string }
 interface KnowledgeAttachment { id: string; safeFilename: string; bytes: number; mimeType: string | null; scanStatus: string }
-interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null; attachments: KnowledgeAttachment[] }
+interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null; attachments: KnowledgeAttachment[]; companyIds: string[] }
+interface KnowledgeCompanyOption { id: string; name: string; isActive: boolean }
 interface Employee {
   id: string
   displayName: string
@@ -335,7 +338,11 @@ function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onC
   })
   return (
     <>
-      <Drawer title="Нова робоча група" onRequestClose={closeGuard.requestClose}>
+      <Drawer
+        title="Нова робоча група"
+        onBeforeClose={closeGuard.shouldClose}
+        onRequestClose={closeGuard.requestClose}
+      >
         <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => {
           event.preventDefault()
           const data = new FormData(event.currentTarget)
@@ -355,7 +362,11 @@ function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onC
           <Button className="span-2" disabled={create.isPending}>{create.isPending ? 'Створюємо…' : 'Створити групу'}</Button>
         </form>
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити створення групи?"
+        description="Нова робоча група не буде створена."
+      />
     </>
   )
 }
@@ -425,7 +436,12 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
   ) : undefined
   return (
     <>
-      <Drawer title="Робоча група" onRequestClose={closeGuard.requestClose} footer={footer}>
+      <Drawer
+        title="Робоча група"
+        onBeforeClose={closeGuard.shouldClose}
+        onRequestClose={closeGuard.requestClose}
+        footer={footer}
+      >
         {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="detail-stack group-detail">
           <span className="group-icon">{query.data.discoverability === 'HIDDEN' ? <LockKeyhole size={22} /> : <UsersRound size={22} />}</span>
@@ -530,7 +546,11 @@ function GroupDrawer({ id, company, onClose }: { id: string; company: string; on
         </div>
         )}
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити налаштування групи?"
+        description="Незбережені зміни групи буде втрачено."
+      />
     </>
   )
 }
@@ -541,25 +561,12 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
   const [dirty, setDirty] = useState(false)
   const [documentName, setDocumentName] = useState('')
   const [selectedFileName, setSelectedFileName] = useState('')
-  const [isDraggingFile, setIsDraggingFile] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
   const selectFile = (file: File | undefined) => {
     if (!file) return
     setSelectedFileName(file.name)
     setDocumentName((current) => current || file.name.replace(/\.[^/.]+$/, ''))
     setDirty(true)
-  }
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    selectFile(event.currentTarget.files?.[0])
-  }
-  const handleFileDrop = (event: DragEvent<HTMLLabelElement>) => {
-    event.preventDefault()
-    setIsDraggingFile(false)
-    const file = event.dataTransfer.files[0]
-    if (!file) return
-    if (fileInputRef.current) fileInputRef.current.files = event.dataTransfer.files
-    selectFile(file)
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -597,27 +604,37 @@ function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; 
       <Drawer
         title="Новий документ"
         closeDisabled={busy}
+        onBeforeClose={closeGuard.shouldClose}
         onRequestClose={closeGuard.requestClose}
       >
         <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
           <label className="span-2">Назва<input name="name" required maxLength={180} value={documentName} onChange={(event) => setDocumentName(event.target.value)} /></label>
-          <label
-            className={`span-2 file-input${isDraggingFile ? ' file-input--drag-active' : ''}`}
-            onDragEnter={(event) => { event.preventDefault(); setIsDraggingFile(true) }}
-            onDragOver={(event) => event.preventDefault()}
-            onDragLeave={(event) => { if (event.currentTarget === event.target) setIsDraggingFile(false) }}
-            onDrop={handleFileDrop}
+          <FileDropzone
+            className="span-2"
+            label="Файл документа"
+            name="file"
+            required
+            disabled={busy}
+            accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
+            title="Перетягніть файл сюди"
+            hint="PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ"
+            onFiles={(files) => selectFile(files[0])}
           >
-            <FilePlus2 /><span>PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ</span>
-            <small className="file-input__hint">Перетягніть файл сюди або виберіть його з комп’ютера</small>
-            {selectedFileName && <strong className="file-input__name">{selectedFileName}</strong>}
-            <input ref={fileInputRef} type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" onChange={handleFileChange} />
-          </label>
+            {selectedFileName && (
+              <ul className="file-dropzone-files" aria-label="Вибраний файл">
+                <li><FileIcon size={15} aria-hidden="true" /><span>{selectedFileName}</span></li>
+              </ul>
+            )}
+          </FileDropzone>
           {error && <div className="form-error span-2">{error}</div>}
           <Button className="span-2" disabled={busy}>{busy ? 'Перевіряємо файл…' : 'Завантажити на Диск'}</Button>
         </form>
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити завантаження документа?"
+        description="Назва й вибраний файл не збережуться."
+      />
     </>
   )
 }
@@ -645,6 +662,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   const client = useQueryClient()
   const [versionError, setVersionError] = useState('')
   const [versionDirty, setVersionDirty] = useState(false)
+  const [versionFileName, setVersionFileName] = useState('')
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null)
   const closeGuard = useModalCloseGuard({
     dirty: versionDirty,
@@ -697,6 +715,7 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     onSuccess: () => {
       setVersionError('')
       setVersionDirty(false)
+      setVersionFileName('')
       void query.refetch()
       void client.invalidateQueries({ queryKey: ['documents'] })
     },
@@ -726,7 +745,13 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     ?? query.data?.versions[0]
   return (
     <>
-      <Drawer title={query.data?.number ?? 'Документ'} size="lg" onRequestClose={closeGuard.requestClose} footer={footer}>
+      <Drawer
+        title={query.data?.number ?? 'Документ'}
+        size="lg"
+        onBeforeClose={closeGuard.shouldClose}
+        onRequestClose={closeGuard.requestClose}
+        footer={footer}
+      >
         {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
         <div className="detail-stack">
           <div>
@@ -748,10 +773,22 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               }}
             >
               <h4>Додати нову версію</h4>
-              <label className="file-input">
-                <FilePlus2 /><span>Оберіть оновлений файл</span>
-                <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
-              </label>
+              <FileDropzone
+                label="Оновлений файл"
+                name="file"
+                required
+                disabled={addVersion.isPending}
+                accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
+                title="Перетягніть оновлений файл сюди"
+                hint="PDF, DOCX, TXT, PNG, JPEG або WEBP"
+                onFiles={(files) => { setVersionFileName(files[0]?.name ?? ''); setVersionDirty(true) }}
+              >
+                {versionFileName && (
+                  <ul className="file-dropzone-files" aria-label="Вибраний файл">
+                    <li><FileIcon size={15} aria-hidden="true" /><span>{versionFileName}</span></li>
+                  </ul>
+                )}
+              </FileDropzone>
               <input name="summary" placeholder="Що змінилося" maxLength={180} />
               {versionError && <p className="form-error">{versionError}</p>}
               <Button variant="secondary" disabled={addVersion.isPending}>
@@ -786,7 +823,11 @@ function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         )}
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити документ?"
+        description="Нова версія документа не буде збережена."
+      />
     </>
   )
 }
@@ -848,10 +889,22 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
   useEffect(() => {
     if (article.data?.currentVersion) setDraft((current) => current ?? article.data)
   }, [article.data])
-  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: Array<{ id: string; isActive: boolean }> }>('/admin/companies') })
+  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: KnowledgeCompanyOption[] }>('/admin/companies') })
+  const activeCompanies = (companies.data?.items ?? []).filter((company) => company.isActive)
+  // Null means "not touched yet": a new article reaches every active company and
+  // an existing one keeps the audience it was published with.
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[] | null>(null)
+  const audienceCompanyIds = (selectedCompanyIds
+    ?? (slug ? draft?.companyIds ?? [] : activeCompanies.map((company) => company.id)))
+    .filter((companyId) => activeCompanies.some((company) => company.id === companyId))
+  function toggleCompany(companyId: string, checked: boolean) {
+    setSelectedCompanyIds(checked
+      ? [...audienceCompanyIds, companyId]
+      : audienceCompanyIds.filter((item) => item !== companyId))
+  }
   async function uploadAttachments() {
     if (attachmentFiles.length === 0) return []
-    const companyId = companies.data?.items.find((company) => company.isActive)?.id
+    const companyId = audienceCompanyIds[0] ?? activeCompanies[0]?.id
     if (!companyId) throw new Error('Немає активної компанії для завантаження файлу.')
     const attachmentIds: string[] = []
     for (const file of attachmentFiles) {
@@ -871,32 +924,87 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
   const save = useMutation({
     mutationFn: async (data: FormData) => api(slug ? `/knowledge/articles/${slug}` : '/knowledge/articles', {
       method: slug ? 'PATCH' : 'POST',
-      body: jsonBody({ title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), ...(slug ? { expectedVersion: Number(data.get('expectedVersion')) } : { slug: newSlug, companyIds: companies.data?.items.filter((company) => company.isActive).map((company) => company.id) ?? [] }) }),
+      body: jsonBody({ title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), companyIds: audienceCompanyIds, ...(slug ? { expectedVersion: Number(data.get('expectedVersion')) } : { slug: newSlug }) }),
     }),
     onSuccess: async () => {
       await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] })])
       closeGuard.closeForSuccess(onClose)
     },
   })
-  const ready = slug ? Boolean(draft?.currentVersion) : Boolean(companies.data?.items.some((company) => company.isActive))
+  const ready = slug ? Boolean(draft?.currentVersion) : activeCompanies.length > 0
   return <>
-    <Drawer title={slug ? 'Редагувати матеріал' : 'Додати матеріал'} onRequestClose={save.isPending ? () => {} : closeGuard.requestClose}>
-      {(slug ? article.isLoading : companies.isLoading) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
+    <Modal
+      title={slug ? 'Редагувати матеріал' : 'Додати матеріал'}
+      description={slug ? 'Оновіть текст і аудиторію матеріалу.' : 'Опублікуйте інструкцію для потрібних компаній.'}
+      size="lg"
+      closeDisabled={save.isPending}
+      onBeforeClose={closeGuard.shouldClose}
+      onRequestClose={save.isPending ? () => {} : closeGuard.requestClose}
+    >
+      {(slug ? article.isLoading || companies.isLoading : companies.isLoading) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
         {slug && <input type="hidden" name="expectedVersion" value={draft?.version ?? ''} />}
         <label className="span-2">Назва<input name="title" required defaultValue={draft?.currentVersion?.title ?? ''} autoFocus disabled={save.isPending} /></label>
         <label className="span-2">Текст матеріалу<textarea name="body" rows={12} required defaultValue={draft?.currentVersion?.body ?? ''} disabled={save.isPending} /></label>
         {slug && <label className="span-2">Короткий опис змін<input name="changeSummary" placeholder="Що оновлено в цій версії" disabled={save.isPending} /></label>}
-        <label className="span-2 knowledge-attachments-upload">Файли
-          <input aria-label="Додати файли" type="file" multiple onChange={(event) => setAttachmentFiles(Array.from(event.currentTarget.files ?? []))} disabled={save.isPending} />
-          <small>Файли буде прикріплено після перевірки безпеки.</small>
-        </label>
-        {attachmentFiles.length > 0 && <ul className="knowledge-file-list" aria-label="Вибрані файли">{attachmentFiles.map((file) => <li key={`${file.name}-${file.size}`}><FileIcon size={16} />{file.name}</li>)}</ul>}
+        <fieldset className="knowledge-audience span-2" disabled={save.isPending}>
+          <legend>Хто побачить статтю</legend>
+          <div className="knowledge-audience__companies">
+            {activeCompanies.map((company) => <label className="check-label" key={company.id}>
+              <input type="checkbox" checked={audienceCompanyIds.includes(company.id)} onChange={(event) => toggleCompany(company.id, event.target.checked)} />
+              {company.name}
+            </label>)}
+          </div>
+          {audienceCompanyIds.length === 0 && <p className="knowledge-audience__hint" role="alert">Оберіть щонайменше одну компанію.</p>}
+        </fieldset>
+        <div className="span-2 knowledge-attachments-upload">
+          <span className="knowledge-attachments-upload__label">Файли</span>
+          <FileDropzone
+            label="Додати файли"
+            multiple
+            resetAfterSelect
+            disabled={save.isPending}
+            title="Перетягніть файли сюди"
+            hint="Файли буде прикріплено після перевірки безпеки."
+            onFiles={(files) => setAttachmentFiles((current) => [
+              ...current,
+              ...files.filter((file) => !current.some((picked) => picked.name === file.name && picked.size === file.size)),
+            ])}
+          >
+            {attachmentFiles.length > 0 && (
+              <ul className="file-dropzone-files" aria-label="Вибрані файли">
+                {attachmentFiles.map((file) => (
+                  <li key={`${file.name}-${file.size}`}>
+                    <FileIcon size={15} aria-hidden="true" />
+                    <span>{file.name}</span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Прибрати ${file.name}`}
+                      disabled={save.isPending}
+                      onClick={() => setAttachmentFiles((current) => current.filter((picked) => (
+                        picked.name !== file.name || picked.size !== file.size
+                      )))}
+                    >
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </FileDropzone>
+        </div>
         {draft?.attachments.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{draft.attachments.map((file) => <KnowledgeExistingFile key={file.id} file={file} />)}</ul></section> : null}
         {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
-        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending}>{save.isPending ? 'Зберігаємо…' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
+        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending || audienceCompanyIds.length === 0}>{save.isPending ? 'Зберігаємо…' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
       </form>}
-    </Drawer>
-    <UnsavedChangesDialog guard={closeGuard} />
+    </Modal>
+    <UnsavedChangesDialog
+      guard={closeGuard}
+      title={slug ? 'Закрити редагування матеріалу?' : 'Закрити створення матеріалу?'}
+      description={slug
+        ? 'Незбережені зміни матеріалу буде втрачено.'
+        : 'Новий матеріал не буде опубліковано.'}
+    />
   </>
 }
 

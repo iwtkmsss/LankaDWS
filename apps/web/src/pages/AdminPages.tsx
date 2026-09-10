@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { removeWhitespace } from '../shared/lib/credentials'
+import { FileDropzone } from '../shared/files/FileDropzone'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { formatDateTime } from '../shared/lib/format'
@@ -236,6 +237,7 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
   unitsLoading: boolean
 }) {
   const [orgSelection, setOrgSelection] = useState({ companyId, id: user?.orgUnit?.id ?? '' })
+  const [photoName, setPhotoName] = useState('')
   return (
     <>
       <label>
@@ -290,10 +292,18 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
         День народження
         <input name="birthDate" defaultValue={user?.birthDate ?? ''} type="date" />
       </label>
-      <label>
-        Фотографія
-        <input name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
-      </label>
+      <div className="admin-photo-field">
+        <span className="admin-photo-field__label">Фотографія</span>
+        <FileDropzone
+          label="Фотографія"
+          name="photo"
+          accept="image/png,image/jpeg,image/webp"
+          title="Перетягніть фото сюди"
+          hint={photoName || 'PNG, JPEG або WEBP'}
+          buttonLabel="Вибрати фото"
+          onFiles={(files) => setPhotoName(files[0]?.name ?? '')}
+        />
+      </div>
       <label className="span-2">
         Посада
         <input name="jobTitle" defaultValue={user?.jobTitle ?? ''} />

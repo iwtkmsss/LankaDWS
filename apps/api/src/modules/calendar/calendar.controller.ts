@@ -15,6 +15,11 @@ export class CalendarController {
     private readonly calendar: CalendarService,
   ) {}
 
+  @Get('audiences')
+  audiences(@Req() request: BertRequest, @Query('company') company?: string) {
+    return this.calendar.audiences(principalFrom(request), company)
+  }
+
   @Post('events')
   createEvent(
     @Req() request: BertRequest,
@@ -48,26 +53,35 @@ export class CalendarController {
   ) {
     const principal = principalFrom(request)
     if (!['ALL', 'MINE', 'TEAM'].includes(scope)) throw badRequest('calendar_scope_invalid')
-    const events = await this.prisma.event.findMany({ where: {
-      companyId: { in: this.scope.allowedCompanies(principal, company) },
-      OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
-      ...(from && to ? { startAt: { lte: new Date(to) }, endAt: { gte: new Date(from) } } : {}),
-    }, orderBy: [{ startAt: 'asc' }, { id: 'asc' }] })
+    const allowedCompanies = this.scope.allowedCompanies(principal, company)
+    const events = await this.prisma.event.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        audiences: { some: { companyId: { in: allowedCompanies } } },
+        OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
+        ...(from && to ? { startAt: { lte: new Date(to) }, endAt: { gte: new Date(from) } } : {}),
+      },
+      include: { audiences: { select: { companyId: true } } },
+      orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
+    })
     const ownerIds = [...new Set(events.map((event) => event.ownerId))]
     const owners = await this.prisma.user.findMany({
       where: { id: { in: ownerIds }, workspaceId: principal.workspaceId },
       select: { id: true, displayName: true },
     })
     const ownerById = new Map(owners.map((owner) => [owner.id, owner.displayName]))
+    const companyNames = await this.companyNames(principal.workspaceId)
     const filtered = events.filter((event) =>
       scope === 'MINE' ? event.ownerId === principal.userId
         : scope === 'TEAM' ? event.ownerId !== principal.userId
           : true,
     )
     return {
-      items: filtered.map((event) => ({
+      items: filtered.map(({ audiences, ...event }) => ({
         ...event,
         ownerName: ownerById.get(event.ownerId) ?? 'Недоступний користувач',
+        audienceCompanyIds: audiences.map((audience) => audience.companyId),
+        audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
         startAt: event.startAt.toISOString(),
         endAt: event.endAt.toISOString(),
       })),
@@ -89,18 +103,24 @@ export class CalendarController {
     const event = await this.prisma.event.findFirst({
       where: {
         id: eventId,
-        companyId: { in: this.scope.allowedCompanies(principal, company) },
+        workspaceId: principal.workspaceId,
+        audiences: { some: { companyId: { in: this.scope.allowedCompanies(principal, company) } } },
         OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
       },
+      include: { audiences: { select: { companyId: true } } },
     })
     if (!event) return null
     const owner = await this.prisma.user.findFirst({
       where: { id: event.ownerId, workspaceId: principal.workspaceId },
       select: { displayName: true },
     })
+    const companyNames = await this.companyNames(principal.workspaceId)
+    const { audiences, ...rest } = event
     return {
-      ...event,
+      ...rest,
       ownerName: owner?.displayName ?? 'Недоступний користувач',
+      audienceCompanyIds: audiences.map((audience) => audience.companyId),
+      audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
       startAt: event.startAt.toISOString(),
       endAt: event.endAt.toISOString(),
     }
@@ -112,4 +132,26 @@ export class CalendarController {
     const rows = await this.prisma.presenceRecord.findMany({ where: { companyId: { in: this.scope.allowedCompanies(principal, company) }, endAt: { gte: new Date() } }, orderBy: { startAt: 'asc' } })
     return { items: rows.map(({ state, userId, startAt, endAt }) => ({ userId, state, startAt: startAt.toISOString(), endAt: endAt.toISOString() })) }
   }
+
+  private async companyNames(workspaceId: string): Promise<Map<string, string>> {
+    const companies = await this.prisma.company.findMany({
+      where: { workspaceId },
+      select: { id: true, displayName: true },
+    })
+    return new Map(companies.map((company) => [company.id, company.displayName]))
+  }
+}
+
+function audienceLabel(
+  visibility: string,
+  audiences: Array<{ companyId: string }>,
+  companyNames: Map<string, string>,
+): string {
+  if (visibility === 'PRIVATE') return 'Тільки мені'
+  const names = audiences
+    .map((audience) => companyNames.get(audience.companyId))
+    .filter((name): name is string => Boolean(name))
+    .sort((left, right) => left.localeCompare(right, 'uk-UA'))
+  if (names.length === 0) return 'Без аудиторії'
+  return names.join(', ')
 }

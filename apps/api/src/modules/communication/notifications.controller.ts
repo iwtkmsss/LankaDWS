@@ -144,6 +144,10 @@ export class NotificationsController {
       where: {
         recipientId: userId,
         entityType: 'MESSAGE_THREAD',
+        // Only categories whose dedupe key names the message that triggered
+        // them. A reaction points at a message the recipient already wrote and
+        // has read, so reconciling it would hide the notification instantly.
+        category: { in: ['CHAT', 'MENTION'] },
         readAt: null,
       },
       select: { id: true, entityId: true, dedupeKey: true },

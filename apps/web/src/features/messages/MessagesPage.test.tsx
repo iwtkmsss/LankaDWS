@@ -58,6 +58,7 @@ const message: ChatMessageView = {
   },
   attachments: [],
   readByCount: 0,
+  reactions: { likeCount: 0, likedByMe: false },
   canEdit: false,
   canDelete: false,
 }

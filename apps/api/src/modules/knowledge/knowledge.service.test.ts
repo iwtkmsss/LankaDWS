@@ -10,7 +10,7 @@ function setup(count = 1, audience: object | null = {}) {
   const tx = { knowledgeArticle: { updateMany: vi.fn().mockResolvedValue({ count }) }, knowledgeArticleVersion: { create: vi.fn() }, fileLink: { upsert: vi.fn() }, auditEvent: { create: vi.fn() } }
   const prisma = {
     knowledgeArticle: { findFirst: vi.fn().mockResolvedValue({ id: 'article', workspaceId: 'workspace', version: 2, versions: [] }), updateMany: vi.fn().mockResolvedValue({ count }) },
-    articleAudience: { findFirst: vi.fn().mockResolvedValue(audience) },
+    articleAudience: { findFirst: vi.fn().mockResolvedValue(audience), findMany: vi.fn().mockResolvedValue([{ principalId: 'company' }]) },
     fileLink: { findMany: vi.fn().mockResolvedValue([]) },
     fileObject: { findMany: vi.fn().mockResolvedValue([]) },
     acknowledgement: { findFirst: vi.fn().mockResolvedValue(null) },

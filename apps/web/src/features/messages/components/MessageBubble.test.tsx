@@ -1,4 +1,5 @@
 import type { ChatMessageView } from '@bert-crm/contracts'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
@@ -20,6 +21,7 @@ function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
     author: { id: 'user-1', displayName: 'Марія', avatarAsset: null },
     attachments: [],
     readByCount: 0,
+    reactions: { likeCount: 0, likedByMe: false },
     canEdit: true,
     canDelete: true,
     ...overrides,
@@ -29,6 +31,7 @@ function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
 const handlers = {
   onReply: vi.fn(),
   onLike: vi.fn(),
+  onForward: vi.fn(),
   onEdit: vi.fn(),
   onDelete: vi.fn(),
   onConvert: vi.fn(),
@@ -84,7 +87,7 @@ describe('MessageBubble', () => {
     expect(container.querySelector('.message-row')).toHaveClass('is-new')
   })
 
-  it('sends a like as a reply message', () => {
+  it('raises a like as a reaction on the message', () => {
     const onLike = vi.fn()
     const target = message({ body: 'Вітаю' })
     render(
@@ -96,6 +99,53 @@ describe('MessageBubble', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Подобається' }))
 
     expect(onLike).toHaveBeenCalledWith(target)
+  })
+
+  it('shows the like count and offers to withdraw an own reaction', () => {
+    const onLike = vi.fn()
+    const target = message({ body: 'Вітаю', reactions: { likeCount: 3, likedByMe: true } })
+    render(
+      <MemoryRouter>
+        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onLike={onLike} />
+      </MemoryRouter>,
+    )
+
+    const counter = screen.getAllByRole('button', { name: 'Прибрати вподобання' })[0]
+    expect(counter).toHaveTextContent('3')
+    fireEvent.click(counter)
+    expect(onLike).toHaveBeenCalledWith(target)
+  })
+
+  it('offers forwarding from the message actions menu', () => {
+    const onForward = vi.fn()
+    const target = message({ body: 'Вітаю' })
+    render(
+      <MemoryRouter>
+        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onForward={onForward} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Переслати' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Дії з повідомленням' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Переслати' }))
+
+    expect(onForward).toHaveBeenCalledWith(target)
+  })
+
+  it('grows the edit box so a long message is visible without scrolling', () => {
+    const target = message({ body: ['перший', 'другий', 'третій', 'четвертий', 'пʼятий'].join('\n') })
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Дії з повідомленням' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Редагувати' }))
+
+    expect(screen.getByLabelText('Текст повідомлення')).toHaveAttribute('rows', '6')
   })
 
   it('renders an image preview plus open and download actions for a clean image', () => {

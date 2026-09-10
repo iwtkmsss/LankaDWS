@@ -111,3 +111,10 @@ export function uploadMessageAttachment(threadId: string, file: File) {
     body: form,
   })
 }
+
+export function setMessageReaction(messageId: string, liked: boolean) {
+  return api<ChatMessageView>(`/messages/${encodeURIComponent(messageId)}/reactions`, {
+    method: liked ? 'POST' : 'DELETE',
+    body: jsonBody({ kind: 'LIKE' }),
+  })
+}

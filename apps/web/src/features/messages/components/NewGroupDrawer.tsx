@@ -84,6 +84,7 @@ export function NewGroupDrawer({
     <>
       <Drawer
         title="Нова група"
+        onBeforeClose={closeGuard.shouldClose}
         onRequestClose={closeGuard.requestClose}
         className="new-group-drawer"
         footer={(
@@ -182,7 +183,11 @@ export function NewGroupDrawer({
         {create.isError && <p className="form-error" role="alert">Не вдалося створити групу. Оновіть дані й спробуйте ще раз.</p>}
         </div>
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити створення групи?"
+        description="Назва й вибрані учасники не збережуться."
+      />
     </>
   )
 }

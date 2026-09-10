@@ -13,15 +13,18 @@ import {
 } from 'lucide-react'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { Button, ConfirmationDialog } from '../shared/ui'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
 
 export function FeedComposerForm({
+  defaultCompanyId,
   onPostCreated,
   onFeedChanged,
   onBusyChange,
   onDirtyChange,
 }: {
+  defaultCompanyId: string | null | undefined
   onPostCreated: () => void
   onFeedChanged: () => void
   onBusyChange: (busy: boolean) => void
@@ -102,7 +105,10 @@ export function FeedComposerForm({
   }, [attachmentsOpen])
 
   const companies = (audiences.data?.items ?? []).filter((item) => item.type === 'COMPANY')
-  const effectiveCompanyIds = selectedCompanyIds ?? companies.map((item) => item.companyId)
+  const defaultCompanyIds = defaultCompanyId && companies.some((item) => item.companyId === defaultCompanyId)
+    ? [defaultCompanyId]
+    : []
+  const effectiveCompanyIds = selectedCompanyIds ?? defaultCompanyIds
   const selectedCompanies = companies.filter((item) => effectiveCompanyIds.includes(item.companyId))
   const primaryCompany = selectedCompanies[0]
   const audienceSummary = selectedCompanies.length === companies.length && companies.length > 0
@@ -144,7 +150,7 @@ export function FeedComposerForm({
     void publish()
   }
 
-  async function uploadSelected(files: FileList | null) {
+  async function uploadSelected(files: FileList | File[] | null) {
     if (!files?.length) return
     if (!primaryCompany) {
       setMessage('Спочатку оберіть, хто побачить публікацію.')
@@ -176,8 +182,14 @@ export function FeedComposerForm({
     }
   }
 
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: busy || !primaryCompany || attachments.length >= 10,
+    onFiles: (files) => void uploadSelected(files),
+  })
+
   return (
-    <form className="feed-composer" onSubmit={submit}>
+    <form className="feed-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
+      <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити до публікації" />
       <MentionTextarea
         className="feed-composer__body"
         label="Текст публікації"
@@ -202,14 +214,14 @@ export function FeedComposerForm({
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAttachmentsOpen(false)
           }}
         >
-          <label className="feed-attachment-picker">
+          <label className="feed-attachment-picker" title="Виберіть файли або перетягніть їх у форму">
             <Paperclip size={17} />
             <span>
               <strong>{uploading ? 'Додаємо файли…' : 'Додати файли'}</strong>
               <small>
                 {attachments.length > 0
                   ? `${attachments.length} із 10 прикріплено`
-                  : 'До 10 файлів у публікації'}
+                  : 'Перетягніть файли сюди або виберіть їх'}
               </small>
             </span>
             <input
@@ -296,7 +308,7 @@ export function FeedComposerForm({
                     checked={effectiveCompanyIds.includes(option.companyId)}
                     onChange={(event) => {
                       setSelectedCompanyIds((current) => {
-                        const currentIds = current ?? companies.map((item) => item.companyId)
+                        const currentIds = current ?? defaultCompanyIds
                         return event.target.checked
                           ? [...currentIds, option.companyId]
                           : currentIds.filter((id) => id !== option.companyId)

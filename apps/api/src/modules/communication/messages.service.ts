@@ -8,6 +8,7 @@ import {
   type ChatMessagePageQuery,
   type ChatMessageSearchPage,
   type ChatMessageSearchQuery,
+  type ChatMessageReactions,
   type ChatMessageView,
   type ChatNotificationMode,
   type ChatParticipantView,
@@ -1629,6 +1630,74 @@ export class MessagesService {
     }
   }
 
+  /**
+   * Adding or removing a like never touches the conversation itself: the
+   * reaction lives on the message and the author hears about it through a
+   * notification.
+   */
+  async react(
+    principal: AuthPrincipal,
+    messageId: string,
+    liked: boolean,
+  ): Promise<ChatMessageView> {
+    const message = await this.readableMessage(principal, messageId)
+    if (message.deletedAt) throw notFound()
+    if (liked) {
+      const created = await this.prisma.messageReaction.upsert({
+        where: {
+          messageId_userId_kind: { messageId: message.id, userId: principal.userId, kind: 'LIKE' },
+        },
+        create: {
+          id: id('mrx'),
+          messageId: message.id,
+          userId: principal.userId,
+          kind: 'LIKE',
+        },
+        update: {},
+        select: { createdAt: true },
+      })
+      await this.notifyReaction(principal, message, created.createdAt)
+    } else {
+      await this.prisma.messageReaction.deleteMany({
+        where: { messageId: message.id, userId: principal.userId, kind: 'LIKE' },
+      })
+    }
+    return this.message(principal, message.id)
+  }
+
+  private async notifyReaction(
+    principal: AuthPrincipal,
+    message: Message & { thread: { id: string } },
+    reactedAt: Date,
+  ): Promise<void> {
+    if (message.authorId === principal.userId) return
+    const participant = await this.prisma.threadParticipant.findFirst({
+      where: { threadId: message.threadId, userId: message.authorId, leftAt: null },
+      select: { notificationMode: true },
+    })
+    if (!participant || participant.notificationMode !== 'ALL') return
+    const actor = await this.prisma.user.findFirst({
+      where: { id: principal.userId, workspaceId: principal.workspaceId },
+      select: { displayName: true },
+    })
+    await this.prisma.notification.upsert({
+      where: { dedupeKey: `chat:${message.id}:reaction:LIKE:${principal.userId}` },
+      create: {
+        id: id('ntf'),
+        recipientId: message.authorId,
+        category: 'REACTION',
+        safeTitle: `${actor?.displayName ?? 'Колега'} вподобав ваше повідомлення`,
+        safeSnippet: 'Відкрийте діалог, щоб переглянути повідомлення.',
+        entityType: 'MESSAGE_THREAD',
+        entityId: message.threadId,
+        requiresAction: false,
+        deliveredAt: reactedAt,
+        dedupeKey: `chat:${message.id}:reaction:LIKE:${principal.userId}`,
+      },
+      update: { readAt: null, deliveredAt: reactedAt },
+    })
+  }
+
   async deleteMessage(
     principal: AuthPrincipal,
     messageId: string,
@@ -2120,6 +2189,18 @@ export class MessagesService {
       current.push(this.attachmentView(file))
       attachmentsByMessage.set(link.entityId, current)
     }
+    const reactionRows = await this.prisma.messageReaction.findMany({
+      where: { messageId: { in: messages.map((message) => message.id) } },
+      select: { messageId: true, userId: true },
+    })
+    const reactionsByMessage = new Map<string, ChatMessageReactions>()
+    for (const reaction of reactionRows) {
+      const current = reactionsByMessage.get(reaction.messageId)
+        ?? { likeCount: 0, likedByMe: false }
+      current.likeCount += 1
+      if (reaction.userId === principal.userId) current.likedByMe = true
+      reactionsByMessage.set(reaction.messageId, current)
+    }
     return messages.map((message) => this.messageView(
       principal,
       message,
@@ -2127,6 +2208,7 @@ export class MessagesService {
       usersById,
       attachmentsByMessage,
       mentionsByMessage.get(message.id) ?? [],
+      reactionsByMessage.get(message.id) ?? { likeCount: 0, likedByMe: false },
       thread.participants.filter((participant) => {
         if (participant.leftAt || participant.userId === message.authorId || !participant.lastReadMessageId) return false
         const marker = readMarkerById.get(participant.lastReadMessageId)
@@ -2667,6 +2749,7 @@ export class MessagesService {
     usersById: Map<string, SafeUser>,
     attachmentsByMessage: Map<string, ChatAttachmentView[]>,
     mentions: StructuredMentionView[],
+    reactions: ChatMessageReactions,
     readByCount: number,
   ): ChatMessageView {
     const author = usersById.get(message.authorId)
@@ -2701,6 +2784,7 @@ export class MessagesService {
       },
       attachments: deleted ? [] : attachments,
       readByCount,
+      reactions: deleted ? { likeCount: 0, likedByMe: false } : reactions,
       canEdit: !deleted && (message.authorId === principal.userId || canManage),
       canDelete: !deleted && (message.authorId === principal.userId || canManage),
     }

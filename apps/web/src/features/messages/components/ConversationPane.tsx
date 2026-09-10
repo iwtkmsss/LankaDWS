@@ -6,6 +6,7 @@ import type {
 } from '@bert-crm/contracts'
 import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
 import { useState } from 'react'
+import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
 import { ConversationSearch } from './ConversationSearch'
 import { MessageComposer } from './MessageComposer'
@@ -38,6 +39,7 @@ interface ConversationPaneProps {
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
   onLike: (message: ChatMessageView) => void
+  onForward: (message: ChatMessageView) => void
   onReplyCancel: () => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
@@ -68,6 +70,11 @@ function ConversationAvatar({
 export function ConversationPane(props: ConversationPaneProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const freeAttachmentSlots = 5 - props.attachments.length
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: !props.thread?.canPost || props.uploading || freeAttachmentSlots <= 0,
+    onFiles: (files) => props.onFiles(files.slice(0, freeAttachmentSlots)),
+  })
 
   if (props.loading) {
     return <section className="conversation-pane conversation-pane--loading"><Skeleton rows={8} /></section>
@@ -90,7 +97,12 @@ export function ConversationPane(props: ConversationPaneProps) {
     : `${props.thread.participants.length} учасників`
 
   return (
-    <section className="conversation-pane" aria-label={`Діалог: ${props.thread.title}`}>
+    <section
+      className="conversation-pane is-file-drop-target"
+      aria-label={`Діалог: ${props.thread.title}`}
+      {...dropTargetProps}
+    >
+      <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити їх до повідомлення" />
       <header className="conversation-header">
         <IconButton className="conversation-header__back" label="До списку діалогів" onClick={props.onBack}>
           <ArrowLeft size={21} />
@@ -188,6 +200,7 @@ export function ConversationPane(props: ConversationPaneProps) {
         onLoadOlder={props.onLoadOlder}
         onReply={props.onReply}
         onLike={props.onLike}
+        onForward={props.onForward}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
         onConvert={props.onConvert}

@@ -53,6 +53,7 @@ import {
 import { MentionText } from '../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
   Avatar,
@@ -1149,6 +1150,20 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
   })
+  const canAttachFiles = Boolean(query.data?.canAttachFiles) && !uploadAttachment.isPending
+  async function uploadFiles(files: File[], selectForComment: boolean) {
+    for (const file of files) {
+      await uploadAttachment.mutateAsync({ file, selectForComment }).catch(() => undefined)
+    }
+  }
+  const materialsDrop = useFileDropTarget({
+    disabled: !canAttachFiles,
+    onFiles: (files) => void uploadFiles(files, false),
+  })
+  const commentFilesDrop = useFileDropTarget({
+    disabled: !canAttachFiles || commentAttachmentIds.length >= 5,
+    onFiles: (files) => void uploadFiles(files.slice(0, 5 - commentAttachmentIds.length), true),
+  })
   return (
     <>
       <TaskDetailLayout
@@ -1995,7 +2010,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               </form>
           </section></TaskDetailSection>}
           <TaskDetailSection id="materials" label="Матеріали">
-          <section className="task-materials">
+          <section className="task-materials is-file-drop-target" {...materialsDrop.dropTargetProps}>
+              <FileDropOverlay active={materialsDrop.isDragging} label="Відпустіть файли, щоб додати до завдання" />
               <header>
                 <span>
                   <Paperclip size={17} />
@@ -2046,14 +2062,15 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     <Paperclip size={16} />
                     <span>
                       <strong>{uploadAttachment.isPending ? 'Додаємо…' : 'Додати файл'}</strong>
-                      <small>До 20 файлів у завданні</small>
+                      <small>Перетягніть файли сюди · до 20 файлів у завданні</small>
                     </span>
                     <input
                       type="file"
+                      multiple
+                      aria-label="Додати файл"
                       disabled={uploadAttachment.isPending}
                       onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (file) uploadAttachment.mutate({ file, selectForComment: false })
+                        void uploadFiles([...event.target.files ?? []], false)
                         event.currentTarget.value = ''
                       }}
                     />
@@ -2199,7 +2216,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               <p className="muted">Ще немає коментарів. Додайте перше корисне уточнення.</p>
             )}
             <form
-              className="task-comment-form"
+              className="task-comment-form is-file-drop-target"
+              {...commentFilesDrop.dropTargetProps}
               onSubmit={(event) => {
                 event.preventDefault()
                 const trimmed = trimMentionValue(comment, commentMentions)
@@ -2227,6 +2245,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 }
               }}
             >
+              <FileDropOverlay active={commentFilesDrop.isDragging} label="Відпустіть файли, щоб додати до коментаря" />
               {replyTo && (
                 <div className="task-reply-context">
                   <Reply size={15} />
@@ -2281,15 +2300,19 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               )}
               <div className="task-comment-controls">
                 <div>
-                  <label className="task-comment-file-picker">
+                  <label className="task-comment-file-picker" title="Виберіть файли або перетягніть їх у форму коментаря">
                     <Paperclip size={15} />
                     {uploadAttachment.isPending ? 'Додаємо…' : 'Новий файл'}
                     <input
                       type="file"
+                      multiple
+                      aria-label="Новий файл"
                       disabled={uploadAttachment.isPending || commentAttachmentIds.length >= 5}
                       onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (file) uploadAttachment.mutate({ file, selectForComment: true })
+                        void uploadFiles(
+                          [...event.target.files ?? []].slice(0, 5 - commentAttachmentIds.length),
+                          true,
+                        )
                         event.currentTarget.value = ''
                       }}
                     />
@@ -2333,7 +2356,11 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
         )}
       </TaskDetailLayout>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Повернутися до списку завдань?"
+        description="Незбережені зміни в завданні буде втрачено."
+      />
     </>
   )
 }

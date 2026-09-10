@@ -32,6 +32,7 @@ import {
   getThreadPage,
   searchChatUsers,
   sendMessage,
+  setMessageReaction,
   uploadMessageAttachment,
 } from './api/messageApi'
 import { messageKeys } from './api/messageKeys'
@@ -40,6 +41,7 @@ import { DirectDraftPane } from './components/DirectDraftPane'
 import { MessageConversionDrawer } from './components/MessageConversionDrawer'
 import { MessagesSidebar } from './components/MessagesSidebar'
 import { NewChatDrawer } from './components/NewChatDrawer'
+import { ForwardMessageDrawer } from './components/ForwardMessageDrawer'
 import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useUserProfile } from '../employees/UserProfileDrawer'
@@ -129,6 +131,7 @@ export function MessagesPage() {
     kind: 'task' | 'event'
     message: ChatMessageView
   } | null>(null)
+  const [forwarding, setForwarding] = useState<ChatMessageView | null>(null)
   const markedReadRef = useRef('')
   const directAttemptRef = useRef({ userId: '', key: '' })
   const directStartingRef = useRef('')
@@ -397,6 +400,7 @@ export function MessagesPage() {
       },
       attachments,
       readByCount: 0,
+      reactions: { likeCount: 0, likedByMe: false },
       canEdit: true,
       canDelete: true,
     }
@@ -433,20 +437,18 @@ export function MessagesPage() {
     }, { replace: true })
   }
 
+  // A like is a reaction on the message, not a reply: the author learns about
+  // it through a notification instead of a new bubble in the conversation.
   async function likeMessage(message: ChatMessageView) {
     if (!threadId) return
     setComposerError('')
     try {
-      const result = await sendMessage(threadId, {
-        body: '👍',
-        replyToId: message.id,
-        attachmentIds: [],
-        mentions: [],
-      }, `chat-like:${randomId()}`)
-      upsertMessageCache(client, threadId, await getMessage(result.id))
-      await client.invalidateQueries({ queryKey: messageKeys.detail(threadId) })
+      upsertMessageCache(client, threadId, await setMessageReaction(
+        message.id,
+        !message.reactions.likedByMe,
+      ))
     } catch (error) {
-      setComposerError(visibleApiError(error, 'Не вдалося надіслати лайк.'))
+      setComposerError(visibleApiError(error, 'Не вдалося змінити вподобання.'))
     }
   }
 
@@ -570,6 +572,7 @@ export function MessagesPage() {
           onLoadOlder={() => messagePages.fetchNextPage()}
           onReply={(message) => setReplyTo(message)}
           onLike={likeMessage}
+          onForward={(message) => setForwarding(message)}
           onReplyCancel={() => setReplyTo(null)}
           onEdit={editMessage}
           onDelete={deleteMessage}
@@ -665,6 +668,19 @@ export function MessagesPage() {
           thread={detail.data}
           currentUserId={user.id}
           onClose={() => setConversion(null)}
+        />
+      )}
+      {forwarding && (
+        <ForwardMessageDrawer
+          message={forwarding}
+          companyScope={threadCompanyScope}
+          currentThreadId={threadId ?? ''}
+          onClose={() => setForwarding(null)}
+          onForwarded={(targetThreadId) => {
+            setForwarding(null)
+            void client.invalidateQueries({ queryKey: messageKeys.all })
+            navigate(`/messages/${targetThreadId}`)
+          }}
         />
       )}
     </div>

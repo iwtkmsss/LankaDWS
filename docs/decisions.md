@@ -2,6 +2,28 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-09-10 — A calendar event names its own audience; a chat like is a reaction, not a message
+
+A calendar event no longer reaches people through the single company that owns its row. `EventAudience` names every company whose members may see it; its owning `companyId` is a persistence and capability-check key, not an implicit audience member. Existing events were backfilled with exactly the reach they already had. Visibility `PRIVATE` is the new "тільки мені": the row keeps one owner-company audience row for scoping, and only the owner matches the read filter.
+
+`Event.description` is optional free text shown on the event detail. The create and edit forms share one field set, and the company picker lists every active organization in the principal's workspace, resolved through `GET /calendar/audiences`; the `CALENDAR_WRITE` requirement applies only to the event's owner company. This replaces the previous dependence on `user.company`: an account with no primary company could see the create button (the capability view aggregates every allowed company) but every submission failed validation with an empty `companyId`. The calendar page now scopes its queries to `company=all`.
+
+A chat like is a `MessageReaction` row on the message, not a `👍` reply in the conversation. The author learns about it through a `REACTION` notification addressed at the thread. `reconcileChatReads` deliberately ignores that category: it marks a chat notification read once the recipient has read the message its dedupe key names, and a reaction points at a message the recipient wrote themselves. Existing `👍` messages stay as ordinary history.
+
+The message hover panel carries like, reply, forward and the overflow menu on both sides of the conversation. Forwarding sends the message text into another thread with a `Переслано від <author>` attribution line; attachments stay with the original message rather than being copied. The inline edit box grows with its content instead of scrolling inside three rows.
+
+The knowledge-base editor is a centred modal like the Feed composer rather than a side drawer, and it carries an explicit company audience. `ArticleAudience` already modelled this on create; the update command now accepts `companyIds` as well, and article detail returns the current selection so an edit starts from the audience the article was published with. An empty selection is refused on both commands.
+
+## 2026-09-09 — Feed cards drop favourites and the follow control; the audience label names its recipients
+
+This supersedes *"Feed favourites are private state, not visibility"* (2026-07-23) and *"Feed subscriptions preserve user intent"* (2026-07-23), and retires the `FOLLOWING` list filter from *"Feed advanced filters stay compositional and local-time correct"* (2026-07-23).
+
+The favourite (`«Обране»`) star is removed from every Feed card. The `PUT/DELETE /feed/items/:itemId/favorite` endpoints, the `?favorite=true` list filter, the `favoritedByMe` view field and the favourite-projection-move (`moveFeedFavorites`) are gone. `FeedUserItemState` stays in `schema.prisma` but is no longer written; a later migration may drop it. Removing a favourite is no longer a concept, so `«Обране»` no longer "follows the logical card".
+
+The per-post notification control (`«Стежити»` / bell) and its `PUT/DELETE /feed/:id/subscription` endpoints are removed, along with the user-visible `NONE`/`MENTIONS` choice and the `subscriptionMode` view field. `FeedSubscription` survives **only** as the internal fan-out for feed comment notifications: post authors, past commenters and mentioned users are still auto-subscribed (`ALL` / `MENTIONS`) in the same transaction as the post or comment, and the comment-notification loop is unchanged. There is no user-facing way to opt out; a participant in a Feed conversation receives comment notifications.
+
+The post-card byline is ordered **date · audience** (was audience · date). `audienceLabel` now reads: a multi-company (`COMPANIES`) audience that reaches **every active company** in the workspace is `«Всім співробітникам»`; a multi-company audience that does not is the addressed companies' display names joined with `«, »` (replacing `«Обрані компанії · N»`); a single-company (`COMPANY`) audience stays `«Вся організація»`; a group audience is the group name; a direct-user audience is every recipient's name joined with `«, »` (the previous `«та ще N»` truncation is removed).
+
 ## 2026-09-09 — Live Feed is always available; unread badges refresh over a realtime summary channel
 
 This supersedes the `FEED` company capability from the 2026-07-28 routing decision without deleting its rollout history. The `FEED` capability code is retired: Feed authorization is `feed.read` plus company scope only, and `/feed` is an unconditional authenticated route. `docs/architecture.md`, `CODEX_CONTEXT_MAP.md` and the demo seed no longer reference a `FEED` capability. This decision does **not** change the read-cursor / unread-count semantics — the precise model for "read = actually seen" remains open.

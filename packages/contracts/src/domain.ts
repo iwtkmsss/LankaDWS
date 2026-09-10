@@ -248,6 +248,7 @@ export interface EventListItem {
   id: string
   companyId: string
   title: string
+  description: string | null
   startAt: string
   endAt: string
   allDay: boolean

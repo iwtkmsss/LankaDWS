@@ -166,6 +166,45 @@ describe('shared UI primitives', () => {
     expect(screen.getByRole('button', { name: 'Скасувати' })).toHaveFocus()
   })
 
+  it('checks dirty state before starting the close animation', () => {
+    function GuardedDrawer() {
+      const [open, setOpen] = useState(true)
+      const guard = useModalCloseGuard({
+        dirty: true,
+        onRequestClose: () => setOpen(false),
+      })
+      return (
+        <OverlayProvider>
+          {open && (
+            <Drawer
+              title="Форма"
+              onBeforeClose={guard.shouldClose}
+              onRequestClose={guard.requestClose}
+            >
+              <input aria-label="Назва" defaultValue="Зміна" />
+            </Drawer>
+          )}
+          <UnsavedChangesDialog guard={guard} />
+        </OverlayProvider>
+      )
+    }
+    const router = createMemoryRouter([{ path: '/', element: <GuardedDrawer /> }])
+    render(<RouterProvider router={router} />)
+    const formLayer = screen.getByRole('dialog', { name: 'Форма' }).closest('.overlay-layer')
+    const matchMedia = vi.mocked(window.matchMedia)
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    matchMedia.mockReturnValue({ ...reducedMotion, matches: false })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Закрити' }))
+    matchMedia.mockReturnValue(reducedMotion)
+
+    const confirmation = screen.getByRole('alertdialog', { name: 'Закрити без збереження?' })
+    expect(formLayer).not.toHaveClass('is-closing')
+    expect(confirmation).toHaveClass('unsaved-changes-dialog')
+    expect(screen.getByRole('button', { name: 'Продовжити редагування' })).toHaveClass('button--primary')
+    expect(screen.getByRole('button', { name: 'Закрити без збереження' })).toHaveClass('button--danger')
+  })
+
   it('routes dirty form navigation through the shared close guard', async () => {
     function GuardedForm() {
       const navigate = useNavigate()
@@ -177,7 +216,11 @@ describe('shared UI primitives', () => {
       return (
         <OverlayProvider>
           {open && (
-            <Drawer title="Форма" onRequestClose={guard.requestClose}>
+            <Drawer
+              title="Форма"
+              onBeforeClose={guard.shouldClose}
+              onRequestClose={guard.requestClose}
+            >
               <input aria-label="Назва" defaultValue="Зміна" />
               <button onClick={() => navigate('/next')}>До іншої сторінки</button>
             </Drawer>

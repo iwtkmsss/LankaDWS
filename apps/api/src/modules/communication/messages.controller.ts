@@ -6,6 +6,7 @@ import {
   chatMentionCandidatesQuerySchema,
   chatMessagePageQuerySchema,
   chatMessageSearchQuerySchema,
+  chatReactionSchema,
   chatThreadListQuerySchema,
   chatUserSearchQuerySchema,
   convertChatMessageToEventSchema,
@@ -266,6 +267,28 @@ export class MessagesController {
     const parsed = deleteChatMessageSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('chat_message_invalid')
     return this.messages.deleteMessage(principalFrom(request), id, parsed.data)
+  }
+
+  @Post(':id/reactions')
+  addReaction(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = chatReactionSchema.safeParse(rawBody ?? {})
+    if (!parsed.success) throw badRequest('chat_reaction_invalid')
+    return this.messages.react(principalFrom(request), id, true)
+  }
+
+  @Delete(':id/reactions')
+  removeReaction(
+    @Req() request: BertRequest,
+    @Param('id') id: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = chatReactionSchema.safeParse(rawBody ?? {})
+    if (!parsed.success) throw badRequest('chat_reaction_invalid')
+    return this.messages.react(principalFrom(request), id, false)
   }
 
   @Post(':id/task')

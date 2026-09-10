@@ -16,6 +16,7 @@ interface MessageStreamProps {
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
   onLike: (message: ChatMessageView) => void
+  onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
@@ -136,6 +137,7 @@ export function MessageStream(props: MessageStreamProps) {
                   canConvertToEvent={props.canConvertToEvent}
                   onReply={props.onReply}
                   onLike={props.onLike}
+                  onForward={props.onForward}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
                   onConvert={props.onConvert}

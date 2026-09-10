@@ -25,8 +25,8 @@ beforeEach(() => {
     if (path === '/files/file_new/status') return { scanStatus: 'CLEAN' }
     if (options?.method) return { id: 'article', slug: 'policy' }
     if (path.startsWith('/knowledge/articles?')) return { items: [item] }
-    if (path === '/knowledge/articles/policy') return { ...item, currentVersion: { title: 'Політика', body: 'Чинний текст', publishedAt: '2026-09-04T10:00:00.000Z' }, attachments: [{ id: 'file_image', safeFilename: 'guide.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' }] }
-    if (path === '/admin/companies') return { items: [{ id: 'company', isActive: true }] }
+    if (path === '/knowledge/articles/policy') return { ...item, currentVersion: { title: 'Політика', body: 'Чинний текст', publishedAt: '2026-09-04T10:00:00.000Z' }, attachments: [{ id: 'file_image', safeFilename: 'guide.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' }], companyIds: ['company'] }
+    if (path === '/admin/companies') return { items: [{ id: 'company', name: 'Компанія', isActive: true }] }
     throw new Error(`Unexpected request: ${path}`)
   })
 })
@@ -49,7 +49,7 @@ describe('knowledge management', () => {
     expect(body).toHaveValue('Чинний текст')
     fireEvent.change(body, { target: { value: 'Новий текст' } })
     fireEvent.click(screen.getByRole('button', { name: 'Зберегти зміни' }))
-    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Політика', body: 'Новий текст', changeSummary: '', attachmentIds: [], expectedVersion: 2 }) })))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Політика', body: 'Новий текст', changeSummary: '', attachmentIds: [], companyIds: ['company'], expectedVersion: 2 }) })))
     await waitFor(() => expect(screen.queryByLabelText('Текст матеріалу')).not.toBeInTheDocument())
   })
   it('creates a material using the existing publication endpoint', async () => {

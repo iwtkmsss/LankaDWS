@@ -132,6 +132,76 @@ describe('FeedService.resolveAudience', () => {
   })
 })
 
+describe('FeedService.audienceLabel', () => {
+  type AudienceLabelPost = {
+    group: { name: string } | null
+    recipients: Array<{ type: 'COMPANY' | 'GROUP' | 'USER'; recipientId: string }>
+  }
+  function label(
+    post: AudienceLabelPost,
+    directNameById: Map<string, string>,
+    companyNameById: Map<string, string>,
+    totalActiveCompanies: number,
+  ): string {
+    const { service } = makeService({
+      user: { findMany: vi.fn() },
+      group: { findFirst: vi.fn() },
+      feedReadCursor: { findMany: vi.fn() },
+      feedSourceHead: { count: vi.fn() },
+    })
+    const internal = service as unknown as {
+      audienceLabel(
+        post: AudienceLabelPost,
+        directNameById: Map<string, string>,
+        companyNameById: Map<string, string>,
+        totalActiveCompanies: number,
+      ): string
+    }
+    return internal.audienceLabel(post, directNameById, companyNameById, totalActiveCompanies)
+  }
+
+  it('names every employee when the post reaches all active companies', () => {
+    const post: AudienceLabelPost = {
+      group: null,
+      recipients: [
+        { type: 'COMPANY', recipientId: 'cmp_a' },
+        { type: 'COMPANY', recipientId: 'cmp_b' },
+      ],
+    }
+    expect(label(post, new Map(), new Map([['cmp_a', 'A'], ['cmp_b', 'B']]), 2)).toBe('Всім співробітникам')
+  })
+
+  it('lists the addressed companies inline when it does not reach everyone', () => {
+    const post: AudienceLabelPost = {
+      group: null,
+      recipients: [
+        { type: 'COMPANY', recipientId: 'cmp_a' },
+        { type: 'COMPANY', recipientId: 'cmp_b' },
+      ],
+    }
+    expect(label(post, new Map(), new Map([['cmp_a', 'БЕРТ Україна'], ['cmp_b', 'БЕРТ Сервіс']]), 3))
+      .toBe('БЕРТ Україна, БЕРТ Сервіс')
+  })
+
+  it('keeps the whole-organization label for a single-company audience', () => {
+    const post: AudienceLabelPost = { group: null, recipients: [{ type: 'COMPANY', recipientId: 'cmp_a' }] }
+    expect(label(post, new Map(), new Map(), 4)).toBe('Вся організація')
+  })
+
+  it('lists every direct recipient by name without truncation', () => {
+    const post: AudienceLabelPost = {
+      group: null,
+      recipients: [
+        { type: 'USER', recipientId: 'u1' },
+        { type: 'USER', recipientId: 'u2' },
+        { type: 'USER', recipientId: 'u3' },
+      ],
+    }
+    const names = new Map([['u1', 'Олена'], ['u2', 'Андрій'], ['u3', 'Дмитро']])
+    expect(label(post, names, new Map(), 4)).toBe('Олена, Андрій, Дмитро')
+  })
+})
+
 describe('FeedService.unreadCount', () => {
   it('counts every unread head for a company with no read cursor', async () => {
     const count = vi.fn().mockResolvedValue(4)

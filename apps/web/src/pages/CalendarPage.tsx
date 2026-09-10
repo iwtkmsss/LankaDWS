@@ -1,7 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { OrganizationCapability, type EventListItem } from '@bert-crm/contracts'
-import { CalendarPlus, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import {
+  OrganizationCapability,
+  type CalendarAudienceOption,
+  type CalendarEventAudienceInput,
+  type EventListItem,
+} from '@bert-crm/contracts'
+import { CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -25,6 +38,8 @@ type CalendarEvent = EventListItem & {
   ownerName: string
   sourceTimezone: string
   version: number
+  audienceCompanyIds: string[]
+  audienceLabel: string
 }
 type CalendarView = 'day' | 'week' | 'month' | 'schedule'
 type CalendarScope = 'ALL' | 'MINE' | 'TEAM'
@@ -55,7 +70,14 @@ export default function CalendarPage() {
       }
     },
   })
-  const companyId = user?.company?.id ?? ''
+  // Events span every company the principal may write calendar entries for, so
+  // the page never depends on a primary company that some accounts do not have.
+  const audiences = useQuery({
+    queryKey: ['calendar-audiences'],
+    queryFn: () => api<{ items: CalendarAudienceOption[]; ownerCompanyId: string | null }>('/calendar/audiences?company=all'),
+  })
+  const writableCompanies = useMemo(() => audiences.data?.items ?? [], [audiences.data])
+  const ownerCompanyId = audiences.data?.ownerCompanyId ?? null
   const rawView = params.get('view')
   const view: CalendarView = rawView === 'day' || rawView === 'week' || rawView === 'schedule' || rawView === 'list'
     ? rawView === 'list' ? 'schedule' : rawView
@@ -69,39 +91,40 @@ export default function CalendarPage() {
   const month = date.getMonth()
   const range = useMemo(() => calendarRange(view, date), [view, selectedDate])
   const query = useQuery({
-    queryKey: ['calendar', companyId, view, selectedDate, scope],
+    queryKey: ['calendar', view, selectedDate, scope],
     queryFn: () => api<{
       items: CalendarEvent[]
       counts: Record<CalendarScope, number>
     }>(
-      `/calendar/events?company=${encodeURIComponent(companyId || 'all')}&from=${range.from.toISOString()}&to=${range.to.toISOString()}&scope=${scope}`,
+      `/calendar/events?company=all&from=${range.from.toISOString()}&to=${range.to.toISOString()}&scope=${scope}`,
     ),
-    enabled: Boolean(companyId),
   })
   const detail = useQuery({
-    queryKey: ['calendar-event', eventId, companyId],
-    queryFn: () => api<CalendarEvent | null>(
-      `/calendar/events/${eventId}?company=${encodeURIComponent(companyId || 'all')}`,
-    ),
+    queryKey: ['calendar-event', eventId],
+    queryFn: () => api<CalendarEvent | null>(`/calendar/events/${eventId}?company=all`),
     enabled: Boolean(eventId),
   })
   const update = useMutation({
     mutationFn: (input: {
       id: string
       title: string
+      description: string
       startAt: string
       endAt: string
       sourceTimezone: string
       allDay: boolean
+      audience: CalendarEventAudienceInput
       expectedVersion: number
     }) => api<{ id: string; version: number }>(`/calendar/events/${input.id}`, {
       method: 'PATCH',
       body: jsonBody({
         title: input.title,
+        description: input.description,
         startAt: input.startAt,
         endAt: input.endAt,
         sourceTimezone: input.sourceTimezone,
         allDay: input.allDay,
+        audience: input.audience,
         expectedVersion: input.expectedVersion,
       }),
     }),
@@ -141,8 +164,8 @@ export default function CalendarPage() {
     return []
   }, [view, selectedDate])
   const selected = detail.data ?? query.data?.items.find((item) => item.id === eventId)
-  const organizationId = user?.company?.id ?? ''
   const canCreate = canUseCapability(OrganizationCapability.CalendarWrite)
+    && ownerCompanyId !== null
   useEffect(() => {
     if (!requestedCreate || !canCreate) return
     setCreateDate(null)
@@ -334,6 +357,7 @@ export default function CalendarPage() {
       {eventId && (
         <Drawer
           title={editOpen ? 'Редагувати подію' : 'Подія'}
+          onBeforeClose={closeGuard.shouldClose}
           onRequestClose={closeGuard.requestClose}
           footer={selected && !editOpen && selected.ownerId === user?.id && canCreate ? (
             <Button variant="secondary" onClick={() => {
@@ -347,56 +371,24 @@ export default function CalendarPage() {
         >
           {selected ? (
             editOpen ? (
-              <form
-                className="entity-form calendar-create"
-                onChange={() => setEditDirty(true)}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const form = new FormData(event.currentTarget)
+              <CalendarEventForm
+                event={selected}
+                companies={writableCompanies}
+                onDirtyChange={setEditDirty}
+                onSubmit={(values) => {
                   update.mutate({
                     id: selected.id,
-                    title: String(form.get('title') ?? ''),
-                    startAt: new Date(String(form.get('startAt'))).toISOString(),
-                    endAt: new Date(String(form.get('endAt'))).toISOString(),
+                    title: values.title,
+                    description: values.description,
+                    startAt: values.startAt,
+                    endAt: values.endAt,
                     sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || selected.sourceTimezone,
-                    allDay: form.get('allDay') === 'on',
+                    allDay: values.allDay,
+                    audience: values.audience,
                     expectedVersion: selected.version,
                   })
                 }}
               >
-                <label className="span-2">
-                  Назва
-                  <input
-                    name="title"
-                    required
-                    minLength={2}
-                    maxLength={180}
-                    defaultValue={selected.title}
-                    autoFocus
-                  />
-                </label>
-                <label>
-                  Початок
-                  <input
-                    type="datetime-local"
-                    name="startAt"
-                    required
-                    defaultValue={localDateTime(new Date(selected.startAt))}
-                  />
-                </label>
-                <label>
-                  Завершення
-                  <input
-                    type="datetime-local"
-                    name="endAt"
-                    required
-                    defaultValue={localDateTime(new Date(selected.endAt))}
-                  />
-                </label>
-                <label className="check-label span-2">
-                  <input type="checkbox" name="allDay" defaultChecked={selected.allDay} />
-                  Подія на весь день
-                </label>
                 {update.isError && (
                   <div className="form-error span-2" role="alert">
                     Не вдалося зберегти зміни. Можливо, подію вже оновили.
@@ -414,7 +406,7 @@ export default function CalendarPage() {
                     {update.isPending ? 'Зберігаємо…' : 'Зберегти'}
                   </Button>
                 </div>
-              </form>
+              </CalendarEventForm>
             ) : (
               <div className="detail-stack">
                 <h3>{selected.title}</h3>
@@ -423,9 +415,17 @@ export default function CalendarPage() {
                     ? 'Увесь день'
                     : `${formatDateTime(selected.startAt)} — ${formatDateTime(selected.endAt)}`}
                 </p>
+                {selected.description && (
+                  <div className="calendar-event-description">
+                    {selected.description.split('\n').map((paragraph, index) => (
+                      <p key={index}>{paragraph}</p>
+                    ))}
+                  </div>
+                )}
                 <p className="calendar-event-owner">
                   {selected.ownerId === user?.id ? 'Організатор: ви' : `Організатор: ${selected.ownerName}`}
                 </p>
+                <p className="calendar-event-owner">Бачать: {selected.audienceLabel}</p>
                 <p className="privacy-note">
                   У календарі відображається лише інформація, дозволена учасникам події.
                 </p>
@@ -443,7 +443,8 @@ export default function CalendarPage() {
       )}
       {createOpen && (
         <CalendarCreateDrawer
-          organizationId={organizationId}
+          companies={writableCompanies}
+          ownerCompanyId={ownerCompanyId}
           initialDate={createDate}
           initialTitle={createTitle}
           closeGuard={closeGuard}
@@ -457,7 +458,13 @@ export default function CalendarPage() {
           }}
         />
       )}
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title={createOpen ? 'Закрити створення події?' : 'Закрити редагування події?'}
+        description={createOpen
+          ? 'Нова подія не буде створена.'
+          : 'Незбережені зміни події буде втрачено.'}
+      />
     </div>
   )
 }
@@ -518,57 +525,45 @@ function CalendarPeriodView({
 }
 
 function CalendarCreateDrawer({
-  organizationId,
+  companies,
+  ownerCompanyId,
   initialDate,
   initialTitle,
   closeGuard,
   onDirtyChange,
   onCreated,
 }: {
-  organizationId: string
+  companies: CalendarAudienceOption[]
+  ownerCompanyId: string | null
   initialDate: string | null
   initialTitle: string
   closeGuard: ModalCloseGuardController
   onDirtyChange: (dirty: boolean) => void
   onCreated: (id: string) => void
 }) {
-  const defaults = useRef(nextEventWindow(initialDate))
   const attempt = useRef({ signature: '', key: '' })
   const create = useMutation({
-    mutationFn: (input: {
-      companyId: string
-      title: string
-      startAt: string
-      endAt: string
-      sourceTimezone: string
-      allDay: boolean
-      key: string
-    }) => api<{ id: string }>('/calendar/events', {
-      method: 'POST',
-      headers: { 'idempotency-key': input.key },
-      body: jsonBody({
-        companyId: input.companyId,
-        title: input.title,
-        startAt: input.startAt,
-        endAt: input.endAt,
-        sourceTimezone: input.sourceTimezone,
-        allDay: input.allDay,
+    mutationFn: (input: CalendarEventFormValues & { companyId: string; key: string }) =>
+      api<{ id: string }>('/calendar/events', {
+        method: 'POST',
+        headers: { 'idempotency-key': input.key },
+        body: jsonBody({
+          companyId: input.companyId,
+          title: input.title,
+          description: input.description,
+          startAt: input.startAt,
+          endAt: input.endAt,
+          sourceTimezone: input.sourceTimezone,
+          allDay: input.allDay,
+          audience: input.audience,
+        }),
       }),
-    }),
     onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
   })
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const input = {
-      companyId: String(form.get('companyId') ?? ''),
-      title: String(form.get('title') ?? ''),
-      startAt: new Date(String(form.get('startAt'))).toISOString(),
-      endAt: new Date(String(form.get('endAt'))).toISOString(),
-      sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Kyiv',
-      allDay: form.get('allDay') === 'on',
-    }
+  function submit(values: CalendarEventFormValues) {
+    if (!ownerCompanyId) return
+    const input = { ...values, companyId: ownerCompanyId }
     const signature = JSON.stringify(input)
     if (attempt.current.signature !== signature) {
       attempt.current = { signature, key: idempotencyKey('calendar-event') }
@@ -577,45 +572,207 @@ function CalendarCreateDrawer({
   }
 
   return (
-    <Drawer title="Нова подія" onRequestClose={closeGuard.requestClose}>
-        <form className="entity-form calendar-create" onChange={() => onDirtyChange(true)} onSubmit={submit}>
-          <input type="hidden" name="companyId" value={organizationId} />
-          <label className="span-2">
-            Назва
-            <input name="title" required minLength={2} maxLength={180} autoFocus defaultValue={initialTitle} placeholder="Наприклад, зустріч команди" />
-          </label>
-          <label>
-            Початок
-            <input type="datetime-local" name="startAt" required defaultValue={defaults.current.start} />
-          </label>
-          <label>
-            Завершення
-            <input type="datetime-local" name="endAt" required defaultValue={defaults.current.end} />
-          </label>
-          <label className="check-label span-2">
-            <input type="checkbox" name="allDay" />
-            Подія на весь день
-          </label>
-          {create.isError && (
-            <div className="form-error span-2" role="alert">
-              Не вдалося створити подію. Перевірте час початку й завершення.
-            </div>
-          )}
-          <div className="form-actions span-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => closeGuard.requestClose('cancel-button')}
-            >
-              Скасувати
-            </Button>
-            <Button disabled={create.isPending}>
-              <CalendarPlus size={17} />
-              {create.isPending ? 'Створюємо…' : 'Створити подію'}
-            </Button>
+    <Drawer
+      title="Нова подія"
+      onBeforeClose={closeGuard.shouldClose}
+      onRequestClose={closeGuard.requestClose}
+    >
+      <CalendarEventForm
+        companies={companies}
+        initialDate={initialDate}
+        initialTitle={initialTitle}
+        onDirtyChange={onDirtyChange}
+        onSubmit={submit}
+      >
+        {create.isError && (
+          <div className="form-error span-2" role="alert">
+            Не вдалося створити подію. Перевірте час початку й завершення та кому вона буде видна.
           </div>
-        </form>
+        )}
+        <div className="form-actions span-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => closeGuard.requestClose('cancel-button')}
+          >
+            Скасувати
+          </Button>
+          <Button disabled={create.isPending}>
+            <CalendarPlus size={17} />
+            {create.isPending ? 'Створюємо…' : 'Створити подію'}
+          </Button>
+        </div>
+      </CalendarEventForm>
     </Drawer>
+  )
+}
+
+interface CalendarEventFormValues {
+  title: string
+  description: string
+  startAt: string
+  endAt: string
+  sourceTimezone: string
+  allDay: boolean
+  audience: CalendarEventAudienceInput
+}
+
+/**
+ * Shared field set for creating and editing an event. Company selection decides
+ * who sees the event; "Тільки я" keeps it out of every shared calendar.
+ */
+function CalendarEventForm({
+  event,
+  companies,
+  initialDate,
+  initialTitle,
+  onDirtyChange,
+  onSubmit,
+  children,
+}: {
+  event?: CalendarEvent
+  companies: CalendarAudienceOption[]
+  initialDate?: string | null
+  initialTitle?: string
+  onDirtyChange: (dirty: boolean) => void
+  onSubmit: (values: CalendarEventFormValues) => void
+  children: ReactNode
+}) {
+  const defaults = useRef(nextEventWindow(initialDate ?? null))
+  const [privateOnly, setPrivateOnly] = useState(event ? event.visibility === 'PRIVATE' : true)
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>(
+    event && event.visibility !== 'PRIVATE' ? event.audienceCompanyIds : [],
+  )
+  const [audienceOpen, setAudienceOpen] = useState(false)
+  const everyCompanyId = companies.map((company) => company.companyId)
+  const audienceCompanyIds = selectedCompanyIds.filter((companyId) => everyCompanyId.includes(companyId))
+  const audienceSummary = privateOnly
+    ? 'Тільки я'
+    : audienceCompanyIds.length > 0
+      ? companies.filter((company) => audienceCompanyIds.includes(company.companyId)).map((company) => company.label).join(', ')
+      : 'Не обрано'
+
+  function toggleCompany(companyId: string, checked: boolean) {
+    setPrivateOnly(false)
+    setSelectedCompanyIds(checked
+      ? [...audienceCompanyIds, companyId]
+      : audienceCompanyIds.filter((item) => item !== companyId))
+  }
+
+  function submit(formEvent: FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault()
+    const form = new FormData(formEvent.currentTarget)
+    if (!privateOnly && audienceCompanyIds.length === 0) return
+    onSubmit({
+      title: String(form.get('title') ?? ''),
+      description: String(form.get('description') ?? ''),
+      startAt: new Date(String(form.get('startAt'))).toISOString(),
+      endAt: new Date(String(form.get('endAt'))).toISOString(),
+      sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        || event?.sourceTimezone
+        || 'Europe/Kyiv',
+      allDay: form.get('allDay') === 'on',
+      audience: privateOnly
+        ? { type: 'PRIVATE' }
+        : { type: 'COMPANIES', companyIds: audienceCompanyIds },
+    })
+  }
+
+  return (
+    <form
+      className="entity-form calendar-create"
+      onChange={() => onDirtyChange(true)}
+      onSubmit={submit}
+    >
+      <label className="span-2">
+        Назва
+        <input
+          name="title"
+          required
+          minLength={2}
+          maxLength={180}
+          autoFocus
+          defaultValue={event?.title ?? initialTitle ?? ''}
+          placeholder="Наприклад, зустріч команди"
+        />
+      </label>
+      <label className="span-2">
+        Опис
+        <textarea
+          name="description"
+          rows={4}
+          maxLength={4_000}
+          defaultValue={event?.description ?? ''}
+          placeholder="Порядок денний, посилання на зустріч або нотатки"
+        />
+      </label>
+      <label>
+        Початок
+        <input
+          type="datetime-local"
+          name="startAt"
+          required
+          defaultValue={event ? localDateTime(new Date(event.startAt)) : defaults.current.start}
+        />
+      </label>
+      <label>
+        Завершення
+        <input
+          type="datetime-local"
+          name="endAt"
+          required
+          defaultValue={event ? localDateTime(new Date(event.endAt)) : defaults.current.end}
+        />
+      </label>
+      <label className="check-label span-2">
+        <input type="checkbox" name="allDay" defaultChecked={event?.allDay ?? false} />
+        Подія на весь день
+      </label>
+      <div className={`calendar-audience-select span-2${audienceOpen ? ' is-open' : ''}`}>
+        <button
+          className="calendar-audience-select__trigger"
+          type="button"
+          aria-expanded={audienceOpen}
+          onClick={() => setAudienceOpen((current) => !current)}
+        >
+          <ChevronDown size={16} />
+          <span>Бачать: <strong>{audienceSummary}</strong></span>
+        </button>
+        {audienceOpen && (
+          <fieldset className="calendar-company-audience">
+            <legend className="sr-only">Хто побачить подію</legend>
+            <label title="Тільки я">
+              <span>Тільки я</span>
+              <input
+                type="checkbox"
+                checked={privateOnly}
+                onChange={(changed) => {
+                  setPrivateOnly(changed.target.checked)
+                  if (changed.target.checked) setSelectedCompanyIds([])
+                }}
+              />
+            </label>
+            {companies.map((company) => (
+              <label key={company.companyId} title={company.label}>
+                <span>{company.label}</span>
+                <input
+                  type="checkbox"
+                  checked={!privateOnly && audienceCompanyIds.includes(company.companyId)}
+                  onChange={(changed) => toggleCompany(company.companyId, changed.target.checked)}
+                />
+              </label>
+            ))}
+            {companies.length === 0 && <span className="calendar-company-audience__empty">Немає компаній із увімкненим календарем.</span>}
+          </fieldset>
+        )}
+        {!privateOnly && audienceCompanyIds.length === 0 && (
+          <p className="calendar-audience__hint" role="alert">
+            Оберіть щонайменше одну компанію або позначте «Тільки я».
+          </p>
+        )}
+      </div>
+      {children}
+    </form>
   )
 }
 

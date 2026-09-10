@@ -14,6 +14,7 @@ import {
   addChatParticipantSchema,
   convertChatMessageToEventSchema,
   convertChatMessageToTaskSchema,
+  createCalendarEventSchema,
   createChatThreadSchema,
   deleteChatMessageSchema,
   editChatMessageSchema,
@@ -27,7 +28,6 @@ import {
   createFeedPostSchema,
   feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
-  updateFeedSubscriptionSchema,
   updateFeedPostSchema,
   groupListQuerySchema,
   importDatasetKindSchema,
@@ -189,22 +189,20 @@ describe('transport schemas', () => {
   it('keeps feed audiences explicit and comment replies flat', () => {
     expect(feedListQuerySchema.parse({
       company: 'cmp_bert',
-      filter: 'FOLLOWING',
+      filter: 'MINE',
       type: 'TASK',
       groupId: 'grp_product_design',
       audienceId: 'cmp_bert',
       mentioned: 'true',
-      favorite: 'true',
       important: 'false',
       limit: '10',
     })).toMatchObject({
       company: 'cmp_bert',
-      filter: 'FOLLOWING',
+      filter: 'MINE',
       type: 'TASK',
       groupId: 'grp_product_design',
       audienceId: 'cmp_bert',
       mentioned: true,
-      favorite: true,
       important: false,
       limit: 10,
     })
@@ -212,10 +210,7 @@ describe('transport schemas', () => {
       dateFrom: '2026-08-01',
       dateTo: '2026-07-01',
     })).toThrow()
-    expect(updateFeedSubscriptionSchema.parse({ notificationMode: 'MENTIONS' })).toEqual({
-      notificationMode: 'MENTIONS',
-    })
-    expect(() => updateFeedSubscriptionSchema.parse({ notificationMode: 'SOMETIMES' })).toThrow()
+    expect(() => feedListQuerySchema.parse({ filter: 'FOLLOWING' })).toThrow()
     expect(feedListQuerySchema.parse({ type: 'FILE' })).toMatchObject({ type: 'FILE' })
     expect(shareFileToFeedSchema.parse({
       companyId: 'cmp_bert',
@@ -624,5 +619,53 @@ describe('transport schemas', () => {
       },
     })
     expect(() => companyMappingArtifactSchema.parse(unstableTarget)).toThrow()
+  })
+})
+
+describe('calendar event audience', () => {
+  const base = {
+    companyId: 'cmp_bert_ua',
+    title: 'Зустріч команди',
+    startAt: '2026-09-14T15:00:00.000Z',
+    endAt: '2026-09-14T16:00:00.000Z',
+    sourceTimezone: 'Europe/Kyiv',
+    allDay: false,
+  }
+
+  it('keeps a private event out of every company audience', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      description: 'Порядок денний',
+      audience: { type: 'PRIVATE' },
+    })
+    expect(parsed.audience).toEqual({ type: 'PRIVATE' })
+    expect(parsed.description).toBe('Порядок денний')
+  })
+
+  it('deduplicates the selected companies', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', 'cmp_bert_ua', 'cmp_bert_service'] },
+    })
+    expect(parsed.audience).toEqual({
+      type: 'COMPANIES',
+      companyIds: ['cmp_bert_ua', 'cmp_bert_service'],
+    })
+  })
+
+  it('allows an audience that differs from the owning company', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_bert_service'] },
+    })
+    expect(parsed.audience).toEqual({ type: 'COMPANIES', companyIds: ['cmp_bert_service'] })
+  })
+
+  it('still rejects an end that is not after the start', () => {
+    expect(() => createCalendarEventSchema.parse({
+      ...base,
+      endAt: base.startAt,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua'] },
+    })).toThrow()
   })
 })

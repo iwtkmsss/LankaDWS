@@ -23,7 +23,8 @@ export class KnowledgeService {
     const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT' }, select: { fileId: true } })
     const attachmentRows = attachmentLinks.length === 0 ? [] : await this.prisma.fileObject.findMany({ where: { id: { in: attachmentLinks.map((link) => link.fileId) }, workspaceId: principal.workspaceId }, select: { id: true, safeFilename: true, bytes: true, detectedMime: true, scanStatus: true } })
     const attachments = attachmentRows.map(({ detectedMime, ...file }) => ({ ...file, mimeType: detectedMime }))
-    return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement, attachments }
+    const audienceRows = await this.prisma.articleAudience.findMany({ where: { articleId: resolved.id, principalType: 'COMPANY' }, select: { principalId: true } })
+    return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement, attachments, companyIds: audienceRows.map((row) => row.principalId) }
   }
 
   async create(principal: AuthPrincipal, input: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string }) {
@@ -43,9 +44,13 @@ export class KnowledgeService {
     return { id: articleId, slug }
   }
 
-  async update(principal: AuthPrincipal, slug: string, input: { title: string; body: string; changeSummary: string; attachmentIds?: string[]; expectedVersion: number }) {
+  async update(principal: AuthPrincipal, slug: string, input: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; expectedVersion: number }) {
     if (principal.accountType !== 'ADMIN') throw forbidden()
     if (typeof input.title !== 'string' || !input.title.trim() || typeof input.body !== 'string' || !input.body.trim() || typeof input.changeSummary !== 'string' || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw badRequest('article_fields')
+    // Audience is optional on update; an empty selection would orphan the
+    // article, so it is rejected the same way it is on create.
+    const companyIds = input.companyIds
+    if (companyIds && (!companyIds.length || companyIds.some((company) => !principal.allowedCompanyIds.includes(company)))) throw badRequest('article_audience')
     const article = await this.detail(principal, slug)
     if (article.workspaceId !== principal.workspaceId) throw notFound()
     const attachmentIds = await this.assertAttachments(principal, input.attachmentIds)
@@ -54,6 +59,10 @@ export class KnowledgeService {
       const updated = await tx.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, version: input.expectedVersion, status: 'ACTIVE' }, data: { version: { increment: 1 }, currentVersionId: versionId } })
       if (updated.count !== 1) throw conflict('Матеріал уже змінено. Відкрийте його повторно, щоб завантажити актуальну версію.')
       await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId: article.id, version: input.expectedVersion + 1, title: input.title.trim(), body: input.body.trim(), changeSummary: input.changeSummary.trim() || 'Оновлено матеріал', createdBy: principal.userId, publishedAt: new Date() } })
+      if (companyIds) {
+        await tx.articleAudience.deleteMany({ where: { articleId: article.id, principalType: 'COMPANY' } })
+        await tx.articleAudience.createMany({ data: companyIds.map((companyId) => ({ id: id('audn'), articleId: article.id, principalType: 'COMPANY', principalId: companyId })) })
+      }
       for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: {} })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     })

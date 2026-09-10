@@ -17,6 +17,7 @@ function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
     author: { id: 'user-1', displayName: 'Марія', avatarAsset: null },
     attachments: [],
     readByCount: 0,
+    reactions: { likeCount: 0, likedByMe: false },
     canEdit: true,
     canDelete: true,
     ...overrides,

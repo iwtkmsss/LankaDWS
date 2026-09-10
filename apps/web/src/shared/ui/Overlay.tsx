@@ -323,6 +323,7 @@ export interface ModalRootProps extends PropsWithChildren {
   size?: ModalSize
   mobileFullscreen?: boolean
   role?: ModalRole
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
   header?: ReactNode
@@ -347,6 +348,7 @@ export function ModalRoot({
   size = 'md',
   mobileFullscreen = false,
   role = 'dialog',
+  onBeforeClose,
   onRequestClose,
   footer,
   header,
@@ -378,9 +380,11 @@ export function ModalRoot({
   const closingRef = useRef(false)
   const [closing, setClosing] = useState(false)
   const requestCloseRef = useRef(onRequestClose)
+  const beforeCloseRef = useRef(onBeforeClose)
   const closeDisabledRef = useRef(closeDisabled)
   const closeOnEscapeRef = useRef(closeOnEscape)
   requestCloseRef.current = onRequestClose
+  beforeCloseRef.current = onBeforeClose
   closeDisabledRef.current = closeDisabled
   closeOnEscapeRef.current = closeOnEscape
   const surfaceRef = dialogRef ?? internalRef
@@ -395,6 +399,7 @@ export function ModalRoot({
 
   const requestClose = useCallback((reason: ModalCloseReason) => {
     if (closeDisabledRef.current || closingRef.current) return
+    if (beforeCloseRef.current?.(reason) === false) return
     const reducedMotion = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reducedMotion) {
@@ -542,6 +547,7 @@ export function Modal({
   description,
   children,
   footer,
+  onBeforeClose,
   onRequestClose,
   closeDisabled = false,
   initialFocusRef,
@@ -556,6 +562,7 @@ export function Modal({
   title: string
   description?: string
   footer?: ReactNode
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   closeDisabled?: boolean
   initialFocusRef?: RefObject<HTMLElement | null>
@@ -575,6 +582,7 @@ export function Modal({
       size={size}
       role={role}
       mobileFullscreen={mobileFullscreen}
+      onBeforeClose={onBeforeClose}
       onRequestClose={onRequestClose}
       footer={footer}
       closeDisabled={closeDisabled}
@@ -593,6 +601,7 @@ export function Drawer({
   title,
   description,
   children,
+  onBeforeClose,
   onRequestClose,
   footer,
   closeDisabled = false,
@@ -603,6 +612,7 @@ export function Drawer({
 }: PropsWithChildren<{
   title: string
   description?: string
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
   closeDisabled?: boolean
@@ -618,6 +628,7 @@ export function Drawer({
       variant="drawer"
       size={size}
       mobileFullscreen
+      onBeforeClose={onBeforeClose}
       onRequestClose={onRequestClose}
       footer={footer}
       closeDisabled={closeDisabled}
@@ -640,10 +651,12 @@ export function ConfirmationDialog({
   onConfirm,
   confirmLabel = 'Підтвердити',
   cancelLabel = 'Скасувати',
+  cancelVariant = 'secondary',
   confirmVariant = 'danger',
   confirmDisabled = false,
   footer,
   initialFocusRef,
+  className,
 }: PropsWithChildren<{
   title: string
   description?: string
@@ -651,10 +664,12 @@ export function ConfirmationDialog({
   onConfirm?: () => void
   confirmLabel?: string
   cancelLabel?: string
+  cancelVariant?: 'primary' | 'secondary' | 'danger'
   confirmVariant?: 'primary' | 'danger'
   confirmDisabled?: boolean
   footer?: ReactNode
   initialFocusRef?: RefObject<HTMLElement | null>
+  className?: string
 }>) {
   const cancelRef = useRef<HTMLButtonElement>(null)
   const actions = footer ?? (
@@ -662,7 +677,7 @@ export function ConfirmationDialog({
       <button
         ref={cancelRef}
         type="button"
-        className="button button--secondary"
+        className={`button button--${cancelVariant}`}
         onClick={() => onRequestClose('cancel-button')}
       >
         {cancelLabel}
@@ -684,6 +699,7 @@ export function ConfirmationDialog({
       size="sm"
       role="alertdialog"
       mobileFullscreen={false}
+      className={className}
       onRequestClose={onRequestClose}
       initialFocusRef={initialFocusRef ?? cancelRef}
       footer={actions}
@@ -722,16 +738,19 @@ export function useModalCloseGuard({
     setPendingReason('route-change')
   }, [blocker.state])
 
-  const requestClose = useCallback((reason: ModalCloseReason) => {
-    if (reason === 'success' || !dirtyRef.current) {
-      allowNavigationRef.current = true
-      closeRef.current(reason)
-      resetNavigationAllowance()
-      return
-    }
+  const shouldClose = useCallback((reason: ModalCloseReason) => {
+    if (reason === 'success' || !dirtyRef.current) return true
     pendingReasonRef.current = reason
     setPendingReason(reason)
-  }, [resetNavigationAllowance])
+    return false
+  }, [])
+
+  const requestClose = useCallback((reason: ModalCloseReason) => {
+    if (!shouldClose(reason)) return
+    allowNavigationRef.current = true
+    closeRef.current(reason)
+    resetNavigationAllowance()
+  }, [resetNavigationAllowance, shouldClose])
 
   const cancelClose = useCallback(() => {
     if (blocker.state === 'blocked') blocker.reset()
@@ -761,6 +780,7 @@ export function useModalCloseGuard({
   }, [resetNavigationAllowance])
 
   return {
+    shouldClose,
     requestClose,
     pendingReason,
     isConfirmationOpen: pendingReason !== null,
@@ -776,22 +796,35 @@ export function UnsavedChangesDialog({
   guard,
   title = 'Закрити без збереження?',
   description = 'Незбережені зміни буде втрачено.',
-}: {
+  continueLabel = 'Продовжити редагування',
+  discardLabel = 'Закрити без збереження',
+  footer,
+  initialFocusRef,
+  children,
+}: PropsWithChildren<{
   guard: ModalCloseGuardController
   title?: string
   description?: string
-}) {
+  continueLabel?: string
+  discardLabel?: string
+  footer?: ReactNode
+  initialFocusRef?: RefObject<HTMLElement | null>
+}>) {
   if (!guard.isConfirmationOpen) return null
   return (
     <ConfirmationDialog
       title={title}
       description={description}
-      cancelLabel="Продовжити редагування"
-      confirmLabel="Закрити без збереження"
+      cancelLabel={continueLabel}
+      cancelVariant="primary"
+      confirmLabel={discardLabel}
       onRequestClose={() => guard.cancelClose()}
       onConfirm={() => guard.confirmClose()}
+      footer={footer}
+      initialFocusRef={initialFocusRef}
+      className="unsaved-changes-dialog"
     >
-      <p>Перевірте введені дані або поверніться до форми.</p>
+      {children ?? <p>Перевірте введені дані або поверніться до форми.</p>}
     </ConfirmationDialog>
   )
 }

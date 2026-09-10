@@ -23,8 +23,8 @@ import { api, ApiProblem, idempotencyKey, jsonBody } from '../../../shared/api/c
 import { useAuth } from '../../../shared/auth/AuthProvider'
 import {
   Button,
-  ConfirmationDialog,
   Modal,
+  UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../../../shared/ui'
 import { loadTaskCreateOptions } from './api'
@@ -46,11 +46,9 @@ import './task-create.css'
 type DetailSection = Exclude<TaskCreateSection, 'main' | 'participants'>
 type DraftSaveState = 'saving' | 'saved' | 'error'
 
-function localDateTimeNow(): string {
-  const now = new Date()
-  now.setSeconds(0, 0)
+function toLocalDateTime(value: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
 }
 
 function defaultDraft(
@@ -58,6 +56,8 @@ function defaultDraft(
   groupId: string,
   initialResponsibleId: string,
 ): TaskCreateDraft {
+  const startsAt = new Date()
+  startsAt.setSeconds(0, 0)
   return {
     title: '',
     description: '',
@@ -66,8 +66,8 @@ function defaultDraft(
     parentTaskId: '',
     reporterId: userId,
     priority: 'MEDIUM',
-    startsAt: localDateTimeNow(),
-    dueAt: '',
+    startsAt: toLocalDateTime(startsAt),
+    dueAt: toLocalDateTime(new Date(startsAt.getTime() + 60 * 60 * 1_000)),
     estimatedMinutes: '',
     participants: [{
       userId: initialResponsibleId || userId,
@@ -350,6 +350,7 @@ export function TaskCreateModal({
         description={groupId
           ? 'Контекст робочої групи вже застосовано. Спочатку опишіть результат і відповідальних.'
           : undefined}
+        onBeforeClose={closeGuard.shouldClose}
         onRequestClose={closeGuard.requestClose}
         closeDisabled={create.isPending}
         initialFocusRef={titleRef}
@@ -494,13 +495,13 @@ export function TaskCreateModal({
         </form>
       </Modal>
       {closeGuard.isConfirmationOpen && (
-        <ConfirmationDialog
+        <UnsavedChangesDialog
+          guard={closeGuard}
           title="Закрити форму?"
           description="Чернетка залишиться на цьому пристрої протягом 7 днів."
-          onRequestClose={() => closeGuard.cancelClose()}
           initialFocusRef={continueEditingRef}
           footer={(
-            <div className="task-create-draft-actions">
+            <div className="unsaved-changes-dialog__actions">
               <div>
                 <button
                   ref={continueEditingRef}
@@ -523,6 +524,7 @@ export function TaskCreateModal({
               <Button
                 type="button"
                 variant="danger"
+                className="unsaved-changes-dialog__danger-action"
                 onClick={() => {
                   closeGuard.confirmClose(() => clearTaskDraft(draftKey))
                 }}
@@ -533,7 +535,7 @@ export function TaskCreateModal({
           )}
         >
           <p>Незбережене на сервері завдання не буде створене.</p>
-        </ConfirmationDialog>
+        </UnsavedChangesDialog>
       )}
     </>
   )
