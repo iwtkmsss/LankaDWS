@@ -10,7 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { badRequest } from '../../common/errors.js';
-import type { BertRequest } from '../../common/request-context.js';
+import type { LankaDWSRequest } from '../../common/request-context.js';
 import { principalFrom } from '../../common/request-context.js';
 import { AdminOnly } from '../auth/auth.decorators.js';
 import { RetentionService } from './retention.service.js';
@@ -21,13 +21,13 @@ export class RetentionController {
   constructor(private readonly retention: RetentionService) {}
 
   @Get()
-  overview(@Req() request: BertRequest) {
+  overview(@Req() request: LankaDWSRequest) {
     return this.retention.overview(principalFrom(request));
   }
 
   @Patch('policies/:category')
   updatePolicy(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('category') category: string,
     @Body()
     body: {
@@ -48,7 +48,7 @@ export class RetentionController {
 
   @Post('legal-holds')
   placeHold(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() body: { entityType: string; entityId: string; reason: string },
     @Headers('x-reauth-challenge') reauth?: string,
   ) {
@@ -57,7 +57,7 @@ export class RetentionController {
 
   @Post('legal-holds/:id/release')
   releaseHold(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') id: string,
     @Body() body: { reason: string },
     @Headers('x-reauth-challenge') reauth?: string,
@@ -72,7 +72,7 @@ export class RetentionController {
 
   @Get('dry-run')
   dryRun(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('category') category = '',
     @Query('cutoff') cutoff?: string,
   ) {
@@ -81,7 +81,7 @@ export class RetentionController {
 
   @Post('purge')
   purge(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body()
     body: {
       category: string;

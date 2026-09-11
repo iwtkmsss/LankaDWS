@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CreateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput } from '@lankadws/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { DomainError } from '../../common/errors.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'

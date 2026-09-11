@@ -12,7 +12,7 @@ vi.mock('../shared/api/client', () => ({ api, jsonBody: JSON.stringify, idempote
 const user = {
   id: 'user-1', displayName: 'Андрій Коваль', firstName: 'Андрій', lastName: 'Коваль',
   middleName: 'Іванович', username: 'andrii', jobTitle: 'Керівник', isActive: true,
-  accountType: 'USER', company: { id: 'company-1', name: 'BERT' },
+  accountType: 'USER', company: { id: 'company-1', name: 'LankaDWS' },
   orgUnit: { id: 'unit-1', name: 'Розробка' }, contactEmail: 'andrii@example.com',
   phone: '+380501234567', gender: 'MALE', birthDate: '1990-05-12',
   leadership: { companies: [], orgUnits: [] },

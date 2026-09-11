@@ -9,7 +9,7 @@ mkdirSync(screenshotDir, { recursive: true })
 async function login(page: Page, username = 'maria') {
   await page.goto('/login')
   await page.getByLabel('Нікнейм').fill(username)
-  await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+  await page.getByLabel('Пароль', { exact: true }).fill('LankaDWSDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
   await expect(page).toHaveURL(/\/feed$/)
 }
@@ -49,8 +49,8 @@ test('messages workspace covers user-only search, direct history and real chat a
   await expect(page.locator('.messages-thread-list')).toHaveCount(0)
   await screenshot(page, testInfo.project.name, 'user-search')
 
-  await page.getByRole('option', { name: /Олена Бондар/ }).press('Enter')
-  await expect(page).toHaveURL(/\/messages\/thr_/)
+  await page.getByRole('option', { name: /Олена Бондар/ }).click()
+  await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
   const conversation = page.getByRole('region', { name: /Діалог: Олена Бондар/ })
   await expect(conversation).toBeVisible()
   await expect(conversation.getByRole('button', { name: /дзвін/i })).toHaveCount(0)
@@ -59,6 +59,7 @@ test('messages workspace covers user-only search, direct history and real chat a
   const composer = conversation.getByRole('textbox', { name: 'Повідомлення' })
   const body = `Перевірка нового діалогу · ${testInfo.project.name} · ${Date.now()}`
   await composer.fill(body)
+  await expect(page).toHaveURL(/\/messages\/thr_/)
   await composer.press('Enter')
   const sent = conversation.locator('.message-row').filter({ hasText: body })
   await expect(sent).toBeVisible()
@@ -74,7 +75,7 @@ test('messages workspace covers user-only search, direct history and real chat a
   await conversation.locator('input[type="file"]').setInputFiles({
     name: attachmentName,
     mimeType: 'text/plain',
-    buffer: Buffer.from('Lanka messages visual QA'),
+    buffer: Buffer.from('LankaDWS messages visual QA'),
   })
   await expect(conversation.getByText(attachmentName)).toBeVisible()
   const attachmentBody = `${body} · вкладення`
@@ -118,11 +119,10 @@ test('messages workspace covers user-only search, direct history and real chat a
   await conversation.getByRole('button', { name: 'Інші дії' }).click()
 
   await conversation.getByRole('button', { name: 'Інформація про діалог' }).click()
-  const info = page.getByRole('dialog', { name: 'Інформація про діалог' })
-  await expect(info.getByText('@olena')).toBeVisible()
-  await expect(info.getByText(/Сповіщення/)).toBeVisible()
-  await expect(info.getByText(/Спільні файли/)).toHaveCount(0)
-  await info.getByRole('button', { name: 'Закрити' }).click()
+  const profilePanel = page.getByRole('complementary', { name: 'Чат і сповіщення' })
+  await expect(profilePanel.getByText('@olena')).toBeVisible()
+  await expect(profilePanel.getByRole('region', { name: 'Коротка інформація про користувача' })).toBeVisible()
+  await profilePanel.getByRole('button', { name: 'Закрити праву панель' }).click()
 
   await screenshot(page, testInfo.project.name, 'active-conversation')
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -157,7 +157,7 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
   await expect(compose.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
   await search.press('ArrowDown')
   await search.press('Enter')
-  await expect(page).toHaveURL(/\/messages\?to=usr_olena/)
+  await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
   await page.getByRole('textbox', { name: 'Повідомлення', exact: true }).fill('Початок нового діалогу')
   await expect(page).toHaveURL(/\/messages\/thr_/)
   const directUrl = page.url()
@@ -168,28 +168,33 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('a searched contact stays transient until the first draft text is entered', async ({ page }, testInfo) => {
+test('a searched contact stays transient until the first message is sent', async ({ page }, testInfo) => {
   await configureViewport(page, testInfo.project.name)
   await login(page)
   await page.goto('/messages?new=1')
 
   const compose = page.getByRole('dialog', { name: 'Новий чат' })
   const search = compose.getByRole('combobox', { name: 'Пошук користувачів для нового чату' })
-  await search.fill('Марко')
-  await compose.getByRole('option', { name: /Марко Литвин/ }).click()
-  await expect(page).toHaveURL(/\/messages\?to=usr_marko/)
-  await expect(page.getByRole('region', { name: /Діалог: Марко Литвин/ })).toBeVisible()
+  const target = testInfo.project.name === 'mobile-chromium'
+    ? { id: 'usr_dmytro', query: 'Дмитро', name: 'Дмитро Савчук' }
+    : { id: 'usr_marko', query: 'Марко', name: 'Марко Литвин' }
+  await search.fill(target.query)
+  await compose.getByRole('option', { name: new RegExp(target.name) }).click()
+  await expect(page).toHaveURL(new RegExp(`/messages\\?to=${target.id}`))
+  await expect(page.getByRole('region', { name: new RegExp(`Діалог: ${target.name}`) })).toBeVisible()
 
   await page.goto('/messages')
-  await expect(page.locator('.messages-thread-list button').filter({ hasText: 'Марко Литвин' })).toHaveCount(0)
+  await expect(page.locator('.messages-thread-list button').filter({ hasText: target.name })).toHaveCount(0)
 
-  await page.goto('/messages?to=usr_marko')
+  await page.goto(`/messages?to=${target.id}`)
   const draft = 'Чернетка, яка зберігає початок чату'
   await page.getByRole('textbox', { name: 'Повідомлення', exact: true }).fill(draft)
   await expect(page).toHaveURL(/\/messages\/thr_/)
   await expect(page.getByRole('textbox', { name: 'Повідомлення', exact: true })).toHaveValue(draft)
+  await page.getByRole('textbox', { name: 'Повідомлення', exact: true }).press('Enter')
+  await expect(page.locator('.message-row').filter({ hasText: draft })).toBeVisible()
   await page.goto('/messages')
-  await expect(page.locator('.messages-thread-list button').filter({ hasText: 'Марко Литвин' })).toBeVisible()
+  await expect(page.locator('.messages-thread-list button').filter({ hasText: target.name })).toBeVisible()
 })
 
 test('new group remains a local messages-only action', async ({ page }, testInfo) => {

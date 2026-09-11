@@ -4,7 +4,7 @@ import type {
   ChatMessageView,
   ChatThreadListItem,
   StructuredMentionInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   useInfiniteQuery,
   useMutation,
@@ -206,7 +206,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const client = useQueryClient()
   const [tab, setTab] = useState<PanelTab>(() => {
     try {
-      return window.localStorage.getItem('bertcrm.right-panel.tab') === 'notifications'
+      return window.localStorage.getItem('lankadws.right-panel.tab') === 'notifications'
         ? 'notifications'
         : 'chat'
     } catch {
@@ -231,7 +231,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem('bertcrm.right-panel.tab', tab)
+      window.localStorage.setItem('lankadws.right-panel.tab', tab)
     } catch {
       // The current in-memory selection remains available when storage is blocked.
     }
@@ -656,6 +656,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                   onReplyCancel={() => {}}
                   onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
                   onFiles={(files) => upload.mutate(files)}
+                  onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment].slice(0, 5))}
                   onSend={async (input) => {
                     try {
                       await send.mutateAsync(input)
@@ -747,7 +748,13 @@ function CompactProfileSummary({
         </div>
         <div>
           <dt><Network size={17} />Підрозділ</dt>
-          <dd>{profile?.orgUnit?.name ?? 'Не вказано'}</dd>
+          <dd className="employee-hierarchy">
+            {profile?.orgUnit
+              ? profile.orgUnit.parent
+                ? `${profile.orgUnit.parent.name} → ${profile.orgUnit.name}`
+                : profile.orgUnit.name
+              : 'Не вказано'}
+          </dd>
         </div>
         <div>
           <dt><BriefcaseBusiness size={17} />Посада</dt>

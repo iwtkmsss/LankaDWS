@@ -1,4 +1,4 @@
-# BertCRM context map
+# LankaDWS context map
 
 Read only the flow relevant to the request. This is a navigation map, not an architecture manual. Route sources are `apps/web/src/app/routes.ts` and `apps/web/src/app/router.tsx`; the machine-readable endpoint source is `artifacts/openapi.json`.
 

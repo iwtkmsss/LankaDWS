@@ -11,7 +11,7 @@ import type { TaskTransaction } from './task-types.js'
 function principal(): AuthPrincipal {
   return {
     userId: 'usr_maria',
-    workspaceId: 'ws_bert',
+    workspaceId: 'ws_lankadws',
     username: 'maria',
     displayName: 'Maria',
     primaryCompanyId: 'cmp_a',
@@ -57,7 +57,7 @@ describe('TaskParticipantsService.mentionCandidates group boundary', () => {
 
     const where = userFindMany.mock.calls[0]?.[0] as { where: Record<string, unknown> }
     expect(where.where).not.toHaveProperty('groupMemberships')
-    expect(where.where).toMatchObject({ workspaceId: 'ws_bert', isActive: true })
+    expect(where.where).toMatchObject({ workspaceId: 'ws_lankadws', isActive: true })
   })
 
   it('restricts candidates to active members of the group for a grouped task', async () => {
@@ -67,7 +67,7 @@ describe('TaskParticipantsService.mentionCandidates group boundary', () => {
 
     const where = userFindMany.mock.calls[0]?.[0] as { where: Record<string, unknown> }
     expect(where.where).toMatchObject({
-      workspaceId: 'ws_bert',
+      workspaceId: 'ws_lankadws',
       isActive: true,
       groupMemberships: { some: { groupId: 'grp_x', leftAt: null } },
     })

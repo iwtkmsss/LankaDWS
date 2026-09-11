@@ -1,8 +1,8 @@
-# Lanka architecture
+# LankaDWS architecture
 
 ## Форма системи
 
-Lanka — npm-workspaces modular monolith. `apps/web` є React/Vite client, `apps/api` — єдиний writable NestJS API та bounded worker, `packages/contracts` — framework-neutral transport boundary. Production використовує одну SQLite writer instance на локальному persistent volume та окремий локальний file store.
+LankaDWS — npm-workspaces modular monolith. `apps/web` є React/Vite client, `apps/api` — єдиний writable NestJS API та bounded worker, `packages/contracts` — framework-neutral transport boundary. Production використовує одну SQLite writer instance на локальному persistent volume та окремий локальний file store.
 
 Залежності спрямовані всередину: React routes використовують shared API/UI helpers і contracts; Nest controllers делегують application services; services володіють transaction boundaries; Prisma, filesystem, cryptography та scanner є infrastructure boundary. Contracts не імпортують код applications.
 

@@ -2,7 +2,7 @@ import type {
   ChatContactUser,
   ChatThreadListItem,
   RecommendedChatUser,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MessagesSidebar } from './MessagesSidebar'

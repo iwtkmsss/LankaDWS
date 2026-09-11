@@ -7,7 +7,7 @@ import {
   type BitrixSnapshotSealRequest,
   type ImportManifestFile,
   type ImportManifestValidationReport,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   createHash,
   createPrivateKey,
@@ -301,7 +301,7 @@ async function atomicallyCreateOutput(
     if (error instanceof ImportManifestSealError) throw error
     throw new ImportManifestSealError('SEAL_DATASET_ROOT_CHANGED', 'Dataset root changed before seal output was created.')
   }
-  const temporaryDirectory = await mkdtemp(join(dirname(parent), '.bert-seal-'))
+  const temporaryDirectory = await mkdtemp(join(dirname(parent), '.lankadws-seal-'))
   const temporaryPath = join(temporaryDirectory, 'output')
   let targetIdentity: FileIdentity | null = null
   try {

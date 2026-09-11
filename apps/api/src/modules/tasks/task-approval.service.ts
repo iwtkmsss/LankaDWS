@@ -5,7 +5,7 @@ import type {
   RequestTaskApprovalInput,
   TaskApprovalOption,
   TaskApprovalView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
 import {

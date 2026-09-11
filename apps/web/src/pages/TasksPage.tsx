@@ -10,7 +10,7 @@ import type {
   TaskListItem,
   TaskParticipantRole,
   TaskViewRole,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   AlertTriangle,
   ArrowLeft,

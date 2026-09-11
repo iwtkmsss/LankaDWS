@@ -1,5 +1,5 @@
 {
-  "name": "@bert-crm/web",
+  "name": "@lankadws/web",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -8,14 +8,14 @@
     "dev:public": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "oxlint src",
-    "typecheck": "npm run build --workspace @bert-crm/contracts && tsc -b --pretty false",
+    "typecheck": "npm run build --workspace @lankadws/contracts && tsc -b --pretty false",
     "test": "vitest run",
     "pretest:e2e": "npm run build --prefix ../../packages/contracts && npm run build --prefix ../api && npm run web-e2e:prepare --prefix ../api",
     "test:e2e": "playwright test",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@bert-crm/contracts": "*",
+    "@lankadws/contracts": "*",
     "@fontsource-variable/roboto": "^5.3.0",
     "@tanstack/react-query": "^5.90.5",
     "lucide-react": "^0.468.0",

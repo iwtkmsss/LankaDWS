@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Temporal } from '@js-temporal/polyfill'
-import type { TaskRecurrenceInput, TaskRelationType } from '@bert-crm/contracts'
+import type { TaskRecurrenceInput, TaskRelationType } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

@@ -1,4 +1,4 @@
-import type { StructuredMentionInput, StructuredMentionView } from '@bert-crm/contracts'
+import type { StructuredMentionInput, StructuredMentionView } from '@lankadws/contracts'
 
 export function reconcileMentionChange(
   previousValue: string,

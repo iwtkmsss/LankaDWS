@@ -105,4 +105,4 @@ Status legend: `[x]` implemented and verified; `[~]` implemented with a host-dep
 
 - [x] The internal CRM product/design stage requested before the real Bitrix transfer is complete: the primary daily flows are implemented in the existing Onest/navy/cobalt shell, Chat uses authorized SSE with polling fallback, and the latest combined API/Web typecheck passed.
 - [x] No additional schema migration is required for the remaining product UI work in this stage.
-- [ ] The next data stage starts only with a real approved source inventory, company mapping and snapshot/extractor input. It is the one controlled legacy-to-BertCRM transfer flow; it must not be replaced by speculative schema work or synthetic claims that production data was imported.
+- [ ] The next data stage starts only with a real approved source inventory, company mapping and snapshot/extractor input. It is the one controlled legacy-to-LankaDWS transfer flow; it must not be replaced by speculative schema work or synthetic claims that production data was imported.

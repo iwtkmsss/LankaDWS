@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView } from '@lankadws/contracts'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -182,7 +182,7 @@ describe('MessageBubble', () => {
       '/api/v1/files/file-1/download?inline=true',
     )
     fireEvent.click(within(preview).getByRole('button', { name: 'Збільшити' }))
-    expect(within(preview).getByRole('button', { name: 'Відновити масштаб 100%' })).toHaveTextContent('125%')
+    expect(within(preview).getByRole('button', { name: 'Вмістити зображення у вікно' })).toHaveTextContent('125%')
     expect(screen.getByRole('link', { name: /Завантажити/ })).toHaveAttribute(
       'href',
       '/api/v1/files/file-1/download',

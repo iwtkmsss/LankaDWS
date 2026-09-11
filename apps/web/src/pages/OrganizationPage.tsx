@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
+import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws/contracts'
 import { Building2, ChevronDown, ChevronRight, Search, ShieldCheck, UserRound, UsersRound } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'

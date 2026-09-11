@@ -1577,14 +1577,51 @@ model Document {
   status           String
   confidentiality  Confidentiality   @default(INTERNAL)
   currentVersionId String?
+  folderId         String?
   version          Int               @default(1)
   archivedAt       DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   versions         DocumentVersion[]
+  folder           DriveFolder?      @relation(fields: [folderId], references: [id])
 
   @@index([companyId, status, updatedAt, id])
   @@index([ownerId, updatedAt])
+  @@index([companyId, folderId, updatedAt])
+}
+
+model DriveFolder {
+  id          String        @id
+  workspaceId String
+  companyId   String
+  name        String
+  parentId    String?
+  ownerId     String
+  trashedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  parent      DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id])
+  children    DriveFolder[] @relation("DriveFolderTree")
+  documents   Document[]
+
+  @@index([companyId, parentId, name])
+  @@index([ownerId, updatedAt])
+}
+
+model DriveShare {
+  id            String   @id
+  workspaceId   String
+  targetType    String
+  targetId      String
+  principalType String
+  principalId   String
+  role          String
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@unique([targetType, targetId, principalType, principalId])
+  @@index([principalType, principalId])
+  @@index([targetType, targetId])
 }
 
 model DocumentVersion {

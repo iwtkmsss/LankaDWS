@@ -529,11 +529,12 @@
 .message-bubble__content { min-width: 0; }
 .message-bubble p { margin: 0; color: var(--ink-600); font-size: 12.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-bubble__meta { display: flex; align-items: center; justify-content: flex-end; gap: 5px; width: 100%; margin-top: 6px; color: var(--ink-500); font-size: 9.5px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.is-own .message-bubble__meta { color: var(--ink-600); }
 .message-bubble__meta > .compact-file-name { max-width: min(220px, 62%); color: var(--ink-500); font-size: 8.5px; }
 .message-delivery-status { display: inline-flex; align-items: center; gap: 2px; }
 .message-delivery-status.is-read { color: var(--cobalt-600); }
 .message-bubble.is-deleted { display: grid; min-width: auto; color: var(--ink-400); padding: 8px 10px; }
-.message-bubble.is-deleted time { justify-self: end; margin-top: 5px; color: var(--ink-500); font-size: 9.5px; font-variant-numeric: tabular-nums; }
+.message-bubble.is-deleted time { justify-self: end; margin-top: 5px; color: var(--ink-600); font-size: 9.5px; font-variant-numeric: tabular-nums; }
 .message-bubble__reply-preview {
   display: grid;
   width: 100%;
@@ -572,8 +573,8 @@
   background: rgba(255, 255, 255, .92);
   color: var(--ink-400);
 }
-.message-action-menu { top: 102px; right: 0; }
-.message-row:not(.is-own) .message-action-menu { right: auto; left: 0; }
+.message-action-menu { top: auto; right: calc(100% + 6px); bottom: 0; }
+.message-row:not(.is-own) .message-action-menu { right: auto; left: calc(100% + 6px); }
 .message-bubble__edit { display: grid; min-width: min(420px, 50vw); gap: 7px; }
 .message-bubble__edit textarea { min-height: 72px; max-height: min(60vh, 520px); resize: vertical; }
 .message-bubble__edit-input textarea { height: auto; overflow-y: auto; field-sizing: content; }

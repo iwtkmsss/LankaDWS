@@ -5,7 +5,7 @@ import {
   type ConvertChatMessageToEventInput,
   type CreateCalendarEventInput,
   type UpdateCalendarEventInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -65,7 +65,7 @@ export class CalendarService {
       input.companyId,
       OrganizationCapability.CalendarWrite,
     )
-    const audienceCompanyIds = await this.resolveAudience(
+    const audienceCompanyIds = this.resolveAudience(
       principal,
       input.companyId,
       input.audience,
@@ -102,7 +102,7 @@ export class CalendarService {
     )
     this.assertTimezone(input.sourceTimezone)
     const isPrivate = input.audience.type === 'PRIVATE'
-    const audienceCompanyIds = await this.resolveAudience(
+    const audienceCompanyIds = this.resolveAudience(
       principal,
       event.companyId,
       input.audience,
@@ -219,11 +219,11 @@ export class CalendarService {
   /**
    * Every audience company must be in the principal's workspace scope.
    */
-  private async resolveAudience(
+  private resolveAudience(
     principal: AuthPrincipal,
     companyId: string,
     audience: CalendarEventAudienceInput,
-  ): Promise<string[]> {
+  ): string[] {
     if (audience.type === 'PRIVATE') return [companyId]
     const allowed = this.scope.allowedCompanies(principal)
     const requested = [...new Set(audience.companyIds)]

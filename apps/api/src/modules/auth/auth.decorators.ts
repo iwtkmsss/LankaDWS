@@ -1,8 +1,8 @@
 import { SetMetadata } from '@nestjs/common'
 
-export const PUBLIC_ROUTE = 'bert:public'
-export const RESTRICTED_ROUTE = 'bert:restricted'
-export const ADMIN_ONLY = 'bert:admin-only'
+export const PUBLIC_ROUTE = 'lankadws:public'
+export const RESTRICTED_ROUTE = 'lankadws:restricted'
+export const ADMIN_ONLY = 'lankadws:admin-only'
 
 export const Public = () => SetMetadata(PUBLIC_ROUTE, true)
 export const Restricted = () => SetMetadata(RESTRICTED_ROUTE, true)

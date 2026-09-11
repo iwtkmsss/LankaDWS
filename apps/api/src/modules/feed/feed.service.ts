@@ -19,7 +19,7 @@ import {
   type UpdateFeedPostInput,
   type StructuredMentionInput,
   type StructuredMentionView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import type { Prisma } from '../../generated/prisma/client.js'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'

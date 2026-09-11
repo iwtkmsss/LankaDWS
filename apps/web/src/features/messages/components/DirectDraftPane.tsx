@@ -1,4 +1,4 @@
-import type { ChatContactUser } from '@bert-crm/contracts'
+import type { ChatContactUser } from '@lankadws/contracts'
 import { ArrowLeft, LoaderCircle, Send } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Avatar, Button, IconButton } from '../../../shared/ui'

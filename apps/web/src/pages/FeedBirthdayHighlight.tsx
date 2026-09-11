@@ -1,4 +1,4 @@
-import type { FeedBirthdayView } from '@bert-crm/contracts'
+import type { FeedBirthdayView } from '@lankadws/contracts'
 import { CakeSlice, ChevronRight } from 'lucide-react'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { Avatar, Card } from '../shared/ui'

@@ -1,4 +1,4 @@
-import type { ProblemDetails } from '@bert-crm/contracts'
+import type { ProblemDetails } from '@lankadws/contracts'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 let csrfToken = ''
@@ -24,7 +24,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({ type: 'about:blank', title: 'Не вдалося виконати запит', status: response.status, code: `http_${response.status}`, correlationId: response.headers.get('x-correlation-id') ?? 'unknown' })) as ProblemDetails
     if (response.status === 401 && !path.startsWith('/auth/') && body.code !== 'credential_step_required') {
-      window.dispatchEvent(new Event('bert:session-ended'))
+      window.dispatchEvent(new Event('lankadws:session-ended'))
     }
     throw new ApiProblem(body)
   }

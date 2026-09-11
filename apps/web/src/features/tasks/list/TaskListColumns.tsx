@@ -8,7 +8,7 @@ import {
   type TaskListColumnsPreferenceValue,
   type TaskListColumnsUserUiPreferenceResult,
   type TaskListColumnsUserUiPreferenceView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { RotateCcw, Settings2 } from 'lucide-react'
 import { api, ApiProblem, jsonBody } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'

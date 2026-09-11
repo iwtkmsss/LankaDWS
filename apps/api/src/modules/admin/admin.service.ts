@@ -4,7 +4,7 @@ import {
   usernamePattern,
   type OrganizationCapabilityCode,
   type UpdateOrganizationCapability,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { hashPassword, id, randomTemporaryPassword } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

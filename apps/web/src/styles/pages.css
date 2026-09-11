@@ -168,22 +168,6 @@
 
 /* Content */
 .file-icon, .article-icon, .announcement-list__icon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 9px; background: var(--cobalt-100); color: var(--cobalt-600); }
-.drive-card { overflow: hidden; }
-.drive-sections { border-bottom: 1px solid var(--line); padding: 10px 12px; }
-.drive-toolbar { display: grid; align-items: end; gap: 10px; border-bottom: 1px solid var(--line); background: var(--surface-soft); padding: 12px 14px; grid-template-columns: minmax(240px, 1fr) repeat(3, minmax(145px, .55fr)); }
-.drive-toolbar > .search-field { width: 100%; background: var(--surface); }
-.drive-toolbar > label:not(.search-field) { display: grid; min-width: 0; gap: 4px; color: var(--ink-500); font-size: 10px; font-weight: 700; }
-.drive-toolbar select { width: 100%; min-width: 0; background: var(--surface); }
-.drive-card > .skeleton-stack, .drive-card > .empty-state { margin: 16px; }
-.drive-file-icon { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 10px; background: var(--cobalt-100); color: var(--cobalt-600); }
-.drive-file-icon--image { background: color-mix(in srgb, var(--success) 10%, var(--surface)); color: var(--success); }
-.drive-file-icon--other { background: var(--surface-soft); color: var(--ink-500); }
-.drive-table td:nth-child(n+2) { color: var(--ink-500); font-size: 11px; white-space: nowrap; }
-.document-drawer-actions { display: flex; width: 100%; align-items: center; justify-content: flex-end; gap: 8px; }
-.version-list { display: grid; gap: 8px; }
-.version-list article { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 9px; }
-.version-list article > span { display: flex; flex: 1; flex-direction: column; }
-.version-list small { color: var(--ink-400); }
 .document-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .document-preview__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 9px 11px; font-size: 12px; font-weight: 700; }
 .document-preview__header > span, .document-preview__header > div { display: flex; align-items: center; gap: 7px; }
@@ -667,8 +651,6 @@ button.employee-card__profile { border: 0; background: transparent; color: inher
 }
 
 @media (max-width: 1000px) {
-  .drive-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .drive-toolbar > .search-field { grid-column: 1 / -1; }
   .directory-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .directory-toolbar > .search-field { grid-column: 1 / -1; }
   .article-grid, .employee-grid { grid-template-columns: repeat(2, 1fr); }
@@ -695,7 +677,7 @@ button.employee-card__profile { border: 0; background: transparent; color: inher
   .admin-user-filters select { max-width: none; width: 100%; }
 }
 
-/* Company administration follows Lanka's compact, low-noise surfaces. */
+/* Company administration follows LankaDWS's compact, low-noise surfaces. */
 .companies-page { display: grid; gap: 18px; }
 .directory-page-heading { display: flex; min-width: 0; align-items: end; justify-content: space-between; gap: 18px; }
 .directory-page-heading > div:first-child { min-width: 0; }
@@ -874,12 +856,6 @@ button.employee-card__profile { border: 0; background: transparent; color: inher
   .knowledge-manage-button { width: auto; }
   .profile-form { grid-template-columns: 1fr; }
   .profile-fields-list + .profile-fields-list { border-top: 1px solid var(--line); border-left: 0; padding-top: 20px; padding-left: 0; }
-  .drive-toolbar { grid-template-columns: 1fr; }
-  .drive-toolbar > .search-field { grid-column: auto; }
-  .drive-sections { padding-inline: 8px; }
-  .drive-table th:nth-child(2), .drive-table td:nth-child(2), .drive-table th:nth-child(3), .drive-table td:nth-child(3) { display: none; }
-  .document-drawer-actions { justify-content: stretch; }
-  .document-drawer-actions .button { flex: 1; justify-content: center; }
   .directory-toolbar { grid-template-columns: 1fr; }
   .directory-toolbar > .search-field { grid-column: auto; }
   .directory-summary { align-items: flex-start; flex-direction: column; gap: 3px; }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { ManualTimeEntryInput, UpdateTimeEntryInput } from '@bert-crm/contracts'
+import type { ManualTimeEntryInput, UpdateTimeEntryInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'

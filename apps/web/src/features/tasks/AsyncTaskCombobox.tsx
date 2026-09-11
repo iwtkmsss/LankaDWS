@@ -5,7 +5,7 @@ import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValu
 export interface AsyncTaskOption { id: string; label: string; detail?: string }
 
 export function AsyncTaskCombobox({
-  label, value, selectedOption, onChange, loadOptions, placeholder, disabled = false, clearOnSelect = false, emptyLabel = 'Нічого не знайдено',
+  label, value, selectedOption, onChange, loadOptions, placeholder, disabled = false, clearOnSelect = false, emptyLabel = 'Нічого не знайдено', loadOnOpen = false, initialEmptyLabel = 'Немає нещодавніх варіантів.',
 }: {
   label: string
   value: string
@@ -16,6 +16,8 @@ export function AsyncTaskCombobox({
   disabled?: boolean
   clearOnSelect?: boolean
   emptyLabel?: string
+  loadOnOpen?: boolean
+  initialEmptyLabel?: string
 }) {
   const inputId = useId()
   const listId = useId()
@@ -29,14 +31,14 @@ export function AsyncTaskCombobox({
 
   useEffect(() => { if (!open) setText(selectedOption?.label ?? '') }, [open, selectedOption?.label, value])
   useEffect(() => {
-    if (!open || isComposing || Array.from(debouncedValue).length < 1) { setItems([]); setState('idle'); return }
+    if (!open || isComposing || (!loadOnOpen && Array.from(debouncedValue).length < 1)) { setItems([]); setState('idle'); return }
     const controller = new AbortController()
     setState('loading')
     void loadOptions(debouncedValue, controller.signal).then((next) => {
       if (!controller.signal.aborted) { setItems(next); setActive(next.length ? 0 : -1); setState('idle') }
     }).catch(() => { if (!controller.signal.aborted) setState('error') })
     return () => controller.abort()
-  }, [debouncedValue, isComposing, loadOptions, open])
+  }, [debouncedValue, isComposing, loadOnOpen, loadOptions, open])
 
   const choose = (option: AsyncTaskOption) => { onChange(option.id); setText(clearOnSelect ? '' : option.label); setOpen(false); setActive(-1) }
   return <div className="async-task-combobox" ref={root} onBlur={(event) => {
@@ -62,7 +64,9 @@ export function AsyncTaskCombobox({
       {open && <ul id={listId} role="listbox" aria-label={label}>
         {state === 'error' ? <li role="status">Не вдалося завантажити варіанти.</li>
           : items.length ? items.map((item, index) => <li key={item.id} role="option" aria-selected={index === active} className={index === active ? 'is-active' : ''} onMouseDown={(event) => { event.preventDefault(); choose(item) }}><strong>{item.label}</strong>{item.detail && <small>{item.detail}</small>}</li>)
-          : debouncedValue && !isComposing && state !== 'loading' ? <li role="status">{emptyLabel}</li> : <li role="status">Введіть щонайменше 1 символ.</li>}
+          : state === 'loading' ? <li role="status">Завантажуємо…</li>
+          : debouncedValue && !isComposing ? <li role="status">{emptyLabel}</li>
+          : loadOnOpen ? <li role="status">{initialEmptyLabel}</li> : <li role="status">Введіть щонайменше 1 символ.</li>}
       </ul>}
     </div>
   </div>

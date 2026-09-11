@@ -12,7 +12,7 @@ import { UserProfileProvider } from '../features/employees/UserProfileDrawer'
 
 function DocumentTitle() {
   const location = useLocation()
-  useEffect(() => { document.title = `${routeTitle(location.pathname)} — Lanka` }, [location.pathname])
+  useEffect(() => { document.title = `${routeTitle(location.pathname)} — LankaDWS` }, [location.pathname])
   return null
 }
 

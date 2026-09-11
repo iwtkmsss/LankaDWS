@@ -4,7 +4,7 @@ import type {
   FeedAttachmentView,
   FeedAudienceOption,
   StructuredMentionInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   ChevronDown,
   FileText,

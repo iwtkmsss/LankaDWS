@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common'
-import type { ProjectOption, TagOption, TaskOption } from '@bert-crm/contracts'
+import type { ProjectOption, TagOption, TaskOption } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
@@ -156,8 +156,21 @@ export class TaskCatalogService {
           workspaceId: principal.workspaceId,
           companyId,
           groupId,
-          projectId,
+          ...(projectId ? { projectId } : {}),
           archivedAt: null,
+          ...(isGlobalAdmin(principal)
+            ? {}
+            : {
+                OR: [
+                  { createdById: principal.userId },
+                  { reporterId: principal.userId },
+                  {
+                    participants: {
+                      some: { userId: principal.userId, removedAt: null },
+                    },
+                  },
+                ],
+              }),
           ...(search
             ? {
                 OR: [

@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import type { Response } from 'express'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import { FilesService } from './files.service.js'
@@ -13,18 +13,18 @@ export class FilesController {
 
   @Post()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 } }))
-  upload(@Req() request: BertRequest, @Query('company') company: string | undefined, @UploadedFile() file: UploadedBinary) {
+  upload(@Req() request: LankaDWSRequest, @Query('company') company: string | undefined, @UploadedFile() file: UploadedBinary) {
     return this.files.upload(principalFrom(request), company, file)
   }
 
   @Get(':id/status')
-  status(@Req() request: BertRequest, @Param('id') id: string) {
+  status(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.files.status(principalFrom(request), id)
   }
 
   @Get(':id/download')
   async download(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') id: string,
     @Query('inline') inline: string | undefined,
     @Res() response: Response,

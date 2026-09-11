@@ -1,7 +1,7 @@
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common'
 import { Catch, HttpException, HttpStatus } from '@nestjs/common'
 import type { Request, Response } from 'express'
-import { ProblemCode, type ProblemDetails } from '@bert-crm/contracts'
+import { ProblemCode, type ProblemDetails } from '@lankadws/contracts'
 
 export class DomainError extends Error {
   constructor(
@@ -66,13 +66,13 @@ export class ProblemFilter implements ExceptionFilter {
       detail = typeof body === 'string' ? body : undefined
     } else {
       process.stderr.write(`${JSON.stringify({
-        timestamp: new Date().toISOString(), level: 'error', service: 'bert-crm-api',
+        timestamp: new Date().toISOString(), level: 'error', service: 'lankadws-api',
         correlationId: request.correlationId, errorClass: exception instanceof Error ? exception.name : 'UnknownError',
       })}\n`)
     }
 
     const problem: ProblemDetails = {
-      type: `https://bert-crm.local/problems/${code}`,
+      type: `https://lankadws.local/problems/${code}`,
       title: titles[status] ?? 'Помилка',
       status,
       code,

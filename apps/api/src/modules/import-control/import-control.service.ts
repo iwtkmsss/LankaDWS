@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { ImportReadinessGate, ImportReadinessView } from '@bert-crm/contracts'
+import type { ImportReadinessGate, ImportReadinessView } from '@lankadws/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
@@ -32,7 +32,7 @@ const unresolvedDecisionGates: ImportReadinessGate[] = [
     id: 'D-024',
     title: 'Мапінг оргструктури',
     status: 'BLOCKING',
-    detail: 'Потрібна активна й підписана версія відповідності source org unit → підрозділ BertCRM.',
+    detail: 'Потрібна активна й підписана версія відповідності source org unit → підрозділ LankaDWS.',
   },
 ]
 

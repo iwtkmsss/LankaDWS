@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView } from '@lankadws/contracts'
 
 export function replyPreviewText(message: ChatMessageView): string {
   if (message.attachments.some((attachment) => attachment.mimeType?.startsWith('image/'))) return 'Фото'

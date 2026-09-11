@@ -99,20 +99,6 @@
         ]
       }
     },
-    "/api/v1/auth/password": {
-      "post": {
-        "operationId": "AuthController_changePassword",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Auth"
-        ]
-      }
-    },
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "AuthController_logout",
@@ -144,6 +130,46 @@
     "/api/v1/me/profile": {
       "patch": {
         "operationId": "MeController_profile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/v1/me/avatar": {
+      "post": {
+        "operationId": "MeController_uploadAvatar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Me"
+        ]
+      },
+      "delete": {
+        "operationId": "MeController_removeAvatar",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/v1/me/avatar/{fileId}": {
+      "get": {
+        "operationId": "MeController_avatar",
         "parameters": [],
         "responses": {
           "200": {
@@ -220,6 +246,48 @@
         },
         "tags": [
           "Me"
+        ]
+      }
+    },
+    "/api/v1/files": {
+      "post": {
+        "operationId": "FilesController_upload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}/status": {
+      "get": {
+        "operationId": "FilesController_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/files/{id}/download": {
+      "get": {
+        "operationId": "FilesController_download",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Files"
         ]
       }
     },
@@ -351,6 +419,76 @@
     "/api/v1/tasks/{id}/activity": {
       "get": {
         "operationId": "TasksController_activity",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/approval-options": {
+      "get": {
+        "operationId": "TasksController_approvalOptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/approval-requests": {
+      "post": {
+        "operationId": "TasksController_requestApproval",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/approval-decisions": {
+      "post": {
+        "operationId": "TasksController_decideApproval",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/mention-candidates": {
+      "get": {
+        "operationId": "TasksController_mentionCandidates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/hierarchy": {
+      "get": {
+        "operationId": "TasksController_hierarchyTree",
         "parameters": [],
         "responses": {
           "200": {
@@ -801,6 +939,20 @@
         ]
       }
     },
+    "/api/v1/feed/summary": {
+      "get": {
+        "operationId": "FeedController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Feed"
+        ]
+      }
+    },
     "/api/v1/feed/audiences": {
       "get": {
         "operationId": "FeedController_audiences",
@@ -832,6 +984,34 @@
     "/api/v1/feed/facets/audiences": {
       "get": {
         "operationId": "FeedController_audienceFacets",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Feed"
+        ]
+      }
+    },
+    "/api/v1/feed/mention-candidates": {
+      "get": {
+        "operationId": "FeedController_mentionCandidates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Feed"
+        ]
+      }
+    },
+    "/api/v1/feed/{id}/mention-candidates": {
+      "get": {
+        "operationId": "FeedController_postMentionCandidates",
         "parameters": [],
         "responses": {
           "200": {
@@ -888,32 +1068,6 @@
     "/api/v1/feed/file-shares/{shareId}": {
       "delete": {
         "operationId": "FeedController_revokeFileShare",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Feed"
-        ]
-      }
-    },
-    "/api/v1/feed/items/{itemId}/favorite": {
-      "put": {
-        "operationId": "FeedController_favorite",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Feed"
-        ]
-      },
-      "delete": {
-        "operationId": "FeedController_unfavorite",
         "parameters": [],
         "responses": {
           "200": {
@@ -991,32 +1145,6 @@
         ]
       }
     },
-    "/api/v1/feed/{id}/subscription": {
-      "put": {
-        "operationId": "FeedController_subscription",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Feed"
-        ]
-      },
-      "delete": {
-        "operationId": "FeedController_unsubscribe",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Feed"
-        ]
-      }
-    },
     "/api/v1/feed/{id}/acknowledge": {
       "post": {
         "operationId": "FeedController_acknowledge",
@@ -1028,48 +1156,6 @@
         },
         "tags": [
           "Feed"
-        ]
-      }
-    },
-    "/api/v1/files": {
-      "post": {
-        "operationId": "FilesController_upload",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Files"
-        ]
-      }
-    },
-    "/api/v1/files/{id}/status": {
-      "get": {
-        "operationId": "FilesController_status",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Files"
-        ]
-      }
-    },
-    "/api/v1/files/{id}/download": {
-      "get": {
-        "operationId": "FilesController_download",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Files"
         ]
       }
     },
@@ -1154,6 +1240,20 @@
         },
         "tags": [
           "Retention"
+        ]
+      }
+    },
+    "/api/v1/calendar/audiences": {
+      "get": {
+        "operationId": "CalendarController_audiences",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Calendar"
         ]
       }
     },
@@ -1319,6 +1419,198 @@
         ]
       }
     },
+    "/api/v1/drive": {
+      "get": {
+        "operationId": "DriveController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/documents/{id}/move": {
+      "post": {
+        "operationId": "DriveController_moveDocument",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/documents/{id}/rename": {
+      "post": {
+        "operationId": "DriveController_renameDocument",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/import-file": {
+      "post": {
+        "operationId": "DriveController_importFile",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/documents/{id}/as-attachment": {
+      "post": {
+        "operationId": "DriveController_asAttachment",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/folders": {
+      "post": {
+        "operationId": "DriveController_createFolder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/folders/{id}": {
+      "get": {
+        "operationId": "DriveController_folderDetail",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      },
+      "patch": {
+        "operationId": "DriveController_renameFolder",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/folders/{id}/move": {
+      "post": {
+        "operationId": "DriveController_moveFolder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/folders/{id}/trash": {
+      "post": {
+        "operationId": "DriveController_trashFolder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/folders/{id}/restore": {
+      "post": {
+        "operationId": "DriveController_restoreFolder",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/shares": {
+      "get": {
+        "operationId": "DriveController_listShares",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      },
+      "post": {
+        "operationId": "DriveController_createShare",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
+    "/api/v1/drive/shares/{id}": {
+      "delete": {
+        "operationId": "DriveController_revokeShare",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Drive"
+        ]
+      }
+    },
     "/api/v1/knowledge/articles": {
       "get": {
         "operationId": "KnowledgeController_list",
@@ -1348,6 +1640,30 @@
     "/api/v1/knowledge/articles/{slug}": {
       "get": {
         "operationId": "KnowledgeController_detail",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Knowledge"
+        ]
+      },
+      "patch": {
+        "operationId": "KnowledgeController_update",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Knowledge"
+        ]
+      },
+      "delete": {
+        "operationId": "KnowledgeController_remove",
         "parameters": [],
         "responses": {
           "200": {
@@ -1440,6 +1756,88 @@
         },
         "tags": [
           "Org"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/org-units": {
+      "get": {
+        "operationId": "AdminOrgController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
+        ]
+      },
+      "post": {
+        "operationId": "AdminOrgController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/org-units/{unitId}": {
+      "patch": {
+        "operationId": "AdminOrgController_update",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/org-units/{unitId}/employees": {
+      "put": {
+        "operationId": "AdminOrgController_assignEmployees",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/org-units/{unitId}/archive": {
+      "post": {
+        "operationId": "AdminOrgController_archive",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/org-units/{unitId}/restore": {
+      "post": {
+        "operationId": "AdminOrgController_restore",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminOrg"
         ]
       }
     },
@@ -1631,6 +2029,20 @@
         ]
       }
     },
+    "/api/v1/announcements/audiences": {
+      "get": {
+        "operationId": "AnnouncementsController_audiences",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Announcements"
+        ]
+      }
+    },
     "/api/v1/announcements/audience-preview": {
       "post": {
         "operationId": "AnnouncementsController_audience",
@@ -1769,6 +2181,20 @@
         ]
       }
     },
+    "/api/v1/messages/threads/{id}/mention-candidates": {
+      "get": {
+        "operationId": "MessagesController_mentionCandidates",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
     "/api/v1/messages/threads/{id}/messages": {
       "get": {
         "operationId": "MessagesController_messagesPage",
@@ -1868,6 +2294,20 @@
     "/api/v1/messages/users/recommended": {
       "get": {
         "operationId": "MessagesController_recommendedUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/api/v1/messages/users/{id}": {
+      "get": {
+        "operationId": "MessagesController_user",
         "parameters": [],
         "responses": {
           "200": {
@@ -2018,6 +2458,32 @@
         ]
       }
     },
+    "/api/v1/messages/{id}/reactions": {
+      "post": {
+        "operationId": "MessagesController_addReaction",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      },
+      "delete": {
+        "operationId": "MessagesController_removeReaction",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
     "/api/v1/messages/{id}/task": {
       "post": {
         "operationId": "MessagesController_createTask",
@@ -2052,6 +2518,18 @@
         "parameters": [],
         "responses": {
           "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      },
+      "post": {
+        "operationId": "NotificationsController_send",
+        "parameters": [],
+        "responses": {
+          "201": {
             "description": ""
           }
         },
@@ -2156,20 +2634,6 @@
         ]
       }
     },
-    "/api/v1/analytics": {
-      "get": {
-        "operationId": "AnalyticsController_summary",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Analytics"
-        ]
-      }
-    },
     "/api/v1/dashboard": {
       "get": {
         "operationId": "DashboardController_get",
@@ -2230,6 +2694,32 @@
         "parameters": [],
         "responses": {
           "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Admin"
+        ]
+      },
+      "patch": {
+        "operationId": "AdminController_updateUser",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{id}/avatar": {
+      "post": {
+        "operationId": "AdminController_uploadAvatar",
+        "parameters": [],
+        "responses": {
+          "201": {
             "description": ""
           }
         },
@@ -2300,34 +2790,6 @@
         "parameters": [],
         "responses": {
           "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin"
-        ]
-      }
-    },
-    "/api/v1/admin/roles": {
-      "get": {
-        "operationId": "AdminController_roles",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Admin"
-        ]
-      }
-    },
-    "/api/v1/admin/roles/{id}": {
-      "patch": {
-        "operationId": "AdminController_updateRole",
-        "parameters": [],
-        "responses": {
-          "200": {
             "description": ""
           }
         },
@@ -2460,6 +2922,166 @@
         ]
       }
     },
+    "/api/v1/admin/companies": {
+      "get": {
+        "operationId": "CompaniesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      },
+      "post": {
+        "operationId": "CompaniesController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}": {
+      "get": {
+        "operationId": "CompaniesController_detail",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      },
+      "patch": {
+        "operationId": "CompaniesController_update",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/manager": {
+      "patch": {
+        "operationId": "CompaniesController_updateManager",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/deactivate": {
+      "post": {
+        "operationId": "CompaniesController_deactivate",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      }
+    },
+    "/api/v1/admin/companies/{companyId}/activate": {
+      "post": {
+        "operationId": "CompaniesController_activate",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Companies"
+        ]
+      }
+    },
+    "/api/v1/companies": {
+      "get": {
+        "operationId": "CompanyDirectoryController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CompanyDirectory"
+        ]
+      }
+    },
+    "/api/v1/companies/{companyId}": {
+      "get": {
+        "operationId": "CompanyDirectoryController_detail",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "CompanyDirectory"
+        ]
+      }
+    },
+    "/api/v1/me/ui-preferences/{module}/{key}": {
+      "get": {
+        "operationId": "UiPreferencesController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "UiPreferences"
+        ]
+      },
+      "put": {
+        "operationId": "UiPreferencesController_put",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "UiPreferences"
+        ]
+      },
+      "delete": {
+        "operationId": "UiPreferencesController_reset",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "UiPreferences"
+        ]
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "operationId": "HealthController_live",
@@ -2504,8 +3126,8 @@
     }
   },
   "info": {
-    "title": "BERT CRM API",
-    "description": "Permission-scoped BERT CRM modular monolith API",
+    "title": "LankaDWS API",
+    "description": "Permission-scoped LankaDWS modular monolith API",
     "version": "1.0.0",
     "contact": {}
   },
@@ -2516,7 +3138,7 @@
       "cookie": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "bert_session"
+        "name": "lankadws_session"
       }
     },
     "schemas": {}

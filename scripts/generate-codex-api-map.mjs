@@ -65,7 +65,7 @@ for (const row of rows) {
 }
 
 const lines = [
-  '# BertCRM API route map',
+  '# LankaDWS API route map',
   '',
   `Generated from \`${input}\`. Do not edit manually.`,
   '',

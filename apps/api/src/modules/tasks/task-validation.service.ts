@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { CreateTaskInput, UpdateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { badRequest, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'

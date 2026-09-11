@@ -6,7 +6,7 @@ Implementation. Work end-to-end, but keep the change narrow. Do not perform gene
 
 ## Goal
 
-Improve the existing BertCRM search surfaces without duplicating forms or introducing a new domain model:
+Improve the existing LankaDWS search surfaces without duplicating forms or introducing a new domain model:
 
 1. global `Ctrl/Cmd+K` must find existing entities and show relevant canonical create actions while the user types;
 2. chat search must show matching existing conversations and matching employees; clicking an employee must immediately open the canonical direct conversation, creating an empty thread only when none exists;
@@ -211,17 +211,17 @@ Minimum focused coverage:
 During implementation run only touched workspace checks.
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run typecheck --workspace @bert-crm/web
-npm run lint --workspace @bert-crm/api
-npm run lint --workspace @bert-crm/web
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run typecheck --workspace @lankadws/web
+npm run lint --workspace @lankadws/api
+npm run lint --workspace @lankadws/web
 ```
 
 Run focused tests only. For Playwright start with:
 
 ```bash
-npm run test:e2e --workspace @bert-crm/web -- \
+npm run test:e2e --workspace @lankadws/web -- \
   --project=desktop-chromium \
   --grep "chat search|global search|employee"
 ```

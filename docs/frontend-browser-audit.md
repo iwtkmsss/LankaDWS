@@ -31,11 +31,11 @@
 
 Основний Playwright E2E-прогін: 18/20; два однакові desktop/mobile падіння виявили одну помилку збереження company scope. Після виправлення цільовий повтор пройшов **2/2**. Отже, усі 20 актуальних сценаріїв мають passing result без повторного запуску вже успішних 18.
 
-Додатково пройдено `npm run typecheck --workspace @bert-crm/web` і `git diff --check`.
+Додатково пройдено `npm run typecheck --workspace @lankadws/web` і `git diff --check`.
 
 ## Відтворення
 
 ```powershell
 node .\output\playwright\route-audit\standalone-audit.mjs
-npm run test:e2e --workspace @bert-crm/web
+npm run test:e2e --workspace @lankadws/web
 ```

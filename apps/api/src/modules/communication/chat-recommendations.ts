@@ -1,4 +1,4 @@
-import type { RecommendedChatReason } from '@bert-crm/contracts'
+import type { RecommendedChatReason } from '@lankadws/contracts'
 
 export interface ChatRecommendationSignals {
   lastInteractionAt: Date | null

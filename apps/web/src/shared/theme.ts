@@ -1,6 +1,6 @@
 export type ColorTheme = 'light' | 'dark'
 
-export const themeStorageKey = 'bertcrm.theme'
+export const themeStorageKey = 'lankadws.theme'
 
 export function getStoredTheme(): ColorTheme {
   try {

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import type { DashboardView } from '@bert-crm/contracts'
+import type { DashboardView } from '@lankadws/contracts'
 import {
   AlertTriangle,
   ArrowRight,

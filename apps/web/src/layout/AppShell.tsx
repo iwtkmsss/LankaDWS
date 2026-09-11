@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { FeedSummary } from '@bert-crm/contracts'
+import type { FeedSummary } from '@lankadws/contracts'
 import {
   ChevronDown,
   Ellipsis,
@@ -67,7 +67,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const queryClient = useQueryClient()
   const [mobileNav, setMobileNav] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
+    window.localStorage.getItem('lankadws.sidebar.collapsed') === 'true')
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [theme, setTheme] = useState(getStoredTheme)
@@ -113,9 +113,13 @@ export function AppShell({ children }: PropsWithChildren) {
         staleTime: 60_000,
       })
     } else if (route.path === '/drive') {
+      const driveQuery = {
+        view: 'MY_DRIVE', folderId: undefined, type: 'ALL',
+        people: 'ANYONE', modified: 'ANY', sort: 'MODIFIED', direction: 'DESC',
+      }
       void queryClient.prefetchQuery({
-        queryKey: ['documents', '', company, 'ALL', 'ALL', 'RECENT'],
-        queryFn: () => api(`/documents?section=ALL&type=ALL&sort=RECENT&company=${encodeURIComponent(company)}`),
+        queryKey: ['drive', driveQuery],
+        queryFn: () => api('/drive?view=MY_DRIVE&type=ALL&people=ANYONE&modified=ANY&sort=MODIFIED&direction=DESC'),
       })
     } else if (route.path === '/organization') {
       void queryClient.prefetchQuery({
@@ -229,7 +233,7 @@ export function AppShell({ children }: PropsWithChildren) {
   const chatUnread = chatSummary.data?.unread ?? 0
   const feedUnread = feedSummary.data?.unreadCount ?? 0
   useEffect(() => {
-    window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
+    window.localStorage.setItem('lankadws.sidebar.collapsed', String(sidebarCollapsed))
   }, [sidebarCollapsed])
 
   useEffect(() => {
@@ -411,7 +415,7 @@ export function AppShell({ children }: PropsWithChildren) {
           >
             <BrandMark />
             <span className="sidebar__brand-copy">
-              <strong>Lanka</strong>
+              <strong>LankaDWS</strong>
               <small>CORPORATE WORKSPACE</small>
             </span>
           </Link>
@@ -530,13 +534,13 @@ export function AppShell({ children }: PropsWithChildren) {
           </div>
           <div className="topbar__center-content">
             <TopbarCenterContent fallback={(
-              <button className="search-trigger" aria-label="Пошук у Lanka" onClick={() => {
+              <button className="search-trigger" aria-label="Пошук у LankaDWS" onClick={() => {
                 setProfileOpen(false)
                 setMoreOpen(false)
                 setPaletteOpen(true)
               }}>
                 <Search size={17} />
-                <span>Пошук у Lanka</span>
+                <span>Пошук у LankaDWS</span>
                 <kbd>Ctrl K</kbd>
               </button>
             )} />

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import request from 'supertest';
-import type { ChatMessagePage, ChatMessageView, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@bert-crm/contracts';
+import type { ChatMessagePage, ChatMessageView, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@lankadws/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
 import { configureApp } from '../../src/bootstrap.js';
 import { FeedProjectionService } from '../../src/modules/feed/feed-projection.service.js';
@@ -39,7 +39,7 @@ beforeAll(async () => {
   const commandEnv = {
     ...process.env,
     DATABASE_URL: databaseUrl,
-    DEMO_SEED_PASSWORD: 'BertDemoPassphrase2026!',
+    DEMO_SEED_PASSWORD: 'LankaDWSDemoPassphrase2026!',
     NODE_ENV: 'test',
     DISABLE_JOB_WORKER: 'true',
   }
@@ -80,13 +80,13 @@ async function login(username: string) {
   const agent = request.agent(app.getHttpServer());
   const response = await agent
     .post('/api/v1/auth/login')
-    .send({ username, password: 'BertDemoPassphrase2026!' })
+    .send({ username, password: 'LankaDWSDemoPassphrase2026!' })
     .expect(201);
   expect(response.body.nextStep).toBe('AUTHENTICATED');
   return { agent, csrf: response.body.csrfToken as string };
 }
 
-describe('Lanka API workflows', () => {
+describe('LankaDWS API workflows', () => {
   it('publishes one post to multiple companies with distinct feed projections', async () => {
     const prisma = app.get(PrismaService);
     const suffix = Date.now().toString(36);
@@ -94,7 +94,7 @@ describe('Lanka API workflows', () => {
     await prisma.company.create({
       data: {
         id: secondCompanyId,
-        workspaceId: 'ws_bert',
+        workspaceId: 'ws_lankadws',
         displayName: `Друга компанія ${suffix}`,
         legalName: `Друга компанія ${suffix}`,
         code: `feed-${suffix}`,
@@ -107,9 +107,9 @@ describe('Lanka API workflows', () => {
         .set('x-csrf-token', maria.csrf)
         .set('idempotency-key', `feed-multi-company-${suffix}`)
         .send({
-          companyId: 'cmp_bert_ua',
+          companyId: 'cmp_lankadws_ua',
           body: 'Оновлення для кількох компаній.',
-          audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', secondCompanyId] },
+          audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_ua', secondCompanyId] },
           requiresAcknowledgement: true,
         })
         .expect(201);
@@ -121,15 +121,15 @@ describe('Lanka API workflows', () => {
       });
       expect(items).toHaveLength(2);
       expect(new Set(items.map((item) => item.eventKey)).size).toBe(2);
-      expect(items.map((item) => item.companyId)).toEqual(['cmp_bert_ua', secondCompanyId].sort());
+      expect(items.map((item) => item.companyId)).toEqual(['cmp_lankadws_ua', secondCompanyId].sort());
       const activeCompanyIds = (await prisma.company.findMany({
-        where: { workspaceId: 'ws_bert', isActive: true },
+        where: { workspaceId: 'ws_lankadws', isActive: true },
         select: { id: true },
       })).map((company) => company.id);
       const listed = await maria.agent.get('/api/v1/feed?company=all&limit=50').expect(200);
       const listedPost = (listed.body as FeedListResult).items.find((item) => item.id === postId);
       if (!listedPost || listedPost.kind !== 'POST') throw new Error('Multi-company post is missing from the feed');
-      const reachesEveryone = activeCompanyIds.every((id) => id === 'cmp_bert_ua' || id === secondCompanyId);
+      const reachesEveryone = activeCompanyIds.every((id) => id === 'cmp_lankadws_ua' || id === secondCompanyId);
       if (reachesEveryone) {
         expect(listedPost.audienceLabel).toBe('Всім співробітникам');
       } else {
@@ -161,7 +161,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', andrii.csrf)
       .set('idempotency-key', `feed-summary-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Нове оновлення для лічильника стрічки.',
         audience: { type: 'COMPANY' },
         requiresAcknowledgement: false,
@@ -179,7 +179,7 @@ describe('Lanka API workflows', () => {
     await prisma.company.create({
       data: {
         id: secondCompanyId,
-        workspaceId: 'ws_bert',
+        workspaceId: 'ws_lankadws',
         displayName: `Компанія лічильника ${suffix}`,
         legalName: `Компанія лічильника ${suffix}`,
         code: `mcread-${suffix}`,
@@ -211,9 +211,9 @@ describe('Lanka API workflows', () => {
         .set('x-csrf-token', andrii.csrf)
         .set('idempotency-key', `feed-mcread-${suffix}`)
         .send({
-          companyId: 'cmp_bert_ua',
+          companyId: 'cmp_lankadws_ua',
           body: 'Оновлення для двох компаній.',
-          audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', secondCompanyId] },
+          audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_ua', secondCompanyId] },
           requiresAcknowledgement: false,
         })
         .expect(201);
@@ -225,7 +225,7 @@ describe('Lanka API workflows', () => {
       // company too, so applying the markers clears the badge completely.
       const markers = await readEverything();
       expect(markers.map((marker) => marker.companyId)).toContain(secondCompanyId);
-      expect(markers.map((marker) => marker.companyId)).toContain('cmp_bert_ua');
+      expect(markers.map((marker) => marker.companyId)).toContain('cmp_lankadws_ua');
       expect(await summaryCount()).toBe(baseCount);
     } finally {
       await prisma.company.update({ where: { id: secondCompanyId }, data: { isActive: false } });
@@ -477,7 +477,7 @@ describe('Lanka API workflows', () => {
   it('rolls an organization capability out atomically with version, audit, and outbox evidence', async () => {
     const dmytro = await login('dmytro');
     await app.get(PrismaService).companyCapability.update({
-      where: { companyId_code: { companyId: 'cmp_bert_ua', code: 'CALENDAR_WRITE' } },
+      where: { companyId_code: { companyId: 'cmp_lankadws_ua', code: 'CALENDAR_WRITE' } },
       data: { enabled: false, disabledAt: new Date(), version: { increment: 1 } },
     });
     const before = await dmytro.agent
@@ -506,7 +506,7 @@ describe('Lanka API workflows', () => {
       expect.objectContaining({ code: 'CALENDAR_WRITE', enabled: true, version: calendarWrite.version + 1 }),
     ]));
     const prisma = app.get(PrismaService);
-    expect(await prisma.auditEvent.findFirst({ where: { action: 'company.capability_changed', companyId: 'cmp_bert_ua' } })).not.toBeNull();
+    expect(await prisma.auditEvent.findFirst({ where: { action: 'company.capability_changed', companyId: 'cmp_lankadws_ua' } })).not.toBeNull();
     expect(await prisma.outboxEvent.findFirst({ where: { eventType: 'capability.changed' } })).not.toBeNull();
   });
 
@@ -517,8 +517,8 @@ describe('Lanka API workflows', () => {
       where: { id: 'grp_product_design' },
       create: {
         id: 'grp_product_design',
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         key: 'product-design',
         name: 'Продукт і дизайн',
         description: 'Рішення та оновлення продуктової команди',
@@ -539,8 +539,8 @@ describe('Lanka API workflows', () => {
       where: { id: 'grp_people_private' },
       create: {
         id: 'grp_people_private',
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         key: 'people-private',
         name: 'Люди · приватна група',
         description: 'Конфіденційний робочий контекст HR',
@@ -566,7 +566,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', firstKey)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Перше контрольне оновлення для всієї компанії.',
         audience: { type: 'COMPANY' },
         requiresAcknowledgement: true,
@@ -578,7 +578,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', firstKey)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Перше контрольне оновлення для всієї компанії.',
         audience: { type: 'COMPANY' },
         requiresAcknowledgement: true,
@@ -591,7 +591,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-e2e-second-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Друге контрольне оновлення для перевірки курсора.',
         audience: { type: 'COMPANY' },
         requiresAcknowledgement: false,
@@ -603,7 +603,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-e2e-group-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Оновлення лише для робочої групи продукту й дизайну.',
         audience: { type: 'GROUP', groupId: 'grp_product_design' },
         requiresAcknowledgement: false,
@@ -613,7 +613,7 @@ describe('Lanka API workflows', () => {
 
     const andrii = await login('andrii');
     const listed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua')
+      .get('/api/v1/feed?company=cmp_lankadws_ua')
       .expect(200);
     const listedBody = listed.body as FeedListResult;
     const firstView = listedBody.items.find((item) => item.id === firstBody.id);
@@ -626,7 +626,7 @@ describe('Lanka API workflows', () => {
     });
     await andrii.agent.get(`/api/v1/feed/${firstBody.id}`).expect(200);
     const stillPending = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&filter=ACK_REQUIRED')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&filter=ACK_REQUIRED')
       .expect(200);
     expect((stillPending.body as FeedListResult).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: firstBody.id, hasAcknowledged: false }),
@@ -638,7 +638,7 @@ describe('Lanka API workflows', () => {
       .send({ acknowledgementVersion: 1 })
       .expect(201);
     const afterAcknowledgement = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&filter=ACK_REQUIRED')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&filter=ACK_REQUIRED')
       .expect(200);
     expect((afterAcknowledgement.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: firstBody.id }),
@@ -671,7 +671,7 @@ describe('Lanka API workflows', () => {
     // The follow control is retired: subscriptions are implicit and drive only comment
     // notifications, and the FOLLOWING list filter no longer exists.
     await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&filter=FOLLOWING')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&filter=FOLLOWING')
       .expect(400);
     expect(await app.get(PrismaService).feedSubscription.findUniqueOrThrow({
       where: { postId_userId: { postId: firstBody.id, userId: 'usr_andrii' } },
@@ -693,24 +693,24 @@ describe('Lanka API workflows', () => {
       where: { dedupeKey: `feed-comment:${(mentionComment.body as { id: string }).id}:usr_andrii` },
     })).toMatchObject({ category: 'MENTION', entityType: 'FEED_POST', entityId: firstBody.id });
     const authorOptions = await andrii.agent
-      .get('/api/v1/feed/authors?company=cmp_bert_ua')
+      .get('/api/v1/feed/authors?company=cmp_lankadws_ua')
       .expect(200);
     expect((authorOptions.body as { items: Array<{ id: string }> }).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'usr_maria' }),
     ]));
     const audienceFacetOptions = await andrii.agent
-      .get('/api/v1/feed/facets/audiences?company=cmp_bert_ua')
+      .get('/api/v1/feed/facets/audiences?company=cmp_lankadws_ua')
       .expect(200);
     expect((audienceFacetOptions.body as { items: Array<{ type: string; id: string; queryKey: string }> }).items)
       .toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: 'COMPANY', id: 'cmp_bert_ua', queryKey: 'audienceId' }),
+        expect.objectContaining({ type: 'COMPANY', id: 'cmp_lankadws_ua', queryKey: 'audienceId' }),
         expect.objectContaining({ type: 'GROUP', id: 'grp_product_design', queryKey: 'groupId' }),
       ]));
     expect((audienceFacetOptions.body as { items: Array<{ id: string }> }).items).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'grp_people_private' })]),
     );
     const companyAudience = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=POST&audienceId=cmp_bert_ua')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST&audienceId=cmp_lankadws_ua')
       .expect(200);
     expect((companyAudience.body as FeedListResult).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'POST', id: firstBody.id }),
@@ -718,7 +718,7 @@ describe('Lanka API workflows', () => {
     ]));
     expect((companyAudience.body as FeedListResult).items.every((item) => item.kind === 'POST')).toBe(true);
     const groupContext = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&groupId=grp_product_design')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&groupId=grp_product_design')
       .expect(200);
     const groupItems = (groupContext.body as FeedListResult).items;
     const groupItem = groupItems.find((item) => item.id === groupPostBody.id);
@@ -727,7 +727,7 @@ describe('Lanka API workflows', () => {
     expect(groupItems.every((item) =>
       item.kind === 'POST' && item.group?.id === 'grp_product_design')).toBe(true);
     const hiddenGroupContext = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&groupId=grp_people_private')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&groupId=grp_people_private')
       .expect(200);
     expect((hiddenGroupContext.body as FeedListResult).items).toEqual([]);
     const kyivDate = new Intl.DateTimeFormat('en-CA', {
@@ -738,7 +738,7 @@ describe('Lanka API workflows', () => {
     }).format(new Date());
     const mentionedByMaria = await andrii.agent
       .get(
-        `/api/v1/feed?company=cmp_bert_ua&type=POST&authorId=usr_maria&mentioned=true`
+        `/api/v1/feed?company=cmp_lankadws_ua&type=POST&authorId=usr_maria&mentioned=true`
         + `&dateFrom=${kyivDate}&dateTo=${kyivDate}`,
       )
       .expect(200);
@@ -747,12 +747,12 @@ describe('Lanka API workflows', () => {
     ]));
     expect((mentionedByMaria.body as FeedListResult).items.every((item) => item.kind === 'POST')).toBe(true);
     await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&dateFrom=2026-08-01&dateTo=2026-07-01')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&dateFrom=2026-08-01&dateTo=2026-07-01')
       .expect(400);
 
     // Favourites and the follow control are retired; the ?important filter stays.
     const importantItems = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=POST&important=true')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST&important=true')
       .expect(200);
     expect((importantItems.body as FeedListResult).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: firstBody.id, requiresAcknowledgement: true }),
@@ -774,15 +774,15 @@ describe('Lanka API workflows', () => {
     await andrii.agent
       .post('/api/v1/feed/read')
       .set('x-csrf-token', andrii.csrf)
-      .send({ markers: [{ companyId: 'cmp_bert_ua', lastItemId: feedItems[0].id }] })
+      .send({ markers: [{ companyId: 'cmp_lankadws_ua', lastItemId: feedItems[0].id }] })
       .expect(201);
     await andrii.agent
       .post('/api/v1/feed/read')
       .set('x-csrf-token', andrii.csrf)
-      .send({ markers: [{ companyId: 'cmp_bert_ua', lastItemId: feedItems[1].id }] })
+      .send({ markers: [{ companyId: 'cmp_lankadws_ua', lastItemId: feedItems[1].id }] })
       .expect(201);
     expect(await prisma.feedReadCursor.findUniqueOrThrow({
-      where: { userId_companyId: { userId: 'usr_andrii', companyId: 'cmp_bert_ua' } },
+      where: { userId_companyId: { userId: 'usr_andrii', companyId: 'cmp_lankadws_ua' } },
     })).toMatchObject({ lastReadItemId: feedItems[0].id });
 
     const privatePost = await maria.agent
@@ -790,20 +790,20 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-e2e-private-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Приватне оновлення лише для Марії.',
         audience: { type: 'USERS', userIds: ['usr_maria'] },
       })
       .expect(201);
     const privatePostBody = privatePost.body as { id: string };
     const mariaDirectAudience = await maria.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=POST&audienceId=usr_maria')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST&audienceId=usr_maria')
       .expect(200);
     expect((mariaDirectAudience.body as FeedListResult).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'POST', id: privatePostBody.id }),
     ]));
     const mariaAudienceFacetOptions = await maria.agent
-      .get('/api/v1/feed/facets/audiences?company=cmp_bert_ua')
+      .get('/api/v1/feed/facets/audiences?company=cmp_lankadws_ua')
       .expect(200);
     expect((mariaAudienceFacetOptions.body as { items: Array<{ type: string; id: string }> }).items)
       .toEqual(expect.arrayContaining([
@@ -811,7 +811,7 @@ describe('Lanka API workflows', () => {
       ]));
     await andrii.agent.get(`/api/v1/feed/${privatePostBody.id}`).expect(404);
     const outsiderDirectAudience = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=POST&audienceId=usr_maria')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST&audienceId=usr_maria')
       .expect(200);
     expect((outsiderDirectAudience.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: privatePostBody.id }),
@@ -822,7 +822,7 @@ describe('Lanka API workflows', () => {
       .send({ expectedVersion: 1 })
       .expect(200);
     const afterArchive = await maria.agent
-      .get('/api/v1/feed?company=cmp_bert_ua')
+      .get('/api/v1/feed?company=cmp_lankadws_ua')
       .expect(200);
     expect((afterArchive.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: privatePostBody.id }),
@@ -838,7 +838,7 @@ describe('Lanka API workflows', () => {
       .expect(200);
     expect(updated.body as { version: number; acknowledgementVersion: number }).toMatchObject({ version: 2, acknowledgementVersion: 2 });
     const afterEdit = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=POST')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST')
       .expect(200);
     const editedView = (afterEdit.body as FeedListResult).items.find((item) => item.id === firstBody.id);
     if (!editedView) throw new Error('Edited Feed projection is missing from the authorized list');
@@ -872,7 +872,7 @@ describe('Lanka API workflows', () => {
       .expect(201);
     const taskId = (task.body as { id: string }).id;
     const taskFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=TASK')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=TASK')
       .expect(200);
     const taskFeedItems = (taskFeed.body as FeedListResult).items;
     expect(taskFeedItems).toEqual(expect.arrayContaining([
@@ -897,7 +897,7 @@ describe('Lanka API workflows', () => {
       .send({ status: 'BLOCKED', expectedVersion: 1 })
       .expect(200);
     const blockedFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=TASK')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=TASK')
       .expect(200);
     const blockedTaskViews = (blockedFeed.body as FeedListResult).items
       .filter((item) => item.kind === 'SOURCE' && item.id === taskId);
@@ -908,8 +908,8 @@ describe('Lanka API workflows', () => {
     expect(await app.get(PrismaService).feedSourceHead.findUniqueOrThrow({
       where: {
         workspaceId_companyId_sourceType_sourceId: {
-          workspaceId: 'ws_bert',
-          companyId: 'cmp_bert_ua',
+          workspaceId: 'ws_lankadws',
+          companyId: 'cmp_lankadws_ua',
           sourceType: 'TASK',
           sourceId: taskId,
         },
@@ -920,7 +920,7 @@ describe('Lanka API workflows', () => {
       countsAsUnread: true,
     });
     const uploaded = await maria.agent
-      .post('/api/v1/feed/attachments?company=cmp_bert_ua')
+      .post('/api/v1/feed/attachments?company=cmp_lankadws_ua')
       .set('x-csrf-token', maria.csrf)
       .attach('file', Buffer.from('Feed attachment e2e\n'), {
         filename: 'feed-note.txt',
@@ -939,7 +939,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-attachment-post-${Date.now()}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Публікація з безпечним вкладенням.',
         audience: { type: 'COMPANY' },
         attachmentIds: [fileId],
@@ -958,8 +958,8 @@ describe('Lanka API workflows', () => {
     await prisma.event.create({
       data: {
         id: historicalEventId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         ownerId: 'usr_andrii',
         title: 'Історична зустріч',
         startAt: new Date('2020-06-10T09:00:00.000Z'),
@@ -968,23 +968,23 @@ describe('Lanka API workflows', () => {
       },
     });
     const beforeHistory = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=EVENT')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=EVENT')
       .expect(200);
     const projection = app.get(FeedProjectionService);
     const firstMaterialization = await projection.materializeHistoricalSources({
-      companyId: 'cmp_bert_ua',
+      companyId: 'cmp_lankadws_ua',
       cutoverAt: new Date('2020-06-30T23:59:59.000Z'),
       eventIds: [historicalEventId],
     });
     expect(firstMaterialization.created.events).toBe(1);
     const repeatedMaterialization = await projection.materializeHistoricalSources({
-      companyId: 'cmp_bert_ua',
+      companyId: 'cmp_lankadws_ua',
       cutoverAt: new Date('2020-06-30T23:59:59.000Z'),
       eventIds: [historicalEventId],
     });
     expect(repeatedMaterialization.created.events).toBe(0);
     const afterHistory = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=EVENT')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=EVENT')
       .expect(200);
     expect((afterHistory.body as FeedListResult).unreadCount).toBe((beforeHistory.body as FeedListResult).unreadCount);
     expect((afterHistory.body as FeedListResult).items).toEqual(expect.arrayContaining([
@@ -999,7 +999,7 @@ describe('Lanka API workflows', () => {
       where: { sourceType: 'EVENT', sourceId: historicalEventId },
     })).toMatchObject({ countsAsUnread: false });
     expect(await prisma.feedReadCursor.findUnique({
-      where: { userId_companyId: { userId: 'usr_andrii', companyId: 'cmp_bert_ua' } },
+      where: { userId_companyId: { userId: 'usr_andrii', companyId: 'cmp_lankadws_ua' } },
     })).not.toBeNull();
   });
 
@@ -1008,7 +1008,7 @@ describe('Lanka API workflows', () => {
     const andrii = await login('andrii');
     const maria = await login('maria');
     const uploaded = await dmytro.agent
-      .post('/api/v1/feed/attachments?company=cmp_bert_ua')
+      .post('/api/v1/feed/attachments?company=cmp_lankadws_ua')
       .set('x-csrf-token', dmytro.csrf)
       .attach('file', Buffer.from('Standalone feed file without projected metadata\n'), {
         filename: 'standalone-plan.txt',
@@ -1022,7 +1022,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', dmytro.csrf)
       .set('idempotency-key', idempotency)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         audience: { type: 'USERS', userIds: ['usr_andrii'] },
       })
       .expect(201);
@@ -1033,14 +1033,14 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', dmytro.csrf)
       .set('idempotency-key', idempotency)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         audience: { type: 'USERS', userIds: ['usr_andrii'] },
       })
       .expect(201);
     expect(repeatedShare.body).toMatchObject({ id: share.id });
 
     const pendingFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=FILE')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
       .expect(200);
     const pendingCard = (pendingFeed.body as FeedListResult).items.find((item) =>
       item.kind === 'SOURCE' && item.id === share.id);
@@ -1051,7 +1051,7 @@ describe('Lanka API workflows', () => {
       actionState: 'PROCESSING',
     });
     expect((await maria.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=FILE')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
       .expect(200)).body.items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: share.id }),
     ]));
@@ -1074,7 +1074,7 @@ describe('Lanka API workflows', () => {
       if ((status.body as { scanStatus: string }).scanStatus === 'CLEAN') break;
     }
     const readyFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=FILE')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
       .expect(200);
     const readyCard = (readyFeed.body as FeedListResult).items.find((item) =>
       item.kind === 'SOURCE' && item.id === share.id);
@@ -1088,7 +1088,7 @@ describe('Lanka API workflows', () => {
       .send({ expectedVersion: 1 })
       .expect(200, { revoked: true, version: 2 });
     const afterRevoke = await andrii.agent
-      .get('/api/v1/feed?company=cmp_bert_ua&type=FILE')
+      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
       .expect(200);
     expect((afterRevoke.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: share.id }),
@@ -1106,7 +1106,7 @@ describe('Lanka API workflows', () => {
   it('keeps groups capability-gated and never leaks hidden groups to non-members', async () => {
     const maria = await login('maria');
     const disabled = await maria.agent
-      .get('/api/v1/groups?company=cmp_bert_ua')
+      .get('/api/v1/groups?company=cmp_lankadws_ua')
       .expect(403);
     expect(disabled.body).toMatchObject({ code: 'capability_disabled' });
 
@@ -1126,8 +1126,8 @@ describe('Lanka API workflows', () => {
     await prisma.group.create({
       data: {
         id: 'grp_e2e_listed',
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         key: 'e2e-listed',
         name: 'Відкрита робоча група',
         ownerId: 'usr_andrii',
@@ -1142,8 +1142,8 @@ describe('Lanka API workflows', () => {
     await prisma.group.create({
       data: {
         id: 'grp_e2e_hidden',
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         key: 'e2e-hidden',
         name: 'Прихована робоча група',
         ownerId: 'usr_dmytro',
@@ -1154,7 +1154,7 @@ describe('Lanka API workflows', () => {
     });
 
     const listed = await maria.agent
-      .get('/api/v1/groups?company=cmp_bert_ua')
+      .get('/api/v1/groups?company=cmp_lankadws_ua')
       .expect(200);
     expect(listed.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'grp_e2e_listed', currentUserRole: 'MEMBER', memberCount: 2 }),
@@ -1168,21 +1168,21 @@ describe('Lanka API workflows', () => {
   it('returns a company-scoped org tree with safe employee projections', async () => {
     const prisma = app.get(PrismaService);
     await prisma.userOrgAssignment.deleteMany({
-      where: { userId: 'usr_maria', companyId: 'cmp_bert_ua' },
+      where: { userId: 'usr_maria', companyId: 'cmp_lankadws_ua' },
     });
     await prisma.orgUnit.deleteMany({ where: { id: 'org_e2e_product' } });
     await prisma.orgUnit.create({
       data: {
         id: 'org_e2e_product',
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         sourceKey: 'e2e-product',
         name: 'Продуктова команда',
         normalizedName: 'продуктова команда',
         managerId: 'usr_andrii',
         assignments: { create: {
           id: 'orga_e2e_maria',
-          companyId: 'cmp_bert_ua',
+          companyId: 'cmp_lankadws_ua',
           userId: 'usr_maria',
           isPrimary: true,
           positionTitle: 'Продуктова дизайнерка',
@@ -1191,13 +1191,13 @@ describe('Lanka API workflows', () => {
     });
     const maria = await login('maria');
     const units = await maria.agent
-      .get('/api/v1/org/units?company=cmp_bert_ua&parentId=')
+      .get('/api/v1/org/units?company=cmp_lankadws_ua&parentId=')
       .expect(200);
     expect(units.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'org_e2e_product', activeEmployeeCount: 1, childCount: 0 }),
     ]));
     const employees = await maria.agent
-      .get('/api/v1/org/units/org_e2e_product/employees?company=cmp_bert_ua')
+      .get('/api/v1/org/units/org_e2e_product/employees?company=cmp_lankadws_ua')
       .expect(200);
     expect(employees.body.items).toEqual([
       expect.objectContaining({ id: 'usr_maria', positionTitle: 'Продуктова дизайнерка', isPrimary: true }),
@@ -1211,7 +1211,7 @@ describe('Lanka API workflows', () => {
     const suffix = Date.now().toString(36);
     const admin = await login('dmytro');
     const maria = await login('maria');
-    const endpoint = '/api/v1/admin/companies/cmp_bert_ua/org-units';
+    const endpoint = '/api/v1/admin/companies/cmp_lankadws_ua/org-units';
 
     const root = await admin.agent
       .post(endpoint)
@@ -1257,8 +1257,8 @@ describe('Lanka API workflows', () => {
     const employeeId = `usr_e2e_org_${suffix}`;
     await prisma.user.create({ data: {
       id: employeeId,
-      workspaceId: 'ws_bert',
-      primaryCompanyId: 'cmp_bert_ua',
+      workspaceId: 'ws_lankadws',
+      primaryCompanyId: 'cmp_lankadws_ua',
       accountType: 'USER',
       firstName: 'Тест',
       lastName: 'Ієрархія',
@@ -1270,7 +1270,7 @@ describe('Lanka API workflows', () => {
     } });
     await prisma.userOrgAssignment.create({ data: {
       id: `uoa_e2e_org_${suffix}`,
-      companyId: 'cmp_bert_ua',
+      companyId: 'cmp_lankadws_ua',
       userId: employeeId,
       orgUnitId: childBody.id,
       isPrimary: true,
@@ -1305,19 +1305,19 @@ describe('Lanka API workflows', () => {
     const otherCompanyId = `cmp_e2e_org_${suffix}`;
     await prisma.company.create({ data: {
       id: otherCompanyId,
-      workspaceId: 'ws_bert',
+      workspaceId: 'ws_lankadws',
       displayName: `Інша компанія ${suffix}`,
       legalName: `Інша компанія ${suffix}`,
       code: `other-${suffix}`,
     } });
     const crossCompanyTree = await maria.agent.get(`/api/v1/org/units?company=${otherCompanyId}`).expect(200);
     expect(crossCompanyTree.body).toMatchObject({ company: { id: otherCompanyId } });
-    await maria.agent.get(`/api/v1/admin/companies/cmp_bert_ua/org-units`).expect(403);
+    await maria.agent.get(`/api/v1/admin/companies/cmp_lankadws_ua/org-units`).expect(403);
 
-    let company = await admin.agent.get('/api/v1/admin/companies/cmp_bert_ua').expect(200);
+    let company = await admin.agent.get('/api/v1/admin/companies/cmp_lankadws_ua').expect(200);
     let companyBody = company.body as { version: number };
     await admin.agent
-      .patch('/api/v1/admin/companies/cmp_bert_ua/manager')
+      .patch('/api/v1/admin/companies/cmp_lankadws_ua/manager')
       .set('x-csrf-token', admin.csrf)
       .send({ managerId: employeeId, expectedVersion: companyBody.version })
       .expect(200);
@@ -1331,19 +1331,19 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', admin.csrf)
       .send({ reason: 'Перевірка очищення керівних маркерів' })
       .expect(201);
-    expect(await prisma.company.findUnique({ where: { id: 'cmp_bert_ua' }, select: { managerId: true } })).toEqual({ managerId: null });
+    expect(await prisma.company.findUnique({ where: { id: 'cmp_lankadws_ua' }, select: { managerId: true } })).toEqual({ managerId: null });
     expect(await prisma.orgUnit.findUnique({ where: { id: childBody.id }, select: { managerId: true } })).toEqual({ managerId: null });
 
-    company = await admin.agent.get('/api/v1/admin/companies/cmp_bert_ua').expect(200);
+    company = await admin.agent.get('/api/v1/admin/companies/cmp_lankadws_ua').expect(200);
     companyBody = company.body as { version: number };
     await admin.agent
-      .patch('/api/v1/admin/companies/cmp_bert_ua/manager')
+      .patch('/api/v1/admin/companies/cmp_lankadws_ua/manager')
       .set('x-csrf-token', admin.csrf)
       .send({ managerId: 'usr_andrii', expectedVersion: companyBody.version })
       .expect(200);
     const publicTree = await maria.agent.get('/api/v1/org/units').expect(200);
     const publicTreeBody = publicTree.body as { company: { id: string; manager: { id: string } | null } };
-    expect(publicTreeBody.company).toMatchObject({ id: 'cmp_bert_ua', manager: { id: 'usr_andrii' } });
+    expect(publicTreeBody.company).toMatchObject({ id: 'cmp_lankadws_ua', manager: { id: 'usr_andrii' } });
     expect(JSON.stringify(publicTreeBody.company)).not.toContain('contactEmail');
 
     expect(targetBody.id).toMatch(/^org_/);
@@ -1563,7 +1563,7 @@ describe('Lanka API workflows', () => {
       .expect(409);
 
     const helping = await marko.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=CO_EXECUTOR')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=CO_EXECUTOR')
       .expect(200);
     expect(helping.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -1616,7 +1616,7 @@ describe('Lanka API workflows', () => {
       .expect(409);
 
     const observing = await marko.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=OBSERVER')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=OBSERVER')
       .expect(200);
     expect(observing.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -1638,11 +1638,11 @@ describe('Lanka API workflows', () => {
       .send({ status: 'IN_PROGRESS', expectedVersion: 2 })
       .expect(404);
     await marko.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=ALL')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=ALL')
       .expect(403);
 
     const delegated = await maria.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=CREATOR')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=CREATOR')
       .expect(200);
     expect(delegated.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: coExecutorTaskId }),
@@ -1656,7 +1656,7 @@ describe('Lanka API workflows', () => {
       .expect(200, { version: 3, accessRetained: true });
     await marko.agent.get(`/api/v1/tasks/${observerTaskId}`).expect(404);
     const afterRemoval = await marko.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=OBSERVER')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=OBSERVER')
       .expect(200);
     expect(afterRemoval.body.items).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ id: observerTaskId }),
@@ -1761,13 +1761,13 @@ describe('Lanka API workflows', () => {
       .send({ favorited: false, important: true })
       .expect(409);
     const favorites = await maria.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=CREATOR&favorite=true')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=CREATOR&favorite=true')
       .expect(200);
     expect(favorites.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: taskId }),
     ]));
     const important = await maria.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=CREATOR&important=true')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=CREATOR&important=true')
       .expect(200);
     expect(important.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: taskId }),
@@ -1914,7 +1914,7 @@ describe('Lanka API workflows', () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
     const uppercase = await maria.agent
-      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('ОЛЕНА')}`)
+      .get(`/api/v1/messages/users/search?company=cmp_lankadws_ua&q=${encodeURIComponent('ОЛЕНА')}`)
       .expect(200);
     const uppercaseBody = uppercase.body as ChatUserSearchPage;
     expect(uppercaseBody.items[0]).toMatchObject({
@@ -1937,7 +1937,7 @@ describe('Lanka API workflows', () => {
       'username',
     ]);
     const mixedCase = await maria.agent
-      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('дМиТрО')}`)
+      .get(`/api/v1/messages/users/search?company=cmp_lankadws_ua&q=${encodeURIComponent('дМиТрО')}`)
       .expect(200);
     expect(mixedCase.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'usr_dmytro', username: 'dmytro' }),
@@ -1946,15 +1946,15 @@ describe('Lanka API workflows', () => {
       expect.objectContaining({ id: 'usr_maria' }),
     ]));
     const oneSymbol = await maria.agent
-      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=я')
+      .get('/api/v1/messages/users/search?company=cmp_lankadws_ua&q=я')
       .expect(200);
     expect(oneSymbol.body.items).toEqual(expect.any(Array));
     const unrelated = await maria.agent
-      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=zznotuser')
+      .get('/api/v1/messages/users/search?company=cmp_lankadws_ua&q=zznotuser')
       .expect(200);
     expect(unrelated.body.items).toEqual([]);
     const threadTitleOnly = await maria.agent
-      .get('/api/v1/messages/users/search?company=cmp_bert_ua&q=dashboard')
+      .get('/api/v1/messages/users/search?company=cmp_lankadws_ua&q=dashboard')
       .expect(200);
     expect(threadTitleOnly.body.items).toEqual([]);
 
@@ -1966,7 +1966,7 @@ describe('Lanka API workflows', () => {
       vi.spyOn(prisma.user, 'findMany'),
     ];
     const recommended = await maria.agent
-      .get('/api/v1/messages/users/recommended?company=cmp_bert_ua&limit=6')
+      .get('/api/v1/messages/users/recommended?company=cmp_lankadws_ua&limit=6')
       .expect(200);
     const recommendationQueryCount = recommendationQuerySpies.reduce(
       (total, spy) => total + spy.mock.calls.length,
@@ -1993,8 +1993,8 @@ describe('Lanka API workflows', () => {
     await prisma.messageThread.createMany({
       data: threadCursorIds.map((id) => ({
         id,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         kind: 'GROUP',
         title: id,
         createdById: 'usr_maria',
@@ -2011,13 +2011,13 @@ describe('Lanka API workflows', () => {
       })),
     });
     const firstThreadCursorPage = await maria.agent
-      .get('/api/v1/messages/threads?company=cmp_bert_ua&limit=1')
+      .get('/api/v1/messages/threads?company=cmp_lankadws_ua&limit=1')
       .expect(200);
     expect(firstThreadCursorPage.body.items.map((item: { id: string }) => item.id))
       .toEqual([threadCursorIds[1]]);
     expect(firstThreadCursorPage.body.nextCursor).toEqual(expect.any(String));
     const secondThreadCursorPage = await maria.agent
-      .get(`/api/v1/messages/threads?company=cmp_bert_ua&limit=1&cursor=${encodeURIComponent(firstThreadCursorPage.body.nextCursor as string)}`)
+      .get(`/api/v1/messages/threads?company=cmp_lankadws_ua&limit=1&cursor=${encodeURIComponent(firstThreadCursorPage.body.nextCursor as string)}`)
       .expect(200);
     expect(secondThreadCursorPage.body.items.map((item: { id: string }) => item.id))
       .toEqual([threadCursorIds[0]]);
@@ -2027,7 +2027,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', createKey)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         participantIds: ['usr_andrii'],
       })
@@ -2039,7 +2039,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', createKey)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         participantIds: ['usr_andrii'],
       })
@@ -2050,7 +2050,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', createKey)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         participantIds: ['usr_dmytro'],
       })
@@ -2060,7 +2060,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `chat-direct-canonical-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         participantIds: ['usr_andrii'],
       })
@@ -2073,7 +2073,7 @@ describe('Lanka API workflows', () => {
         .set('x-csrf-token', maria.csrf)
         .set('idempotency-key', `chat-direct-race-${suffix}-${attempt}`)
         .send({
-          companyId: 'cmp_bert_ua',
+          companyId: 'cmp_lankadws_ua',
           kind: 'DIRECT',
           participantIds: ['usr_dmytro'],
         })
@@ -2129,12 +2129,12 @@ describe('Lanka API workflows', () => {
       .expect(400);
 
     const unread = await andrii.agent
-      .get('/api/v1/messages/threads?company=cmp_bert_ua&unread=true')
+      .get('/api/v1/messages/threads?company=cmp_lankadws_ua&unread=true')
       .expect(200);
     expect((unread.body as { items: Array<{ id: string; unread: boolean }> }).items)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: threadId, unread: true })]));
     const searchedUsers = await andrii.agent
-      .get(`/api/v1/messages/users/search?company=cmp_bert_ua&q=${encodeURIComponent('остаточний текст')}`)
+      .get(`/api/v1/messages/users/search?company=cmp_lankadws_ua&q=${encodeURIComponent('остаточний текст')}`)
       .expect(200);
     expect((searchedUsers.body as { items: Array<{ id: string }> }).items).toEqual([]);
 
@@ -2214,7 +2214,7 @@ describe('Lanka API workflows', () => {
       participantVersion: readVersion,
     });
     const afterRead = await andrii.agent
-      .get('/api/v1/messages/threads?company=cmp_bert_ua&unread=true')
+      .get('/api/v1/messages/threads?company=cmp_lankadws_ua&unread=true')
       .expect(200);
     expect((afterRead.body as { items: Array<{ id: string }> }).items.some((item) => item.id === threadId))
       .toBe(false);
@@ -2242,7 +2242,7 @@ describe('Lanka API workflows', () => {
     })).toBe(notificationCountBeforeMute);
     expect(await prisma.auditEvent.count({
       where: {
-        workspaceId: 'ws_bert',
+        workspaceId: 'ws_lankadws',
         entityType: { in: ['MESSAGE_THREAD', 'MESSAGE'] },
         action: { in: ['message.thread_created', 'message.created', 'message.replied'] },
       },
@@ -2434,7 +2434,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `chat-mention-direct-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         participantIds: ['usr_andrii'],
       })
@@ -2514,7 +2514,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `chat-mention-group-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'GROUP',
         title: `Mention ${suffix}`,
         participantIds: ['usr_andrii', 'usr_olena'],
@@ -2614,7 +2614,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `chat-group-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         kind: 'GROUP',
         title: `Запуск ${suffix}`,
         participantIds: ['usr_andrii', 'usr_olena'],
@@ -2809,7 +2809,7 @@ describe('Lanka API workflows', () => {
     await maria.agent.get(`/api/v1/files/${fileId}/status`).expect(200);
     expect(await prisma.auditEvent.count({
       where: {
-        workspaceId: 'ws_bert',
+        workspaceId: 'ws_lankadws',
         entityType: { in: ['MESSAGE_THREAD', 'MESSAGE'] },
         action: {
           in: [
@@ -2836,8 +2836,8 @@ describe('Lanka API workflows', () => {
     await prisma.messageThread.create({
       data: {
         id: threadId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         kind: 'DIRECT',
         title: 'Запуск оновленої картки',
         participants: {
@@ -2868,7 +2868,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `task-message-content-${suffix}`)
       .send({
-        companyId: 'cmp_bert_service',
+        companyId: 'cmp_lankadws_service',
         title: 'Підготувати матеріали до завдання',
         assigneeId: 'usr_andrii',
       })
@@ -2876,7 +2876,7 @@ describe('Lanka API workflows', () => {
     const taskId = (created.body as { id: string }).id;
     const sourced = await maria.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
     const sourcedBody = sourced.body as TaskDetailView;
-    expect(sourcedBody.companyId).toBe('cmp_bert_ua');
+    expect(sourcedBody.companyId).toBe('cmp_lankadws_ua');
     expect(sourcedBody.sourceLinks).toHaveLength(1);
     expect(sourcedBody.sourceLinks[0]).toMatchObject({
       kind: 'MESSAGE',
@@ -2911,11 +2911,11 @@ describe('Lanka API workflows', () => {
       .send({ ...eventInput, title: 'Інша подія' })
       .expect(409);
     const eventDetail = await andrii.agent
-      .get(`/api/v1/calendar/events/${eventId}?company=cmp_bert_ua`)
+      .get(`/api/v1/calendar/events/${eventId}?company=cmp_lankadws_ua`)
       .expect(200);
     expect(eventDetail.body).toMatchObject({
       id: eventId,
-      companyId: 'cmp_bert_ua',
+      companyId: 'cmp_lankadws_ua',
       ownerId: 'usr_andrii',
       title: eventInput.title,
     });
@@ -3031,7 +3031,7 @@ describe('Lanka API workflows', () => {
     expect(replyView?.replyPreview?.body).toBe('Додала контекстний файл.');
     expect(replyView?.attachments.map((attachment) => attachment.id)).toEqual([fileId]);
     const listed = await andrii.agent
-      .get('/api/v1/tasks?company=cmp_bert_ua&role=RESPONSIBLE')
+      .get('/api/v1/tasks?company=cmp_lankadws_ua&role=RESPONSIBLE')
       .expect(200);
     expect(listed.body.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: taskId, attachmentCount: 1 }),
@@ -3062,8 +3062,8 @@ describe('Lanka API workflows', () => {
     await prisma.group.create({
       data: {
         id: groupId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         key: `task-acl-${suffix}`,
         name: 'Перевірка доступу задачі',
         ownerId: 'usr_maria',
@@ -3092,8 +3092,8 @@ describe('Lanka API workflows', () => {
     await prisma.task.create({
       data: {
         id: groupTaskId,
-        workspaceId: 'ws_bert',
-        companyId: 'cmp_bert_ua',
+        workspaceId: 'ws_lankadws',
+        companyId: 'cmp_lankadws_ua',
         groupId,
         number: suffix.toString(),
         title: 'Групова задача з прямими ролями',
@@ -3116,9 +3116,9 @@ describe('Lanka API workflows', () => {
   it('keeps uploads quarantined until the durable scanner job succeeds', async () => {
     const dmytro = await login('dmytro');
     const uploaded = await dmytro.agent
-      .post('/api/v1/files?company=cmp_bert_ua')
+      .post('/api/v1/files?company=cmp_lankadws_ua')
       .set('x-csrf-token', dmytro.csrf)
-      .attach('file', Buffer.from('Lanka safe e2e file\n'), {
+      .attach('file', Buffer.from('LankaDWS safe e2e file\n'), {
         filename: 'e2e-note.txt',
         contentType: 'text/plain',
       })
@@ -3201,7 +3201,7 @@ describe('Lanka API workflows', () => {
     const reauth = await dmytro.agent
       .post('/api/v1/auth/reauth')
       .set('x-csrf-token', dmytro.csrf)
-      .send({ password: 'BertDemoPassphrase2026!' })
+      .send({ password: 'LankaDWSDemoPassphrase2026!' })
       .expect(201);
     await dmytro.agent
       .post('/api/v1/admin/retention/legal-holds')
@@ -3300,7 +3300,7 @@ describe('Lanka API workflows', () => {
     const suffix = Date.now().toString(36);
 
     const groupCandidates = await maria.agent
-      .get('/api/v1/feed/mention-candidates?company=cmp_bert_ua&audienceType=GROUP&audienceId=grp_product_design&q=')
+      .get('/api/v1/feed/mention-candidates?company=cmp_lankadws_ua&audienceType=GROUP&audienceId=grp_product_design&q=')
       .expect(200);
     const groupCandidateIds = (groupCandidates.body as { items: Array<{ id: string }> }).items
       .map((item) => item.id);
@@ -3313,7 +3313,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-mention-outside-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: `${olenaToken}, переглянь`,
         audience: { type: 'GROUP', groupId: 'grp_product_design' },
         mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
@@ -3326,7 +3326,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-mention-group-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Видиме лише продуктовій групі.',
         audience: { type: 'GROUP', groupId: 'grp_product_design' },
       })
@@ -3340,7 +3340,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-mention-raw-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: `Сирий текст ${olenaToken} без вибору зі списку.`,
         audience: { type: 'COMPANY' },
       })
@@ -3359,7 +3359,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-mention-structured-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: `${olenaToken}, перевір публікацію.`,
         audience: { type: 'COMPANY' },
         mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
@@ -3514,7 +3514,7 @@ describe('Lanka API workflows', () => {
       .set('x-csrf-token', maria.csrf)
       .set('idempotency-key', `feed-mention-legacy-${suffix}`)
       .send({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Сумісна згадка від старого клієнта.',
         audience: { type: 'COMPANY' },
         mentionedUserIds: ['usr_andrii'],
@@ -3537,7 +3537,7 @@ describe('Lanka API workflows', () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
     const company = await prisma.company.findUniqueOrThrow({
-      where: { id: 'cmp_bert_ua' },
+      where: { id: 'cmp_lankadws_ua' },
       select: { timezone: true },
     });
     const todayParts = Object.fromEntries(
@@ -3566,7 +3566,7 @@ describe('Lanka API workflows', () => {
       await prisma.company.create({
         data: {
           id: outsiderCompanyId,
-          workspaceId: 'ws_bert',
+          workspaceId: 'ws_lankadws',
           displayName: 'Birthday privacy test',
           legalName: 'Birthday privacy test',
           code: outsiderCompanyId,
@@ -3576,7 +3576,7 @@ describe('Lanka API workflows', () => {
       await prisma.user.create({
         data: {
           id: outsiderUserId,
-          workspaceId: 'ws_bert',
+          workspaceId: 'ws_lankadws',
           primaryCompanyId: outsiderCompanyId,
           displayName: 'Outside Employee',
           normalizedDisplayName: 'outside employee',
@@ -3598,7 +3598,7 @@ describe('Lanka API workflows', () => {
       ]);
 
       const response = await maria.agent
-        .get('/api/v1/feed?company=cmp_bert_ua')
+        .get('/api/v1/feed?company=cmp_lankadws_ua')
         .expect(200);
       const result = response.body as FeedListResult;
       expect(result.birthdays).toEqual(expect.arrayContaining([
@@ -3621,7 +3621,7 @@ describe('Lanka API workflows', () => {
       expect(await prisma.feedItem.count()).toBe(feedItemCount);
 
       const filtered = await maria.agent
-        .get('/api/v1/feed?company=cmp_bert_ua&type=POST')
+        .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST')
         .expect(200);
       expect((filtered.body as FeedListResult).birthdays).toEqual([]);
     } finally {

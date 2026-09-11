@@ -1,4 +1,4 @@
-import type { OrgCompanyView, OrgUnitView } from '@bert-crm/contracts'
+import type { OrgCompanyView, OrgUnitView } from '@lankadws/contracts'
 import {
   AlertTriangle,
   Building2,
@@ -438,7 +438,7 @@ export function OrganizationMap({
               onDrop={(event: ReactDragEvent<HTMLDivElement>) => {
                 if (!onEmployeeDrop) return
                 event.preventDefault()
-                const employeeId = event.dataTransfer.getData('application/x-bert-employee') || event.dataTransfer.getData('text/plain')
+                const employeeId = event.dataTransfer.getData('application/x-lankadws-employee') || event.dataTransfer.getData('text/plain')
                 setDropTargetId(null)
                 if (employeeId) onEmployeeDrop(unit.id, employeeId)
               }}

@@ -1,4 +1,4 @@
-import type { ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
+import type { ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import { MessageCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { chatDayKey, formatChatDay } from '../lib/chatDates'

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { Request, Response } from 'express'
 import * as OTPAuth from 'otpauth'
-import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@bert-crm/contracts'
+import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@lankadws/contracts'
 import { decryptSecret, encryptSecret, fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -57,7 +57,7 @@ export class AuthService {
 
     if (temporaryValid) {
       await this.createSession(user, request, response, 0, true)
-      response.cookie('bert_temp_credential', temporaryId ?? '', this.cookieOptions(true))
+      response.cookie('lankadws_temp_credential', temporaryId ?? '', this.cookieOptions(true))
       return { nextStep: 'FIRST_LOGIN', csrfToken: response.locals.csrfToken as string }
     }
     if (user.totpCredential?.confirmedAt) {
@@ -307,7 +307,9 @@ export class AuthService {
       revokeReason: restricted ? 'restricted' : null,
     } })
     response.cookie(getConfig().SESSION_COOKIE_NAME, token, this.cookieOptions(true, expiresAt))
-    response.cookie('bert_csrf', csrfToken, this.cookieOptions(false, expiresAt))
+    // Cookie names are part of the LankaDWS cutover. Existing pre-cutover browser sessions are
+    // intentionally invalidated so the session and CSRF cookies always use the same namespace.
+    response.cookie('lankadws_csrf', csrfToken, this.cookieOptions(false, expiresAt))
     response.locals.csrfToken = csrfToken
   }
 
@@ -322,8 +324,8 @@ export class AuthService {
 
   private clearCookies(response: Response): void {
     response.clearCookie(getConfig().SESSION_COOKIE_NAME, this.cookieOptions(true))
-    response.clearCookie('bert_csrf', this.cookieOptions(false))
-    response.clearCookie('bert_temp_credential', this.cookieOptions(true))
+    response.clearCookie('lankadws_csrf', this.cookieOptions(false))
+    response.clearCookie('lankadws_temp_credential', this.cookieOptions(true))
   }
 
   private deviceLabel(request: Request): string {
@@ -332,7 +334,7 @@ export class AuthService {
   }
 
   private totp(secret: string, label: string): OTPAuth.TOTP {
-    return new OTPAuth.TOTP({ issuer: 'Lanka', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
+    return new OTPAuth.TOTP({ issuer: 'LankaDWS', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
   }
 
   private totpValidate(secret: string, label: string, token: string): number | null {

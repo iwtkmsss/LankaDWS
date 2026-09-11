@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TASK_DETAIL_SECTION_IDS } from '@bert-crm/contracts'
+import { TASK_DETAIL_SECTION_IDS } from '@lankadws/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { UiPreferencesService } from './ui-preferences.service.js'
 

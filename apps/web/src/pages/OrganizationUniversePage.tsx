@@ -1,4 +1,4 @@
-import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@bert-crm/contracts'
+import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'

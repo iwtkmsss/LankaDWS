@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, Req } from '@nestjs/common'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -11,7 +11,7 @@ export class EmployeesController {
 
   @Get()
   async list(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('company') company?: string,
     @Query('search') search?: string,
     @Query('orgUnit') orgUnitId?: string,
@@ -117,7 +117,7 @@ export class EmployeesController {
   }
 
   @Get(':id')
-  async detail(@Req() request: BertRequest, @Param('id') employeeId: string, @Query('company') company?: string) {
+  async detail(@Req() request: LankaDWSRequest, @Param('id') employeeId: string, @Query('company') company?: string) {
     const principal = principalFrom(request)
     const companyIds = this.scope.allowedCompanies(principal, company)
     const includeOrg = true

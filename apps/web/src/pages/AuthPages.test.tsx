@@ -51,7 +51,7 @@ describe('auth completion navigation', () => {
     mocks.state = 'loading'
     renderPage(<LoginPage />)
     expect(screen.getByRole('status', { name: 'Завантаження' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Увійти до Lanka' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Увійти до LankaDWS' })).not.toBeInTheDocument()
   })
 
   it.each([
@@ -59,7 +59,7 @@ describe('auth completion navigation', () => {
     ['setup', '/auth/2fa/confirm'],
   ] as const)('sends TOTP %s completion to the canonical root', async (mode, endpoint) => {
     if (mode === 'setup') {
-      mocks.api.mockResolvedValueOnce({ secret: 'SECRET', uri: 'otpauth://totp/bert' }).mockResolvedValueOnce(undefined)
+      mocks.api.mockResolvedValueOnce({ secret: 'SECRET', uri: 'otpauth://totp/lankadws' }).mockResolvedValueOnce(undefined)
     }
     renderPage(<RestrictedAccessPage mode={mode} />)
     if (mode === 'setup') fireEvent.click(screen.getByRole('button'))

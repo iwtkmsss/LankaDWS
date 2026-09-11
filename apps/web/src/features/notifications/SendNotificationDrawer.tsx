@@ -1,4 +1,4 @@
-import type { ChatContactUser } from '@bert-crm/contracts'
+import type { ChatContactUser } from '@lankadws/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BellRing, Search, X } from 'lucide-react'
 import { useState, type FormEvent } from 'react'

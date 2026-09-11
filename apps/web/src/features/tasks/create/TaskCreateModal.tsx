@@ -30,7 +30,7 @@ import {
 import { loadTaskCreateOptions } from './api'
 import { clearTaskDraft, loadTaskDraft, saveTaskDraft, taskDraftKey } from './draft'
 import { TaskChecklistSection } from './TaskChecklistSection'
-import { TaskBasicsSection, TaskContextSection } from './TaskMainSection'
+import { TaskBasicsSection } from './TaskMainSection'
 import { TaskParticipantsSection } from './TaskParticipantsSection'
 import { TaskPlanningSection } from './TaskPlanningSection'
 import { TaskRelationsSection } from './TaskRelationsSection'
@@ -175,7 +175,15 @@ export function TaskCreateModal({
     [groupId, initialResponsibleId, userId],
   )
   const restored = useMemo(() => loadTaskDraft(draftKey), [draftKey])
-  const [draft, setDraft] = useState<TaskCreateDraft>(() => restored ?? initial)
+  const [draft, setDraft] = useState<TaskCreateDraft>(() => {
+    const value = restored ?? initial
+    return {
+      ...value,
+      projectId: value.parentTaskId ? value.projectId : '',
+      tagIds: [],
+      relations: [],
+    }
+  })
   const [openSections, setOpenSections] = useState<Set<DetailSection>>(() => new Set())
   const [serverMessage, setServerMessage] = useState('')
   const [validation, setValidation] = useState<TaskCreateValidation | null>(null)
@@ -464,32 +472,13 @@ export function TaskCreateModal({
             <TaskDisclosure
               id="relations"
               title="Зв’язки"
-              description="Батьківське завдання, залежності та дублікати"
-              summary={draft.relations.length ? `${draft.relations.length} додано` : 'Не додано'}
+              description="Батьківське завдання та місце в ієрархії"
+              summary={draft.parentTaskId ? 'Місце обрано' : 'Не обрано'}
               icon={<Link2 size={18} aria-hidden />}
               open={openSections.has('relations')}
               onToggle={() => toggleSection('relations')}
             >
-              <div className="task-create-relations-layout">
-                <TaskContextSection
-                  draft={draft}
-                  options={options.data}
-                  optionsLoading={options.isLoading}
-                  optionsError={options.isError}
-                  update={update}
-                  onRetryOptions={retryOptions}
-                  onOptionsChanged={retryOptions}
-                />
-                {options.data ? (
-                  <TaskRelationsSection draft={draft} options={options.data} update={update} />
-                ) : (
-                  <OptionsSectionState
-                    loading={options.isLoading}
-                    label="доступні завдання і зв’язки"
-                    onRetry={retryOptions}
-                  />
-                )}
-              </div>
+              <TaskRelationsSection draft={draft} update={update} />
             </TaskDisclosure>
           </div>
         </form>

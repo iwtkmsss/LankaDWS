@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { DocumentsService } from './documents.service.js'
 
@@ -9,7 +9,7 @@ export class DocumentsController {
 
   @Get()
   list(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('company') company?: string,
     @Query('search') search?: string,
     @Query('section') section?: string,
@@ -20,23 +20,23 @@ export class DocumentsController {
   }
 
   @Get(':id')
-  detail(@Req() request: BertRequest, @Param('id') id: string) {
+  detail(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.documents.detail(principalFrom(request), id)
   }
 
   @Post()
-  create(@Req() request: BertRequest, @Body() body: { companyId?: string; name: string; fileId: string; changeSummary?: string }) {
+  create(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; name: string; fileId: string; changeSummary?: string }) {
     return this.documents.create(principalFrom(request), body)
   }
 
   @Post(':id/publish')
-  publish(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
+  publish(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.documents.publish(principalFrom(request), id, body.expectedVersion)
   }
 
   @Post(':id/versions')
   addVersion(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') id: string,
     @Body() body: { fileId: string; changeSummary?: string; expectedVersion: number },
   ) {
@@ -44,12 +44,12 @@ export class DocumentsController {
   }
 
   @Post(':id/archive')
-  archive(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
+  archive(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.documents.archive(principalFrom(request), id, body.expectedVersion)
   }
 
   @Post(':id/restore')
-  restore(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
+  restore(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.documents.restore(principalFrom(request), id, body.expectedVersion)
   }
 }

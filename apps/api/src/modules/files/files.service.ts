@@ -9,7 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { JobsService } from '../jobs/jobs.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
-import { readCleanFile, writeQuarantine } from './storage.js'
+import { DriveSharingService } from '../documents/drive-sharing.service.js'
+import { readCleanFile, writeCleanFile, writeQuarantine } from './storage.js'
 
 export interface UploadedBinary {
   buffer: Buffer
@@ -25,6 +26,7 @@ export class FilesService {
     private readonly jobs: JobsService,
     private readonly scope: ScopeService,
     private readonly taskAccess: TaskAccessService,
+    private readonly driveSharing: DriveSharingService,
   ) {}
 
   async upload(principal: AuthPrincipal, companyInput: string | undefined, file: UploadedBinary) {
@@ -91,6 +93,40 @@ export class FilesService {
     const bytes = await readCleanFile(file.storageKey)
     await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: file.companyId, actorType: 'USER', actorId: principal.userId, action: 'file.downloaded', entityType: 'FILE', entityId: file.id, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
     return { bytes, mime: file.detectedMime ?? 'application/octet-stream', name: file.safeFilename }
+  }
+
+  /**
+   * Duplicates an already-readable file into one the principal owns, so moving a file
+   * between Drive and chat never weakens the owner check that `assertAttachable` relies on.
+   */
+  async copyForPrincipal(principal: AuthPrincipal, fileId: string, companyInput: string | undefined) {
+    const companyId = this.scope.assertCompany(principal, companyInput)
+    const source = await this.download(principal, fileId)
+    const copyId = id('file')
+    const storageKey = `${companyId}/${copyId.slice(-16)}`
+    await writeCleanFile(storageKey, source.bytes)
+    await this.prisma.fileObject.create({
+      data: {
+        id: copyId,
+        workspaceId: principal.workspaceId,
+        companyId,
+        storageKey,
+        safeFilename: source.name,
+        declaredMime: source.mime,
+        detectedMime: source.mime,
+        bytes: source.bytes.length,
+        sha256: createHash('sha256').update(source.bytes).digest('hex'),
+        ownerId: principal.userId,
+        scanStatus: 'CLEAN',
+      },
+    })
+    return {
+      id: copyId,
+      fileName: source.name,
+      bytes: source.bytes.length,
+      mimeType: source.mime,
+      scanStatus: 'CLEAN' as const,
+    }
   }
 
   async downloadAvatar(principal: AuthPrincipal, fileId: string): Promise<{ bytes: Buffer; mime: string; name: string }> {
@@ -334,6 +370,12 @@ export class FilesService {
       })
       if (acl && await this.prisma.document.findFirst({
         where: { id: acl.documentId, companyId: { in: principal.allowedCompanyIds } },
+        select: { id: true },
+      })) return file
+      const grants = await this.driveSharing.grantsFor(principal)
+      const shared = documentIds.find((documentId) => grants.documentIds.has(documentId))
+      if (shared && await this.prisma.document.findFirst({
+        where: { id: shared, companyId: { in: principal.allowedCompanyIds } },
         select: { id: true },
       })) return file
     }

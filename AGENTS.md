@@ -1,4 +1,4 @@
-# AGENTS.md — BertCRM
+# AGENTS.md — LankaDWS
 
 ## Purpose
 
@@ -6,7 +6,7 @@ Help coding agents (Codex, Claude) make small, safe, reviewable changes in this 
 
 ## Naming
 
-Repo and packages are `bert-crm` / `@bert-crm/*`. A product rename to **"Lanka"** is partially applied (web UI strings, `docs/architecture.md`). Treat "BertCRM" and "Lanka" as the same product; do not mass-rename identifiers or packages as part of an unrelated task.
+Repo and packages are `lankadws` / `@lankadws/*`; the official product name is **LankaDWS**. Keep display copy and technical namespaces consistent, and do not rename identifiers or packages as part of an unrelated task.
 
 ## Repository map
 
@@ -86,10 +86,10 @@ Run only touched workspaces and focused tests.
 Examples:
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run typecheck --workspace @bert-crm/web
-npm run test:e2e --workspace @bert-crm/web -- --project=desktop-chromium --grep "<focused scenario>"
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run typecheck --workspace @lankadws/web
+npm run test:e2e --workspace @lankadws/web -- --project=desktop-chromium --grep "<focused scenario>"
 ```
 
 ### Before completing a feature slice

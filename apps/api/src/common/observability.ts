@@ -1,5 +1,5 @@
 import type { NextFunction, Response } from 'express'
-import type { BertRequest } from './request-context.js'
+import type { LankaDWSRequest } from './request-context.js'
 
 const MAX_LATENCY_SAMPLES = 2_000
 const latencies: number[] = []
@@ -13,13 +13,13 @@ function percentile(values: number[], point: number): number {
   return ordered[Math.min(ordered.length - 1, Math.floor((ordered.length - 1) * point))] ?? 0
 }
 
-function safeRoute(request: BertRequest): string {
+function safeRoute(request: LankaDWSRequest): string {
   return (request.path || '/')
     .replace(/\/[a-z]{2,8}_[a-zA-Z0-9_-]{4,}/g, '/:id')
     .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, '/:id')
 }
 
-export function requestObservability(request: BertRequest, response: Response, next: NextFunction): void {
+export function requestObservability(request: LankaDWSRequest, response: Response, next: NextFunction): void {
   const started = process.hrtime.bigint()
   response.once('finish', () => {
     const latencyMs = Number(process.hrtime.bigint() - started) / 1_000_000
@@ -31,7 +31,7 @@ export function requestObservability(request: BertRequest, response: Response, n
     process.stdout.write(`${JSON.stringify({
       timestamp: new Date().toISOString(),
       level: response.statusCode >= 500 ? 'error' : response.statusCode >= 400 ? 'warn' : 'info',
-      service: 'bert-crm-api',
+      service: 'lankadws-api',
       buildVersion: process.env.BUILD_VERSION ?? 'development',
       method: request.method,
       route: safeRoute(request),

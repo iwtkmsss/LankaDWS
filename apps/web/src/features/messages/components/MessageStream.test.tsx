@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView } from '@lankadws/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageStream } from './MessageStream'

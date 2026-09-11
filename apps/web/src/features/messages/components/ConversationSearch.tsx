@@ -1,4 +1,4 @@
-import type { ChatMessageSearchPage } from '@bert-crm/contracts'
+import type { ChatMessageSearchPage } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Search, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'

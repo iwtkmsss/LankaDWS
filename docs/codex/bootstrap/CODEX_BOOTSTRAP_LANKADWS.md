@@ -1,4 +1,4 @@
-# Codex Bootstrap Task — актуалізувати й організувати agent-harness BertCRM
+# Codex Bootstrap Task — актуалізувати й організувати agent-harness LankaDWS
 
 ## Режим
 
@@ -7,7 +7,7 @@ Implementation, але **тільки repository documentation/tooling hygiene**
 
 ## Мета
 
-На основі фактичного поточного стану BertCRM:
+На основі фактичного поточного стану LankaDWS:
 
 1. перевірити й актуалізувати інструкції для Codex;
 2. створити точну, компактну карту репозиторію та основних request-flow;

@@ -34,7 +34,7 @@ import {
   type StructuredMentionView,
   type UpdateChatParticipantInput,
   type UpdateChatPreferenceInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'

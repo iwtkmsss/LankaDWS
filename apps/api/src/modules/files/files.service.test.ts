@@ -45,7 +45,7 @@ describe('FilesService avatar access', () => {
   })
 
   it('allows a colleague to read the current avatar of a user in the same workspace', async () => {
-    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never)
+    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never)
 
     await expect(service.downloadAvatar(principal, 'file_avatar')).resolves.toMatchObject({
       bytes: Buffer.from('avatar'),
@@ -63,7 +63,7 @@ describe('FilesService avatar access', () => {
 
   it('does not expose an unassigned file as an avatar', async () => {
     prisma.user.findFirst.mockResolvedValue(null)
-    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never)
+    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never)
 
     await expect(service.downloadAvatar(principal, 'file_avatar')).rejects.toMatchObject({
       status: 404,

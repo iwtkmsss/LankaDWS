@@ -5,9 +5,9 @@ import {
   decideGroupJoinRequestSchema,
   groupListQuerySchema,
   updateGroupSchema,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { GroupsService } from './groups.service.js'
 
@@ -16,51 +16,51 @@ export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
 
   @Get()
-  list(@Req() request: BertRequest, @Query() rawQuery: Record<string, unknown>) {
+  list(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
     const parsed = groupListQuerySchema.safeParse(rawQuery)
     if (!parsed.success) throw badRequest('groups_query_invalid')
     return this.groups.list(principalFrom(request), parsed.data)
   }
 
   @Post()
-  create(@Req() request: BertRequest, @Body() rawBody: unknown) {
+  create(@Req() request: LankaDWSRequest, @Body() rawBody: unknown) {
     const parsed = createGroupSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('group_invalid')
     return this.groups.create(principalFrom(request), parsed.data)
   }
 
   @Get(':id')
-  detail(@Req() request: BertRequest, @Param('id') groupId: string, @Query('company') company?: string) {
+  detail(@Req() request: LankaDWSRequest, @Param('id') groupId: string, @Query('company') company?: string) {
     return this.groups.detail(principalFrom(request), groupId, company)
   }
 
   @Patch(':id')
-  update(@Req() request: BertRequest, @Param('id') groupId: string, @Body() rawBody: unknown) {
+  update(@Req() request: LankaDWSRequest, @Param('id') groupId: string, @Body() rawBody: unknown) {
     const parsed = updateGroupSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('group_invalid')
     return this.groups.update(principalFrom(request), groupId, parsed.data)
   }
 
   @Post(':id/archive')
-  archive(@Req() request: BertRequest, @Param('id') groupId: string, @Body() rawBody: unknown) {
+  archive(@Req() request: LankaDWSRequest, @Param('id') groupId: string, @Body() rawBody: unknown) {
     const parsed = archiveGroupSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('group_invalid')
     return this.groups.archive(principalFrom(request), groupId, parsed.data.expectedVersion)
   }
 
   @Post(':id/join')
-  join(@Req() request: BertRequest, @Param('id') groupId: string) {
+  join(@Req() request: LankaDWSRequest, @Param('id') groupId: string) {
     return this.groups.join(principalFrom(request), groupId)
   }
 
   @Post(':id/leave')
-  leave(@Req() request: BertRequest, @Param('id') groupId: string) {
+  leave(@Req() request: LankaDWSRequest, @Param('id') groupId: string) {
     return this.groups.leave(principalFrom(request), groupId)
   }
 
   @Post(':id/requests/:requestId')
   decideRequest(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') groupId: string,
     @Param('requestId') requestId: string,
     @Body() rawBody: unknown,

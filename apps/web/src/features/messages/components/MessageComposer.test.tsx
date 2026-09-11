@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ChatAttachmentView } from '@bert-crm/contracts'
+import type { ChatAttachmentView } from '@lankadws/contracts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageComposer } from './MessageComposer'
 import { api } from '../../../shared/api/client'

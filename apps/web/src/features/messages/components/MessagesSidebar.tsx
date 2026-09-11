@@ -3,7 +3,7 @@ import type {
   ChatThreadCounts,
   ChatThreadListItem,
   RecommendedChatUser,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'

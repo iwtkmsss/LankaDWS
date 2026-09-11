@@ -4,7 +4,7 @@ import {
   type CalendarAudienceOption,
   type CalendarEventAudienceInput,
   type EventListItem,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import {
   useCallback,

@@ -2,7 +2,7 @@ import {
   type CompanyMappingArtifact,
   type ImportCompanyMappingDatabaseReport,
   type ImportManifestIssue,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   validateImportManifest,
   type ManifestValidationEvidence,

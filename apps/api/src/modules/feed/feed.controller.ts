@@ -10,9 +10,9 @@ import {
   markFeedReadSchema,
   shareFileToFeedSchema,
   updateFeedPostSchema,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
@@ -23,34 +23,34 @@ export class FeedController {
   constructor(private readonly feed: FeedService) {}
 
   @Get()
-  list(@Req() request: BertRequest, @Query() rawQuery: Record<string, unknown>) {
+  list(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
     const parsed = feedListQuerySchema.safeParse(rawQuery)
     if (!parsed.success) throw badRequest('feed_query_invalid')
     return this.feed.list(principalFrom(request), parsed.data)
   }
 
   @Get('summary')
-  summary(@Req() request: BertRequest, @Query('company') company?: string) {
+  summary(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.feed.summary(principalFrom(request), company)
   }
 
   @Get('audiences')
-  audiences(@Req() request: BertRequest, @Query('company') company?: string) {
+  audiences(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.feed.audiences(principalFrom(request), company)
   }
 
   @Get('authors')
-  authors(@Req() request: BertRequest, @Query('company') company?: string) {
+  authors(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.feed.authors(principalFrom(request), company)
   }
 
   @Get('facets/audiences')
-  audienceFacets(@Req() request: BertRequest, @Query('company') company?: string) {
+  audienceFacets(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.feed.audienceFacets(principalFrom(request), company)
   }
 
   @Get('mention-candidates')
-  mentionCandidates(@Req() request: BertRequest, @Query() rawQuery: Record<string, unknown>) {
+  mentionCandidates(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
     const parsed = feedMentionCandidatesQuerySchema.safeParse(rawQuery)
     if (!parsed.success) throw badRequest('feed_mention_query_invalid')
     return this.feed.mentionCandidates(principalFrom(request), parsed.data)
@@ -58,7 +58,7 @@ export class FeedController {
 
   @Get(':id/mention-candidates')
   postMentionCandidates(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') postId: string,
     @Query() rawQuery: Record<string, unknown>,
   ) {
@@ -68,7 +68,7 @@ export class FeedController {
   }
 
   @Post('read')
-  markRead(@Req() request: BertRequest, @Body() rawBody: unknown) {
+  markRead(@Req() request: LankaDWSRequest, @Body() rawBody: unknown) {
     const parsed = markFeedReadSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('feed_read_invalid')
     return this.feed.markRead(principalFrom(request), parsed.data)
@@ -77,7 +77,7 @@ export class FeedController {
   @Post('attachments')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 } }))
   uploadAttachment(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('company') companyId: string | undefined,
     @UploadedFile() file: UploadedBinary,
   ) {
@@ -87,7 +87,7 @@ export class FeedController {
 
   @Post('file-shares/:fileId')
   shareFile(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('fileId') fileId: string,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') idempotencyKey?: string,
@@ -100,7 +100,7 @@ export class FeedController {
 
   @Delete('file-shares/:shareId')
   revokeFileShare(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('shareId') shareId: string,
     @Body() body: { expectedVersion?: number },
   ) {
@@ -112,7 +112,7 @@ export class FeedController {
 
   @Post()
   create(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
@@ -123,12 +123,12 @@ export class FeedController {
   }
 
   @Get(':id')
-  detail(@Req() request: BertRequest, @Param('id') postId: string) {
+  detail(@Req() request: LankaDWSRequest, @Param('id') postId: string) {
     return this.feed.detail(principalFrom(request), postId)
   }
 
   @Patch(':id')
-  update(@Req() request: BertRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
+  update(@Req() request: LankaDWSRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
     const parsed = updateFeedPostSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('feed_post_invalid')
     return this.feed.update(principalFrom(request), postId, parsed.data)
@@ -136,7 +136,7 @@ export class FeedController {
 
   @Delete(':id')
   archive(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') postId: string,
     @Body() body: { expectedVersion?: number },
   ) {
@@ -147,19 +147,19 @@ export class FeedController {
   }
 
   @Post(':id/comments')
-  comment(@Req() request: BertRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
+  comment(@Req() request: LankaDWSRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
     const parsed = createFeedCommentSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('feed_comment_invalid')
     return this.feed.comment(principalFrom(request), postId, parsed.data)
   }
 
   @Post(':id/reactions/like')
-  like(@Req() request: BertRequest, @Param('id') postId: string) {
+  like(@Req() request: LankaDWSRequest, @Param('id') postId: string) {
     return this.feed.toggleLike(principalFrom(request), postId)
   }
 
   @Post(':id/acknowledge')
-  acknowledge(@Req() request: BertRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
+  acknowledge(@Req() request: LankaDWSRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
     const parsed = acknowledgeFeedPostSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('feed_acknowledgement_invalid')
     return this.feed.acknowledge(principalFrom(request), postId, parsed.data.acknowledgementVersion)

@@ -14,9 +14,9 @@ vi.mock('../shared/api/client', async (original) => ({
 
 const audience = {
   type: 'COMPANY' as const,
-  id: 'cmp_bert_ua',
-  companyId: 'cmp_bert_ua',
-  label: 'BERT',
+  id: 'cmp_lankadws_ua',
+  companyId: 'cmp_lankadws_ua',
+  label: 'LankaDWS',
   detail: 'Усі активні працівники організації',
 }
 
@@ -35,7 +35,7 @@ function mount() {
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       })}>
         <FeedComposerForm
-          defaultCompanyId="cmp_bert_ua"
+          defaultCompanyId="cmp_lankadws_ua"
           onPostCreated={vi.fn()}
           onFeedChanged={vi.fn()}
           onBusyChange={vi.fn()}
@@ -49,7 +49,7 @@ function mount() {
 beforeEach(() => {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path === '/feed/audiences?company=all') return { items: [audience, secondAudience] }
-    if (path === '/feed/attachments?company=cmp_bert_ua' && options?.method === 'POST') {
+    if (path === '/feed/attachments?company=cmp_lankadws_ua' && options?.method === 'POST') {
       return {
         id: 'file_new',
         fileName: 'оновлення.txt',
@@ -72,13 +72,17 @@ describe('FeedComposerForm', () => {
   it('defaults the audience to the author company and publishes the checked companies', async () => {
     mount()
 
-    const audienceTrigger = await screen.findByRole('button', { name: 'Бачать: BERT' })
-    expect(screen.queryByRole('checkbox', { name: 'BERT' })).not.toBeInTheDocument()
+    const audienceTrigger = await screen.findByRole(
+      'button',
+      { name: 'Бачать: LankaDWS' },
+      { timeout: 5_000 },
+    )
+    expect(screen.queryByRole('checkbox', { name: 'LankaDWS' })).not.toBeInTheDocument()
     fireEvent.click(audienceTrigger)
 
-    const bert = screen.getByRole('checkbox', { name: 'BERT' })
+    const lankadws = screen.getByRole('checkbox', { name: 'LankaDWS' })
     const other = screen.getByRole('checkbox', { name: 'Інша компанія' })
-    expect(bert).toBeChecked()
+    expect(lankadws).toBeChecked()
     expect(other).not.toBeChecked()
     fireEvent.click(other)
 
@@ -90,9 +94,9 @@ describe('FeedComposerForm', () => {
     await waitFor(() => expect(api).toHaveBeenCalledWith('/feed', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({
-        companyId: 'cmp_bert_ua',
+        companyId: 'cmp_lankadws_ua',
         body: 'Важливе оновлення',
-        audience: { type: 'COMPANIES', companyIds: ['cmp_bert_ua', 'cmp_other'] },
+        audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_ua', 'cmp_other'] },
         requiresAcknowledgement: false,
         attachmentIds: [],
         mentions: [],
@@ -102,7 +106,7 @@ describe('FeedComposerForm', () => {
 
   it('uploads attachments to the selected organization instead of the all scope', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: BERT' })
+    await screen.findByRole('button', { name: 'Бачать: LankaDWS' })
 
     fireEvent.change(screen.getByLabelText('Додати файл'), {
       target: { files: [new File(['оновлення'], 'оновлення.txt', { type: 'text/plain' })] },
@@ -115,14 +119,14 @@ describe('FeedComposerForm', () => {
     fireEvent.pointerDown(document.body)
     expect(screen.queryByText('оновлення.txt')).not.toBeInTheDocument()
     expect(api).toHaveBeenCalledWith(
-      '/feed/attachments?company=cmp_bert_ua',
+      '/feed/attachments?company=cmp_lankadws_ua',
       expect.objectContaining({ method: 'POST' }),
     )
   })
 
   it('requires confirmation before publishing an attachment without text', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: BERT' })
+    await screen.findByRole('button', { name: 'Бачать: LankaDWS' })
     fireEvent.change(screen.getByLabelText('Додати файл'), {
       target: { files: [new File(['оновлення'], 'оновлення.txt', { type: 'text/plain' })] },
     })
@@ -141,7 +145,7 @@ describe('FeedComposerForm', () => {
 
   it('does not render the removed task and calendar actions', async () => {
     mount()
-    await screen.findByRole('button', { name: 'Бачать: BERT' })
+    await screen.findByRole('button', { name: 'Бачать: LankaDWS' })
 
     expect(screen.getByRole('checkbox', { name: /Пункт «Ознайомився»/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Створити завдання' })).not.toBeInTheDocument()

@@ -52,7 +52,7 @@ function resolveImportDatasetRoot(configuredRoot: string | undefined): string {
     ...(process.env.INIT_CWD ? [resolve(process.env.INIT_CWD)] : []),
   ])
   if ([...forbiddenRoots].some((root) => isWithin(root, datasetRoot))) {
-    throw new Error('BITRIX_SNAPSHOT_ROOT must be outside the BertCRM repository')
+    throw new Error('BITRIX_SNAPSHOT_ROOT must be outside the LankaDWS repository')
   }
   return datasetRoot
 }
@@ -73,7 +73,7 @@ function resolveImportSupportFile(
     datasetRoot,
   ])
   if ([...forbiddenRoots].some((root) => isWithin(root, candidate))) {
-    throw new Error(`${variableName} must be outside the BertCRM repository and dataset root`)
+    throw new Error(`${variableName} must be outside the LankaDWS repository and dataset root`)
   }
   return candidate
 }
@@ -268,7 +268,7 @@ export async function validateCompanyMappingCommand(
 export async function resetDevelopmentAdmin(prisma: PrismaService): Promise<void> {
   if (process.env.NODE_ENV === 'production') throw new Error('admin:dev-reset is forbidden in production')
   const password = process.env.DEMO_SEED_PASSWORD
-  if (!password) throw new Error('DEMO_SEED_PASSWORD is missing; run: npm run bert -- recovery:hash')
+  if (!password) throw new Error('DEMO_SEED_PASSWORD is missing; run: npm run lankadws -- recovery:hash')
   const administrators = await prisma.user.findMany({
     where: { isActive: true, accountType: 'ADMIN' },
     select: { id: true, username: true, workspaceId: true, primaryCompanyId: true },
@@ -299,7 +299,7 @@ export async function resetDevelopmentAdmin(prisma: PrismaService): Promise<void
 export async function createAdmin(prisma: PrismaService): Promise<void> {
   const existing = await prisma.user.findFirst({ where: { isActive: true, accountType: 'ADMIN' } })
   if (existing) throw new Error('An active full administrator already exists; admin:create is intentionally one-time')
-  const workspaceName = await promptText('Назва workspace', 'BERT Workspace')
+  const workspaceName = await promptText('Назва workspace', 'LankaDWS Workspace')
   const timezone = await promptText('Timezone', 'Europe/Kyiv')
   const displayName = await promptText('Ім’я адміністратора')
   const username = (await promptText('Нікнейм адміністратора')).toLowerCase()
@@ -324,7 +324,7 @@ export async function createAdmin(prisma: PrismaService): Promise<void> {
 export async function recoverAdmin(prisma: PrismaService): Promise<void> {
   const recoveryHash = getConfig().BREAK_GLASS_SECRET_HASH
   if (!recoveryHash) throw new Error('BREAK_GLASS_SECRET_HASH is not configured')
-  if (!recoveryHash.startsWith('$argon2id$')) throw new Error('BREAK_GLASS_SECRET_HASH must be an Argon2id hash; run: npm run bert -- recovery:hash')
+  if (!recoveryHash.startsWith('$argon2id$')) throw new Error('BREAK_GLASS_SECRET_HASH must be an Argon2id hash; run: npm run lankadws -- recovery:hash')
   const username = (await promptText('Нікнейм адміністратора')).toLowerCase()
   const installationSecret = await promptHidden('Installation recovery secret')
   if (!(await verifyPassword(recoveryHash, installationSecret))) throw new Error('Recovery authorization failed')
@@ -392,7 +392,7 @@ async function main(): Promise<void> {
     else if (command === 'admin:dev-reset') await resetDevelopmentAdmin(prisma)
     else {
       throw new Error(
-        'Usage: npm run bert -- admin:create | admin:recover | admin:dev-reset | recovery:hash'
+        'Usage: npm run lankadws -- admin:create | admin:recover | admin:dev-reset | recovery:hash'
         + ' | import:seal-manifest [--json] | import:validate-manifest [--json]'
         + ' | import:validate-company-map [--json]',
       )

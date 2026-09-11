@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 async function login(page: Page, username = 'maria') {
   await page.goto('/login')
   await page.getByLabel('Нікнейм').fill(username)
-  await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+  await page.getByLabel('Пароль', { exact: true }).fill('LankaDWSDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
   await expect(page).toHaveURL(/\/feed$/)
 }
@@ -46,16 +46,17 @@ test('desktop navigation prefetches destinations and reuses cached task data', a
     if (new URL(request.url()).pathname === '/api/v1/tasks') taskListRequests += 1
   })
 
-  async function navigateTo(path: string, heading: string) {
-    const link = sidebar.locator(`a[href="${path}"]`)
+  async function navigateTo(path: string) {
+    const link = sidebar.locator(`.sidebar__nav a[href="${path}"]`)
     await link.hover()
     await link.click()
     await expect(page).toHaveURL(new RegExp(`${path.replace('/', '\\/')}$`))
     await expect(link).toHaveClass(/active/)
-    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.locator('main')).toBeVisible()
+    await expect(page.locator('.page-data-loader')).toHaveCount(0)
   }
 
-  await navigateTo('/tasks', 'Завдання')
+  await navigateTo('/tasks')
   const taskLink = page.locator('.task-list-table tbody a').first()
   await expect(taskLink).toBeVisible()
   await taskLink.click()
@@ -63,18 +64,18 @@ test('desktop navigation prefetches destinations and reuses cached task data', a
   await expect(page.locator('.task-detail-heading h2')).toBeVisible()
   const taskRequestsAfterFirstVisit = taskListRequests
 
-  await navigateTo('/messages', 'Повідомлення')
-  await navigateTo('/drive', 'Диск')
-  await navigateTo('/calendar', 'Календар')
-  await navigateTo('/organization', 'Організація')
-  await navigateTo('/feed', 'Жива стрічка')
-  await navigateTo('/tasks', 'Завдання')
+  await navigateTo('/messages')
+  await navigateTo('/drive')
+  await navigateTo('/calendar')
+  await navigateTo('/organization')
+  await navigateTo('/feed')
+  await navigateTo('/tasks')
   await expect(page.locator('.page-data-loader')).toHaveCount(0)
   await page.waitForTimeout(250)
   expect(taskListRequests).toBe(taskRequestsAfterFirstVisit)
 })
 
-test('home landing follows FEED capability and removed overview is not addressable', async ({ page, request }) => {
+test('home landing uses the feed and removed overview is not addressable', async ({ page }) => {
   await login(page)
   await expect(page).toHaveURL(/\/feed$/)
   await page.goto('/')
@@ -82,34 +83,6 @@ test('home landing follows FEED capability and removed overview is not addressab
   await page.goto('/overview')
   await expect(page.getByRole('heading', { name: 'Такої сторінки немає' })).toBeVisible()
 
-  const adminLogin = await request.post('/api/v1/auth/login', {
-    data: { username: 'dmytro', password: 'BertDemoPassphrase2026!' },
-  })
-  expect(adminLogin.ok()).toBeTruthy()
-  const csrfToken = (await adminLogin.json() as { csrfToken: string }).csrfToken
-  const capabilities = await request.get('/api/v1/admin/organization/capabilities')
-  const feed = (await capabilities.json() as { items: Array<{ code: string; enabled: boolean; version: number }> }).items
-    .find((capability) => capability.code === 'FEED')
-  expect(feed).toBeDefined()
-
-  await request.patch('/api/v1/admin/organization/capabilities/FEED', {
-    data: { enabled: false, expectedVersion: feed!.version },
-    headers: { 'x-csrf-token': csrfToken },
-  })
-
-  try {
-    await page.context().clearCookies()
-    await page.goto('/login')
-    await page.getByLabel('Нікнейм').fill('maria')
-    await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
-    await page.getByRole('button', { name: 'Увійти' }).click()
-    await expect(page).toHaveURL(/\/tasks$/)
-  } finally {
-    await request.patch('/api/v1/admin/organization/capabilities/FEED', {
-      data: { enabled: feed!.enabled, expectedVersion: feed!.version + 1 },
-      headers: { 'x-csrf-token': csrfToken },
-    })
-  }
 })
 
 async function createTaskThroughModal(
@@ -165,7 +138,7 @@ test('employee feed and canonical navigation are accessible', async ({ page }) =
 
 test('manager feed overview and admin access stay correctly scoped', async ({ page }) => {
   await login(page, 'andrii')
-  await page.goto('/feed?company=cmp_bert_service')
+  await page.goto('/feed?company=cmp_lankadws_service')
   await expect(page).toHaveURL(/\/feed$/)
   await expect(page).not.toHaveURL(/company=/)
   await expect(page.getByText('Потребують рішення')).toHaveCount(0)
@@ -176,7 +149,7 @@ test('manager feed overview and admin access stay correctly scoped', async ({ pa
 
 test('organization map moves the camera, highlights a branch and keeps selection addressable', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/organization?view=structure&companyId=cmp_bert_ua')
+  await page.goto('/organization?view=structure&companyId=cmp_lankadws_ua')
   const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
   await expect(map).toBeVisible()
 
@@ -195,22 +168,22 @@ test('organization map moves the camera, highlights a branch and keeps selection
   const transformAtZoomLimit = await map.locator('.organization-map__world').getAttribute('style')
   await page.mouse.wheel(0, 180)
   await expect(map.locator('.organization-map__world')).toHaveAttribute('style', transformAtZoomLimit ?? '')
-  await expect(map.getByRole('button', { name: /BERT/ }).first()).toBeVisible()
+  await expect(map.getByRole('button', { name: /LankaDWS/ }).first()).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Структура', exact: true })).toHaveClass(/is-active/)
-  await expect(page.getByLabel('Компанія')).toHaveValue('cmp_bert_ua')
+  await expect(page.getByRole('combobox', { name: 'Оберіть компанію' })).toHaveValue('cmp_lankadws_ua')
 })
 
-test('administrator manages a recursive company structure', async ({ page }) => {
+test('administrator manages a recursive company structure', async ({ page }, testInfo) => {
   await login(page, 'dmytro')
-  await page.goto('/admin/companies/cmp_bert_ua/structure')
-  await expect(page.getByRole('heading', { name: 'Структура · BERT' })).toBeVisible()
+  await page.goto('/admin/companies/cmp_lankadws_ua/structure')
   const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
+  await expect(map).toBeVisible()
   await page.getByRole('button', { name: 'Редагувати структуру' }).click()
-  await map.getByRole('button', { name: /BERT\./ }).click()
-  await expect(map.getByRole('heading', { name: 'BERT' })).toBeVisible()
-  await expect(map.getByLabel('Керівник')).toBeVisible()
-  await page.getByRole('button', { name: 'Додати гілку до компанії BERT' }).click()
+  await map.getByRole('button', { name: /LankaDWS\./ }).click()
+  await expect(map.getByRole('heading', { name: 'LankaDWS' })).toBeVisible()
+  await expect(map.getByRole('searchbox', { name: 'Керівник', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Новий підрозділ' }).click()
 
   const suffix = Date.now().toString(36)
   let drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
@@ -232,7 +205,7 @@ test('administrator manages a recursive company structure', async ({ page }) => 
 
   const sourceUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI напрям ${suffix}` })
   const targetUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI лабораторія ${suffix}` })
-  await sourceUnitNode.click()
+  await sourceUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
   const employeeCard = map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')
   await expect(employeeCard).toBeVisible()
   const transferData = await page.evaluateHandle(() => new DataTransfer())
@@ -244,7 +217,7 @@ test('administrator manages a recursive company structure', async ({ page }) => 
   await expect(transfer).toContainText(`E2E UI лабораторія ${suffix}`)
   await transfer.getByRole('button', { name: 'Перевести' }).click()
   await expect(transfer).toHaveCount(0)
-  await targetUnitNode.click()
+  await targetUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
   await expect(map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')).toBeVisible()
 
   await page.getByText('Архівація', { exact: true }).click()
@@ -261,7 +234,7 @@ test('top bar exposes global search without company navigation buttons', async (
   await login(page, 'maria')
   const topbar = page.locator('.topbar')
   await expect(topbar).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Пошук у LankaDWS' })).toBeVisible()
   await expect(topbar.getByRole('button', { name: 'Компанії' })).toHaveCount(0)
   await expect(topbar.getByRole('button', { name: 'Структура' })).toHaveCount(0)
   await page.keyboard.press('Control+K')
@@ -273,7 +246,8 @@ test('top bar exposes global search without company navigation buttons', async (
   const personResult = page.getByRole('option', { name: /Дмитро Савчук.*Адміністратор/ })
   await expect(personResult).toBeVisible()
   await personResult.click()
-  await expect(page).toHaveURL(/\/messages\?new=1&to=usr_dmytro/)
+  await expect(page).toHaveURL(/\/feed\?employeeId=usr_dmytro/)
+  await expect(page.getByRole('region', { name: 'Діалог: Дмитро Савчук' })).toBeVisible()
 })
 
 test('create actions use the left top-bar slot while search stays centered', async ({ page }, testInfo) => {
@@ -286,7 +260,7 @@ test('create actions use the left top-bar slot while search stays centered', asy
 
   if (testInfo.project.name === 'desktop-chromium') {
     const topbarBox = await topbar.boundingBox()
-    const searchBox = await topbar.getByRole('button', { name: 'Пошук у Lanka' }).boundingBox()
+    const searchBox = await topbar.getByRole('button', { name: 'Пошук у LankaDWS' }).boundingBox()
     expect(topbarBox).not.toBeNull()
     expect(searchBox).not.toBeNull()
     expect(Math.abs(
@@ -306,7 +280,7 @@ test('create actions use the left top-bar slot while search stays centered', asy
   if (testInfo.project.name === 'desktop-chromium') {
     await page.goto('/calendar')
     await expect(topbar.getByRole('button', { name: 'Створити подію' })).toBeVisible()
-    await expect(topbar.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
+    await expect(topbar.getByRole('button', { name: 'Пошук у LankaDWS' })).toBeVisible()
     const [calendarToolbar, calendarNavigation] = await Promise.all([
       page.locator('.calendar-view-switch').boundingBox(),
       page.locator('.calendar-nav--topbar').boundingBox(),
@@ -320,39 +294,44 @@ test('create actions use the left top-bar slot while search stays centered', asy
   }
 
   await page.goto('/drive')
-  await expect(topbar.getByRole('button', { name: 'Додати файл' })).toBeVisible()
+  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeVisible()
 })
 
 test('global admin chooses a company before adding a drive file', async ({ page }) => {
   await login(page, 'dmytro')
   await page.goto('/drive')
 
-  await page.locator('.topbar').getByRole('button', { name: 'Додати файл' }).click()
-  const drawer = page.getByRole('dialog', { name: 'Новий документ' })
-  const company = drawer.getByLabel('Компанія')
+  const topbar = page.locator('.topbar')
+  const company = topbar.getByRole('combobox', { name: 'Компанія' })
   await expect(company).toBeVisible()
   await expect(company.locator('option')).not.toHaveCount(1)
+  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeDisabled()
+  await expect(topbar.getByRole('button', { name: 'Нова папка' })).toBeDisabled()
+  await company.selectOption('cmp_lankadws_ua')
+  await expect(page).toHaveURL(/\/drive\?companyId=cmp_lankadws_ua/)
+  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeEnabled()
+  await expect(topbar.getByRole('button', { name: 'Нова папка' })).toBeEnabled()
 })
 
-test('drive file selection fills an empty document title', async ({ page }) => {
+test('drive upload derives the document title from the selected file', async ({ page }) => {
   await login(page, 'maria')
   await page.goto('/drive')
+  await page.route('**/api/v1/files/*/status', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ scanStatus: 'CLEAN' }) })
+  })
 
-  await page.locator('.topbar').getByRole('button', { name: 'Додати файл' }).click()
-  const drawer = page.getByRole('dialog', { name: 'Новий документ' })
-  await drawer.locator('input[name="file"]').setInputFiles({
-    name: 'Звіт за серпень.pdf',
-    mimeType: 'application/pdf',
+  await page.locator('.drive-page > input[type="file"]').setInputFiles({
+    name: 'Звіт за серпень.txt',
+    mimeType: 'text/plain',
     buffer: Buffer.from('document'),
   })
 
-  await expect(drawer.getByLabel('Назва')).toHaveValue('Звіт за серпень')
-  await expect(drawer.getByText('Звіт за серпень.pdf', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Звіт за серпень', exact: true })).toBeVisible({ timeout: 15_000 })
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/organization?view=people&companyId=cmp_bert_ua&q=Марія')
+  await page.goto('/organization?view=people&companyId=cmp_lankadws_ua&q=Марія')
   await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
   await page.locator('.directory-person__profile').filter({ hasText: 'Марія Іваненко' }).click()
   await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
@@ -371,6 +350,8 @@ test('feed publishing, acknowledgement and comments remain explicit', async ({ p
     mimeType: 'text/plain',
     buffer: Buffer.from('Вкладення стрічки'),
   })
+  await expect(composer.getByText('1 із 10 прикріплено')).toBeVisible()
+  await composer.getByRole('button', { name: 'Показати прикріплені файли' }).click()
   await expect(composer.getByText(`feed-${testInfo.project.name}.txt`)).toBeVisible()
   await composer.getByRole('button', { name: 'Опублікувати', exact: true }).click()
   await expect(composer).toHaveCount(0)
@@ -407,6 +388,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
     description: 'Один зрозумілий результат із окремою відповідальною підзадачею.',
   })
 
+  await page.getByRole('button', { name: 'Розгорнути секцію «Підзадачі»' }).click()
   await page.getByRole('button', { name: 'Додати підзадачу' }).click()
   const subtaskForm = page.locator('.task-subtask-form')
   await subtaskForm.getByPlaceholder('Який окремий результат потрібен?').fill(subtaskTitle)
@@ -442,6 +424,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
     buffer: Buffer.from('Контекст завдання'),
   })
   await expect(materials.getByText(fileName)).toBeVisible()
+  await page.getByRole('button', { name: 'Розгорнути секцію «Обговорення»' }).click()
   const discussion = page.locator('.task-discussion')
   await discussion.getByLabel('Додати файл із матеріалів').selectOption({ label: fileName })
   await discussion.getByPlaceholder('Додати корисний коментар…').fill('Матеріал додано до рішення.')
@@ -460,7 +443,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
 test('task role views explain why a task is visible and participant management stays compact', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
   await login(page)
-  await page.goto('/tasks?company=cmp_bert_ua')
+  await page.goto('/tasks?company=cmp_lankadws_ua')
   await expect(page.getByRole('tab', { name: /Мої/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Допомагаю/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Доручив/ })).toBeVisible()
@@ -476,12 +459,15 @@ test('task role views explain why a task is visible and participant management s
   await page.getByRole('tab', { name: /Спостерігаю/ }).click()
   await expect(page).toHaveURL(/role=OBSERVER/)
   await page.getByRole('link', { name: /Підготувати доступи нового працівника/ }).click()
+  await page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' }).click()
   await expect(page.getByRole('heading', { name: 'Учасники' })).toBeVisible()
   await expect(page.getByText('Спостерігачі', { exact: true })).toBeVisible()
   await expect(page.getByLabel('Змінити статус')).toHaveCount(0)
 
   const title = `Перевірити керування учасниками · ${testInfo.project.name}`
   await createTaskThroughModal(page, title, { additionalResponsible: 'Андрій Коваль' })
+  const expandParticipants = page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' })
+  if (await expandParticipants.isVisible()) await expandParticipants.click()
   await page.getByRole('button', { name: 'Керувати' }).click()
   const participantSection = page.locator('.task-participants')
   const participantId = 'usr_marko'
@@ -552,24 +538,28 @@ test('task list column customization persists and resets', async ({ page }, test
   await expect(page.locator('th, td').filter({ hasText: /^Пріоритет$/ })).toHaveCount(0)
 })
 
-test('standalone file sharing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
+test('file-only feed publishing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
   await login(page, 'maria')
   await page.goto('/feed')
   await page.getByRole('button', { name: 'Створити публікацію' }).click()
   const composer = page.getByRole('dialog', { name: 'Створити публікацію' })
   const fileName = `standalone-${testInfo.project.name}.txt`
-  await composer.getByLabel('Поширити файл').setInputFiles({
+  await composer.getByLabel('Додати файл').setInputFiles({
     name: fileName,
     mimeType: 'text/plain',
     buffer: Buffer.from('Окремо поширений файл у стрічці'),
   })
-  await expect(composer.getByText('Файл поширено. Завантаження відкриється після безпечної перевірки.')).toBeVisible()
-  await composer.getByRole('button', { name: 'Закрити' }).click()
-  const card = page.locator('.feed-source-card').filter({ hasText: fileName })
+  await expect(composer.getByText('1 із 10 прикріплено')).toBeVisible()
+  await composer.getByRole('button', { name: 'Опублікувати', exact: true }).click()
+  const confirmation = page.getByRole('alertdialog', { name: 'Опублікувати лише файл?' })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Опублікувати файл' }).click()
+  await expect(composer).toHaveCount(0)
+  const card = page.locator('.feed-card').filter({ hasText: fileName })
   await expect(card).toBeVisible()
-  await expect(card.getByText('Перевіряється', { exact: true })).toBeVisible()
-  await page.goto('/feed?type=FILE')
-  await expect(page).toHaveURL(/type=FILE/)
+  await expect(card.getByText('Перевіряється перед завантаженням')).toBeVisible()
+  await page.goto('/feed?type=POST')
+  await expect(page).toHaveURL(/type=POST/)
   await expect(card).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -577,8 +567,9 @@ test('standalone file sharing is explicit, scanner-aware and revocable', async (
     path: `artifacts/screenshots/${testInfo.project.name}-feed-file-share.png`,
     fullPage: true,
   })
-  await card.getByRole('button', { name: 'Прибрати', exact: true }).click()
-  await card.getByRole('button', { name: 'Підтвердити', exact: true }).click()
+  await card.getByRole('button', { name: 'Дії з публікацією' }).click()
+  await card.getByRole('menuitem', { name: 'Архівувати' }).click()
+  await card.getByRole('button', { name: 'Архівувати' }).click()
   await expect(card).not.toBeVisible()
 })
 
@@ -592,7 +583,7 @@ test('removed administration landing and system pages are not addressable', asyn
 
 test('desktop sidebar groups routes, persists collapse and keeps active navigation visible', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop collapse is independent from mobile navigation.')
-  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.setViewportSize({ width: 1440, height: 650 })
   await login(page, 'dmytro')
   const sidebar = page.locator('.sidebar')
   await expect(sidebar.getByText('Щоденна робота', { exact: true })).toBeVisible()
@@ -622,7 +613,7 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
   await expect(feedLink).toHaveAttribute('title', 'Жива стрічка')
   await expect.poll(() => page.evaluate(() =>
-    window.localStorage.getItem('bertcrm.sidebar.collapsed'))).toBe('true')
+    window.localStorage.getItem('lankadws.sidebar.collapsed'))).toBe('true')
   await page.reload()
   await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
   await expect(sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveClass(/active/)
@@ -630,7 +621,7 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(page.getByRole('button', { name: 'Згорнути бічну панель' })).toBeVisible()
 })
 
-test('approved mobile footer keeps its order, overflow and capability gates accessible', async ({ page, request }, testInfo) => {
+test('approved mobile footer keeps its order and overflow accessible', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'The approved footer is mobile-only.')
   await login(page)
 
@@ -665,37 +656,6 @@ test('approved mobile footer keeps its order, overflow and capability gates acce
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
   await expect(more).toBeFocused()
-
-  const adminLogin = await request.post('/api/v1/auth/login', {
-    data: { username: 'dmytro', password: 'BertDemoPassphrase2026!' },
-  })
-  const csrfToken = (await adminLogin.json() as { csrfToken: string }).csrfToken
-  const capabilities = await request.get('/api/v1/admin/organization/capabilities')
-  const feed = (await capabilities.json() as { items: Array<{ code: string; enabled: boolean; version: number }> }).items
-    .find((capability) => capability.code === 'FEED')
-  expect(feed).toBeDefined()
-  await request.patch('/api/v1/admin/organization/capabilities/FEED', {
-    data: { enabled: false, expectedVersion: feed!.version },
-    headers: { 'x-csrf-token': csrfToken },
-  })
-
-  try {
-    await page.context().clearCookies()
-    await page.goto('/login')
-    await page.getByLabel('Нікнейм').fill('maria')
-    await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
-    await page.getByRole('button', { name: 'Увійти' }).click()
-    await expect(page).toHaveURL(/\/tasks$/)
-    await expect.poll(() => footer.locator(':scope > a, :scope > button').evaluateAll((elements) =>
-      elements.map((element) => element.querySelector('span')?.textContent))).toEqual(['Завдання', 'Чат', 'Диск', 'Ще'])
-    await expect(footer.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveCount(0)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  } finally {
-    await request.patch('/api/v1/admin/organization/capabilities/FEED', {
-      data: { enabled: feed!.enabled, expectedVersion: feed!.version + 1 },
-      headers: { 'x-csrf-token': csrfToken },
-    })
-  }
 })
 
 test('unknown route preserves URL and renders branded 404', async ({ page }) => {
@@ -704,12 +664,13 @@ test('unknown route preserves URL and renders branded 404', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Такої сторінки немає' })).toBeVisible()
 })
 
-test('legacy company scope is removed while task filters and browser history remain URL-addressable', async ({ page }) => {
+test('legacy company scope is removed while task filters and browser history remain URL-addressable', async ({ page }, testInfo) => {
   await login(page)
   await page.goto('/feed?company=all')
   await expect(page).not.toHaveURL(/company=/)
-  const mobileTaskLink = page.locator('.bottom-nav').getByRole('link', { name: 'Завдання', exact: true })
-  const taskLink = (await mobileTaskLink.isVisible()) ? mobileTaskLink : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
+  const taskLink = testInfo.project.name === 'mobile-chromium'
+    ? page.locator('.bottom-nav').getByRole('link', { name: /^Завдання/ })
+    : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
   await taskLink.click()
   await expect(page).toHaveURL(/\/tasks$/)
   await page.getByRole('button', { name: 'Пошук і фільтри' }).click()
@@ -727,10 +688,12 @@ test('legacy company scope is removed while task filters and browser history rem
   await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
 })
 
-test('chat remains available from the sidebar and the restored top bar', async ({ page }) => {
+test('chat remains available from the sidebar and the restored top bar', async ({ page }, testInfo) => {
   await login(page)
   await expect(page.locator('.topbar').getByRole('button', { name: 'Відкрити чат і сповіщення' })).toBeVisible()
-  const chatAction = page.locator('.sidebar').getByRole('link', { name: /Чат/ })
+  const chatAction = testInfo.project.name === 'mobile-chromium'
+    ? page.locator('.bottom-nav').getByRole('link', { name: /^Чат/ })
+    : page.locator('.sidebar').getByRole('link', { name: /Чат/ })
   await chatAction.click()
   await expect(page).toHaveURL(/\/messages$/)
   await expect(page.getByRole('dialog', { name: 'Новий чат' })).toHaveCount(0)

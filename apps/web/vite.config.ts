@@ -35,8 +35,8 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: workspaceRoot,
     define: {
-      __BERT_DEMO_MODE__: JSON.stringify(demoMode),
-      __BERT_DEMO_PASSWORD__: JSON.stringify(demoMode ? demoPassword : ''),
+      __LANKADWS_DEMO_MODE__: JSON.stringify(demoMode),
+      __LANKADWS_DEMO_PASSWORD__: JSON.stringify(demoMode ? demoPassword : ''),
     },
     plugins: [react(), faviconVersionPlugin()],
     test: {

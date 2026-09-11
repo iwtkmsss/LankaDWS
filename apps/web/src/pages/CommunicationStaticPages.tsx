@@ -3,7 +3,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import type { AnnouncementListItem } from '@bert-crm/contracts'
+import type { AnnouncementListItem } from '@lankadws/contracts'
 import {
   ArrowLeft,
   Bell,
@@ -22,6 +22,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
+import { SendNotificationDrawer } from '../features/notifications/SendNotificationDrawer'
 import {
   Button,
   Card,
@@ -401,7 +402,10 @@ function AnnouncementDrawer({ id, onClose }: { id: string; onClose: () => void }
 }
 
 export function NotificationsPage() {
+  const { user } = useAuth()
   const [params, setParams] = useSearchParams()
+  const [sendOpen, setSendOpen] = useState(false)
+  const [sentMessage, setSentMessage] = useState('')
   const tab = params.get('tab') ?? 'action'
   const company = params.get('company')
   const client = useQueryClient()
@@ -437,6 +441,10 @@ export function NotificationsPage() {
         description="Одна черга важливих дій і робочих оновлень"
         action={(
           <div className="notification-header-actions">
+            <Button onClick={() => { setSentMessage(''); setSendOpen(true) }}>
+              <BellRing size={17} />
+              Надіслати сповіщення
+            </Button>
             {query.data?.counts.unread ? (
               <span className="notification-summary" aria-live="polite">
                 <strong>{query.data.counts.unread}</strong>
@@ -446,6 +454,7 @@ export function NotificationsPage() {
           </div>
         )}
       />
+      {sentMessage && <p className="notification-send-status" role="status">{sentMessage}</p>}
       <Card className="list-card notification-center">
         <div className="list-toolbar">
           <Tabs
@@ -537,6 +546,17 @@ export function NotificationsPage() {
           <EmptyState title="Черга порожня" description="Тут немає сповіщень для вибраної вкладки." />
         )}
       </Card>
+      {sendOpen && (
+        <SendNotificationDrawer
+          companyId={user?.company?.id ?? 'all'}
+          onClose={() => setSendOpen(false)}
+          onSent={(contact) => {
+            setSendOpen(false)
+            setSentMessage(`Сповіщення для ${contact.displayName} надіслано.`)
+            void client.invalidateQueries({ queryKey: ['notifications'] })
+          }}
+        />
+      )}
     </div>
   )
 }

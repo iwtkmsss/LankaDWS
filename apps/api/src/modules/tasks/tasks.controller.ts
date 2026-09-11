@@ -28,8 +28,8 @@ import {
   requestTaskApprovalSchema,
   updateTimeEntrySchema,
   updateTaskSchema,
-} from '@bert-crm/contracts'
-import type { BertRequest } from '../../common/request-context.js'
+} from '@lankadws/contracts'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
@@ -39,6 +39,7 @@ import { TaskAttachmentsService } from './task-attachments.service.js'
 import { TaskApprovalService } from './task-approval.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
+import { TaskHierarchyService } from './task-hierarchy.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
 import { TaskRelationsService } from './task-relations.service.js'
 import { TaskRecurrenceService } from './task-recurrence.service.js'
@@ -62,6 +63,7 @@ export class TasksController {
     private readonly approvals: TaskApprovalService,
     private readonly participants: TaskParticipantsService,
     private readonly checklist: TaskChecklistService,
+    private readonly hierarchy: TaskHierarchyService,
     private readonly relations: TaskRelationsService,
     private readonly reminders: TaskReminderService,
     private readonly recurrence: TaskRecurrenceService,
@@ -69,14 +71,14 @@ export class TasksController {
   ) {}
 
   @Get()
-  list(@Req() request: BertRequest, @Query('company') company?: string, @Query('role') role?: string, @Query('segment') segment?: string, @Query('page') page?: string, @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string, @Query('favorite') favorite?: string, @Query('important') important?: string, @Query('overdue') overdue?: string, @Query('preset') preset?: string, @Query('dueFrom') dueFrom?: string, @Query('dueTo') dueTo?: string, @Query('groupId') groupId?: string, @Query('assigneeId') assigneeId?: string, @Query('creatorId') creatorId?: string, @Query('coExecutorId') coExecutorId?: string, @Query('observerId') observerId?: string) {
+  list(@Req() request: LankaDWSRequest, @Query('company') company?: string, @Query('role') role?: string, @Query('segment') segment?: string, @Query('page') page?: string, @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string, @Query('favorite') favorite?: string, @Query('important') important?: string, @Query('overdue') overdue?: string, @Query('preset') preset?: string, @Query('dueFrom') dueFrom?: string, @Query('dueTo') dueTo?: string, @Query('groupId') groupId?: string, @Query('assigneeId') assigneeId?: string, @Query('creatorId') creatorId?: string, @Query('coExecutorId') coExecutorId?: string, @Query('observerId') observerId?: string) {
     const legacyRole = segment === 'created' ? 'CREATOR' : segment === 'all' ? 'ALL' : 'RESPONSIBLE'
     return this.tasks.list(principalFrom(request), company, role ?? legacyRole, Number(page ?? 1), 25, { search, status, priority, favorite, important, overdue, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId })
   }
 
   @Get('options')
   options(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('groupId') groupId?: string,
     @Query('projectId') projectId?: string,
     @Query('search') search?: string,
@@ -85,24 +87,24 @@ export class TasksController {
   }
 
   @Get('projects')
-  projects(@Req() request: BertRequest, @Query('search') search?: string) {
+  projects(@Req() request: LankaDWSRequest, @Query('search') search?: string) {
     return this.catalog.projects(principalFrom(request), search)
   }
 
   @Post('projects')
-  createProject(@Req() request: BertRequest, @Body() body: { name?: unknown }) {
+  createProject(@Req() request: LankaDWSRequest, @Body() body: { name?: unknown }) {
     if (typeof body.name !== 'string') throw badRequest('task_project')
     return this.catalog.createProject(principalFrom(request), body.name)
   }
 
   @Get('tags')
-  tags(@Req() request: BertRequest, @Query('search') search?: string) {
+  tags(@Req() request: LankaDWSRequest, @Query('search') search?: string) {
     return this.catalog.tags(principalFrom(request), search)
   }
 
   @Post('tags')
   createTag(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() body: { name?: unknown; color?: unknown },
   ) {
     if (
@@ -129,7 +131,7 @@ export class TasksController {
     limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 },
   }))
   stageAttachment(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @UploadedFile() file: UploadedBinary,
   ) {
     return this.attachments.stage(principalFrom(request), file)
@@ -137,7 +139,7 @@ export class TasksController {
 
   @Get(':id/activity')
   activity(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Query('cursor') cursor?: string,
   ) {
@@ -146,7 +148,7 @@ export class TasksController {
 
   @Get(':id/approval-options')
   approvalOptions(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
   ) {
     return this.approvals.options(principalFrom(request), taskId)
@@ -154,7 +156,7 @@ export class TasksController {
 
   @Post(':id/approval-requests')
   requestApproval(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') key?: string,
@@ -167,7 +169,7 @@ export class TasksController {
 
   @Post(':id/approval-decisions')
   decideApproval(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') key?: string,
@@ -180,7 +182,7 @@ export class TasksController {
 
   @Get(':id/mention-candidates')
   mentionCandidates(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Query() rawQuery: Record<string, unknown>,
   ) {
@@ -189,14 +191,19 @@ export class TasksController {
     return this.participants.mentionCandidates(principalFrom(request), taskId, parsed.data)
   }
 
+  @Get(':id/hierarchy')
+  hierarchyTree(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
+    return this.hierarchy.tree(principalFrom(request), taskId)
+  }
+
   @Get(':id')
-  detail(@Req() request: BertRequest, @Param('id') taskId: string) {
+  detail(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
     return this.tasks.detail(principalFrom(request), taskId)
   }
 
   @Patch(':id')
   update(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
   ) {
@@ -225,7 +232,7 @@ export class TasksController {
     limits: { fileSize: getConfig().MAX_UPLOAD_BYTES, files: 1 },
   }))
   uploadAttachment(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @UploadedFile() file: UploadedBinary,
   ) {
@@ -234,7 +241,7 @@ export class TasksController {
 
   @Delete(':id/attachments/:fileId')
   removeAttachment(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('fileId') fileId: string,
   ) {
@@ -243,7 +250,7 @@ export class TasksController {
 
   @Post()
   create(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') key?: string,
   ) {
@@ -255,7 +262,7 @@ export class TasksController {
 
   @Post(':id/subtasks')
   createSubtask(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: CreateSubtaskInput,
     @Headers('idempotency-key') key?: string,
@@ -266,7 +273,7 @@ export class TasksController {
 
   @Put(':id/participants/:userId')
   putParticipant(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('userId') userId: string,
     @Body() body: { role?: unknown; expectedVersion?: unknown },
@@ -290,7 +297,7 @@ export class TasksController {
 
   @Delete(':id/participants/:userId')
   removeParticipant(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('userId') userId: string,
     @Body() body: { expectedVersion: number },
@@ -305,7 +312,7 @@ export class TasksController {
 
   @Post(':id/followers')
   follow(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: TaskFollowerInput,
     @Headers('idempotency-key') key?: string,
@@ -316,7 +323,7 @@ export class TasksController {
 
   @Delete(':id/followers/:userId')
   unfollow(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('userId') userId: string,
   ) {
@@ -325,7 +332,7 @@ export class TasksController {
 
   @Put(':id/user-state')
   userState(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: TaskUserStateInput,
     @Headers('idempotency-key') key?: string,
@@ -336,7 +343,7 @@ export class TasksController {
 
   @Post(':id/reminders')
   createReminder(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { reminder?: unknown; expectedVersion?: unknown },
   ) {
@@ -358,7 +365,7 @@ export class TasksController {
 
   @Delete(':id/reminders/:reminderId')
   cancelReminder(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('reminderId') reminderId: string,
   ) {
@@ -366,13 +373,13 @@ export class TasksController {
   }
 
   @Patch(':id/status')
-  changeStatus(@Req() request: BertRequest, @Param('id') taskId: string, @Body() body: { status: string; expectedVersion: number }) {
+  changeStatus(@Req() request: LankaDWSRequest, @Param('id') taskId: string, @Body() body: { status: string; expectedVersion: number }) {
     return this.tasks.changeStatus(principalFrom(request), taskId, body.status, body.expectedVersion)
   }
 
   @Post(':id/comments')
   comment(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') key?: string,
@@ -385,7 +392,7 @@ export class TasksController {
 
   @Post(':id/checklist')
   checklistItem(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { title: string; expectedVersion: number },
   ) {
@@ -399,7 +406,7 @@ export class TasksController {
 
   @Patch(':id/checklist/:itemId')
   checklistState(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('itemId') itemId: string,
     @Body() body: { title?: string; isCompleted?: boolean; expectedVersion: number },
@@ -409,7 +416,7 @@ export class TasksController {
 
   @Delete(':id/checklist/:itemId')
   removeChecklistItem(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('itemId') itemId: string,
     @Body() body: { expectedVersion: number },
@@ -424,7 +431,7 @@ export class TasksController {
 
   @Put(':id/checklist-order')
   reorderChecklist(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { itemIds: string[]; expectedVersion: number },
   ) {
@@ -438,7 +445,7 @@ export class TasksController {
 
   @Post(':id/relations')
   addRelation(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { relation?: unknown; expectedVersion?: unknown },
   ) {
@@ -460,7 +467,7 @@ export class TasksController {
 
   @Delete(':id/relations/:relationId')
   removeRelation(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('relationId') relationId: string,
     @Body() body: { expectedVersion: number },
@@ -475,7 +482,7 @@ export class TasksController {
 
   @Post(':id/archive')
   archive(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { expectedVersion: number },
   ) {
@@ -484,7 +491,7 @@ export class TasksController {
 
   @Put(':id/recurrence')
   setRecurrence(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { recurrence?: unknown; expectedVersion?: unknown },
   ) {
@@ -506,7 +513,7 @@ export class TasksController {
 
   @Delete(':id/recurrence')
   cancelRecurrence(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { expectedVersion: number },
   ) {
@@ -518,13 +525,13 @@ export class TasksController {
   }
 
   @Get(':id/time-entries')
-  timeEntries(@Req() request: BertRequest, @Param('id') taskId: string) {
+  timeEntries(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
     return this.time.list(principalFrom(request), taskId)
   }
 
   @Post(':id/time-entries')
   addTimeEntry(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
   ) {
@@ -535,7 +542,7 @@ export class TasksController {
 
   @Post(':id/timer/start')
   startTimer(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { description?: string },
   ) {
@@ -543,13 +550,13 @@ export class TasksController {
   }
 
   @Post(':id/timer/stop')
-  stopTimer(@Req() request: BertRequest, @Param('id') taskId: string) {
+  stopTimer(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
     return this.time.stop(principalFrom(request), taskId)
   }
 
   @Patch(':id/time-entries/:entryId')
   updateTimeEntry(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('entryId') entryId: string,
     @Body() rawBody: unknown,
@@ -561,7 +568,7 @@ export class TasksController {
 
   @Delete(':id/time-entries/:entryId')
   removeTimeEntry(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Param('entryId') entryId: string,
   ) {

@@ -158,8 +158,8 @@ if (mode === 'build') {
     'server,client',
     '-c',
     'cyan,magenta',
-    `npm run dev:public -w @bert-crm/api`,
-    `npm run dev:public -w @bert-crm/web -- --port ${clientPort}`,
+    `npm run dev:public -w @lankadws/api`,
+    `npm run dev:public -w @lankadws/web -- --port ${clientPort}`,
   ]);
 } else if (mode === 'preview') {
   await run('npm', ['run', 'build', '-w', 'client']);
@@ -169,8 +169,8 @@ if (mode === 'build') {
     'server,client',
     '-c',
     'cyan,magenta',
-    `npm run start -w @bert-crm/api`,
-    `npm run preview -w @bert-crm/web -- --host 0.0.0.0 --port ${clientPort}`,
+    `npm run start -w @lankadws/api`,
+    `npm run preview -w @lankadws/web -- --host 0.0.0.0 --port ${clientPort}`,
   ]);
 } else {
   console.error(`Unknown public runner mode: ${mode}`);

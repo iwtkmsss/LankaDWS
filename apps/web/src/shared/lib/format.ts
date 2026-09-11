@@ -6,6 +6,13 @@ export const formatDateTime = (value: string | Date) => dateTime.format(new Date
 export const formatDate = (value: string | Date) => shortDate.format(new Date(value))
 export const formatTime = (value: string | Date) => time.format(new Date(value))
 
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined) return ''
+  if (bytes < 1024) return `${bytes} Б`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
+}
+
 export const statusLabels: Record<string, string> = {
   NEW: 'Нове', PLANNED: 'Заплановано', IN_PROGRESS: 'У роботі', IN_REVIEW: 'На перевірці', DONE: 'Виконано', BLOCKED: 'Заблоковано', CANCELLED: 'Скасовано', ARCHIVED: 'Архів',
   DRAFT: 'Чернетка', SUBMITTED: 'Подано', PENDING: 'На погодженні', APPROVED: 'Погоджено', RETURNED: 'Повернуто', REJECTED: 'Відхилено',

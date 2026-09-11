@@ -1,8 +1,8 @@
-# BERT CRM — самодостатнє ТЗ на backend-реалізацію
+# LankaDWS — самодостатнє ТЗ на backend-реалізацію
 
 ## 0. Завдання для Codex і пріоритети
 
-Цей документ разом із `bert-crm-design-spec.md` є source of truth для реалізації BERT CRM. Frontend-ТЗ визначає UX, routes, permission outcomes і контракти даних; цей документ визначає реальний backend, persistence, auth, API, jobs, files, audit, backup і deployment.
+Цей документ разом із `lankadws-design-spec.md` є source of truth для реалізації LankaDWS. Frontend-ТЗ визначає UX, routes, permission outcomes і контракти даних; цей документ визначає реальний backend, persistence, auth, API, jobs, files, audit, backup і deployment.
 
 Codex має створити **працездатний production-oriented backend**, а не mock server, набір controller-заглушок або in-memory repository. Усі критичні операції мають реально зберігатися в SQLite, перевіряти права server-side, залишати audit і переживати restart процесу.
 
@@ -73,7 +73,7 @@ Codex має створити **працездатний production-oriented bac
 
 Якщо репозиторій уже має еквівалентні paths, зберегти їх і описати mapping у README. Не створювати дубль `contracts` усередині кожного app. Prisma Client і database types не експортуються у frontend.
 
-Кореневі scripts мають запускати workspace-команди через npm: install, dev, build, lint, typecheck, test, test:e2e, prisma generate/migrate та BERT CLI. Один `package-lock.json` знаходиться в root.
+Кореневі scripts мають запускати workspace-команди через npm: install, dev, build, lint, typecheck, test, test:e2e, prisma generate/migrate та LankaDWS CLI. Один `package-lock.json` знаходиться в root.
 
 ### 1.2 Модульний моноліт
 
@@ -160,7 +160,7 @@ SQLite FTS5 використовується через ізольований s
 
 Кореневий workspace надає інтерактивну команду:
 
-`npm run bert -- admin:create`
+`npm run lankadws -- admin:create`
 
 Назва root script може відрізнятися лише якщо вже є погоджений CLI convention; README завжди показує точну команду. CLI використовує Nest application context і ті самі services/validation, що API, але не запускає HTTP listener.
 
@@ -182,7 +182,7 @@ SQLite FTS5 використовується через ізольований s
 
 ### 3.2 Break-glass recovery
 
-Окрема команда `npm run bert -- admin:recover` використовується лише коли:
+Окрема команда `npm run lankadws -- admin:recover` використовується лише коли:
 
 - немає другого активного full admin для two-person reset;
 - звичайний UI recovery неможливий;

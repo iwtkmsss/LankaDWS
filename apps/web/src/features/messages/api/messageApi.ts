@@ -11,7 +11,7 @@ import type {
   CreateChatThreadInput,
   RecommendedChatUsersPage,
   SendChatMessageInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
 
 export function getThreadPage(

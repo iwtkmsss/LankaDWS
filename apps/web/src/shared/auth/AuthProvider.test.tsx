@@ -14,7 +14,7 @@ describe('session revocation', () => {
     client.setQueryData(['private'], 'secret')
     render(<QueryClientProvider client={client}><AuthProvider><State /></AuthProvider></QueryClientProvider>)
     await waitFor(() => expect(screen.getByText('authenticated')).toBeInTheDocument())
-    act(() => { window.dispatchEvent(new Event('bert:session-ended')) })
+    act(() => { window.dispatchEvent(new Event('lankadws:session-ended')) })
     expect(screen.getByText('anonymous')).toBeInTheDocument()
     expect(client.getQueryData(['private'])).toBeUndefined()
     expect(mocks.setCsrfToken).toHaveBeenLastCalledWith('')

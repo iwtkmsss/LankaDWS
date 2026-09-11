@@ -7,9 +7,9 @@ import {
   putTaskListColumnsPreferenceSchema,
   resetTaskDetailPreferenceSchema,
   resetTaskListColumnsPreferenceSchema,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { badRequest, notFound } from '../../common/errors.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { UiPreferencesService } from './ui-preferences.service.js'
 
@@ -19,7 +19,7 @@ export class UiPreferencesController {
 
   @Get(':module/:key')
   get(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('module') module: string,
     @Param('key') key: string,
   ) {
@@ -30,7 +30,7 @@ export class UiPreferencesController {
 
   @Put(':module/:key')
   put(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('module') module: string,
     @Param('key') key: string,
     @Body() body: unknown,
@@ -47,7 +47,7 @@ export class UiPreferencesController {
 
   @Delete(':module/:key')
   reset(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('module') module: string,
     @Param('key') key: string,
     @Body() body: unknown,

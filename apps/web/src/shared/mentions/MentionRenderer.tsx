@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { StructuredMentionView } from '@bert-crm/contracts'
+import type { StructuredMentionView } from '@lankadws/contracts'
 import { UserProfileLink } from '../../features/employees/UserProfileDrawer'
 
 export function MentionText({ body, mentions }: { body: string; mentions: StructuredMentionView[] }) {

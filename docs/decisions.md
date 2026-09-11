@@ -46,9 +46,9 @@ The web client exposes `/companies` to all users and combines the former employe
 
 ## 2026-07-27 — One organization with recursive departments
 
-BertCRM no longer models several selectable companies. A user operates in one organization, while structure is represented by the existing recursive `OrgUnit.parentId` hierarchy, so a department may contain any number of nested subdepartments.
+LankaDWS no longer models several selectable companies. A user operates in one organization, while structure is represented by the existing recursive `OrgUnit.parentId` hierarchy, so a department may contain any number of nested subdepartments.
 
-The current `companyId` columns remain only as a transitional persistence key to avoid a destructive rewrite of historical SQLite migrations and foreign keys. Runtime scope always resolves to the principal's single organization record, rejects legacy alternative IDs, removes `company=all`, and no longer exposes company switching, company creation, multi-company user assignment or company-scoped navigation. The demo «BERT Сервіс» boundary is now the «Сервісний відділ» node under «Операції».
+The current `companyId` columns remain only as a transitional persistence key to avoid a destructive rewrite of historical SQLite migrations and foreign keys. Runtime scope always resolves to the principal's single organization record, rejects legacy alternative IDs, removes `company=all`, and no longer exposes company switching, company creation, multi-company user assignment or company-scoped navigation. The demo «LankaDWS Сервіс» boundary is now the «Сервісний відділ» node under «Операції».
 
 ## 2026-07-22 — Capability foundation before feature modules
 
@@ -58,7 +58,7 @@ The first navigation simplification is intentionally independent from those feat
 
 ## 2026-07-23 — Evidence-based SaaS/CRM UX rules
 
-The provided high-conversion research is adopted as a delivery quality bar, with “conversion” interpreted for BertCRM as successful completion of a work task. The hard gates are ethical UX, WCAG 2.2 AA, reduced-motion support and Core Web Vitals targets. The SaaS-specific emphasis is progressive disclosure, task-oriented information architecture and a clear dominant action instead of exposing every available module at once.
+The provided high-conversion research is adopted as a delivery quality bar, with “conversion” interpreted for LankaDWS as successful completion of a work task. The hard gates are ethical UX, WCAG 2.2 AA, reduced-motion support and Core Web Vitals targets. The SaaS-specific emphasis is progressive disclosure, task-oriented information architecture and a clear dominant action instead of exposing every available module at once.
 
 Images remain conditional: they are used only when they add meaning or improve a decision. The company-structure workflow therefore uses the existing code-native visual system and real seeded avatars rather than a generated decorative illustration. Its first useful release is read-only, company-scoped and privacy-safe; group UI stays behind its capability and release gate until the full user workflow is ready.
 
@@ -66,7 +66,7 @@ Images remain conditional: they are used only when they add meaning or improve a
 
 The F1 import foundation is implemented as a control plane and a read-only readiness view, not as a partial runner. The database now enforces immutable sealed packages, compatible delta ancestry, scoped mapping and activation evidence, exclusive apply leases, preserved external ID maps and an append-only change journal. These invariants live below the future worker and UI so a caller cannot bypass them accidentally.
 
-Production `APPLY` is intentionally unavailable while D-011, D-012, D-020, D-023 and D-024 remain unresolved. The admin screen uses the existing BertCRM cards, typography, tokens and Lucide language to show one dominant outcome—blocked or ready—followed by the concrete gates. It does not display raw source fields, offer a disabled imitation of an apply workflow or add decorative generated imagery.
+Production `APPLY` is intentionally unavailable while D-011, D-012, D-020, D-023 and D-024 remain unresolved. The admin screen uses the existing LankaDWS cards, typography, tokens and Lucide language to show one dominant outcome—blocked or ready—followed by the concrete gates. It does not display raw source fields, offer a disabled imitation of an apply workflow or add decorative generated imagery.
 
 ## 2026-07-23 — Signed dataset verification before an importer
 
@@ -96,11 +96,11 @@ The change does not remove useful project imagery globally. Lifecycle, authentic
 
 Operations no longer has to hand-author hashes, the checksum index or the signed envelope. A strict external seal request contains evidence-backed dataset metadata and a non-secret signer/key reference, while the Ed25519 private key remains in a separate file outside the repository and dataset. `import:seal-manifest` inventories only allowlisted regular files, derives deterministic source types, hashes stable bytes, creates sorted checksums and a canonical signature, then accepts the output only after the existing independent verifier validates the entire package and company mapping.
 
-The command never overwrites an existing manifest or checksum index. An identical rerun is read-only and returns the same manifest hash; a changed export, unsafe entry, concurrent mutation or mismatched existing output fails closed. Outputs created by the current attempt are removed when verifier round-trip fails. This closes the BertCRM-side manifest-generation gap without claiming that the real source extractor, DDB-007/D-024 approvals, capacity evidence, rehearsal or production `APPLY` is complete.
+The command never overwrites an existing manifest or checksum index. An identical rerun is read-only and returns the same manifest hash; a changed export, unsafe entry, concurrent mutation or mismatched existing output fails closed. Outputs created by the current attempt are removed when verifier round-trip fails. This closes the LankaDWS-side manifest-generation gap without claiming that the real source extractor, DDB-007/D-024 approvals, capacity evidence, rehearsal or production `APPLY` is complete.
 
 ## 2026-07-23 — Live Feed replaces Overview only after a company capability switch
 
-The first native Feed increment uses canonical `/overview`; it does not add a competing `/feed` route. A company with `FEED` disabled keeps the complete task-first Overview, while an enabled company receives the Feed label, composer and stream atomically. The demo enables only BERT Україна so both rollout states remain directly testable.
+The first native Feed increment uses canonical `/overview`; it does not add a competing `/feed` route. A company with `FEED` disabled keeps the complete task-first Overview, while an enabled company receives the Feed label, composer and stream atomically. The demo enables only LankaDWS Україна so both rollout states remain directly testable.
 
 `FeedPost` is the editable source and append-only `FeedItem` rows record source versions. Audience rows remain explicit company/group/user principals; acknowledgement expands that audience to a versioned user snapshot in the same transaction. Reading, liking or commenting never creates a receipt. Editing a mandatory post advances the acknowledgement version and snapshots current recipients again. Private denials use existence-safe 404 responses, and read cursors only advance.
 
@@ -182,7 +182,7 @@ A checklist item remains a lightweight completion mark inside one task. A subtas
 
 Creating a child advances the parent version and atomically records idempotency, audit and outbox evidence. Changing a child status also advances that parent version so progress cannot remain silently stale. A parent cannot enter `DONE` while any child is outside `DONE|CANCELLED|ARCHIVED`; the API returns RFC 9457 `409` with only the safe blocker IDs, and the UI links those IDs to authorized child titles after its normal detail projection has been loaded.
 
-The drawer keeps the established BertCRM visual language and treats decomposition as progressive disclosure. The default detail remains compact; opening «Додати підзадачу» exposes externally labelled fields and explains automatic context inheritance. Completion conflict is not a toast that disappears: it is an alert inside the task, receives focus, scrolls into view and offers the concrete blocking child as the next action. No decorative image is introduced because it would compete with a dense operational decision. This decision covers the first Tasks slice only; it does not substitute for the remaining edit, reminder/follower/activity or Chat P0 work in F3.
+The drawer keeps the established LankaDWS visual language and treats decomposition as progressive disclosure. The default detail remains compact; opening «Додати підзадачу» exposes externally labelled fields and explains automatic context inheritance. Completion conflict is not a toast that disappears: it is an alert inside the task, receives focus, scrolls into view and offers the concrete blocking child as the next action. No decorative image is introduced because it would compete with a dense operational decision. This decision covers the first Tasks slice only; it does not substitute for the remaining edit, reminder/follower/activity or Chat P0 work in F3.
 
 ## 2026-07-24 — Task role explains access; follower remains separate intent
 
@@ -190,7 +190,7 @@ A task keeps exactly one responsible (`Task.assigneeId`) and one creator (`Task.
 
 Removing a participant must revoke direct task, global-search and current Feed-projection access unless another current role still grants it. Every path re-authorizes the canonical task and returns an existence-safe not-found response after access loss. Historical soft-removed rows remain for audit/import reconciliation. A follower will be a separate future notification subscription: observer membership is not silently converted to following, and notification preference will not become an authorization grant.
 
-The four daily perspectives are canonical URL/API values: `RESPONSIBLE`, `CO_EXECUTOR`, `CREATOR` and `OBSERVER`; `ALL` is available only with `tasks.manage`. The UI uses the existing BertCRM tabs, drawer, tokens and typography, keeps participant management progressively disclosed, and collapses the participant grid to one column with 44 px actions on mobile. Decorative imagery remains unsuitable because it would displace live task context on this decision-heavy surface.
+The four daily perspectives are canonical URL/API values: `RESPONSIBLE`, `CO_EXECUTOR`, `CREATOR` and `OBSERVER`; `ALL` is available only with `tasks.manage`. The UI uses the existing LankaDWS tabs, drawer, tokens and typography, keeps participant management progressively disclosed, and collapses the participant grid to one column with 44 px actions on mobile. Decorative imagery remains unsuitable because it would displace live task context on this decision-heavy surface.
 
 Task creation and participant addition bind each idempotency key to an HMAC fingerprint of the normalized request body. A retry of the same operation returns the original result, while reusing the key with a different body fails safely instead of mutating an unrelated roster.
 

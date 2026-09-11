@@ -1,4 +1,4 @@
-import type { ProjectOption, TagOption } from '@bert-crm/contracts'
+import type { ProjectOption, TagOption, TaskOption } from '@lankadws/contracts'
 import { api, jsonBody } from '../../../shared/api/client'
 import type {
   TaskAttachmentDraft,
@@ -24,6 +24,18 @@ export function loadTaskCreateOptions(
   signal?: AbortSignal,
 ): Promise<TaskCreateOptions> {
   return api<TaskCreateOptions>(taskCreateOptionsPath(groupId, projectId, search), { signal })
+}
+
+export interface TaskHierarchyView {
+  rootId: string
+  items: TaskOption[]
+}
+
+export function loadTaskHierarchy(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<TaskHierarchyView> {
+  return api<TaskHierarchyView>(`/tasks/${encodeURIComponent(taskId)}/hierarchy`, { signal })
 }
 
 export function createProject(name: string): Promise<ProjectOption> {

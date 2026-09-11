@@ -8,7 +8,7 @@ export function ModuleUnavailablePage({ title, state }: { title: string; state: 
   const company = searchParams.get('company')
   return (
     <div className="module-unavailable-page">
-      <PageHeader title={title} description="Lanka розвивається поетапно без напівготових розділів" />
+      <PageHeader title={title} description="LankaDWS розвивається поетапно без напівготових розділів" />
       <Card className="module-unavailable-card">
         <span className="module-unavailable-card__icon">{disabled ? <Layers3 /> : <Construction />}</span>
         <div>

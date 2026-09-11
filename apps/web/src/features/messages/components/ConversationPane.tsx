@@ -1,9 +1,10 @@
 import type {
+  ChatAttachmentView,
   ChatMessageView,
   ChatThreadDetail,
   ChatThreadListItem,
   StructuredMentionInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
 import { useState } from 'react'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
@@ -46,6 +47,7 @@ interface ConversationPaneProps {
   onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
+  onDriveAttachment?: (attachment: ChatAttachmentView) => void
   onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
   onRetry: () => void
 }
@@ -220,6 +222,7 @@ export function ConversationPane(props: ConversationPaneProps) {
           onReplyCancel={props.onReplyCancel}
           onRemoveAttachment={props.onRemoveAttachment}
           onFiles={props.onFiles}
+          onDriveAttachment={props.onDriveAttachment}
           onSend={props.onSend}
         />
       )}

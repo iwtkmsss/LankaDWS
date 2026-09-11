@@ -1,4 +1,4 @@
-# Codex Task 02 — Project domain discovery for BertCRM
+# Codex Task 02 — Project domain discovery for LankaDWS
 
 ## Mode
 
@@ -6,7 +6,7 @@ Ask/plan mode only. Do not edit files, create migrations or implement UI.
 
 ## Goal
 
-Determine the smallest correct way to support «проєкти» in BertCRM without duplicating the existing Group and Task domains.
+Determine the smallest correct way to support «проєкти» in LankaDWS without duplicating the existing Group and Task domains.
 
 ## Current facts
 

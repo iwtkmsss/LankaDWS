@@ -1,4 +1,4 @@
-import type { AdminOrgUnitView, OrgCompanyView, OrgUnitEmployeeView } from '@bert-crm/contracts'
+import type { AdminOrgUnitView, OrgCompanyView, OrgUnitEmployeeView } from '@lankadws/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Archive, Building2, Eye, List, Pencil, PencilRuler, Plus, RotateCcw, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
@@ -124,6 +124,7 @@ export default function AdminOrganizationPage() {
       setCompanySelected(false)
       clearSelection()
     }}>
+      <h1 className="sr-only">Структура · {query.data.company.name}</h1>
       <Card className="organization-context-bar admin-org-context-bar">
         <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => {
           setCompanySelected(false)
@@ -441,7 +442,7 @@ function UnitDetail({ unit, units, companyId, onEdit, onChanged }: {
           key={employee.id}
           draggable
           tabIndex={0}
-          onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-bert-employee', employee.id); event.dataTransfer.setData('text/plain', employee.id) }}
+          onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-lankadws-employee', employee.id); event.dataTransfer.setData('text/plain', employee.id) }}
           aria-label={`${employee.displayName}. Перетягніть на інший підрозділ`}
         ><span>{employee.displayName.slice(0, 1)}</span><div><strong>{employee.displayName}</strong><small>{employee.positionTitle || employee.jobTitle || 'Без посади'}</small></div></article>)}
       </div> : <small>У цьому підрозділі працівників немає.</small>}

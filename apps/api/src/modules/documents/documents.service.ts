@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common'
-import type { DocumentListItem } from '@bert-crm/contracts'
+import type { DocumentListItem } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
+import { DriveSharingService } from './drive-sharing.service.js'
 
 export type DocumentSection = 'ALL' | 'MINE' | 'SHARED' | 'DRAFTS' | 'ARCHIVED'
 export type DocumentFileType = 'ALL' | 'DOCUMENT' | 'IMAGE' | 'OTHER'
@@ -29,7 +30,11 @@ export interface DriveDocumentListItem extends DocumentListItem {
 
 @Injectable()
 export class DocumentsService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly scope: ScopeService,
+    private readonly sharing: DriveSharingService,
+  ) {}
 
   async list(
     principal: AuthPrincipal,
@@ -311,7 +316,10 @@ export class DocumentsService {
       })
       return documents.map((document) => document.id)
     }
-    const acl = await this.prisma.documentAcl.findMany({ where: { principalType: 'USER', principalId: principal.userId }, select: { documentId: true } })
-    return acl.map((entry) => entry.documentId)
+    const [acl, grants] = await Promise.all([
+      this.prisma.documentAcl.findMany({ where: { principalType: 'USER', principalId: principal.userId }, select: { documentId: true } }),
+      this.sharing.grantsFor(principal),
+    ])
+    return [...new Set([...acl.map((entry) => entry.documentId), ...grants.documentIds])]
   }
 }

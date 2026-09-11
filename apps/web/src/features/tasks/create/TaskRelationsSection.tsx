@@ -1,149 +1,166 @@
-import type { TaskRelationType } from '@bert-crm/contracts'
-import { GitBranch, Link2, Plus, Trash2 } from 'lucide-react'
-import { useCallback, useState } from 'react'
-import { randomId } from '../../../shared/api/client'
-import { Button } from '../../../shared/ui'
+import type { TaskOption } from '@lankadws/contracts'
+import { useQuery } from '@tanstack/react-query'
+import { GitBranch, LoaderCircle, Plus } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
-import { loadTaskCreateOptions } from './api'
-import type {
-  TaskCreateDraft,
-  TaskCreateOptions,
-  UpdateTaskCreateDraft,
-} from './types'
+import { loadTaskCreateOptions, loadTaskHierarchy } from './api'
+import type { TaskCreateDraft, UpdateTaskCreateDraft } from './types'
 
-const relationLabels: Record<TaskRelationType, string> = {
-  RELATED: 'Пов’язане',
-  BLOCKS: 'Блокує',
-  DUPLICATES: 'Дублікат',
+function TaskTreeBranch({
+  task,
+  childrenByParent,
+  selectedParentId,
+  onSelect,
+}: {
+  task: TaskOption
+  childrenByParent: Map<string, TaskOption[]>
+  selectedParentId: string
+  onSelect: (task: TaskOption) => void
+}) {
+  const children = childrenByParent.get(task.id) ?? []
+  const selected = selectedParentId === task.id
+  return (
+    <li className="task-parent-tree__item" role="treeitem" aria-selected={selected}>
+      <div className="task-parent-tree__row">
+        <div className="task-parent-tree__task">
+          <span className="task-parent-tree__icon"><GitBranch size={16} aria-hidden /></span>
+          <span>
+            <strong>{task.title}</strong>
+            <small>№ {task.number}</small>
+          </span>
+        </div>
+        <span className="task-parent-tree__connector" aria-hidden />
+        <button
+          type="button"
+          className={`task-parent-tree__attach ${selected ? 'is-selected' : ''}`}
+          aria-pressed={selected}
+          aria-label={`Прив’язати нове завдання до ${task.number} · ${task.title}`}
+          onClick={() => onSelect(task)}
+        >
+          <Plus size={17} aria-hidden />
+          <span>{selected ? 'Обране місце' : 'Додати сюди'}</span>
+        </button>
+      </div>
+      {children.length > 0 && (
+        <ul role="group">
+          {children.map((child) => (
+            <TaskTreeBranch
+              key={child.id}
+              task={child}
+              childrenByParent={childrenByParent}
+              selectedParentId={selectedParentId}
+              onSelect={onSelect}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  )
 }
 
 export function TaskRelationsSection({
   draft,
-  options,
   update,
 }: {
   draft: TaskCreateDraft
-  options: TaskCreateOptions
   update: UpdateTaskCreateDraft
 }) {
-  const [targetTaskId, setTargetTaskId] = useState('')
-  const [type, setType] = useState<TaskRelationType>('RELATED')
-  const [direction, setDirection] = useState<'OUTGOING' | 'INCOMING'>('OUTGOING')
-  const selected = options.tasks.find((task) => task.id === targetTaskId)
+  const [hierarchyTaskId, setHierarchyTaskId] = useState(draft.parentTaskId)
+  const searchTasks = useRef(new Map<string, TaskOption>())
   const loadTasks = useCallback(async (search: string, signal: AbortSignal) => {
-    const result = await loadTaskCreateOptions('', draft.projectId, search, signal)
-    return result.tasks
-      .filter((task) => task.id !== draft.parentTaskId && !draft.relations.some((relation) => relation.targetTaskId === task.id))
-      .map((task) => ({ id: task.id, label: `${task.number} · ${task.title}` }))
-  }, [draft.parentTaskId, draft.projectId, draft.relations])
+    const result = await loadTaskCreateOptions(draft.groupId, '', search, signal)
+    const tasks = search ? result.tasks : result.tasks.slice(0, 5)
+    for (const task of tasks) searchTasks.current.set(task.id, task)
+    return tasks.map((task) => ({
+      id: task.id,
+      label: `${task.number} · ${task.title}`,
+    }))
+  }, [draft.groupId])
+  const hierarchy = useQuery({
+    queryKey: ['task-create-hierarchy', hierarchyTaskId],
+    queryFn: ({ signal }) => loadTaskHierarchy(hierarchyTaskId, signal),
+    enabled: Boolean(hierarchyTaskId),
+    retry: false,
+  })
+  const selectedSearchTask = hierarchy.data?.items.find(
+    (task) => task.id === hierarchyTaskId,
+  ) ?? searchTasks.current.get(hierarchyTaskId)
+  const root = hierarchy.data?.items.find((task) => task.id === hierarchy.data?.rootId)
+  const childrenByParent = useMemo(() => {
+    const result = new Map<string, TaskOption[]>()
+    for (const task of hierarchy.data?.items ?? []) {
+      if (!task.parentTaskId) continue
+      const children = result.get(task.parentTaskId) ?? []
+      children.push(task)
+      result.set(task.parentTaskId, children)
+    }
+    return result
+  }, [hierarchy.data])
 
-  function addRelation() {
-    if (!targetTaskId || draft.relations.some((item) => item.targetTaskId === targetTaskId)) return
+  function selectParent(task: TaskOption) {
     update((current) => ({
       ...current,
-      relations: [...current.relations, {
-        clientId: randomId(),
-        targetTaskId,
-        type,
-        direction,
-      }],
+      parentTaskId: task.id,
+      projectId: task.projectId ?? '',
+      recurrence: null,
     }))
-    setTargetTaskId('')
+  }
+
+  function changeHierarchyTask(value: string) {
+    setHierarchyTaskId(value)
+    update((current) => (
+      !value || (current.parentTaskId && current.parentTaskId !== value)
+        ? { ...current, parentTaskId: '', projectId: '' }
+        : current
+    ))
   }
 
   return (
     <div className="task-create-relations-section">
-      <div className="task-create-hierarchy-note">
-        <GitBranch size={19} aria-hidden />
-        <span>
-          <strong>{draft.parentTaskId ? 'Це підзавдання' : 'Завдання верхнього рівня'}</strong>
-          <small>
-            {draft.parentTaskId
-              ? 'Проєкт і робочий контекст успадковуються від батьківського завдання.'
-              : 'Після створення до нього можна додавати підзавдання будь-якої глибини.'}
-          </small>
-        </span>
-      </div>
-      <div className="task-create-relation-add">
-        <AsyncTaskCombobox label="Завдання" value={targetTaskId} placeholder="Знайти завдання"
-          selectedOption={selected ? { id: selected.id, label: `${selected.number} · ${selected.title}` } : null}
-          loadOptions={loadTasks} onChange={setTargetTaskId} />
-        <label>
-          Тип зв’язку
-          <select
-            value={type}
-            onChange={(event) => setType(event.target.value as TaskRelationType)}
-          >
-            {Object.entries(relationLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
-            ))}
-          </select>
-        </label>
-        {type === 'BLOCKS' && (
-          <label>
-            Напрямок
-            <select
-              value={direction}
-              onChange={(event) => setDirection(
-                event.target.value as 'OUTGOING' | 'INCOMING',
-              )}
-            >
-              <option value="OUTGOING">Нове завдання блокує вибране</option>
-              <option value="INCOMING">Вибране блокує нове завдання</option>
-            </select>
-          </label>
-        )}
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={!targetTaskId || draft.relations.length >= 100}
-          onClick={addRelation}
-        >
-          <Plus size={16} /> Додати зв’язок
-        </Button>
-      </div>
-      {draft.relations.length === 0 ? (
-        <div className="task-create-empty">
-          <Link2 size={25} aria-hidden />
-          <p>Зв’язків ще немає. Їх можна додати й після створення.</p>
+      <AsyncTaskCombobox
+        label="Пошук батьківського завдання"
+        value={hierarchyTaskId}
+        placeholder="Назва або номер завдання"
+        selectedOption={selectedSearchTask ? {
+          id: selectedSearchTask.id,
+          label: `${selectedSearchTask.number} · ${selectedSearchTask.title}`,
+        } : null}
+        loadOptions={loadTasks}
+        onChange={changeHierarchyTask}
+        emptyLabel="Завдань не знайдено"
+        loadOnOpen
+        initialEmptyLabel="Немає нещодавніх завдань"
+      />
+
+      {!hierarchyTaskId ? (
+        <div className="task-parent-tree-empty">
+          <GitBranch size={24} aria-hidden />
+          <p>Знайдіть завдання, щоб відкрити його структуру.</p>
+        </div>
+      ) : hierarchy.isLoading ? (
+        <div className="task-parent-tree-state" role="status">
+          <LoaderCircle className="spin" size={18} aria-hidden />
+          <span>Завантажуємо структуру…</span>
+        </div>
+      ) : hierarchy.isError || !root ? (
+        <div className="task-create-local-error">
+          <span>Не вдалося завантажити структуру завдання.</span>
+          <button type="button" onClick={() => void hierarchy.refetch()}>Повторити</button>
         </div>
       ) : (
-        <ul className="task-create-relations">
-          {draft.relations.map((relation) => {
-            const task = options.tasks.find((item) => item.id === relation.targetTaskId)
-            return (
-              <li key={relation.clientId}>
-                <span className={`task-relation-dot task-relation-dot--${relation.type.toLowerCase()}`} />
-                <span>
-                  <strong>{task ? `${task.number} · ${task.title}` : relation.targetTaskId}</strong>
-                  <small>
-                    {relationLabels[relation.type]}
-                    {relation.type === 'BLOCKS'
-                      ? relation.direction === 'INCOMING' ? ' · блокує нове' : ' · блокується новим'
-                      : ''}
-                  </small>
-                </span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`Видалити зв’язок із ${task?.title ?? relation.targetTaskId}`}
-                  onClick={() => update((current) => ({
-                    ...current,
-                    relations: current.relations.filter(
-                      (item) => item.clientId !== relation.clientId,
-                    ),
-                  }))}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="task-parent-tree-shell">
+          <div className="task-parent-tree" role="tree" aria-label="Структура батьківського завдання">
+            <ul role="group">
+              <TaskTreeBranch
+                task={root}
+                childrenByParent={childrenByParent}
+                selectedParentId={draft.parentTaskId}
+                onSelect={selectParent}
+              />
+            </ul>
+          </div>
+        </div>
       )}
-      <p className="task-create-help">
-        Циклічні blocking-залежності та дублікати додатково перевіряються сервером.
-      </p>
     </div>
   )
 }

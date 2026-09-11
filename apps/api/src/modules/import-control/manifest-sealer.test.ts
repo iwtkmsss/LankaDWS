@@ -1,4 +1,4 @@
-import type { BitrixSnapshotSealRequest, CompanyMappingArtifact } from '@bert-crm/contracts'
+import type { BitrixSnapshotSealRequest, CompanyMappingArtifact } from '@lankadws/contracts'
 import { generateKeyPairSync } from 'node:crypto'
 import { link, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -106,7 +106,7 @@ function sealRequest(): BitrixSnapshotSealRequest {
 }
 
 async function createFixture(mapping = companyMapping()) {
-  const root = await mkdtemp(join(tmpdir(), 'bert-manifest-sealer-'))
+  const root = await mkdtemp(join(tmpdir(), 'lankadws-manifest-sealer-'))
   temporaryRoots.push(root)
   const files = new Map<string, Buffer>([
     ['source-schema/ddl.sql', Buffer.from('CREATE TABLE fixture (id INT PRIMARY KEY);')],
@@ -209,7 +209,7 @@ describe('exporter-side signed manifest sealing', () => {
   })
 
   it('parses only strict request JSON and Ed25519 private keys', async () => {
-    const supportRoot = await mkdtemp(join(tmpdir(), 'bert-manifest-support-'))
+    const supportRoot = await mkdtemp(join(tmpdir(), 'lankadws-manifest-support-'))
     temporaryRoots.push(supportRoot)
     const requestPath = join(supportRoot, 'request.json')
     const keyPath = join(supportRoot, 'private.pem')

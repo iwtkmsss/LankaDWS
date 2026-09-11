@@ -1,5 +1,5 @@
 import { Controller, Get, Query, Req } from '@nestjs/common'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
 import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -10,7 +10,7 @@ export class SearchController {
   constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
 
   @Get()
-  async search(@Req() request: BertRequest, @Query('q') query = '', @Query('company') company?: string) {
+  async search(@Req() request: LankaDWSRequest, @Query('q') query = '', @Query('company') company?: string) {
     const principal = principalFrom(request)
     const q = [...query.trim()].slice(0, 120).join('')
     if (!q) return { items: [] }

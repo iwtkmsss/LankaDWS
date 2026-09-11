@@ -1,7 +1,7 @@
 import type {
   ChatMessageView,
   ChatThreadPreview,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   QueryClient,
   QueryClientProvider,

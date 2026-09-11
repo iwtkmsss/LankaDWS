@@ -1,5 +1,5 @@
 {
-  "name": "@bert-crm/api",
+  "name": "@lankadws/api",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "start:dev": "nest start --watch",
     "dev:public": "nest start --watch",
     "lint": "eslint \"{src,test,scripts}/**/*.ts\"",
-    "typecheck": "npm run build --workspace @bert-crm/contracts && prisma generate && tsc -p tsconfig.json --noEmit",
+    "typecheck": "npm run build --workspace @lankadws/contracts && prisma generate && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude dist/** --exclude test/integration/** --exclude test/e2e/**",
     "pretest:integration": "prisma generate",
     "test:integration": "vitest run test/integration",
@@ -21,7 +21,7 @@
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:studio": "prisma studio",
-    "bert": "tsx src/cli/main.ts",
+    "lankadws": "tsx src/cli/main.ts",
     "web-e2e:prepare": "tsx scripts/prepare-web-e2e.ts",
     "backup": "tsx scripts/backup.ts",
     "restore:verify": "tsx scripts/restore-verify.ts",
@@ -29,7 +29,7 @@
     "feed:rehearse": "tsx scripts/feed-rehearsal.ts"
   },
   "dependencies": {
-    "@bert-crm/contracts": "*",
+    "@lankadws/contracts": "*",
     "@js-temporal/polyfill": "^0.5.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",

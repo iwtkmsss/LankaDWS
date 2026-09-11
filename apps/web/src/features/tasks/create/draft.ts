@@ -9,7 +9,7 @@ interface StoredTaskDraft {
 }
 
 export function taskDraftKey(userId: string, groupId: string): string {
-  return `bertcrm:task-create:v2:${userId}:${groupId || 'organization'}`
+  return `lankadws:task-create:v2:${userId}:${groupId || 'organization'}`
 }
 
 export function loadTaskDraft(key: string): TaskCreateDraft | null {

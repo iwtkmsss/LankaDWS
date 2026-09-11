@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { CreateTaskInput, UpdateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { id, sha256 } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'

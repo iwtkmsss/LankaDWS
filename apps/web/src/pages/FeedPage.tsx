@@ -14,7 +14,7 @@ import type {
   FeedPostView,
   FeedSourceView,
   StructuredMentionInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   Archive,
   ArrowRight,
@@ -148,13 +148,16 @@ export function FeedPage() {
       )
       void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
     },
-    onError: () => { readKey.current = '' },
+    // Deliberately no retry on failure: `markRead` sits in the effect's dependency list, so
+    // clearing readKey here re-triggers the effect on the very next render and a persistently
+    // failing request (an expired CSRF cookie, say) turns into an unbounded request loop.
+    // The next batch of markers produces a new key and gets its own attempt.
   })
   const firstPage = pages.data?.pages[0]
   const items = pages.data?.pages.flatMap((page) => page.items) ?? []
 
   useEffect(() => {
-    document.title = 'Жива стрічка — Lanka'
+    document.title = 'Жива стрічка — LankaDWS'
   }, [])
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import type { ChatMessageView, ChatThreadDetail } from '@bert-crm/contracts'
+import type { ChatMessageView, ChatThreadDetail } from '@lankadws/contracts'
 import { useMutation } from '@tanstack/react-query'
 import { CalendarPlus, ListTodo } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'

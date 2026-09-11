@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { createCalendarEventSchema, updateCalendarEventSchema } from '@bert-crm/contracts'
+import { createCalendarEventSchema, updateCalendarEventSchema } from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -16,13 +16,13 @@ export class CalendarController {
   ) {}
 
   @Get('audiences')
-  audiences(@Req() request: BertRequest, @Query('company') company?: string) {
+  audiences(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.calendar.audiences(principalFrom(request), company)
   }
 
   @Post('events')
   createEvent(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') key?: string,
   ) {
@@ -34,7 +34,7 @@ export class CalendarController {
 
   @Patch('events/:id')
   updateEvent(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') eventId: string,
     @Body() rawBody: unknown,
   ) {
@@ -45,7 +45,7 @@ export class CalendarController {
 
   @Get('events')
   async events(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Query('company') company?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -95,7 +95,7 @@ export class CalendarController {
 
   @Get('events/:id')
   async eventDetail(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Param('id') eventId: string,
     @Query('company') company?: string,
   ) {
@@ -127,7 +127,7 @@ export class CalendarController {
   }
 
   @Get('presence')
-  async presence(@Req() request: BertRequest, @Query('company') company?: string) {
+  async presence(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     const principal = principalFrom(request)
     const rows = await this.prisma.presenceRecord.findMany({ where: { companyId: { in: this.scope.allowedCompanies(principal, company) }, endAt: { gte: new Date() } }, orderBy: { startAt: 'asc' } })
     return { items: rows.map(({ state, userId, startAt, endAt }) => ({ userId, state, startAt: startAt.toISOString(), endAt: endAt.toISOString() })) }

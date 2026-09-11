@@ -1,4 +1,4 @@
-import type { ChatMessageView, ChatThreadListItem } from '@bert-crm/contracts'
+import type { ChatMessageView, ChatThreadListItem } from '@lankadws/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Forward } from 'lucide-react'
 import { useState } from 'react'

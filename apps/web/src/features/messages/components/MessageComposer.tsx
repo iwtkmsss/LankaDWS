@@ -1,8 +1,9 @@
-import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
-import { FileText, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
+import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
+import { FileText, HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
+import { DrivePicker } from '../../drive/DrivePicker'
 import { replyPreviewText } from '../lib/replyPreview'
 
 interface MessageComposerProps {
@@ -17,11 +18,12 @@ interface MessageComposerProps {
   onReplyCancel: () => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
+  onDriveAttachment?: (attachment: ChatAttachmentView) => void
   onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
 }
 
 function draftKey(threadId: string): string {
-  return `bertcrm:message-draft:${threadId}`
+  return `lankadws:message-draft:${threadId}`
 }
 
 function storedDraft(threadId: string): string {
@@ -44,6 +46,7 @@ function storeDraft(threadId: string, body: string): void {
 export function MessageComposer(props: MessageComposerProps) {
   const [body, setBody] = useState(() => props.initialBody ?? storedDraft(props.threadId))
   const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const submittingRef = useRef(false)
@@ -148,6 +151,17 @@ export function MessageComposer(props: MessageComposerProps) {
             ? <LoaderCircle className="is-spinning" size={20} />
             : <Paperclip size={21} />}
         </button>
+        {props.onDriveAttachment && (
+          <button
+            type="button"
+            aria-label="Прикріпити з Диска"
+            title="Прикріпити файл із Диска"
+            disabled={props.uploading || attachmentsFull}
+            onClick={() => setDrivePickerOpen(true)}
+          >
+            <HardDrive size={20} />
+          </button>
+        )}
         <MentionTextarea
           className="message-composer__input"
           label="Повідомлення"
@@ -187,6 +201,12 @@ export function MessageComposer(props: MessageComposerProps) {
       <div className="message-composer__status" role="status" aria-live="polite">
         {props.error}
       </div>
+      {drivePickerOpen && props.onDriveAttachment && (
+        <DrivePicker
+          onPick={(attachment) => props.onDriveAttachment?.(attachment)}
+          onClose={() => setDrivePickerOpen(false)}
+        />
+      )}
     </div>
   )
 }

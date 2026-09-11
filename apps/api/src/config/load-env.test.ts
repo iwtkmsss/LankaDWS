@@ -4,7 +4,7 @@ import { resolveEnvFiles } from './load-env.js'
 
 describe('environment file resolution', () => {
   it('loads only the repository environment when started from the repository', () => {
-    const repository = resolve('C:/example/bert-crm')
+    const repository = resolve('C:/example/lankadws')
     const api = resolve(repository, 'apps/api')
 
     expect(resolveEnvFiles({ cwd: api, initCwd: repository })).toEqual([
@@ -13,9 +13,9 @@ describe('environment file resolution', () => {
   })
 
   it('resolves the repository root from an API workspace invocation', () => {
-    const api = resolve('C:/example/bert-crm/apps/api')
+    const api = resolve('C:/example/lankadws/apps/api')
     expect(resolveEnvFiles({ cwd: api, initCwd: '' })).toEqual([
-      resolve('C:/example/bert-crm/.env'),
+      resolve('C:/example/lankadws/.env'),
     ])
   })
 })

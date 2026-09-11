@@ -1,4 +1,4 @@
-import type { MentionCandidateView, StructuredMentionInput } from '@bert-crm/contracts'
+import type { MentionCandidateView, StructuredMentionInput } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type CompositionEvent, type KeyboardEvent } from 'react'
 import { api } from '../api/client'

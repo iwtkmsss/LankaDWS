@@ -14,7 +14,7 @@ import './styles/pages.css'
 initializeTheme()
 
 const root = document.getElementById('root')
-if (!root) throw new Error('Lanka root element is missing')
+if (!root) throw new Error('LankaDWS root element is missing')
 
 createRoot(root).render(
   <StrictMode>

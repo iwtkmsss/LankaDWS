@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "kind": "bertcrm.feed.representative-load-evidence",
+  "kind": "lankadws.feed.representative-load-evidence",
   "generatedAt": "2026-07-23T14:57:28.981Z",
   "evidenceStatus": "PASS",
   "performanceAcceptance": "MEASURED_BASELINE_NO_APPROVED_SLA",

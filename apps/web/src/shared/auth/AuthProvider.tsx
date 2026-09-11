@@ -1,6 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { type AuthNextStep, type LoginInput, type OrganizationCapabilityCode, type PrincipalView } from '@bert-crm/contracts'
+import { type AuthNextStep, type LoginInput, type OrganizationCapabilityCode, type PrincipalView } from '@lankadws/contracts'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, jsonBody, setCsrfToken } from '../api/client'
 
@@ -46,9 +46,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setUser(null)
       setState('anonymous')
     }
-    window.addEventListener('bert:session-ended', endSession)
+    window.addEventListener('lankadws:session-ended', endSession)
     void refresh()
-    return () => window.removeEventListener('bert:session-ended', endSession)
+    return () => window.removeEventListener('lankadws:session-ended', endSession)
   }, [refresh, queryClient])
 
   useEffect(() => {

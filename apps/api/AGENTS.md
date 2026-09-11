@@ -40,10 +40,10 @@ These instructions extend the repository root `AGENTS.md`.
 Prefer touched tests and:
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run lint --workspace @bert-crm/api
-npm run test --workspace @bert-crm/api
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run lint --workspace @lankadws/api
+npm run test --workspace @lankadws/api
 ```
 
 Run API integration/E2E only for the workflows affected by the change. Full root `quality` is a release gate, not a default local check.

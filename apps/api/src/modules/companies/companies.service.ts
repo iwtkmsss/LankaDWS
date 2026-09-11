@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { CompanyInput, UpdateCompanyManagerInput } from '@bert-crm/contracts'
+import type { CompanyInput, UpdateCompanyManagerInput } from '@lankadws/contracts'
 import { conflict, notFound } from '../../common/errors.js'
 import { id } from '../../common/crypto.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

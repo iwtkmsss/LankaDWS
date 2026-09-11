@@ -3,7 +3,7 @@ import type {
   TaskParticipantInput,
   TaskRelationInput,
   UpdateTaskInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import type { Prisma } from '../../generated/prisma/client.js'
 
 export type TaskTransaction = Prisma.TransactionClient

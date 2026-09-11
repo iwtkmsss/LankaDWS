@@ -1,11 +1,11 @@
-import type { OrgUnitView } from '@bert-crm/contracts'
+import type { OrgUnitView } from '@lankadws/contracts'
 import { describe, expect, it } from 'vitest'
 import { createOrganizationMapLayout, createOrganizationOutline } from './OrganizationMap'
 
 function unit(id: string, parentId: string | null, sortOrder: number): OrgUnitView {
   return {
     id,
-    companyId: 'cmp_bert',
+    companyId: 'cmp_lankadws',
     parentId,
     name: id,
     description: null,

@@ -1,12 +1,12 @@
-# BERT CRM — комплект передачі Codex
+# LankaDWS — комплект передачі Codex
 
 Цей каталог містить усе, що потрібно передати Codex для переходу від проєктування до реалізації повного npm-workspaces monorepo.
 
 ## Що передати
 
 - `00-CODEX-MASTER-PROMPT.md` — головна технічна інструкція: порядок роботи, архітектурні межі, DRY, модульність, практичне ООП, security та quality gates.
-- `bert-crm-design-spec.md` — повне ТЗ на дизайн і frontend.
-- `bert-crm-backend-spec.md` — повне ТЗ на backend, database, auth, security та operations.
+- `lankadws-design-spec.md` — повне ТЗ на дизайн і frontend.
+- `lankadws-backend-spec.md` — повне ТЗ на backend, database, auth, security та operations.
 - `references/01-dashboard-layout-reference.png` — лише референс щільності та загальної композиції.
 - `references/02-admin-sidebar-approved.png` — затверджена вкладена адмін-навігація та роль біля імені.
 - `references/03-overview-employee-approved.png` — затверджений візуальний напрямок персонального overview працівника.
@@ -31,4 +31,4 @@
 
 ## Що не передавати
 
-Не додавайте старий `bert-crm-final-frontend-prompt.md`: це рання чернетка, яку вже замінив `bert-crm-design-spec.md`. Вона може створити суперечності та змусити Codex реалізувати застарілі рішення.
+Не додавайте старий `lankadws-final-frontend-prompt.md`: це рання чернетка, яку вже замінив `lankadws-design-spec.md`. Вона може створити суперечності та змусити Codex реалізувати застарілі рішення.

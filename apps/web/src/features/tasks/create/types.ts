@@ -7,7 +7,7 @@ import type {
   TaskPriorityV2,
   TaskRecurrenceFrequency,
   TaskRelationType,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 
 export type TaskCreateSection =
   | 'main'

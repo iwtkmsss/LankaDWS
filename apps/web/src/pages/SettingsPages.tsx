@@ -1,12 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { SessionView } from '@bert-crm/contracts'
+import type { SessionView } from '@lankadws/contracts'
 import { AtSign, BadgeCheck, BellRing, BriefcaseBusiness, Building2, CalendarDays, Check, Clock3, KeyRound, Laptop, Languages, LogOut, Mail, Network, PersonStanding, Phone, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { removeWhitespace } from '../shared/lib/credentials'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 
@@ -354,74 +353,6 @@ function SecuritySettings() {
           </div>
         </header>
         <p className="privacy-note"><ShieldCheck size={16} />Поточний пароль не зберігається у відкритому вигляді та не може бути показаний нікому.</p>
-      </Card>
-    </div>
-  )
-
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    setSaved(false)
-    setError('')
-    try {
-      await api('/auth/password', {
-        method: 'POST',
-        body: jsonBody({
-          currentPassword: data.get('currentPassword'),
-          newPassword: data.get('newPassword'),
-          confirmation: data.get('confirmation'),
-        }),
-      })
-      event.currentTarget.reset()
-      setSaved(true)
-    } catch {
-      setError('Не вдалося змінити пароль. Перевірте поточний пароль і політику нового.')
-    }
-  }
-  return (
-    <div className="settings-stack">
-      <Card className="settings-card">
-        <header>
-          <span className="settings-icon">
-            <KeyRound />
-          </span>
-          <div>
-            <h2>Змінити пароль</h2>
-            <p>Щонайменше 15 символів; без передбачуваних фраз і нікнейма.</p>
-          </div>
-        </header>
-        <form className="security-form" onSubmit={submit}>
-          <label>
-            Поточний пароль
-            <input name="currentPassword" type="password" required autoComplete="current-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          <label>
-            Новий пароль
-            <input name="newPassword" type="password" minLength={15} required autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          <label>
-            Повторіть новий пароль
-            <input name="confirmation" type="password" minLength={15} required autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
-          </label>
-          {error && <div className="form-error">{error}</div>}
-          {saved && (
-            <p className="success-note">
-              <Check size={16} />
-              Пароль змінено, інші сесії завершено.
-            </p>
-          )}
-          <Button>Змінити пароль</Button>
-        </form>
-      </Card>
-      <Card className="security-summary">
-        <ShieldCheck size={25} />
-        <div>
-          <h3>Двофакторна автентифікація</h3>
-          <p>Керування 2FA і recovery codes потребує повторного підтвердження особи.</p>
-        </div>
-        <span>Захищено</span>
       </Card>
     </div>
   )

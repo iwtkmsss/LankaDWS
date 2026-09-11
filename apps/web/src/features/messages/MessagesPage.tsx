@@ -1,4 +1,4 @@
-import { OrganizationCapability } from '@bert-crm/contracts'
+import { OrganizationCapability } from '@lankadws/contracts'
 import type {
   ChatAttachmentView,
   ChatContactUser,
@@ -6,7 +6,7 @@ import type {
   ChatMessageView,
   PrincipalView,
   StructuredMentionInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   useInfiniteQuery,
   useMutation,
@@ -244,6 +244,10 @@ export function MessagesPage() {
     direct.reset()
   }, [targetUserId])
 
+  useEffect(() => {
+    if (threadId || targetUserId) setQuery('')
+  }, [targetUserId, threadId])
+
   const send = useMutation({
     mutationFn: async (input: {
       body: string
@@ -453,7 +457,6 @@ export function MessagesPage() {
   }
 
   function openDirect(contact: ChatContactUser) {
-    setQuery('')
     if (contact.directThreadId) {
       navigate(`/messages/${contact.directThreadId}`)
       return
@@ -579,6 +582,7 @@ export function MessagesPage() {
           onConvert={(kind, message) => setConversion({ kind, message })}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
           onFiles={(files) => upload.mutate(files)}
+          onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment].slice(0, 5))}
           onSend={submitMessage}
           onRetry={() => {
             void detail.refetch()

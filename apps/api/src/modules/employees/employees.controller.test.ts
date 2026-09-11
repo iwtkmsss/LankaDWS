@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AuthPrincipal, BertRequest } from '../../common/request-context.js'
+import type { AuthPrincipal, LankaDWSRequest } from '../../common/request-context.js'
 import { EmployeesController } from './employees.controller.js'
 
 function principal(): AuthPrincipal {
@@ -40,7 +40,7 @@ function setup() {
   }
   const scope = { allowedCompanies: vi.fn().mockReturnValue(['cmp_test']) }
   const controller = new EmployeesController(prisma as never, scope as never)
-  const request = { principal: principal() } as BertRequest
+  const request = { principal: principal() } as LankaDWSRequest
   return { controller, prisma, request }
 }
 

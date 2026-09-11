@@ -1,7 +1,7 @@
-# BertCRM × Codex: глибокий аудит швидкості, лімітів і промтів
+# LankaDWS × Codex: глибокий аудит швидкості, лімітів і промтів
 
 Дата аудиту: 2026-07-27  
-Репозиторій: `iwtkmsss/BertCRM`  
+Репозиторій: `iwtkmsss/LankaDWS`  
 Перевірений HEAD: `bdd7c05ad9b68e3d52be998dd0bd76a87525401e`
 
 ## Головний висновок
@@ -135,7 +135,7 @@ Web E2E додатково:
 
 ### GPT-5.6 Terra
 
-Основний режим для BertCRM:
+Основний режим для LankaDWS:
 
 - звичайний feature slice React + NestJS;
 - пошук;
@@ -177,9 +177,9 @@ Web E2E додатково:
 Тільки touched workspace та targeted test:
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run typecheck --workspace @bert-crm/web
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run typecheck --workspace @lankadws/web
 ```
 
 Запускати лише потрібні з цих трьох.
@@ -187,7 +187,7 @@ npm run typecheck --workspace @bert-crm/web
 Focused Playwright:
 
 ```bash
-npm run test:e2e --workspace @bert-crm/web -- \
+npm run test:e2e --workspace @lankadws/web -- \
   --project=desktop-chromium \
   --grep "chat search|global search"
 ```
@@ -195,10 +195,10 @@ npm run test:e2e --workspace @bert-crm/web -- \
 ### Tier 2 — перед завершенням feature slice
 
 ```bash
-npm run lint --workspace @bert-crm/api
-npm run lint --workspace @bert-crm/web
-npm run test --workspace @bert-crm/api
-npm run test --workspace @bert-crm/web
+npm run lint --workspace @lankadws/api
+npm run lint --workspace @lankadws/web
+npm run test --workspace @lankadws/api
+npm run test --workspace @lankadws/web
 ```
 
 Тільки workspaces, яких торкнулась зміна.

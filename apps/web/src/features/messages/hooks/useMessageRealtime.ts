@@ -1,4 +1,4 @@
-import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@bert-crm/contracts'
+import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@lankadws/contracts'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { apiUrl } from '../../../shared/api/client'

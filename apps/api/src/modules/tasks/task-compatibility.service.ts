@@ -10,7 +10,7 @@ import {
   type TaskListItem,
   type TaskReference,
   type TaskSourceLinkView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import type { EntityLink, FileObject, Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
 import {

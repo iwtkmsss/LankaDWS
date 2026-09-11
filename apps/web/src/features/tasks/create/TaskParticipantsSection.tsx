@@ -1,4 +1,4 @@
-import type { PrincipalView, TaskParticipantRoleV2 } from '@bert-crm/contracts'
+import type { PrincipalView, TaskParticipantRoleV2 } from '@lankadws/contracts'
 import { Eye, UserCheck, UserCog, UsersRound, X } from 'lucide-react'
 import { useCallback, type ReactNode } from 'react'
 import { Avatar } from '../../../shared/ui'

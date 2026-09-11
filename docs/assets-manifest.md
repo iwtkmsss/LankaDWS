@@ -19,4 +19,4 @@ Bitmap assets створені локально для цього workspace, rol
 
 Повний маршрутний аудит зберігає desktop/mobile evidence у `output/playwright/route-audit/screenshots/`, а машинний результат — у `output/playwright/route-audit/report.json`. Деталі покриття та знайдених виправлень: `docs/frontend-browser-audit.md`.
 
-Окремі функціональні E2E screenshots і HTML report створюються у `apps/web/artifacts/`; команда відтворення: `npm run test:e2e --workspace @bert-crm/web`.
+Окремі функціональні E2E screenshots і HTML report створюються у `apps/web/artifacts/`; команда відтворення: `npm run test:e2e --workspace @lankadws/web`.

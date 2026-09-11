@@ -7,7 +7,7 @@ import {
   type DashboardView,
   type EventListItem,
   type FeedEntryView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { MessagesService } from '../communication/messages.service.js'
@@ -229,7 +229,7 @@ export class DashboardService {
       id: receipt.announcement.id,
       title: receipt.announcement.title,
       safeSnippet: receipt.announcement.body.slice(0, 180),
-      authorName: authorById.get(receipt.announcement.authorId) ?? 'Lanka',
+      authorName: authorById.get(receipt.announcement.authorId) ?? 'LankaDWS',
       companyIds: receipt.announcement.companies.map((entry) => entry.companyId),
       status: receipt.announcement.status,
       isPinned: receipt.announcement.isPinned,

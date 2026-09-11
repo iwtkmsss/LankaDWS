@@ -1,4 +1,4 @@
-import type { ChatContactUser } from '@bert-crm/contracts'
+import type { ChatContactUser } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'

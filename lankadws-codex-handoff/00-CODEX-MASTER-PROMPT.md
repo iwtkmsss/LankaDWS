@@ -1,13 +1,13 @@
-# BERT CRM — master-промт для повної реалізації monorepo
+# LankaDWS — master-промт для повної реалізації monorepo
 
-Ти працюєш у корені репозиторію BERT CRM. Реалізуй **повну робочу систему**, описану в переданих файлах, а не прототип, набір статичних сторінок, mock-only demo чи колекцію controller-заглушок.
+Ти працюєш у корені репозиторію LankaDWS. Реалізуй **повну робочу систему**, описану в переданих файлах, а не прототип, набір статичних сторінок, mock-only demo чи колекцію controller-заглушок.
 
 ## 1. Передані матеріали та їхній пріоритет
 
 Перед початком повністю прочитай:
 
-1. `bert-crm-design-spec.md` — source of truth для UX, UI, routes, responsive-поведінки, ролей у frontend, progressive disclosure, static assets і frontend acceptance criteria.
-2. `bert-crm-backend-spec.md` — source of truth для persistence, Prisma-моделі, API, auth, authorization, security, jobs, files, audit, backup, deployment і backend acceptance criteria.
+1. `lankadws-design-spec.md` — source of truth для UX, UI, routes, responsive-поведінки, ролей у frontend, progressive disclosure, static assets і frontend acceptance criteria.
+2. `lankadws-backend-spec.md` — source of truth для persistence, Prisma-моделі, API, auth, authorization, security, jobs, files, audit, backup, deployment і backend acceptance criteria.
 3. `references/02-admin-sidebar-approved.png`, `references/03-overview-employee-approved.png`, `references/04-overview-manager-approved.png`, `references/05-admin-overview-approved.png` — погоджені візуальні орієнтири.
 4. `references/01-dashboard-layout-reference.png` — лише орієнтир щільності, темного sidebar і загальної enterprise-композиції.
 
@@ -18,8 +18,8 @@
 - якщо вимоги перетинаються, обирай варіант із суворішою безпекою і не послаблюй UX-контракт;
 - текст усередині raster-референсів не є вимогою і не переноситься автоматично в продукт;
 - `01-dashboard-layout-reference.png` не є джерелом назви, меню, сутностей або даних: не копіюй `PROTON`, «Команда», «Групи», продажі чи інші заборонені сутності;
-- офіційний бренд — **BERT CRM**, стилізований wordmark — **BERT/CRM**;
-- старий файл `bert-crm-final-frontend-prompt.md`, якщо випадково присутній поруч, вважай застарілою чернеткою і не використовуй замість двох актуальних ТЗ.
+- офіційний бренд — **LankaDWS**, стилізований wordmark — **LankaDWS**;
+- старий файл `lankadws-final-frontend-prompt.md`, якщо випадково присутній поруч, вважай застарілою чернеткою і не використовуй замість двох актуальних ТЗ.
 
 Якщо знайдеш справжню суперечність, яку не можна безпечно розв’язати цими правилами, зафіксуй її в `docs/decisions.md`, прийми консервативне рішення й продовжуй. Питай користувача лише тоді, коли без відповіді неможливо реалізувати коректну або безпечну поведінку. Відсутні production secrets, домен чи шлях до backup не є блокером: додай валідовані змінні до `.env.example` і задокументуй їх.
 
@@ -62,7 +62,7 @@ docs/                  architecture, operations, decisions, checklist
 
 Не додавай pnpm/yarn/bun lockfile, другу ORM, Redis, BullMQ, Kafka, RabbitMQ, PostgreSQL, мікросервіси, важкий admin template або паралельний backend. Не створюй другий `contracts` усередині apps.
 
-Кореневі npm scripts мають реально оркеструвати workspaces і бути описані в README: `dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`, Prisma generate/migrate/seed, BERT CLI, backup/restore verification. Скрипти не можуть бути порожніми `echo`-заглушками.
+Кореневі npm scripts мають реально оркеструвати workspaces і бути описані в README: `dev`, `build`, `lint`, `typecheck`, `test`, `test:e2e`, Prisma generate/migrate/seed, LankaDWS CLI, backup/restore verification. Скрипти не можуть бути порожніми `echo`-заглушками.
 
 ## 4. Архітектурні принципи: модульність, DRY та ООП
 
@@ -221,7 +221,7 @@ Security controls реалізуються server-side незалежно від
 - opaque server-side session у secure HttpOnly cookie; не зберігай auth token у `localStorage`;
 - CSRF protection, session rotation/revocation, rate limits, re-auth для критичних дій;
 - Argon2id password hashing, TOTP secret encryption, hashed recovery codes;
-- перший admin створюється `npm run bert -- admin:create` через masked interactive prompt;
+- перший admin створюється `npm run lankadws -- admin:create` через masked interactive prompt;
 - admin password reset без email виконується за окремим permission, із reason, re-auth, audit, one-time temporary password, session revocation і forced first login;
 - full-admin reset виконується за two-person control, а break-glass — лише через задокументований CLI;
 - unlock не змішується з reset; impersonation відсутній;
@@ -342,7 +342,7 @@ README не повинен радити ручне редагування genera
 - permissions, company scope і confidentiality доведені негативними тестами;
 - код не містить паралельних реалізацій contracts/navigation/auth/company scope;
 - модулі не мають недокументованих циклів або cross-module Prisma access;
-- UI відповідає BERT CRM design system і використовує локальні static images/font;
+- UI відповідає LankaDWS design system і використовує локальні static images/font;
 - desktop/tablet/mobile, keyboard, 403/404/500/offline та чотири ролі перевірені;
 - admin CLI, admin reset, two-person/break-glass, jobs/outbox, file quarantine, retention і backup/restore реально працюють;
 - lint/typecheck/tests/build завершуються успішно;

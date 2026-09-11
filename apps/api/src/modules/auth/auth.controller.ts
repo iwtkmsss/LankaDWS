@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import type { Request, Response } from 'express'
-import { loginInputSchema } from '@bert-crm/contracts'
+import { loginInputSchema } from '@lankadws/contracts'
 import { z } from 'zod'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest } from '../../common/errors.js'
 import { AuthService } from './auth.service.js'
@@ -37,7 +37,7 @@ export class AuthController {
 
   @Restricted()
   @Post('first-login/password')
-  async firstLogin(@Body() body: unknown, @Req() request: BertRequest, @Res({ passthrough: true }) response: Response) {
+  async firstLogin(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     const value = parse(passwordChangeSchema, body)
     await this.auth.completeFirstLogin(principalFrom(request), value.newPassword, value.confirmation, response)
     return { changed: true }
@@ -45,36 +45,36 @@ export class AuthController {
 
   @Restricted()
   @Post('2fa/setup')
-  setup(@Req() request: BertRequest) {
+  setup(@Req() request: LankaDWSRequest) {
     return this.auth.startTotpSetup(principalFrom(request))
   }
 
   @Restricted()
   @Post('2fa/confirm')
-  confirm(@Body() body: unknown, @Req() request: BertRequest, @Res({ passthrough: true }) response: Response) {
+  confirm(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     return this.auth.confirmTotp(principalFrom(request), parse(codeSchema, body).code, request, response)
   }
 
   @Restricted()
   @Post('2fa/challenge')
-  challenge(@Body() body: unknown, @Req() request: BertRequest, @Res({ passthrough: true }) response: Response) {
+  challenge(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     return this.auth.challengeTotp(principalFrom(request), parse(codeSchema, body).code, request, response)
   }
 
   @Restricted()
   @Post('recovery-code')
-  recovery(@Body() body: unknown, @Req() request: BertRequest, @Res({ passthrough: true }) response: Response) {
+  recovery(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     return this.auth.useRecoveryCode(principalFrom(request), parse(recoverySchema, body).code, request, response)
   }
 
   @Post('reauth')
-  reauth(@Body() body: unknown, @Req() request: BertRequest) {
+  reauth(@Body() body: unknown, @Req() request: LankaDWSRequest) {
     const value = parse(reauthSchema, body)
     return this.auth.reauthenticate(principalFrom(request), value.password, value.code)
   }
 
   @Post('logout')
-  async logout(@Req() request: BertRequest, @Res({ passthrough: true }) response: Response) {
+  async logout(@Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     await this.auth.logout(principalFrom(request), response)
     return { loggedOut: true }
   }
@@ -86,18 +86,18 @@ export class MeController {
 
   @Restricted()
   @Get()
-  me(@Req() request: BertRequest) {
-    return this.auth.me(principalFrom(request), request.cookies?.bert_csrf as string ?? '')
+  me(@Req() request: LankaDWSRequest) {
+    return this.auth.me(principalFrom(request), request.cookies?.lankadws_csrf as string ?? '')
   }
 
   @Patch('profile')
-  profile(@Body() body: unknown, @Req() request: BertRequest) {
+  profile(@Body() body: unknown, @Req() request: LankaDWSRequest) {
     return this.auth.updateProfile(principalFrom(request), parse(profileSchema, body))
   }
 
   @Post('avatar')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: Math.min(getConfig().MAX_UPLOAD_BYTES, 2 * 1024 * 1024), files: 1 } }))
-  async uploadAvatar(@Req() request: BertRequest, @UploadedFile() file: UploadedBinary) {
+  async uploadAvatar(@Req() request: LankaDWSRequest, @UploadedFile() file: UploadedBinary) {
     const principal = principalFrom(request)
     if (!file?.mimetype.startsWith('image/')) throw badRequest('avatar_type')
     const uploaded = await this.files.uploadAvatar(principal, file)
@@ -105,7 +105,7 @@ export class MeController {
   }
 
   @Get('avatar/:fileId')
-  async avatar(@Param('fileId') fileId: string, @Req() request: BertRequest, @Res() response: Response) {
+  async avatar(@Param('fileId') fileId: string, @Req() request: LankaDWSRequest, @Res() response: Response) {
     const file = await this.files.downloadAvatar(principalFrom(request), fileId)
     if (!file.mime.startsWith('image/')) throw badRequest('avatar_type')
     response.setHeader('Content-Type', file.mime)
@@ -115,33 +115,33 @@ export class MeController {
   }
 
   @Delete('avatar')
-  removeAvatar(@Req() request: BertRequest) {
+  removeAvatar(@Req() request: LankaDWSRequest) {
     return this.auth.removeAvatar(principalFrom(request))
   }
 
   @Get('notification-preferences')
-  notificationPreferences(@Req() request: BertRequest) {
+  notificationPreferences(@Req() request: LankaDWSRequest) {
     return this.auth.notificationPreferences(principalFrom(request))
   }
 
   @Patch('notification-preferences')
-  updateNotificationPreferences(@Body() body: unknown, @Req() request: BertRequest) {
+  updateNotificationPreferences(@Body() body: unknown, @Req() request: LankaDWSRequest) {
     return this.auth.updateNotificationPreferences(principalFrom(request), parse(notificationPreferenceSchema, body))
   }
 
   @Get('sessions')
-  sessions(@Req() request: BertRequest) {
+  sessions(@Req() request: LankaDWSRequest) {
     return this.auth.sessions(principalFrom(request))
   }
 
   @Delete('sessions/:id')
-  async revoke(@Param('id') sessionId: string, @Req() request: BertRequest) {
+  async revoke(@Param('id') sessionId: string, @Req() request: LankaDWSRequest) {
     await this.auth.revokeSession(principalFrom(request), sessionId)
     return { revoked: true }
   }
 
   @Post('sessions/revoke-others')
-  async revokeOthers(@Req() request: BertRequest) {
+  async revokeOthers(@Req() request: LankaDWSRequest) {
     await this.auth.revokeOthers(principalFrom(request))
     return { revoked: true }
   }

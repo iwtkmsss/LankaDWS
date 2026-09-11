@@ -1,6 +1,6 @@
 import type { ComponentType, LazyExoticComponent } from 'react'
 import { lazy } from 'react'
-import type { OrganizationCapabilityCode } from '@bert-crm/contracts'
+import type { OrganizationCapabilityCode } from '@lankadws/contracts'
 import {
   BookOpen, Building2, Bell, CalendarDays,
   CheckSquare2, FileSearch, HardDrive, MessageCircle, Newspaper,
@@ -26,6 +26,7 @@ const loadFeed = () => import('../pages/FeedPage').then((module) => ({ default: 
 const loadTasks = () => import('../pages/TasksPage')
 const loadCalendar = () => import('../pages/CalendarPage')
 const loadContent = () => import('../pages/ContentPages')
+const loadDrive = () => import('../features/drive/DrivePage')
 const loadCommunication = () => import('../pages/CommunicationPages')
 const loadSettings = () => import('../pages/SettingsPages')
 const loadLifecycle = () => import('../pages/LifecyclePage')
@@ -38,6 +39,7 @@ const Feed = lazy(loadFeed)
 const Tasks = lazy(loadTasks)
 const Calendar = lazy(loadCalendar)
 const Content = lazy(loadContent)
+const Drive = lazy(loadDrive)
 const Communication = lazy(loadCommunication)
 const Settings = lazy(loadSettings)
 const Lifecycle = lazy(loadLifecycle)
@@ -52,8 +54,8 @@ export const routes: RouteMeta[] = [
   { path: '/tasks/:taskId', title: 'Деталі завдання', component: Tasks },
   { path: '/calendar', title: 'Календар', nav: true, navGroup: 'primary', navOrder: 5, navIcon: CalendarDays, component: Calendar, preload: loadCalendar },
   { path: '/calendar/events/:eventId', title: 'Подія календаря', component: Calendar },
-  { path: '/documents', title: 'Документи', component: Content },
-  { path: '/documents/:documentId', title: 'Документ', component: Content },
+  { path: '/documents', title: 'Документи', component: Drive },
+  { path: '/documents/:documentId', title: 'Документ', component: Drive },
   { path: '/knowledge', title: 'База знань', nav: true, navGroup: 'management', navOrder: 1, navIcon: BookOpen, component: Content },
   { path: '/knowledge/:articleSlug', title: 'Стаття', component: Content },
   { path: '/organization', title: 'Організація', nav: true, navGroup: 'company', navOrder: 2, navIcon: Network, component: Organization, preload: loadOrganization },
@@ -69,8 +71,8 @@ export const routes: RouteMeta[] = [
   { path: '/messages/:threadId', title: 'Діалог', component: Communication },
   { path: '/groups', title: 'Робочі групи', capability: 'GROUPS_UI', nav: true, navGroup: 'company', navOrder: 1, navIcon: Building2, releaseState: 'released', component: Content },
   { path: '/groups/:groupId', title: 'Робоча група', capability: 'GROUPS_UI', releaseState: 'released', component: Content },
-  { path: '/drive', title: 'Диск', nav: true, navGroup: 'primary', navOrder: 4, navIcon: HardDrive, releaseState: 'released', component: Content, preload: loadContent },
-  { path: '/drive/:documentId', title: 'Файл на диску', releaseState: 'released', component: Content },
+  { path: '/drive', title: 'Диск', nav: true, navGroup: 'primary', navOrder: 4, navIcon: HardDrive, releaseState: 'released', component: Drive, preload: loadDrive },
+  { path: '/drive/:documentId', title: 'Файл на диску', releaseState: 'released', component: Drive },
   { path: '/settings/profile', title: 'Профіль', component: Settings },
   { path: '/settings/notifications', title: 'Налаштування сповіщень', component: Settings },
   { path: '/settings/security', title: 'Безпека профілю', component: Settings },

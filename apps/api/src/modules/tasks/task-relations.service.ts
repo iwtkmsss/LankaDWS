@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import type { TaskRelationInput } from '@bert-crm/contracts'
+import type { TaskRelationInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

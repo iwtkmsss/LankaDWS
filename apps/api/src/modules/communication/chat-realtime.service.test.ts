@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MessageEvent } from '@nestjs/common'
-import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@bert-crm/contracts'
+import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@lankadws/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import type { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'

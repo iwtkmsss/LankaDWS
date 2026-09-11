@@ -1,4 +1,4 @@
-import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@bert-crm/contracts'
+import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import {
   CalendarPlus,
   Check,
@@ -7,6 +7,7 @@ import {
   Eye,
   FileText,
   Forward,
+  HardDrive,
   Heart,
   ListTodo,
   MoreHorizontal,
@@ -24,6 +25,7 @@ import { editableMentions, trimMentionValue } from '../../../shared/mentions/men
 import { apiUrl } from '../../../shared/api/client'
 import { formatChatTime } from '../lib/chatDates'
 import { FilePreviewModal } from '../../../shared/files/FilePreviewModal'
+import { importFileToDrive } from '../../drive/api'
 
 interface MessageBubbleProps {
   threadId: string
@@ -68,7 +70,9 @@ export function MessageBubble({
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
     editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
+  const [driveSave, setDriveSave] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
   const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
+  const savableAttachments = message.attachments.filter((attachment) => attachment.scanStatus === 'CLEAN')
   // Editing a long message should show the whole text rather than a three-row
   // window the author has to scroll. Browsers that support `field-sizing` size
   // the box from its content; this estimate covers the rest, counting the wraps
@@ -323,6 +327,28 @@ export function MessageBubble({
                 >
                   <Forward size={15} /> Переслати
                 </button>
+                {savableAttachments.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={driveSave === 'busy'}
+                    onClick={() => {
+                      setDriveSave('busy')
+                      void Promise.all(savableAttachments.map((attachment) => importFileToDrive({
+                        fileId: attachment.id,
+                        name: attachment.fileName.replace(/\.[^/.]+$/, ''),
+                      })))
+                        .then(() => setDriveSave('done'))
+                        .catch(() => setDriveSave('error'))
+                        .finally(() => window.setTimeout(() => { setMenuOpen(false); setDriveSave('idle') }, 1200))
+                    }}
+                  >
+                    <HardDrive size={15} />
+                    {driveSave === 'busy' ? 'Зберігаємо…'
+                      : driveSave === 'done' ? 'Збережено на Диск'
+                      : driveSave === 'error' ? 'Не вдалося зберегти'
+                      : savableAttachments.length > 1 ? `Зберегти ${savableAttachments.length} файли на Диск` : 'Зберегти на Диск'}
+                  </button>
+                )}
                 {canConvertToTask && (
                   <button type="button" onClick={() => onConvert('task', message)}>
                     <ListTodo size={15} /> Створити завдання

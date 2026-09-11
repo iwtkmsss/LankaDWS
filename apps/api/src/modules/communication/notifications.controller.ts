@@ -1,7 +1,7 @@
-import { sendUserNotificationSchema } from '@bert-crm/contracts'
+import { sendUserNotificationSchema } from '@lankadws/contracts'
 import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { fingerprint, id } from '../../common/crypto.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -26,7 +26,7 @@ export class NotificationsController {
   }
 
   @Get()
-  async list(@Req() request: BertRequest, @Query('tab') tab = 'action') {
+  async list(@Req() request: LankaDWSRequest, @Query('tab') tab = 'action') {
     const principal = principalFrom(request)
     await this.reconcileChatReads(principal.userId)
     const [rows, counts] = await Promise.all([
@@ -41,7 +41,7 @@ export class NotificationsController {
   }
 
   @Get('summary')
-  async summary(@Req() request: BertRequest) {
+  async summary(@Req() request: LankaDWSRequest) {
     const userId = principalFrom(request).userId
     await this.reconcileChatReads(userId)
     return this.summaryCounts(userId)
@@ -49,7 +49,7 @@ export class NotificationsController {
 
   @Post()
   async send(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() rawBody: unknown,
     @Headers('idempotency-key') rawKey?: string,
   ) {
@@ -114,7 +114,7 @@ export class NotificationsController {
 
   @Patch('read-all')
   async readAll(
-    @Req() request: BertRequest,
+    @Req() request: LankaDWSRequest,
     @Body() body: { tab?: string },
   ) {
     const principal = principalFrom(request)
@@ -131,7 +131,7 @@ export class NotificationsController {
   }
 
   @Patch(':id')
-  async read(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
+  async read(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
     const principal = principalFrom(request)
     const result = await this.prisma.notification.updateMany({ where: { id, recipientId: principal.userId }, data: { readAt: body.read ? new Date() : null } })
     if (!result.count) throw notFound()

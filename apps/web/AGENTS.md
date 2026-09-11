@@ -34,10 +34,10 @@ These instructions extend the repository root `AGENTS.md`.
 For local UI work, prefer:
 
 ```bash
-npm run typecheck --workspace @bert-crm/web
-npm run lint --workspace @bert-crm/web
-npm run test --workspace @bert-crm/web
-npm run test:e2e --workspace @bert-crm/web -- \
+npm run typecheck --workspace @lankadws/web
+npm run lint --workspace @lankadws/web
+npm run test --workspace @lankadws/web
+npm run test:e2e --workspace @lankadws/web -- \
   --project=desktop-chromium \
   --grep "<focused scenario>"
 ```

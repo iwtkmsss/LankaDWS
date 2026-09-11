@@ -1,4 +1,4 @@
-# BertCRM UX delivery rules
+# LankaDWS UX delivery rules
 
 This project applies the user-provided `deep-research-report.md` as an operational quality bar, adapted to an authenticated internal SaaS/CRM rather than a marketing landing page.
 
@@ -51,7 +51,7 @@ This project applies the user-provided `deep-research-report.md` as an operation
 - A post has one compact subscription control with three explicit outcomes: all new comments, mentions only or no notifications. Automatic author/comment/mention subscriptions never overwrite a later user choice, and `Стежу` remains a short URL-addressable filter rather than another dashboard block.
 - Attachments keep filename, size and scanner state close together. Pending or rejected files never look downloadable; a linked card polls the existing scanner state and becomes a download only after `CLEAN`.
 - «Додати файл» remains an attachment to the current post; «Поширити файл» is a distinct permissioned action that creates a standalone source card for the currently visible audience. Revoke uses an inline confirmation and immediately removes recipient access.
-- Dense authenticated Feed surfaces use avatars, typography, spacing, borders and Lucide icons from the existing BertCRM system; generated or stock imagery is intentionally omitted because it would displace work without helping a decision.
+- Dense authenticated Feed surfaces use avatars, typography, spacing, borders and Lucide icons from the existing LankaDWS system; generated or stock imagery is intentionally omitted because it would displace work without helping a decision.
 
 ## Applied Chat pattern
 

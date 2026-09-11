@@ -1,4 +1,4 @@
-import type { ChatMessagePage, ChatMessageView, ChatThreadPage, ChatThreadPreview } from '@bert-crm/contracts'
+import type { ChatMessagePage, ChatMessageView, ChatThreadPage, ChatThreadPreview } from '@lankadws/contracts'
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 import { messageKeys } from '../api/messageKeys'
 

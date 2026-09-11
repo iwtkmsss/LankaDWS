@@ -8,7 +8,7 @@ import { FeedService } from './feed.service.js'
 function principal(overrides: Partial<AuthPrincipal> = {}): AuthPrincipal {
   return {
     userId: 'usr_maria',
-    workspaceId: 'ws_bert',
+    workspaceId: 'ws_lankadws',
     username: 'maria',
     displayName: 'Maria',
     primaryCompanyId: 'cmp_a',

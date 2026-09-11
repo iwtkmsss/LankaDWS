@@ -1,4 +1,4 @@
-import type { ChatContactUser, ChatParticipantView, ChatThreadDetail } from '@bert-crm/contracts'
+import type { ChatContactUser, ChatParticipantView, ChatThreadDetail } from '@lankadws/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, BellOff, Crown, LogOut, Plus, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'

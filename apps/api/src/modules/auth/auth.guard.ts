@@ -5,7 +5,7 @@ import type { Response } from 'express'
 import { getConfig } from '../../config/config.js'
 import { fingerprint, secureEqual } from '../../common/crypto.js'
 import { forbidden, unauthorized } from '../../common/errors.js'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ADMIN_ONLY, PUBLIC_ROUTE, RESTRICTED_ROUTE } from './auth.decorators.js'
 
@@ -15,7 +15,7 @@ export class SessionAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [context.getHandler(), context.getClass()])) return true
-    const request = context.switchToHttp().getRequest<BertRequest>()
+    const request = context.switchToHttp().getRequest<LankaDWSRequest>()
     const token = request.cookies?.[getConfig().SESSION_COOKIE_NAME] as string | undefined
     if (!token) throw unauthorized()
     const session = await this.prisma.userSession.findUnique({
@@ -43,7 +43,7 @@ export class SessionAuthGuard implements CanActivate {
     if (restricted && !allowsRestricted) throw unauthorized('credential_step_required')
 
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
-      const cookieToken = request.cookies?.bert_csrf as string | undefined
+      const cookieToken = request.cookies?.lankadws_csrf as string | undefined
       const headerToken = request.header('x-csrf-token')
       if (!cookieToken || !headerToken || !secureEqual(cookieToken, headerToken) ||
         !secureEqual(session.csrfHash, fingerprint(cookieToken, 'csrf'))) {
@@ -77,8 +77,8 @@ export class SessionAuthGuard implements CanActivate {
       const response = context.switchToHttp().getResponse<Response>()
       const cookieOptions = { secure: getConfig().NODE_ENV === 'production', sameSite: 'strict' as const, path: '/', expires: expiresAt }
       response.cookie(getConfig().SESSION_COOKIE_NAME, token, { ...cookieOptions, httpOnly: true })
-      const csrfToken = request.cookies?.bert_csrf as string | undefined
-      if (csrfToken) response.cookie('bert_csrf', csrfToken, { ...cookieOptions, httpOnly: false })
+      const csrfToken = request.cookies?.lankadws_csrf as string | undefined
+      if (csrfToken) response.cookie('lankadws_csrf', csrfToken, { ...cookieOptions, httpOnly: false })
     }
     context.switchToHttp().getResponse<Response>().setHeader('Cache-Control', 'no-store')
     if (this.reflector.getAllAndOverride<boolean>(ADMIN_ONLY, [context.getHandler(), context.getClass()]) && session.user.accountType !== 'ADMIN') throw forbidden()

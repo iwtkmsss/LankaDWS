@@ -27,7 +27,7 @@ const schema = z.object({
   FILE_LINK_SECRET: z.string().default('development-only-file-link-secret'),
   BACKUP_ENCRYPTION_KEY: z.string().default('2'.repeat(64)),
   BREAK_GLASS_SECRET_HASH: z.string().default(''),
-  SESSION_COOKIE_NAME: z.string().default('bert_session'),
+  SESSION_COOKIE_NAME: z.string().default('lankadws_session'),
   SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(60),
   TEMPORARY_PASSWORD_HOURS: z.coerce.number().int().positive().default(24),
   REAUTH_MINUTES: z.coerce.number().int().positive().default(10),

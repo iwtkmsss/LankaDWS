@@ -83,9 +83,9 @@ export function Skeleton({ rows = 4 }: { rows?: number }) { return <div classNam
 export function PageDataLoader({ delay = 180 }: { delay?: number }) {
   const [visible, setVisible] = useState(false)
   const loaderId = useId().replace(/:/g, '')
-  const orbitGradientId = `bert-loader-orbit-${loaderId}`
-  const lockGradientId = `bert-loader-lock-${loaderId}`
-  const markFilterId = `bert-loader-mark-${loaderId}`
+  const orbitGradientId = `lankadws-loader-orbit-${loaderId}`
+  const lockGradientId = `lankadws-loader-lock-${loaderId}`
+  const markFilterId = `lankadws-loader-mark-${loaderId}`
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), delay)
     return () => window.clearTimeout(timer)
@@ -170,7 +170,7 @@ export function Tabs({ value, items, onChange }: { value: string; items: Array<{
   return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div>
 }
 
-export function PageHeader({ action }: { title: string; description?: string; action?: ReactNode }) {
+export function PageHeader({ title, action }: { title: string; description?: string; action?: ReactNode }) {
   useTopbarContent(action ?? null)
-  return null
+  return <h1 className="sr-only">{title}</h1>
 }

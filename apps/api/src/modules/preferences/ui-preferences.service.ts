@@ -13,7 +13,7 @@ import {
   type TaskListColumnsUserUiPreferenceView,
   type UserUiPreferenceResult,
   type UserUiPreferenceView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

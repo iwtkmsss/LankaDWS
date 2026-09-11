@@ -12,7 +12,7 @@ import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
-import type { FeedListQuery, FeedListResult } from '@bert-crm/contracts'
+import type { FeedListQuery, FeedListResult } from '@lankadws/contracts'
 import Database from 'better-sqlite3'
 import { PrismaClient } from '../src/generated/prisma/client.js'
 import type { AuthPrincipal } from '../src/common/request-context.js'
@@ -1025,7 +1025,7 @@ async function main(): Promise<void> {
   const outputValue = parseStringFlag('--output')
     ?? `artifacts/feed-rehearsal-${profileName}.json`
   const outputPath = resolve(repoRoot, outputValue)
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'bert-feed-rehearsal-'))
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'lankadws-feed-rehearsal-'))
   const databasePath = resolve(temporaryRoot, 'feed-rehearsal.db')
   let prisma: PrismaClient | undefined
   let rawDatabase: RehearsalDatabase | undefined
@@ -1277,7 +1277,7 @@ async function main(): Promise<void> {
     const git = readGitEvidence()
     const evidence = {
       schemaVersion: 1,
-      kind: 'bertcrm.feed.representative-load-evidence',
+      kind: 'lankadws.feed.representative-load-evidence',
       generatedAt: new Date().toISOString(),
       evidenceStatus: 'PASS',
       performanceAcceptance: 'MEASURED_BASELINE_NO_APPROVED_SLA',

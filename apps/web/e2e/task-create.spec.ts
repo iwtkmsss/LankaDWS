@@ -1,11 +1,11 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
-import type { CreateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput } from '@lankadws/contracts'
 
 async function login(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Нікнейм').fill('maria')
-  await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+  await page.getByLabel('Пароль', { exact: true }).fill('LankaDWSDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
   await expect(page).toHaveURL(/\/feed$/)
 }
@@ -174,15 +174,15 @@ test('creates a task through the complete modal workflow', async ({ page }, test
 
   await relationsToggle.click()
   const relationsPanel = dialog.locator('#task-create-relations-panel')
-  const projectCombobox = relationsPanel.getByRole('combobox', { name: /^Проєкт/ })
-  await projectCombobox.fill('Веб')
-  await relationsPanel.getByRole('option', { name: /Вебсайт для клієнта/ }).click()
-  await relationsPanel.getByText('Дизайн', { exact: true }).click()
-  const relationCombobox = relationsPanel.getByRole('combobox', { name: /^Завдання/ })
+  const relationCombobox = relationsPanel.getByRole('combobox', { name: 'Пошук батьківського завдання' })
   await relationCombobox.fill('dashboard')
   await relationsPanel.getByRole('option', { name: /2401.*Підготувати концепцію дизайну dashboard/ }).click()
-  await relationsPanel.getByRole('button', { name: 'Додати зв’язок' }).click()
-  await expect(relationsPanel.getByText(/2401 · Підготувати концепцію дизайну dashboard/)).toBeVisible()
+  const hierarchy = relationsPanel.getByRole('tree', { name: 'Структура батьківського завдання' })
+  await expect(hierarchy).toBeVisible()
+  await hierarchy.getByRole('button', {
+    name: /Прив’язати нове завдання до 2401.*Підготувати концепцію дизайну dashboard/,
+  }).click()
+  await expect(hierarchy.getByRole('button', { name: /Прив’язати нове завдання до 2401/ })).toHaveAttribute('aria-pressed', 'true')
 
   const accessibility = await new AxeBuilder({ page }).include('.task-create-dialog').analyze()
   expect(accessibility.violations).toEqual([])
@@ -197,23 +197,20 @@ test('creates a task through the complete modal workflow', async ({ page }, test
     title,
     description: 'Перевірка повної форми створення завдання.',
     projectId: 'prj_website',
+    parentTaskId: 'tsk_design',
     reporterId: 'usr_maria',
     priority: 'URGENT',
     estimatedMinutes: 120,
-    tagIds: ['tag_design'],
+    tagIds: [],
     checklistItems: [expect.objectContaining({ title: 'Перевірити результат', isCompleted: false })],
-    relations: [{ targetTaskId: 'tsk_design', type: 'RELATED' }],
+    relations: [],
     reminders: [
       {
         target: { type: 'PARTICIPANTS' },
         trigger: { type: 'BEFORE_DUE', offsetMinutes: 45 },
       },
     ],
-    recurrence: expect.objectContaining({
-      frequency: 'WEEKLY',
-      interval: 1,
-      maxOccurrences: 3,
-    }),
+    recurrence: null,
   })
   expect(payload.participants).toEqual(
     expect.arrayContaining([
@@ -243,7 +240,6 @@ test('opens a task as a standalone page without fetching the task list', async (
 
   await page.goto('/tasks/tsk_design?role=CREATOR&search=dashboard')
 
-  await expect(page.getByRole('heading', { name: /2401/ })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Підготувати концепцію дизайну dashboard' })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.locator('.task-detail-page')).toHaveCount(1)
@@ -258,7 +254,9 @@ test('sends a selected task comment mention as structured data', async ({ page }
   await login(page)
   await page.goto('/tasks/tsk_design')
 
-  const comment = page.getByRole('textbox', { name: 'Коментар до завдання' })
+  await page.getByRole('button', { name: 'Розгорнути секцію «Обговорення»' }).click()
+  const discussion = page.locator('.task-discussion')
+  const comment = discussion.getByRole('textbox', { name: 'Коментар до завдання' })
   await comment.fill('@оле')
   await page.getByRole('listbox', { name: 'Коментар до завдання: варіанти згадок' })
     .getByRole('option', { name: /Олена Бондар/ })
@@ -269,7 +267,7 @@ test('sends a selected task comment mention as structured data', async ({ page }
     request.method() === 'POST'
     && new URL(request.url()).pathname === '/api/v1/tasks/tsk_design/comments'
   ))
-  await page.getByRole('button', { name: /Надіслати/ }).click()
+  await discussion.getByRole('button', { name: /Надіслати/ }).click()
   const request = await requestPromise
   expect(request.headers()['idempotency-key']).toMatch(/^task-comment:/)
   expect(request.postDataJSON()).toMatchObject({
@@ -283,6 +281,7 @@ test('sends a selected task comment mention as structured data', async ({ page }
   })
 
   await expect(page.getByRole('link', { name: '@Олена Бондар' }).last()).toBeVisible()
+  await page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' }).click()
   await expect(page.locator('.task-role-group').filter({ hasText: 'Олена Бондар' })).toBeVisible()
 })
 
@@ -304,9 +303,7 @@ test('optional options failures stay local and do not block basic task creation'
   await expect(dialog.getByText(/Не вдалося завантажити учасників/)).toBeVisible()
 
   await dialog.getByRole('button', { name: /^Зв’язки/ }).click()
-  await expect(dialog.getByText('Не вдалося завантажити проєкти й завдання.')).toBeVisible()
-  await expect(dialog.getByText('Не вдалося завантажити теги.')).toBeVisible()
-  await expect(dialog.getByText(/Не вдалося завантажити доступні завдання і зв’язки/)).toBeVisible()
+  await expect(dialog.getByText('Знайдіть завдання, щоб відкрити його структуру.')).toBeVisible()
 
   await dialog.getByRole('button', { name: /^Планування/ }).click()
   await expect(dialog.getByText(/Не вдалося завантажити дані для планування/)).toBeVisible()
@@ -345,7 +342,7 @@ test('autosave reports a local failure and retries without announcing every succ
       value: original,
     })
     Storage.prototype.setItem = function setItem(key: string, value: string) {
-      if (key.startsWith('bertcrm:task-create:')) throw new Error('Simulated quota error')
+      if (key.startsWith('lankadws:task-create:')) throw new Error('Simulated quota error')
       return original.call(this, key, value)
     }
   })

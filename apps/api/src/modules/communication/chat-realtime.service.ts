@@ -1,6 +1,6 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
 import { concatMap, Observable, Subject } from 'rxjs'
-import type { ChatRealtimeEvent, RealtimeSummaryChanged } from '@bert-crm/contracts'
+import type { ChatRealtimeEvent, RealtimeSummaryChanged } from '@lankadws/contracts'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { unauthorized } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'

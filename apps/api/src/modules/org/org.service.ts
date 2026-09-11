@@ -3,7 +3,7 @@ import type {
   AdminOrgUnitListQuery, AdminOrgUnitView, ArchiveOrgUnitInput, AssignOrgUnitEmployeesInput, CreateOrgUnitInput,
   OrgCompanyView, OrgUnitEmployeeView, OrgUnitListQuery, OrgUnitView,
   RestoreOrgUnitInput, UpdateOrgUnitInput,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { conflict, notFound } from '../../common/errors.js'
 import { id } from '../../common/crypto.js'
 import type { AuthPrincipal } from '../../common/request-context.js'

@@ -1,4 +1,4 @@
-import type { ChatMessageView } from '@bert-crm/contracts'
+import type { ChatMessageView } from '@lankadws/contracts'
 import { describe, expect, it } from 'vitest'
 import { replyPreviewText } from './replyPreview'
 

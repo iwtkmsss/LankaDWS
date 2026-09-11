@@ -8,7 +8,7 @@ import {
   type TaskDetailSectionId,
   type UserUiPreferenceResult,
   type UserUiPreferenceView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { ChevronDown, ChevronUp, Eye, EyeOff, RotateCcw, Settings2 } from 'lucide-react'
 import {
   Children,

@@ -4,7 +4,7 @@ import type {
   MentionSearchQuery,
   TaskParticipantInput,
   TaskParticipantRoleV2,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'

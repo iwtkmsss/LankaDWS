@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
-import type { BertRequest } from '../../common/request-context.js'
+import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { AnnouncementsService } from './announcements.service.js'
 
@@ -8,42 +8,42 @@ export class AnnouncementsController {
   constructor(private readonly announcements: AnnouncementsService) {}
 
   @Get()
-  list(@Req() request: BertRequest, @Query('company') company?: string, @Query('state') state?: string) {
+  list(@Req() request: LankaDWSRequest, @Query('company') company?: string, @Query('state') state?: string) {
     return this.announcements.list(principalFrom(request), company, state)
   }
 
   @Get('audiences')
-  audiences(@Req() request: BertRequest) {
+  audiences(@Req() request: LankaDWSRequest) {
     return this.announcements.audiences(principalFrom(request))
   }
 
   @Post('audience-preview')
-  audience(@Req() request: BertRequest, @Body() body: { companyIds: string[] }) {
+  audience(@Req() request: LankaDWSRequest, @Body() body: { companyIds: string[] }) {
     return this.announcements.audiencePreview(principalFrom(request), body)
   }
 
   @Post()
-  create(@Req() request: BertRequest, @Body() body: { title: string; body: string; companyIds: string[]; isPinned?: boolean; publishAt?: string; expiresAt?: string }) {
+  create(@Req() request: LankaDWSRequest, @Body() body: { title: string; body: string; companyIds: string[]; isPinned?: boolean; publishAt?: string; expiresAt?: string }) {
     return this.announcements.createDraft(principalFrom(request), body)
   }
 
   @Get(':id')
-  detail(@Req() request: BertRequest, @Param('id') id: string) {
+  detail(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.announcements.detail(principalFrom(request), id)
   }
 
   @Post(':id/publish')
-  publish(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
+  publish(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.announcements.publish(principalFrom(request), id, body.expectedVersion)
   }
 
   @Post(':id/read')
-  read(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
+  read(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
     return this.announcements.markRead(principalFrom(request), id, body.read)
   }
 
   @Post(':id/archive')
-  archive(@Req() request: BertRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
+  archive(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.announcements.archive(principalFrom(request), id, body.expectedVersion)
   }
 }
