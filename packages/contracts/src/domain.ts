@@ -3,31 +3,13 @@ import type { OrganizationCapabilityView } from './capabilities.js'
 import type { AccountType } from './accounts.js'
 import type { StructuredMentionView } from './mentions.js'
 
-export const companyScopeSchema = z.union([
-  z.literal('all'),
-  z.string().regex(/^cmp_[a-zA-Z0-9_-]+$/),
-])
+export const companyScopeSchema = z.union([z.literal('all'), z.string().regex(/^cmp_[a-zA-Z0-9_-]+$/)])
 export type CompanyScope = z.infer<typeof companyScopeSchema>
 
-export const taskStatusSchema = z.enum([
-  'NEW',
-  'PLANNED',
-  'IN_PROGRESS',
-  'IN_REVIEW',
-  'DONE',
-  'BLOCKED',
-  'CANCELLED',
-  'ARCHIVED',
-])
+export const taskStatusSchema = z.enum(['NEW', 'IN_PROGRESS', 'IN_REVIEW', 'DONE', 'ARCHIVED'])
 export type TaskStatus = z.infer<typeof taskStatusSchema>
 
-export const taskViewRoleSchema = z.enum([
-  'RESPONSIBLE',
-  'CO_EXECUTOR',
-  'CREATOR',
-  'OBSERVER',
-  'ALL',
-])
+export const taskViewRoleSchema = z.enum(['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER', 'ALL'])
 export type TaskViewRole = z.infer<typeof taskViewRoleSchema>
 
 export const taskParticipantRoleSchema = z.enum(['CO_EXECUTOR', 'OBSERVER'])
@@ -43,12 +25,7 @@ export const executionStatusSchema = z.enum([
 ])
 export type ExecutionStatus = z.infer<typeof executionStatusSchema>
 
-export const confidentialitySchema = z.enum([
-  'GENERAL',
-  'INTERNAL',
-  'CONFIDENTIAL',
-  'HR_SECURITY',
-])
+export const confidentialitySchema = z.enum(['GENERAL', 'INTERNAL', 'CONFIDENTIAL', 'HR_SECURITY'])
 export type Confidentiality = z.infer<typeof confidentialitySchema>
 
 export interface CompanyView {
@@ -106,6 +83,8 @@ export interface TaskListItem {
   status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   deadline: string | null
+  createdAt: string
+  updatedAt: string
   version: number
   commentCount: number
   attachmentCount: number
@@ -175,36 +154,6 @@ export interface TaskReference {
   status: TaskStatus
 }
 
-export type TaskApprovalRoundStatus = 'PENDING' | 'APPROVED' | 'NEEDS_CHANGES' | 'INVALIDATED'
-
-export interface TaskApprovalRoundView {
-  id: string
-  roundNumber: number
-  status: TaskApprovalRoundStatus
-  approver: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
-  requestedBy: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
-  requestedTaskVersion: number
-  requestedAt: string
-  decisionNote: string | null
-  decidedAt: string | null
-  invalidatedAt: string | null
-}
-
-export interface TaskApprovalView {
-  current: TaskApprovalRoundView | null
-  history: TaskApprovalRoundView[]
-  canRequest: boolean
-  canDecide: boolean
-}
-
-export interface TaskApprovalOption {
-  id: string
-  displayName: string
-  avatarAsset: string | null
-  jobTitle: string
-  suggested: boolean
-}
-
 export interface TaskDetailView extends TaskListItem {
   description: string
   blockReason: string | null
@@ -221,6 +170,14 @@ export interface TaskDetailView extends TaskListItem {
     body: string
     mentions: StructuredMentionView[]
     createdAt: string
+    editedAt: string | null
+    version: number
+    canEdit: boolean
+    canDelete: boolean
+    reactions: {
+      likeCount: number
+      likedByMe: boolean
+    }
     replyToCommentId: string | null
     replyPreview: {
       authorName: string
@@ -240,7 +197,8 @@ export interface TaskDetailView extends TaskListItem {
   canCreateSubtask: boolean
   canManageParticipants: boolean
   canAttachFiles: boolean
-  approval: TaskApprovalView
+  requiresAcceptance: boolean
+  availableStatusActions: Array<'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'>
   personalState: TaskPersonalStateView
 }
 
@@ -267,18 +225,6 @@ export interface DocumentListItem {
   version: number
 }
 
-export interface AnnouncementListItem {
-  id: string
-  title: string
-  safeSnippet: string
-  authorName: string
-  companyIds: string[]
-  status: string
-  isPinned: boolean
-  publishedAt: string | null
-  readAt: string | null
-}
-
 export interface DashboardKpi {
   value: number
   href: string
@@ -290,7 +236,7 @@ export interface DashboardAction {
 }
 
 export interface DashboardNextStep {
-  kind: 'TASK' | 'NOTIFICATION' | 'ACKNOWLEDGEMENT' | 'EVENT' | 'LIFECYCLE' | 'ANNOUNCEMENT'
+  kind: 'TASK' | 'NOTIFICATION' | 'ACKNOWLEDGEMENT' | 'EVENT' | 'LIFECYCLE' | 'KNOWLEDGE'
   title: string
   detail: string
   href: string
@@ -298,7 +244,7 @@ export interface DashboardNextStep {
 
 export interface DashboardLifecycleItem {
   id: string
-  type: 'ONBOARDING' | 'OFFBOARDING'
+  type: 'OFFBOARDING'
   employeeName: string
   progress: number
   status: string
@@ -306,7 +252,7 @@ export interface DashboardLifecycleItem {
 
 export interface DashboardActivityItem {
   id: string
-  kind: 'POST' | 'TASK' | 'EVENT' | 'ANNOUNCEMENT' | 'FILE'
+  kind: 'POST' | 'TASK' | 'EVENT' | 'FILE'
   title: string
   summary: string
   occurredAt: string
@@ -317,7 +263,6 @@ export interface DashboardView {
   attentionCount: number
   tasks: TaskListItem[]
   events: EventListItem[]
-  announcements: AnnouncementListItem[]
   lifecycle: DashboardLifecycleItem[]
   meta: {
     generatedAt: string
@@ -327,7 +272,6 @@ export interface DashboardView {
   availability: {
     tasks: boolean
     calendar: boolean
-    announcements: boolean
     messages: boolean
     notifications: boolean
     activity: boolean

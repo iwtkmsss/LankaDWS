@@ -1,22 +1,19 @@
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import {
-  CalendarPlus,
   Check,
   CheckCheck,
+  Copy,
   Download,
   Eye,
   FileText,
   Forward,
   HardDrive,
   Heart,
-  ListTodo,
-  MoreHorizontal,
   Pencil,
   Reply,
   Trash2,
-  X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Avatar, Button, CompactFileName } from '../../../shared/ui'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { MentionText } from '../../../shared/mentions/MentionRenderer'
@@ -33,14 +30,11 @@ interface MessageBubbleProps {
   own: boolean
   highlighted?: boolean
   isNew?: boolean
-  canConvertToTask: boolean
-  canConvertToEvent: boolean
   onReply: (message: ChatMessageView) => void
   onLike: (message: ChatMessageView) => void
   onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
-  onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
 }
 
 function formatBytes(bytes: number): string {
@@ -49,22 +43,29 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
+function contextMenuPosition(x: number, y: number): { left: number; top: number } {
+  const menuWidth = 248
+  const menuHeight = 340
+  const inset = 8
+  return {
+    left: Math.max(inset, Math.min(x, window.innerWidth - menuWidth - inset)),
+    top: Math.max(inset, Math.min(y, window.innerHeight - menuHeight - inset)),
+  }
+}
+
 export function MessageBubble({
   threadId,
   message,
   own,
   highlighted,
   isNew,
-  canConvertToTask,
-  canConvertToEvent,
   onReply,
   onLike,
   onForward,
   onEdit,
   onDelete,
-  onConvert,
 }: MessageBubbleProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(message.body)
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
@@ -72,7 +73,9 @@ export function MessageBubble({
   const [busy, setBusy] = useState(false)
   const [driveSave, setDriveSave] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
   const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
+  const menuCloseTimer = useRef<number | null>(null)
   const savableAttachments = message.attachments.filter((attachment) => attachment.scanStatus === 'CLEAN')
+  const archivableAttachments = savableAttachments.length >= 3
   // Editing a long message should show the whole text rather than a three-row
   // window the author has to scroll. Browsers that support `field-sizing` size
   // the box from its content; this estimate covers the rest, counting the wraps
@@ -91,6 +94,33 @@ export function MessageBubble({
     ? message.attachments[0]
     : null
   const likeCount = message.reactions.likeCount
+  const closeMenu = () => {
+    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
+    setMenuPosition(null)
+  }
+  const delayMenuClose = () => {
+    menuCloseTimer.current = window.setTimeout(closeMenu, 120)
+  }
+  const keepMenuOpen = () => {
+    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
+  }
+  useEffect(() => {
+    const closeOnAnotherMenu = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== `message:${message.id}`) closeMenu()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest(`#message-${message.id}`)) closeMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
+    window.addEventListener('lanka:context-menu-open', closeOnAnotherMenu)
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('lanka:context-menu-open', closeOnAnotherMenu)
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  })
   const messageMeta = (
     <footer className="message-bubble__meta">
       {likeCount > 0 && (
@@ -107,13 +137,15 @@ export function MessageBubble({
       )}
       {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
       {message.editedAt && <span>змінено</span>}
+      <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
       {own && (
-        <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} title={deliveryLabel}>
+        <span
+          className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`}
+          aria-label={deliveryLabel}
+        >
           {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
-          <span>{deliveryLabel}</span>
         </span>
       )}
-      <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
     </footer>
   )
 
@@ -152,6 +184,12 @@ export function MessageBubble({
       onDoubleClick={(event) => {
         if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
         onReply(message)
+      }}
+      onContextMenu={(event) => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+        event.preventDefault()
+        window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `message:${message.id}` }))
+        setMenuPosition(contextMenuPosition(event.clientX, event.clientY))
       }}
     >
       {!own && (
@@ -274,6 +312,15 @@ export function MessageBubble({
                 </span>
               </div>
             ))}
+            {archivableAttachments && (
+              <a
+                className="message-attachments__archive"
+                href={apiUrl(`/messages/${encodeURIComponent(message.id)}/attachments/archive`)}
+                download
+              >
+                <Download size={14} /> Завантажити {savableAttachments.length} файли ZIP
+              </a>
+            )}
           </div>
         )}
 
@@ -281,35 +328,42 @@ export function MessageBubble({
 
         {messageMeta}
 
-        {!editing && (
-          <div className="message-bubble__actions">
-            <button
-              type="button"
-              className={message.reactions.likedByMe ? 'is-active' : ''}
-              aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
-              aria-pressed={message.reactions.likedByMe}
-              onClick={() => onLike(message)}
-            >
-              <Heart size={16} />
-            </button>
-            <button type="button" aria-label="Відповісти" onClick={() => onReply(message)}>
-              <Reply size={16} />
-            </button>
-            <button
-              type="button"
-              aria-label="Дії з повідомленням"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((value) => !value)}
-            >
-              {menuOpen ? <X size={16} /> : <MoreHorizontal size={16} />}
-            </button>
-            {menuOpen && (
-              <div className="message-action-menu">
+        {!editing && menuPosition && (
+          <div
+            className="message-action-menu"
+            role="menu"
+            aria-label="Дії з повідомленням"
+            style={menuPosition}
+            onMouseEnter={keepMenuOpen}
+            onMouseLeave={delayMenuClose}
+          >
+                <button
+                  type="button"
+                  aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+                  onClick={() => {
+                    closeMenu()
+                    onLike(message)
+                  }}
+                >
+                  <Heart size={15} /> {message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+                </button>
+                <button type="button" onClick={() => { closeMenu(); onReply(message) }}>
+                  <Reply size={15} /> Відповісти
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu()
+                    void navigator.clipboard.writeText(message.body)
+                  }}
+                >
+                  <Copy size={15} /> Копіювати текст
+                </button>
                 {message.canEdit && (
                   <button
                     type="button"
                     onClick={() => {
-                      setMenuOpen(false)
+                      closeMenu()
                       setEditBody(message.body)
                       setEditMentions(editableMentions(message.body, message.mentions))
                       setEditing(true)
@@ -321,7 +375,7 @@ export function MessageBubble({
                 <button
                   type="button"
                   onClick={() => {
-                    setMenuOpen(false)
+                    closeMenu()
                     onForward(message)
                   }}
                 >
@@ -339,7 +393,7 @@ export function MessageBubble({
                       })))
                         .then(() => setDriveSave('done'))
                         .catch(() => setDriveSave('error'))
-                        .finally(() => window.setTimeout(() => { setMenuOpen(false); setDriveSave('idle') }, 1200))
+                        .finally(() => window.setTimeout(() => { closeMenu(); setDriveSave('idle') }, 1200))
                     }}
                   >
                     <HardDrive size={15} />
@@ -347,16 +401,6 @@ export function MessageBubble({
                       : driveSave === 'done' ? 'Збережено на Диск'
                       : driveSave === 'error' ? 'Не вдалося зберегти'
                       : savableAttachments.length > 1 ? `Зберегти ${savableAttachments.length} файли на Диск` : 'Зберегти на Диск'}
-                  </button>
-                )}
-                {canConvertToTask && (
-                  <button type="button" onClick={() => onConvert('task', message)}>
-                    <ListTodo size={15} /> Створити завдання
-                  </button>
-                )}
-                {canConvertToEvent && (
-                  <button type="button" onClick={() => onConvert('event', message)}>
-                    <CalendarPlus size={15} /> Додати в календар
                   </button>
                 )}
                 {message.canDelete && (
@@ -372,8 +416,6 @@ export function MessageBubble({
                     <Trash2 size={15} /> Видалити
                   </button>
                 )}
-              </div>
-            )}
           </div>
         )}
       </div>

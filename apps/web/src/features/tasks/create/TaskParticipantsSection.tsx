@@ -64,6 +64,7 @@ function ParticipantRoleCard({
   description,
   icon,
   required = false,
+  single = false,
   draft,
   users,
   currentUser,
@@ -74,6 +75,7 @@ function ParticipantRoleCard({
   description: string
   icon: ReactNode
   required?: boolean
+  single?: boolean
   draft: TaskCreateDraft
   users: TaskCreateUserOption[]
   currentUser: PrincipalView | null
@@ -99,7 +101,9 @@ function ParticipantRoleCard({
     update((current) => ({
       ...current,
       participants: [
-        ...current.participants.filter((participant) => participant.userId !== userId),
+        ...current.participants.filter((participant) => (
+          participant.userId !== userId && (!single || participant.role !== role)
+        )),
         { userId, role },
       ],
     }))
@@ -133,7 +137,7 @@ function ParticipantRoleCard({
               key={participant.userId}
               person={userLabel(participant.userId, users, currentUser)}
               roleLabel={title}
-              onRemove={() => remove(participant)}
+              onRemove={required && single ? undefined : () => remove(participant)}
             />
           ))}
         </ul>
@@ -142,7 +146,7 @@ function ParticipantRoleCard({
       )}
 
       <AsyncTaskCombobox
-        label={`Додати: ${title.toLocaleLowerCase('uk')}`}
+        label={`${single ? 'Змінити' : 'Додати'}: ${title.toLocaleLowerCase('uk')}`}
         value=""
         placeholder="Почніть вводити ім’я"
         clearOnSelect
@@ -190,17 +194,19 @@ function ReporterRoleCard({
         </ul>
       )}
 
-      <AsyncTaskCombobox
-        label="Змінити постановника"
-        value={draft.reporterId}
-        selectedOption={reporter ? { id: reporter.id, label: reporter.displayName, detail: reporter.jobTitle } : null}
-        placeholder="Почніть вводити ім’я"
-        loadOptions={loadOptions}
-        onChange={(reporterId) => {
-          if (!reporterId) return
-          update((current) => ({ ...current, reporterId }))
-        }}
-      />
+      {currentUser?.accountType === 'ADMIN' && (
+        <AsyncTaskCombobox
+          label="Змінити постановника"
+          value={draft.reporterId}
+          selectedOption={reporter ? { id: reporter.id, label: reporter.displayName, detail: reporter.jobTitle } : null}
+          placeholder="Почніть вводити ім’я"
+          loadOptions={loadOptions}
+          onChange={(reporterId) => {
+            if (!reporterId) return
+            update((current) => ({ ...current, reporterId }))
+          }}
+        />
+      )}
     </section>
   )
 }
@@ -244,6 +250,7 @@ export function TaskParticipantsSection({
           description="Веде завдання та відповідає за результат"
           icon={<UserCheck size={18} aria-hidden />}
           required
+          single
           draft={draft}
           users={options.users}
           currentUser={currentUser}

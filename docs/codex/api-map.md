@@ -40,19 +40,6 @@ Total operations: **225**
 | `PUT` | `/api/v1/admin/companies/{companyId}/org-units/{unitId}/employees` | `AdminOrgController_assignEmployees` |  |
 | `POST` | `/api/v1/admin/companies/{companyId}/org-units/{unitId}/restore` | `AdminOrgController_restore` |  |
 
-## Announcements
-
-| Method | Path | Operation | Summary |
-|---|---|---|---|
-| `GET` | `/api/v1/announcements` | `AnnouncementsController_list` |  |
-| `POST` | `/api/v1/announcements` | `AnnouncementsController_create` |  |
-| `GET` | `/api/v1/announcements/{id}` | `AnnouncementsController_detail` |  |
-| `POST` | `/api/v1/announcements/{id}/archive` | `AnnouncementsController_archive` |  |
-| `POST` | `/api/v1/announcements/{id}/publish` | `AnnouncementsController_publish` |  |
-| `POST` | `/api/v1/announcements/{id}/read` | `AnnouncementsController_read` |  |
-| `POST` | `/api/v1/announcements/audience-preview` | `AnnouncementsController_audience` |  |
-| `GET` | `/api/v1/announcements/audiences` | `AnnouncementsController_audiences` |  |
-
 ## Auth
 
 | Method | Path | Operation | Summary |
@@ -240,10 +227,8 @@ Total operations: **225**
 | `DELETE` | `/api/v1/messages/{id}` | `MessagesController_deleteMessage` |  |
 | `GET` | `/api/v1/messages/{id}` | `MessagesController_message` |  |
 | `PATCH` | `/api/v1/messages/{id}` | `MessagesController_editMessage` |  |
-| `POST` | `/api/v1/messages/{id}/event` | `MessagesController_createEvent` |  |
 | `DELETE` | `/api/v1/messages/{id}/reactions` | `MessagesController_removeReaction` |  |
 | `POST` | `/api/v1/messages/{id}/reactions` | `MessagesController_addReaction` |  |
-| `POST` | `/api/v1/messages/{id}/task` | `MessagesController_createTask` |  |
 | `GET` | `/api/v1/messages/events` | `MessagesController_globalEvents` |  |
 | `POST` | `/api/v1/messages/groups/{groupId}/thread` | `MessagesController_groupThread` |  |
 | `GET` | `/api/v1/messages/summary` | `MessagesController_summary` |  |
@@ -363,4 +348,3 @@ Total operations: **225**
 | `DELETE` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_reset` |  |
 | `GET` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_get` |  |
 | `PUT` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_put` |  |
-

@@ -16,8 +16,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
+  chatReactionSchema,
   createTaskSchema,
-  decideTaskApprovalSchema,
+  deleteTaskCommentSchema,
   manualTimeEntrySchema,
   mentionSearchQuerySchema,
   taskCommentInputSchema,
@@ -25,7 +26,8 @@ import {
   taskRecurrenceInputSchema,
   taskReminderInputSchema,
   taskRelationInputSchema,
-  requestTaskApprovalSchema,
+  taskStatusTransitionSchema,
+  updateTaskCommentSchema,
   updateTimeEntrySchema,
   updateTaskSchema,
 } from '@lankadws/contracts'
@@ -36,7 +38,6 @@ import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskHierarchyService } from './task-hierarchy.service.js'
@@ -60,7 +61,6 @@ export class TasksController {
     private readonly commands: TaskCommandService,
     private readonly catalog: TaskCatalogService,
     private readonly attachments: TaskAttachmentsService,
-    private readonly approvals: TaskApprovalService,
     private readonly participants: TaskParticipantsService,
     private readonly checklist: TaskChecklistService,
     private readonly hierarchy: TaskHierarchyService,
@@ -146,40 +146,6 @@ export class TasksController {
     return this.tasks.activity(principalFrom(request), taskId, cursor)
   }
 
-  @Get(':id/approval-options')
-  approvalOptions(
-    @Req() request: LankaDWSRequest,
-    @Param('id') taskId: string,
-  ) {
-    return this.approvals.options(principalFrom(request), taskId)
-  }
-
-  @Post(':id/approval-requests')
-  requestApproval(
-    @Req() request: LankaDWSRequest,
-    @Param('id') taskId: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    if (!key) throw badRequest('idempotency_key_required')
-    const parsed = requestTaskApprovalSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('task_approval_request_invalid')
-    return this.approvals.request(principalFrom(request), taskId, parsed.data, key)
-  }
-
-  @Post(':id/approval-decisions')
-  decideApproval(
-    @Req() request: LankaDWSRequest,
-    @Param('id') taskId: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    if (!key) throw badRequest('idempotency_key_required')
-    const parsed = decideTaskApprovalSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('task_approval_decision_invalid')
-    return this.approvals.decide(principalFrom(request), taskId, parsed.data, key)
-  }
-
   @Get(':id/mention-candidates')
   mentionCandidates(
     @Req() request: LankaDWSRequest,
@@ -237,6 +203,16 @@ export class TasksController {
     @UploadedFile() file: UploadedBinary,
   ) {
     return this.tasks.uploadAttachment(principalFrom(request), taskId, file)
+  }
+
+  @Post(':id/attachments/from-drive')
+  attachDriveFile(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Body() body: { fileId?: unknown },
+  ) {
+    if (typeof body.fileId !== 'string' || !body.fileId) throw badRequest('task_attachment')
+    return this.tasks.attachDriveFile(principalFrom(request), taskId, body.fileId)
   }
 
   @Delete(':id/attachments/:fileId')
@@ -372,9 +348,11 @@ export class TasksController {
     return this.reminders.cancel(principalFrom(request), taskId, reminderId)
   }
 
-  @Patch(':id/status')
-  changeStatus(@Req() request: LankaDWSRequest, @Param('id') taskId: string, @Body() body: { status: string; expectedVersion: number }) {
-    return this.tasks.changeStatus(principalFrom(request), taskId, body.status, body.expectedVersion)
+  @Post(':id/transitions')
+  transition(@Req() request: LankaDWSRequest, @Param('id') taskId: string, @Body() body: unknown) {
+    const parsed = taskStatusTransitionSchema.safeParse(body)
+    if (!parsed.success) throw badRequest('task_transition')
+    return this.tasks.transition(principalFrom(request), taskId, parsed.data)
   }
 
   @Post(':id/comments')
@@ -388,6 +366,54 @@ export class TasksController {
     if (!parsed.success) throw badRequest('task_comment_invalid')
     if (parsed.data.mentions.length && !key) throw badRequest('idempotency_key_required')
     return this.tasks.addComment(principalFrom(request), taskId, parsed.data, key)
+  }
+
+  @Patch(':id/comments/:commentId')
+  updateComment(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = updateTaskCommentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_comment_invalid')
+    return this.tasks.updateComment(principalFrom(request), taskId, commentId, parsed.data)
+  }
+
+  @Delete(':id/comments/:commentId')
+  deleteComment(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = deleteTaskCommentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_comment_invalid')
+    return this.tasks.deleteComment(principalFrom(request), taskId, commentId, parsed.data)
+  }
+
+  @Post(':id/comments/:commentId/reactions')
+  addCommentReaction(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = chatReactionSchema.safeParse(rawBody ?? {})
+    if (!parsed.success) throw badRequest('task_comment_reaction_invalid')
+    return this.tasks.reactToComment(principalFrom(request), taskId, commentId, true)
+  }
+
+  @Delete(':id/comments/:commentId/reactions')
+  removeCommentReaction(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = chatReactionSchema.safeParse(rawBody ?? {})
+    if (!parsed.success) throw badRequest('task_comment_reaction_invalid')
+    return this.tasks.reactToComment(principalFrom(request), taskId, commentId, false)
   }
 
   @Post(':id/checklist')

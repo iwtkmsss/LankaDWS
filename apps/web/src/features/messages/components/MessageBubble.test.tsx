@@ -34,7 +34,6 @@ const handlers = {
   onForward: vi.fn(),
   onEdit: vi.fn(),
   onDelete: vi.fn(),
-  onConvert: vi.fn(),
 }
 
 describe('MessageBubble', () => {
@@ -45,13 +44,11 @@ describe('MessageBubble', () => {
           threadId="thread-1"
           message={message({ body: 'Вітаю', readByCount: 1 })}
           own
-          canConvertToTask={false}
-          canConvertToEvent={false}
           {...handlers}
         />
       </MemoryRouter>,
     )
-    expect(screen.getByTitle('Прочитано')).toBeInTheDocument()
+    expect(screen.getByLabelText('Прочитано')).toBeInTheDocument()
     expect(container.querySelector('.message-bubble > .message-bubble__meta')).toBeInTheDocument()
   })
 
@@ -64,8 +61,6 @@ describe('MessageBubble', () => {
           threadId="thread-1"
           message={target}
           own
-          canConvertToTask={false}
-          canConvertToEvent={false}
           {...handlers}
           onReply={onReply}
         />
@@ -80,7 +75,7 @@ describe('MessageBubble', () => {
   it('marks a newly received message for the current chat session', () => {
     const { container } = render(
       <MemoryRouter>
-        <MessageBubble threadId="thread-1" message={message({ body: 'Нове' })} own={false} isNew canConvertToTask={false} canConvertToEvent={false} {...handlers} />
+        <MessageBubble threadId="thread-1" message={message({ body: 'Нове' })} own={false} isNew {...handlers} />
       </MemoryRouter>,
     )
 
@@ -92,10 +87,11 @@ describe('MessageBubble', () => {
     const target = message({ body: 'Вітаю' })
     render(
       <MemoryRouter>
-        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onLike={onLike} />
+        <MessageBubble threadId="thread-1" message={target} own {...handlers} onLike={onLike} />
       </MemoryRouter>,
     )
 
+    fireEvent.contextMenu(screen.getByRole('article'))
     fireEvent.click(screen.getByRole('button', { name: 'Подобається' }))
 
     expect(onLike).toHaveBeenCalledWith(target)
@@ -106,7 +102,7 @@ describe('MessageBubble', () => {
     const target = message({ body: 'Вітаю', reactions: { likeCount: 3, likedByMe: true } })
     render(
       <MemoryRouter>
-        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onLike={onLike} />
+        <MessageBubble threadId="thread-1" message={target} own {...handlers} onLike={onLike} />
       </MemoryRouter>,
     )
 
@@ -121,12 +117,12 @@ describe('MessageBubble', () => {
     const target = message({ body: 'Вітаю' })
     render(
       <MemoryRouter>
-        <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} onForward={onForward} />
+        <MessageBubble threadId="thread-1" message={target} own {...handlers} onForward={onForward} />
       </MemoryRouter>,
     )
 
     expect(screen.queryByRole('button', { name: 'Переслати' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Дії з повідомленням' }))
+    fireEvent.contextMenu(screen.getByRole('article'))
     fireEvent.click(screen.getByRole('button', { name: 'Переслати' }))
 
     expect(onForward).toHaveBeenCalledWith(target)
@@ -137,12 +133,12 @@ describe('MessageBubble', () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <MemoryRouter>
-          <MessageBubble threadId="thread-1" message={target} own canConvertToTask={false} canConvertToEvent={false} {...handlers} />
+          <MessageBubble threadId="thread-1" message={target} own {...handlers} />
         </MemoryRouter>
       </QueryClientProvider>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Дії з повідомленням' }))
+    fireEvent.contextMenu(screen.getByRole('article'))
     fireEvent.click(screen.getByRole('button', { name: 'Редагувати' }))
 
     expect(screen.getByLabelText('Текст повідомлення')).toHaveAttribute('rows', '6')
@@ -164,8 +160,6 @@ describe('MessageBubble', () => {
               }],
             })}
             own
-            canConvertToTask={false}
-            canConvertToEvent={false}
             {...handlers}
           />
         </OverlayProvider>
@@ -198,8 +192,6 @@ describe('MessageBubble', () => {
           threadId="thread-1"
           message={message({ body: 'Вітаю' })}
           own={false}
-          canConvertToTask={false}
-          canConvertToEvent={false}
           {...handlers}
         />
       </MemoryRouter>,

@@ -85,53 +85,70 @@ export function TaskBasicsSection({
           />
         </label>
       </div>
-      <section
-        className="task-create-attachments-section is-file-drop-target"
-        aria-labelledby="task-create-attachments-title"
-        {...dropTargetProps}
-      >
-        <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб додати їх до завдання" />
-        <div className="task-create-subgroup__heading">
-          <div>
-            <h4 id="task-create-attachments-title">Вкладення</h4>
-            <p>Перетягніть файли сюди або виберіть їх. До 10 файлів; перевірка починається одразу.</p>
+      <div className="task-create-attachments-layout">
+        <section
+          className="task-create-attachments-section is-file-drop-target"
+          aria-labelledby="task-create-attachments-title"
+          {...dropTargetProps}
+        >
+          <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб додати їх до завдання" />
+          <div className="task-create-subgroup__heading">
+            <div>
+              <h4 id="task-create-attachments-title">Вкладення</h4>
+              <p>Перетягніть файли сюди або виберіть їх. До 10 файлів; перевірка починається одразу.</p>
+            </div>
+            <label className="button button--secondary task-create-file-picker">
+              <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
+              <input
+                type="file"
+                multiple
+                aria-label="Додати файл"
+                disabled={upload.isPending || freeAttachmentSlots <= 0}
+                onChange={(event) => {
+                  void uploadFiles([...event.target.files ?? []])
+                  event.target.value = ''
+                }}
+              />
+            </label>
           </div>
-          <label className="button button--secondary task-create-file-picker">
-            <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
-            <input
-              type="file"
-              multiple
-              aria-label="Додати файл"
-              disabled={upload.isPending || freeAttachmentSlots <= 0}
-              onChange={(event) => {
-                void uploadFiles([...event.target.files ?? []])
-                event.target.value = ''
-              }}
-            />
-          </label>
-        </div>
-        {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
-        {draft.attachments.length > 0 && (
-          <ul className="task-create-attachments">
-            {draft.attachments.map((attachment) => (
-              <li key={attachment.id}>
-                <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`Вилучити ${attachment.fileName}`}
-                  onClick={() => update((current) => ({
-                    ...current,
-                    attachments: current.attachments.filter((item) => item.id !== attachment.id),
-                  }))}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
+          {draft.attachments.length > 0 && (
+            <ul className="task-create-attachments">
+              {draft.attachments.map((attachment) => (
+                <li key={attachment.id}>
+                  <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Вилучити ${attachment.fileName}`}
+                    onClick={() => update((current) => ({
+                      ...current,
+                      attachments: current.attachments.filter((item) => item.id !== attachment.id),
+                    }))}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <label className="task-create-acceptance">
+          <input
+            type="checkbox"
+            checked={draft.requiresAcceptance}
+            onChange={(event) => update((current) => ({
+              ...current,
+              requiresAcceptance: event.target.checked,
+            }))}
+          />
+          <span>
+            <strong>Передати на перевірку після завершення</strong>
+            <small>Після завершення відповідальним задача перейде постановнику.</small>
+          </span>
+        </label>
+      </div>
       <div className="task-create-core__meta">
         <label>
           Пріоритет

@@ -7,9 +7,12 @@ import {
   type TaskAttachmentView,
   type TaskDetailView,
   type TaskCommentInput,
+  type DeleteTaskCommentInput,
   type TaskListItem,
   type TaskReference,
   type TaskSourceLinkView,
+  type TaskStatusTransitionInput,
+  type UpdateTaskCommentInput,
 } from '@lankadws/contracts'
 import type { EntityLink, FileObject, Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
@@ -27,21 +30,17 @@ import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { TaskCommandService } from './task-command.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
 
 const taskStatuses = [
   'NEW',
-  'PLANNED',
   'IN_PROGRESS',
   'IN_REVIEW',
   'DONE',
-  'BLOCKED',
-  'CANCELLED',
   'ARCHIVED',
 ] as const
-const activeTaskStatuses = ['NEW', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED'] as const
-const terminalTaskStatuses = ['DONE', 'CANCELLED', 'ARCHIVED'] as const
+const activeTaskStatuses = ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] as const
+const terminalTaskStatuses = ['DONE', 'ARCHIVED'] as const
 const taskPriorities = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
 const legacyViewRoles = ['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER', 'ALL'] as const
 
@@ -109,6 +108,7 @@ export interface LegacyUpdateTaskInput {
   deadline?: string | null
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'URGENT'
   blockReason?: string | null
+  requiresAcceptance?: boolean
   expectedVersion: number
 }
 
@@ -140,7 +140,6 @@ export class TaskCompatibilityService {
     private readonly commands: TaskCommandService,
     private readonly feedProjection: FeedProjectionService,
     private readonly participants: TaskParticipantsService,
-    private readonly approvals: TaskApprovalService,
   ) {}
 
   async list(
@@ -201,7 +200,7 @@ export class TaskCompatibilityService {
     const presetWhere: Prisma.TaskWhereInput | null = preset === 'ACTIVE'
       ? { status: { in: [...activeTaskStatuses] } }
       : preset === 'DEFERRED'
-        ? { status: 'PLANNED' }
+        ? { status: 'NEW' }
         : preset === 'OVERDUE'
           ? { dueAt: { lt: now }, status: { notIn: [...terminalTaskStatuses] } }
           : preset === 'DUE_SOON'
@@ -327,7 +326,7 @@ export class TaskCompatibilityService {
     }
     const attentionWhere: Prisma.TaskWhereInput = {
       ...nonTerminalWhere,
-      OR: [{ status: 'BLOCKED' }, { dueAt: { lt: new Date() } }],
+      OR: [{ dueAt: { lt: new Date() } }],
     }
     const [rows, active, overdue, attention, completedLast7Days, grouped] =
       await this.prisma.$transaction([
@@ -381,8 +380,8 @@ export class TaskCompatibilityService {
         },
       },
     })
-    const canEdit = await this.canEdit(principal, task)
-    const [comments, entityLinks, personalState, following, followerCount, reminders, approval] = await Promise.all([
+    const canEdit = this.canEdit(principal, task)
+    const [comments, entityLinks, personalState, following, followerCount, reminders] = await Promise.all([
       this.prisma.comment.findMany({
         where: { entityType: 'TASK', entityId: task.id, deletedAt: null },
         orderBy: { createdAt: 'asc' },
@@ -418,7 +417,6 @@ export class TaskCompatibilityService {
         },
         orderBy: [{ remindAt: 'asc' }, { id: 'asc' }],
       }),
-      this.approvals.view(principal, task, canEdit),
     ])
     const [fileLinks, contentMentions] = await Promise.all([
       this.prisma.fileLink.findMany({
@@ -447,7 +445,7 @@ export class TaskCompatibilityService {
         orderBy: [{ sourceId: 'asc' }, { start: 'asc' }],
       }),
     ])
-    const [attachedFiles, commentAuthors] = await Promise.all([
+    const [attachedFiles, commentAuthors, commentReactions] = await Promise.all([
       this.prisma.fileObject.findMany({
         where: {
           id: { in: [...new Set(fileLinks.map((link) => link.fileId))] },
@@ -471,9 +469,20 @@ export class TaskCompatibilityService {
           isActive: true,
         },
       }),
+      this.prisma.taskCommentReaction.findMany({
+        where: { commentId: { in: comments.map((comment) => comment.id) }, kind: 'LIKE' },
+        select: { commentId: true, userId: true },
+      }),
     ])
     const filesById = new Map(attachedFiles.map((file) => [file.id, file]))
     const authorsById = new Map(commentAuthors.map((author) => [author.id, author]))
+    const reactionsByComment = new Map<string, { likeCount: number; likedByMe: boolean }>()
+    for (const reaction of commentReactions) {
+      const current = reactionsByComment.get(reaction.commentId) ?? { likeCount: 0, likedByMe: false }
+      current.likeCount += 1
+      if (reaction.userId === principal.userId) current.likedByMe = true
+      reactionsByComment.set(reaction.commentId, current)
+    }
     const attachmentView = (file: FileObject): TaskAttachmentView => ({
       id: file.id,
       fileName: file.safeFilename,
@@ -523,6 +532,8 @@ export class TaskCompatibilityService {
       status: task.status,
       priority: this.legacyPriority(task.priority),
       deadline: task.dueAt?.toISOString() ?? null,
+      createdAt: task.createdAt.toISOString(),
+      updatedAt: task.updatedAt.toISOString(),
       version: task.version,
       commentCount: comments.length,
       attachmentCount: taskAttachments.length,
@@ -559,6 +570,11 @@ export class TaskCompatibilityService {
             }
           }),
         createdAt: comment.createdAt.toISOString(),
+        editedAt: comment.editedAt?.toISOString() ?? null,
+        version: comment.version,
+        canEdit: isGlobalAdmin(principal),
+        canDelete: isGlobalAdmin(principal),
+        reactions: reactionsByComment.get(comment.id) ?? { likeCount: 0, likedByMe: false },
         replyToCommentId: comment.replyToCommentId,
         replyPreview: (() => {
           if (!comment.replyToCommentId) return null
@@ -593,7 +609,8 @@ export class TaskCompatibilityService {
         && canEdit,
       canManageParticipants: this.canManageParticipants(principal, task, canEdit),
       canAttachFiles: true,
-      approval,
+      requiresAcceptance: task.requiresAcceptance,
+      availableStatusActions: this.availableStatusActions(principal, task, primaryResponsible.id),
       personalState: {
         favorited: Boolean(personalState?.favoritedAt),
         important: personalState?.important ?? false,
@@ -618,6 +635,7 @@ export class TaskCompatibilityService {
     input: LegacyUpdateTaskInput,
   ): Promise<{ version: number }> {
     const task = await this.access.editableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
       throw badRequest('task_version')
     }
@@ -640,7 +658,7 @@ export class TaskCompatibilityService {
         workspaceId: principal.workspaceId,
         isActive: true,
       },
-      select: { id: true },
+      select: { id: true, displayName: true },
     })
     if (users.length !== userIds.length) throw badRequest('task_participant')
     if (reporterId !== task.reporterId && !this.canManageReporter(principal, task, true)) {
@@ -666,6 +684,9 @@ export class TaskCompatibilityService {
       ...(dueAt?.getTime() !== task.dueAt?.getTime() ? ['deadline'] : []),
       ...(priority !== task.priority ? ['priority'] : []),
       ...(blockReason !== (task.blockReason ?? '') ? ['blockReason'] : []),
+      ...(input.requiresAcceptance !== undefined && input.requiresAcceptance !== task.requiresAcceptance
+        ? ['requiresAcceptance']
+        : []),
     ]
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
@@ -677,10 +698,20 @@ export class TaskCompatibilityService {
           dueAt,
           priority,
           blockReason: blockReason || null,
+          ...(input.requiresAcceptance === undefined ? {} : { requiresAcceptance: input.requiresAcceptance }),
           version: { increment: 1 },
         },
       })
       if (!result.count) throw conflict('task_version')
+      await tx.taskParticipant.updateMany({
+        where: {
+          taskId: task.id,
+          userId: { not: input.assigneeId },
+          role: 'RESPONSIBLE',
+          removedAt: null,
+        },
+        data: { removedAt: new Date() },
+      })
       await tx.taskParticipant.upsert({
         where: { taskId_userId: { taskId: task.id, userId: input.assigneeId } },
         create: {
@@ -696,27 +727,25 @@ export class TaskCompatibilityService {
           addedById: principal.userId,
         },
       })
-      await tx.taskParticipant.updateMany({
-        where: {
-          taskId: task.id,
-          userId: { not: input.assigneeId },
-          role: 'RESPONSIBLE',
-          removedAt: null,
-        },
-        data: { removedAt: new Date() },
-      })
-      if (changedFields.length) {
-        await this.approvals.invalidatePending(
-          tx,
-          principal,
-          task,
-          input.expectedVersion + 1,
-          'TASK_UPDATED',
-        )
-      }
       await this.recordEvent(tx, principal, task, 'task.updated', input.expectedVersion + 1, {
         legacyCompatibility: true,
         changedFields,
+        changes: {
+          ...(title !== task.title ? { title } : {}),
+          ...(description !== task.description ? { description: true } : {}),
+          ...(currentResponsible?.role !== 'RESPONSIBLE' || currentResponsible.removedAt
+            ? { assigneeId: input.assigneeId, assigneeName: users.find((user) => user.id === input.assigneeId)?.displayName }
+            : {}),
+          ...(reporterId !== task.reporterId
+            ? { creatorId: reporterId, creatorName: users.find((user) => user.id === reporterId)?.displayName }
+            : {}),
+          ...(dueAt?.getTime() !== task.dueAt?.getTime() ? { deadline: dueAt?.toISOString() ?? null } : {}),
+          ...(priority !== task.priority ? { priority } : {}),
+          ...(blockReason !== (task.blockReason ?? '') ? { blockReason: Boolean(blockReason) } : {}),
+          ...(input.requiresAcceptance !== undefined && input.requiresAcceptance !== task.requiresAcceptance
+            ? { requiresAcceptance: input.requiresAcceptance }
+            : {}),
+        },
       })
     })
     return { version: input.expectedVersion + 1 }
@@ -797,13 +826,6 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      await this.approvals.invalidatePending(
-        tx,
-        principal,
-        task,
-        updated.version,
-        'ATTACHMENT_ADDED',
-      )
       await this.recordEvent(tx, principal, task, 'task.attachment_added', updated.version, {
         attachmentCount: 1,
       })
@@ -815,6 +837,82 @@ export class TaskCompatibilityService {
       mimeType: uploaded.mimeType,
       scanStatus: uploaded.scanStatus,
       createdAt: createdAt.toISOString(),
+      canRemove: true,
+    }
+  }
+
+  async attachDriveFile(
+    principal: AuthPrincipal,
+    taskId: string,
+    fileId: string,
+  ): Promise<TaskAttachmentView> {
+    const task = await this.access.readableTask(principal, taskId)
+    const file = await this.prisma.fileObject.findFirst({
+      where: {
+        id: fileId,
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+        ownerId: principal.userId,
+      },
+    })
+    if (!file) throw notFound()
+    const existing = await this.prisma.fileLink.findUnique({
+      where: {
+        fileId_entityType_entityId_purpose: {
+          fileId,
+          entityType: 'TASK',
+          entityId: task.id,
+          purpose: 'ATTACHMENT',
+        },
+      },
+    })
+    if (existing) {
+      return {
+        id: file.id,
+        fileName: file.safeFilename,
+        bytes: file.bytes,
+        mimeType: file.detectedMime ?? file.declaredMime,
+        scanStatus: file.scanStatus,
+        createdAt: file.createdAt.toISOString(),
+        canRemove: true,
+      }
+    }
+    const attachmentCount = await this.prisma.fileLink.count({
+      where: {
+        entityType: 'TASK',
+        entityId: task.id,
+        purpose: 'ATTACHMENT',
+      },
+    })
+    if (attachmentCount >= 20) throw badRequest('task_attachment_limit')
+    await this.prisma.$transaction(async (tx) => {
+      await tx.fileLink.create({
+        data: {
+          id: id('fln'),
+          fileId: file.id,
+          entityType: 'TASK',
+          entityId: task.id,
+          purpose: 'ATTACHMENT',
+          aclMode: 'ENTITY',
+        },
+      })
+      const updated = await tx.task.update({
+        where: { id: task.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await this.recordEvent(tx, principal, task, 'task.attachment_added', updated.version, {
+        attachmentCount: 1,
+        source: 'DRIVE',
+      })
+    })
+    return {
+      id: file.id,
+      fileName: file.safeFilename,
+      bytes: file.bytes,
+      mimeType: file.detectedMime ?? file.declaredMime,
+      scanStatus: file.scanStatus,
+      createdAt: file.createdAt.toISOString(),
       canRemove: true,
     }
   }
@@ -845,7 +943,7 @@ export class TaskCompatibilityService {
       select: { ownerId: true },
     })
     if (!file) throw notFound()
-    if (file.ownerId !== principal.userId && !await this.canEdit(principal, task)) throw notFound()
+    if (file.ownerId !== principal.userId && !this.canEdit(principal, task)) throw notFound()
     const commentIds = await this.prisma.comment.findMany({
       where: { entityType: 'TASK', entityId: task.id },
       select: { id: true },
@@ -865,13 +963,6 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      await this.approvals.invalidatePending(
-        tx,
-        principal,
-        task,
-        updated.version,
-        'ATTACHMENT_REMOVED',
-      )
       await this.recordEvent(tx, principal, task, 'task.attachment_removed', updated.version, {
         attachmentCount: -1,
       })
@@ -911,10 +1002,18 @@ export class TaskCompatibilityService {
       take: 21,
     })
     const page = rows.slice(0, 20)
+    const referencedUserIds = page.flatMap((event) => {
+      try {
+        const diff = JSON.parse(event.safeDiffJson) as { userId?: unknown }
+        return typeof diff.userId === 'string' ? [diff.userId] : []
+      } catch {
+        return []
+      }
+    })
     const actors = await this.prisma.user.findMany({
       where: {
         id: {
-          in: [...new Set(page.flatMap((event) => event.actorId ? [event.actorId] : []))],
+          in: [...new Set([...page.flatMap((event) => event.actorId ? [event.actorId] : []), ...referencedUserIds])],
         },
       },
       select: { id: true, displayName: true, avatarAsset: true },
@@ -924,7 +1023,7 @@ export class TaskCompatibilityService {
       items: page.map((event) => ({
         id: event.id,
         action: event.action,
-        label: this.activityLabel(event.action, event.safeDiffJson),
+        label: this.activityLabel(event.action, event.safeDiffJson, actorsById),
         actor: event.actorId ? actorsById.get(event.actorId) ?? null : null,
         createdAt: event.createdAt.toISOString(),
       })),
@@ -1034,67 +1133,101 @@ export class TaskCompatibilityService {
     return { userId, following: false }
   }
 
-  async changeStatus(
+  async transition(
     principal: AuthPrincipal,
     taskId: string,
-    status: string,
-    expectedVersion: number,
-  ): Promise<{ version: number }> {
-    if (!taskStatuses.includes(status as TaskStatusValue)) throw badRequest('task_status')
-    if (status === 'IN_REVIEW') throw badRequest('task_approval_required')
-    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
-    const task = await this.access.editableTask(principal, taskId)
-    if (task.version !== expectedVersion) throw conflict('task_version')
-    await this.approvals.assertNoPending(task.id)
-    const nextStatus = status as TaskStatusValue
-    if (nextStatus === 'DONE') {
+    input: TaskStatusTransitionInput,
+  ): Promise<{ version: number; status: TaskStatusValue }> {
+    const task = await this.access.readableTask(principal, taskId)
+    if (task.version !== input.expectedVersion) throw conflict('task_version')
+    const responsible = await this.prisma.taskParticipant.findFirst({
+      where: { taskId, userId: principal.userId, role: 'RESPONSIBLE', removedAt: null },
+      select: { id: true },
+    })
+    const isOwner = task.reporterId === principal.userId || isGlobalAdmin(principal)
+    const isResponsible = Boolean(responsible) || isGlobalAdmin(principal)
+    const nextStatus: TaskStatusValue = input.action === 'START'
+      ? 'IN_PROGRESS'
+      : input.action === 'COMPLETE'
+        ? (task.requiresAcceptance ? 'IN_REVIEW' : 'DONE')
+        : input.action === 'APPROVE' ? 'DONE' : 'IN_PROGRESS'
+    const valid = (
+      (input.action === 'START' && task.status === 'NEW' && isResponsible)
+      || (input.action === 'COMPLETE' && task.status === 'IN_PROGRESS' && isResponsible)
+      || (input.action === 'APPROVE' && task.status === 'IN_REVIEW' && isOwner)
+      || (input.action === 'RETURN_TO_WORK' && task.status === 'IN_REVIEW' && isOwner)
+    )
+    if (!valid) throw forbidden()
+    if (input.action === 'COMPLETE') {
       const blockers = await this.activeSubtaskIds(task.id)
       if (blockers.length) throw taskCompletionBlocked(blockers)
     }
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
-        where: { id: task.id, version: expectedVersion },
+        where: { id: task.id, version: input.expectedVersion, status: task.status },
         data: {
           status: nextStatus,
-          version: { increment: 1 },
           completedAt: nextStatus === 'DONE' ? new Date() : null,
-          ...(nextStatus !== 'BLOCKED' ? { blockReason: null } : {}),
-          ...(nextStatus === 'ARCHIVED' ? { archivedAt: new Date() } : {}),
+          version: { increment: 1 },
         },
       })
       if (!result.count) throw conflict('task_version')
-      const updated = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
-      if (task.parentTaskId && nextStatus !== task.status) {
-        const parent = await tx.task.update({
-          where: { id: task.parentTaskId },
-          data: { version: { increment: 1 } },
-          select: { id: true, companyId: true, version: true },
+      if (nextStatus === 'IN_REVIEW') {
+        const last = await tx.taskApprovalRound.aggregate({ where: { taskId }, _max: { roundNumber: true } })
+        await tx.taskApprovalRound.create({
+          data: {
+            id: id('tapr'), taskId, roundNumber: (last._max.roundNumber ?? 0) + 1,
+            approverId: task.reporterId, requestedById: principal.userId,
+            requestedTaskVersion: input.expectedVersion,
+          },
         })
-        await this.approvals.invalidatePending(
-          tx,
-          principal,
-          parent,
-          parent.version,
-          'SUBTASK_STATUS_CHANGED',
-        )
+        if (task.reporterId !== principal.userId) {
+          await tx.notification.upsert({
+            where: { dedupeKey: `task-review:${task.id}:${input.expectedVersion + 1}` },
+            create: {
+              id: id('ntf'), recipientId: task.reporterId, category: 'TASKS',
+              safeTitle: 'Завдання очікує на перевірку', safeSnippet: task.title.slice(0, 180),
+              entityType: 'TASK', entityId: task.id, requiresAction: true, deliveredAt: new Date(),
+              dedupeKey: `task-review:${task.id}:${input.expectedVersion + 1}`,
+            }, update: {},
+          })
+        }
       }
-      const participantIds = await tx.taskParticipant.findMany({
-        where: { taskId: task.id, removedAt: null },
-        select: { userId: true },
-      })
-      const sourceAction = nextStatus === 'BLOCKED'
-        ? 'BLOCKED'
-        : task.status === 'BLOCKED' ? 'UNBLOCKED' : 'STATUS_CHANGED'
+      if (task.status === 'IN_REVIEW') {
+        await tx.taskApprovalRound.updateMany({
+          where: { taskId, status: 'PENDING' },
+          data: input.action === 'APPROVE'
+            ? { status: 'APPROVED', decidedAt: new Date(), resolutionTaskVersion: input.expectedVersion + 1 }
+            : { status: 'NEEDS_CHANGES', decisionNote: input.action === 'RETURN_TO_WORK' ? input.note || null : null, decidedAt: new Date(), resolutionTaskVersion: input.expectedVersion + 1 },
+        })
+        if (input.action === 'RETURN_TO_WORK') {
+          const responsibleParticipant = await tx.taskParticipant.findFirst({
+            where: { taskId, role: 'RESPONSIBLE', removedAt: null },
+            select: { userId: true },
+          })
+          if (responsibleParticipant && responsibleParticipant.userId !== principal.userId) {
+            await tx.notification.upsert({
+              where: { dedupeKey: `task-returned:${task.id}:${input.expectedVersion + 1}` },
+              create: {
+                id: id('ntf'), recipientId: responsibleParticipant.userId, category: 'TASKS',
+                safeTitle: 'Завдання повернуто в роботу', safeSnippet: input.note || task.title.slice(0, 180),
+                entityType: 'TASK', entityId: task.id, requiresAction: true, deliveredAt: new Date(),
+                dedupeKey: `task-returned:${task.id}:${input.expectedVersion + 1}`,
+              }, update: {},
+            })
+          }
+        }
+      }
+      const updated = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
+      const participants = await tx.taskParticipant.findMany({ where: { taskId, removedAt: null }, select: { userId: true } })
       await this.feedProjection.projectTask(tx, updated, {
-        action: sourceAction,
-        actorId: principal.userId,
-        recipientIds: participantIds.map((participant) => participant.userId),
+        action: 'STATUS_CHANGED', actorId: principal.userId, recipientIds: participants.map(({ userId }) => userId),
       })
       await this.recordEvent(tx, principal, task, 'task.status_changed', updated.version, {
-        status: { from: task.status, to: nextStatus },
+        status: { from: task.status, to: nextStatus }, action: input.action, note: input.action === 'RETURN_TO_WORK' ? input.note || null : null,
       })
     })
-    return { version: expectedVersion + 1 }
+    return { version: input.expectedVersion + 1, status: nextStatus }
   }
 
   async addComment(
@@ -1307,6 +1440,237 @@ export class TaskCompatibilityService {
     }
   }
 
+  async reactToComment(
+    principal: AuthPrincipal,
+    taskId: string,
+    commentId: string,
+    liked: boolean,
+  ): Promise<{ likeCount: number; likedByMe: boolean }> {
+    const task = await this.access.readableTask(principal, taskId)
+    const comment = await this.prisma.comment.findFirst({
+      where: {
+        id: commentId,
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+        entityType: 'TASK',
+        entityId: task.id,
+        deletedAt: null,
+      },
+      select: { id: true, authorId: true },
+    })
+    if (!comment) throw notFound()
+    if (liked) {
+      const reaction = await this.prisma.taskCommentReaction.upsert({
+        where: {
+          commentId_userId_kind: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
+        },
+        create: { id: id('tcr'), commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
+        update: {},
+        select: { createdAt: true },
+      })
+      if (comment.authorId !== principal.userId) {
+        const actor = await this.prisma.user.findFirst({
+          where: { id: principal.userId, workspaceId: principal.workspaceId },
+          select: { displayName: true },
+        })
+        await this.prisma.notification.upsert({
+          where: { dedupeKey: `task-comment:${comment.id}:reaction:LIKE:${principal.userId}` },
+          create: {
+            id: id('ntf'),
+            recipientId: comment.authorId,
+            category: 'REACTION',
+            safeTitle: `${actor?.displayName ?? 'Колега'} вподобав ваше повідомлення`,
+            safeSnippet: task.title.slice(0, 180),
+            entityType: 'TASK',
+            entityId: task.id,
+            deliveredAt: reaction.createdAt,
+            dedupeKey: `task-comment:${comment.id}:reaction:LIKE:${principal.userId}`,
+          },
+          update: { readAt: null, deliveredAt: reaction.createdAt },
+        })
+      }
+    } else {
+      await this.prisma.taskCommentReaction.deleteMany({
+        where: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
+      })
+    }
+    const [likeCount, ownReaction] = await Promise.all([
+      this.prisma.taskCommentReaction.count({ where: { commentId: comment.id, kind: 'LIKE' } }),
+      this.prisma.taskCommentReaction.findUnique({
+        where: { commentId_userId_kind: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' } },
+        select: { id: true },
+      }),
+    ])
+    return { likeCount, likedByMe: Boolean(ownReaction) }
+  }
+
+  async updateComment(
+    principal: AuthPrincipal,
+    taskId: string,
+    commentId: string,
+    input: UpdateTaskCommentInput,
+  ): Promise<{ id: string; version: number; taskVersion: number; editedAt: string }> {
+    const task = await this.access.readableTask(principal, taskId)
+    if (!isGlobalAdmin(principal)) throw forbidden()
+    const body = input.body.trim()
+    if (!body || body.length > 4_000) throw badRequest('comment_body')
+    const mentions = input.mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
+    const mentionedUserIds = this.validateStructuredMentions(body, mentions)
+    const comment = await this.prisma.comment.findFirst({
+      where: {
+        id: commentId,
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+        entityType: 'TASK',
+        entityId: task.id,
+        deletedAt: null,
+      },
+      select: { id: true, version: true },
+    })
+    if (!comment) throw notFound()
+    const editedAt = new Date()
+
+    return this.prisma.$transaction(async (tx) => {
+      const updatedComment = await tx.comment.updateMany({
+        where: { id: comment.id, version: input.expectedVersion, deletedAt: null },
+        data: {
+          body,
+          editedAt,
+          version: { increment: 1 },
+        },
+      })
+      if (!updatedComment.count) throw conflict('task_comment_version')
+      await tx.contentMention.deleteMany({
+        where: {
+          workspaceId: principal.workspaceId,
+          sourceType: 'TASK_COMMENT',
+          sourceId: comment.id,
+        },
+      })
+      if (mentions.length) {
+        await tx.contentMention.createMany({
+          data: mentions.map((mention) => ({
+            id: id('cmn'),
+            workspaceId: principal.workspaceId,
+            sourceType: 'TASK_COMMENT',
+            sourceId: comment.id,
+            userId: mention.userId,
+            start: mention.start,
+            end: mention.end,
+            label: mention.label,
+          })),
+        })
+      }
+      const addedWatcherIds = await this.participants.ensureMentionWatchers(
+        tx,
+        principal,
+        task,
+        mentionedUserIds,
+      )
+      const updatedTask = await tx.task.update({
+        where: { id: task.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      for (const recipientId of mentionedUserIds.filter((userId) => userId !== principal.userId)) {
+        await tx.notification.upsert({
+          where: {
+            dedupeKey: `task-comment-edited:${comment.id}:${input.expectedVersion + 1}:${recipientId}`,
+          },
+          create: {
+            id: id('ntf'),
+            recipientId,
+            category: 'MENTION',
+            safeTitle: 'Вас згадали у відредагованому повідомленні',
+            safeSnippet: task.title.slice(0, 180),
+            entityType: 'TASK',
+            entityId: task.id,
+            deliveredAt: editedAt,
+            dedupeKey: `task-comment-edited:${comment.id}:${input.expectedVersion + 1}:${recipientId}`,
+          },
+          update: {},
+        })
+      }
+      await this.participants.recordMentionWatchersAdded(
+        tx,
+        principal,
+        task,
+        updatedTask.version,
+        addedWatcherIds,
+        null,
+      )
+      await this.recordEvent(tx, principal, task, 'task.comment_updated', updatedTask.version, {
+        commentId: comment.id,
+        mentionCount: mentionedUserIds.length,
+        watcherAddedCount: addedWatcherIds.length,
+      })
+      return {
+        id: comment.id,
+        version: input.expectedVersion + 1,
+        taskVersion: updatedTask.version,
+        editedAt: editedAt.toISOString(),
+      }
+    })
+  }
+
+  async deleteComment(
+    principal: AuthPrincipal,
+    taskId: string,
+    commentId: string,
+    input: DeleteTaskCommentInput,
+  ): Promise<{ id: string; deleted: true; taskVersion: number }> {
+    const task = await this.access.readableTask(principal, taskId)
+    if (!isGlobalAdmin(principal)) throw forbidden()
+    const comment = await this.prisma.comment.findFirst({
+      where: {
+        id: commentId,
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+        entityType: 'TASK',
+        entityId: task.id,
+        deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!comment) throw notFound()
+
+    return this.prisma.$transaction(async (tx) => {
+      const removed = await tx.comment.updateMany({
+        where: { id: comment.id, version: input.expectedVersion, deletedAt: null },
+        data: {
+          deletedAt: new Date(),
+          version: { increment: 1 },
+        },
+      })
+      if (!removed.count) throw conflict('task_comment_version')
+      await Promise.all([
+        tx.contentMention.deleteMany({
+          where: {
+            workspaceId: principal.workspaceId,
+            sourceType: 'TASK_COMMENT',
+            sourceId: comment.id,
+          },
+        }),
+        tx.fileLink.deleteMany({
+          where: {
+            entityType: 'TASK_COMMENT',
+            entityId: comment.id,
+            purpose: 'ATTACHMENT',
+          },
+        }),
+      ])
+      const updatedTask = await tx.task.update({
+        where: { id: task.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await this.recordEvent(tx, principal, task, 'task.comment_deleted', updatedTask.version, {
+        commentId: comment.id,
+      })
+      return { id: comment.id, deleted: true, taskVersion: updatedTask.version }
+    })
+  }
+
   private listInclude() {
     return {
       parent: {
@@ -1408,6 +1772,8 @@ export class TaskCompatibilityService {
         status: row.status,
         priority: this.legacyPriority(row.priority),
         deadline: row.dueAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
         version: row.version,
         commentCount,
         attachmentCount,
@@ -1476,46 +1842,33 @@ export class TaskCompatibilityService {
     return terminalTaskStatuses.includes(status as typeof terminalTaskStatuses[number])
   }
 
-  private async canEdit(principal: AuthPrincipal, task: Task): Promise<boolean> {
-    if (
-      task.createdById === principal.userId
-      || task.reporterId === principal.userId
-      || isGlobalAdmin(principal)
-    ) {
-      return true
-    }
-    return Boolean(await this.prisma.taskParticipant.findFirst({
-      where: {
-        taskId: task.id,
-        userId: principal.userId,
-        role: { in: ['RESPONSIBLE', 'COLLABORATOR'] },
-        removedAt: null,
-      },
-      select: { id: true },
-    }))
+  private canEdit(principal: AuthPrincipal, task: Task): boolean {
+    return task.reporterId === principal.userId || isGlobalAdmin(principal)
+  }
+
+  private availableStatusActions(
+    principal: AuthPrincipal,
+    task: Task,
+    responsibleId: string,
+  ): Array<'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'> {
+    const owner = task.reporterId === principal.userId || isGlobalAdmin(principal)
+    const responsible = responsibleId === principal.userId || isGlobalAdmin(principal)
+    if (task.status === 'NEW' && responsible) return ['START']
+    if (task.status === 'IN_PROGRESS' && responsible) return ['COMPLETE']
+    if (task.status === 'IN_REVIEW' && owner) return ['APPROVE', 'RETURN_TO_WORK']
+    return []
   }
 
   private canManageReporter(principal: AuthPrincipal, task: Task, canEdit: boolean): boolean {
-    return canEdit && (
-      task.createdById === principal.userId
-      || isGlobalAdmin(principal)
-    )
+    return canEdit && isGlobalAdmin(principal)
   }
 
   private canManageResponsibles(principal: AuthPrincipal, task: Task, canEdit: boolean): boolean {
-    return canEdit && (
-      task.createdById === principal.userId
-      || task.reporterId === principal.userId
-      || isGlobalAdmin(principal)
-    )
+    return canEdit && (task.reporterId === principal.userId || isGlobalAdmin(principal))
   }
 
   private canManageParticipants(principal: AuthPrincipal, task: Task, canEdit: boolean): boolean {
-    return canEdit && (
-      task.createdById === principal.userId
-      || task.reporterId === principal.userId
-      || isGlobalAdmin(principal)
-    )
+    return canEdit && (task.reporterId === principal.userId || isGlobalAdmin(principal))
   }
 
   private async assertFollowerTarget(
@@ -1612,6 +1965,7 @@ export class TaskCompatibilityService {
               id: { in: lifecycleIds },
               workspaceId: principal.workspaceId,
               companyId: task.companyId,
+              processType: 'OFFBOARDING',
             },
             select: { id: true, processType: true },
           })
@@ -1652,12 +2006,11 @@ export class TaskCompatibilityService {
       if (type === 'LIFECYCLE') {
         const process = lifecycleById.get(referenceId)
         if (!process) return []
-        const offboarding = process.processType === 'OFFBOARDING'
         return [{
           id: link.id,
           kind: 'LIFECYCLE',
-          label: offboarding ? 'Процес звільнення' : 'Процес адаптації',
-          href: `/${offboarding ? 'offboarding' : 'onboarding'}/${encodeURIComponent(process.id)}?company=${encodeURIComponent(task.companyId)}`,
+          label: 'Процес звільнення',
+          href: `/offboarding/${encodeURIComponent(process.id)}?company=${encodeURIComponent(task.companyId)}`,
           createdAt: link.createdAt.toISOString(),
         }]
       }
@@ -1790,7 +2143,11 @@ export class TaskCompatibilityService {
     })
   }
 
-  private activityLabel(action: string, safeDiffJson: string): string {
+  private activityLabel(
+    action: string,
+    safeDiffJson: string,
+    users = new Map<string, { displayName: string }>(),
+  ): string {
     let diff: Record<string, unknown> = {}
     try {
       diff = JSON.parse(safeDiffJson) as Record<string, unknown>
@@ -1800,24 +2157,36 @@ export class TaskCompatibilityService {
     if (action === 'task.created') return 'Створено завдання'
     if (action === 'task.updated') {
       const fieldLabels: Record<string, string> = {
-        title: 'назву',
-        description: 'опис',
-        assignee: 'відповідального',
-        creator: 'постановника',
-        deadline: 'строк',
-        priority: 'пріоритет',
-        blockReason: 'причину блокування',
+        title: 'назву', description: 'опис', assignee: 'відповідального', creator: 'постановника',
+        reporterId: 'постановника', groupId: 'групу', projectId: 'проєкт', parentTaskId: 'батьківське завдання',
+        deadline: 'строк', dueAt: 'строк', startsAt: 'дату початку', priority: 'пріоритет',
+        estimatedMinutes: 'оцінку часу', blockReason: 'причину блокування', requiresAcceptance: 'налаштування перевірки',
       }
-      const fields = Array.isArray(diff.changedFields)
-        ? diff.changedFields
+      const rawFields = Array.isArray(diff.changedFields) ? diff.changedFields : diff.fields
+      const fields = Array.isArray(rawFields)
+        ? rawFields
           .filter((field): field is string => typeof field === 'string')
           .map((field) => fieldLabels[field] ?? field)
         : []
-      return fields.length ? `Оновлено ${fields.join(', ')}` : 'Оновлено завдання'
+      const changes = diff.changes as Record<string, unknown> | undefined
+      const assigneeName = typeof changes?.assigneeName === 'string' ? changes.assigneeName : ''
+      const creatorName = typeof changes?.creatorName === 'string' ? changes.creatorName : ''
+      const title = typeof changes?.title === 'string' ? changes.title : ''
+      const details = fields.map((field) => {
+        if (field === 'назву' && title) return `назву на «${title}»`
+        if (field === 'постановника' && creatorName) return `постановника на ${creatorName}`
+        return field
+      })
+      if (assigneeName) {
+        const otherChanges = details.filter((field) => field !== 'відповідального')
+        return `Оновлено відповідального на ${assigneeName}${otherChanges.length ? `; ${otherChanges.join(', ')}` : ''}`
+      }
+      return details.length ? `Оновлено ${details.join(', ')}` : 'Оновлено завдання'
     }
     const labels: Record<string, string> = {
-      'task.status_changed': 'Статус змінено',
       'task.comment_created': 'Додано коментар',
+      'task.comment_updated': 'Повідомлення відредаговано',
+      'task.comment_deleted': 'Повідомлення видалено',
       'task.attachment_added': 'Додано вкладення',
       'task.attachment_removed': 'Вкладення вилучено',
       'task.participant_added': 'Додано учасника',
@@ -1828,6 +2197,18 @@ export class TaskCompatibilityService {
       'task.approval_approved': 'Завдання погоджено',
       'task.approval_needs_changes': 'Повернуто на доопрацювання',
       'task.approval_invalidated': 'Погодження втратило чинність через зміни',
+    }
+    if (action === 'task.status_changed') {
+      const status = diff.status as { from?: string; to?: string } | undefined
+      const labels: Record<string, string> = { NEW: 'Нове', IN_PROGRESS: 'В роботі', IN_REVIEW: 'На перевірці', DONE: 'Завершене', ARCHIVED: 'Архівоване' }
+      return status?.from && status.to ? `Статус: ${labels[status.from] ?? status.from} → ${labels[status.to] ?? status.to}` : 'Статус змінено'
+    }
+    if (['task.participant_added', 'task.participant_removed', 'task.participant_changed'].includes(action)) {
+      const userId = typeof diff.userId === 'string' ? diff.userId : ''
+      const person = (users.get(userId)?.displayName ?? userId) || 'учасника'
+      const roleLabels: Record<string, string> = { RESPONSIBLE: 'відповідальний', COLLABORATOR: 'співвиконавець', WATCHER: 'спостерігач' }
+      const role = typeof diff.role === 'string' ? roleLabels[diff.role] ?? diff.role : 'учасник'
+      return action === 'task.participant_removed' ? `Вилучено ${role}: ${person}` : `Змінено ${role}: ${person}`
     }
     return labels[action] ?? 'Завдання оновлено'
   }

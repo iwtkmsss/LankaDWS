@@ -46,6 +46,18 @@ export const taskCommentInputSchema = z.object({
 })
 export type TaskCommentInput = z.infer<typeof taskCommentInputSchema>
 
+export const updateTaskCommentSchema = z.object({
+  body: z.string().min(1).max(4_000),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+  expectedVersion: z.number().int().positive(),
+})
+export type UpdateTaskCommentInput = z.infer<typeof updateTaskCommentSchema>
+
+export const deleteTaskCommentSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+})
+export type DeleteTaskCommentInput = z.infer<typeof deleteTaskCommentSchema>
+
 export const taskChecklistItemInputSchema = z.object({
   clientId: entityIdSchema,
   title: z.string().trim().min(1).max(300),
@@ -163,6 +175,7 @@ const createTaskBaseSchema = z.object({
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
   priority: taskPriorityV2Schema.default('MEDIUM'),
+  requiresAcceptance: z.boolean().optional(),
   startsAt: isoDateTimeSchema.nullable().optional(),
   dueAt: isoDateTimeSchema.nullable().optional(),
   estimatedMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
@@ -184,11 +197,14 @@ export const createTaskSchema = createTaskBaseSchema.superRefine((value, context
       message: 'A user can have only one participant role.',
     })
   }
-  if (!value.participants.some((participant) => participant.role === 'RESPONSIBLE')) {
+  const responsibleCount = value.participants.filter((participant) => (
+    participant.role === 'RESPONSIBLE'
+  )).length
+  if (responsibleCount !== 1) {
     context.addIssue({
       code: 'custom',
       path: ['participants'],
-      message: 'At least one responsible participant is required.',
+      message: 'Exactly one responsible participant is required.',
     })
   }
   if (value.startsAt && value.dueAt && Date.parse(value.startsAt) > Date.parse(value.dueAt)) {
@@ -243,27 +259,24 @@ export const updateTaskSchema = z.object({
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
   priority: taskPriorityV2Schema.optional(),
+  requiresAcceptance: z.boolean().optional(),
   startsAt: isoDateTimeSchema.nullable().optional(),
   dueAt: isoDateTimeSchema.nullable().optional(),
   estimatedMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
 })
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>
 
-export const taskApprovalDecisionSchema = z.enum(['APPROVE', 'NEEDS_CHANGES'])
-export type TaskApprovalDecision = z.infer<typeof taskApprovalDecisionSchema>
-
-export const requestTaskApprovalSchema = z.object({
-  approverId: entityIdSchema,
-  expectedVersion: z.number().int().positive(),
-})
-export type RequestTaskApprovalInput = z.infer<typeof requestTaskApprovalSchema>
-
-export const decideTaskApprovalSchema = z.object({
-  decision: taskApprovalDecisionSchema,
-  expectedVersion: z.number().int().positive(),
-  note: z.string().trim().max(2_000).default(''),
-})
-export type DecideTaskApprovalInput = z.infer<typeof decideTaskApprovalSchema>
+export const taskStatusTransitionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('START'), expectedVersion: z.number().int().positive() }),
+  z.object({ action: z.literal('COMPLETE'), expectedVersion: z.number().int().positive() }),
+  z.object({ action: z.literal('APPROVE'), expectedVersion: z.number().int().positive() }),
+  z.object({
+    action: z.literal('RETURN_TO_WORK'),
+    expectedVersion: z.number().int().positive(),
+    note: z.string().trim().max(1_000).optional(),
+  }),
+])
+export type TaskStatusTransitionInput = z.infer<typeof taskStatusTransitionSchema>
 
 export const manualTimeEntrySchema = z.object({
   startedAt: isoDateTimeSchema,

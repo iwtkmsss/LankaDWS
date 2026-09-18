@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   FeedAttachmentView,
   FeedItemType,
@@ -91,8 +85,16 @@ export function FeedPage() {
   const mentioned = params.get('mentioned') === 'true'
   const important = params.get('important') === 'true'
   const feedSessionKey = [
-    company, filter, itemType, authorId, groupId, audienceId, dateFrom, dateTo,
-    mentioned, important,
+    company,
+    filter,
+    itemType,
+    authorId,
+    groupId,
+    audienceId,
+    dateFrom,
+    dateTo,
+    mentioned,
+    important,
   ].join('|')
   const pages = useInfiniteQuery({
     queryKey: [
@@ -130,10 +132,11 @@ export function FeedPage() {
     placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const data = query.state.data as { pages?: FeedListResult[] } | undefined
-      return data?.pages?.some((page) => page.items.some((item) =>
-        item.kind === 'SOURCE'
-        && item.sourceType === 'FILE'
-        && item.actionState === 'PROCESSING'))
+      return data?.pages?.some((page) =>
+        page.items.some(
+          (item) => item.kind === 'SOURCE' && item.sourceType === 'FILE' && item.actionState === 'PROCESSING',
+        ),
+      )
         ? 3_000
         : false
     },
@@ -142,9 +145,8 @@ export function FeedPage() {
     mutationFn: (markers: FeedListResult['readMarkers']) =>
       api('/feed/read', { method: 'POST', body: jsonBody({ markers }) }),
     onSuccess: () => {
-      queryClient.setQueriesData<{ unreadCount: number }>(
-        { queryKey: ['feed', 'summary'] },
-        (current) => current ? { ...current, unreadCount: 0 } : current,
+      queryClient.setQueriesData<{ unreadCount: number }>({ queryKey: ['feed', 'summary'] }, (current) =>
+        current ? { ...current, unreadCount: 0 } : current,
       )
       void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
     },
@@ -157,7 +159,7 @@ export function FeedPage() {
   const items = pages.data?.pages.flatMap((page) => page.items) ?? []
 
   useEffect(() => {
-    document.title = 'Жива стрічка — LankaDWS'
+    document.title = 'Жива стрічка — Lanka'
   }, [])
 
   useEffect(() => {
@@ -181,16 +183,17 @@ export function FeedPage() {
 
   useEffect(() => {
     if (
-      filter !== 'ALL'
-      || itemType !== 'ALL'
-      || authorId
-      || groupId
-      || audienceId
-      || dateFrom
-      || dateTo
-      || mentioned
-      || important
-    ) return
+      filter !== 'ALL' ||
+      itemType !== 'ALL' ||
+      authorId ||
+      groupId ||
+      audienceId ||
+      dateFrom ||
+      dateTo ||
+      mentioned ||
+      important
+    )
+      return
     const markers = firstPage?.readMarkers ?? []
     if (markers.length === 0) return
     const key = JSON.stringify(markers)
@@ -225,30 +228,33 @@ export function FeedPage() {
     )
   }
   if (pages.isError || !firstPage) return <ErrorState onRetry={() => void pages.refetch()} />
-  const hasLegacyFilter = filter !== 'ALL'
-    || itemType !== 'ALL'
-    || authorId
-    || groupId
-    || audienceId
-    || dateFrom
-    || dateTo
-    || mentioned
-    || important
+  const hasLegacyFilter =
+    filter !== 'ALL' ||
+    itemType !== 'ALL' ||
+    authorId ||
+    groupId ||
+    audienceId ||
+    dateFrom ||
+    dateTo ||
+    mentioned ||
+    important
 
   return (
     <div className="feed-page">
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
-        action={(
-          <Button onClick={() => {
-            setComposerDirty(false)
-            setComposerOpen(true)
-          }}>
+        action={
+          <Button
+            onClick={() => {
+              setComposerDirty(false)
+              setComposerOpen(true)
+            }}
+          >
             <Plus size={17} />
             Створити публікацію
           </Button>
-        )}
+        }
       />
       {!hasLegacyFilter && <FeedOverview />}
       <div className="feed-layout">
@@ -262,31 +268,33 @@ export function FeedPage() {
           )}
 
           <section className="feed-list" aria-label="Оновлення стрічки">
-            {items.length > 0 ? items.map((item) => (
-              item.kind === 'POST'
-                ? (
-                    <FeedCard
-                      key={item.itemId}
-                      item={item}
-                      isNew={newFeedItemIds.has(item.itemId)}
-                      onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-                    />
-                  )
-                : (
-                    <FeedSourceCard
-                      key={item.itemId}
-                      item={item}
-                      isNew={newFeedItemIds.has(item.itemId)}
-                      onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-                    />
-                  )
-            )) : (
+            {items.length > 0 ? (
+              items.map((item) =>
+                item.kind === 'POST' ? (
+                  <FeedCard
+                    key={item.itemId}
+                    item={item}
+                    isNew={newFeedItemIds.has(item.itemId)}
+                    onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+                  />
+                ) : (
+                  <FeedSourceCard
+                    key={item.itemId}
+                    item={item}
+                    isNew={newFeedItemIds.has(item.itemId)}
+                    onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+                  />
+                ),
+              )
+            ) : (
               <Card>
                 <EmptyState
                   title={!hasLegacyFilter ? 'Оновлень ще немає' : 'За цим посиланням нічого немає'}
-                  description={!hasLegacyFilter
-                    ? 'Опублікуйте корисне оновлення або створіть завдання для команди.'
-                    : 'Поверніться до всієї стрічки, щоб побачити всі публікації.'}
+                  description={
+                    !hasLegacyFilter
+                      ? 'Опублікуйте корисне оновлення або створіть завдання для команди.'
+                      : 'Поверніться до всієї стрічки, щоб побачити всі публікації.'
+                  }
                 />
               </Card>
             )}
@@ -305,7 +313,9 @@ export function FeedPage() {
 
         <aside className="feed-attention" aria-label="Потребує уваги">
           <Card className="feed-attention__actions">
-            <span className="eyebrow"><Sparkles size={14} /> Потребує уваги</span>
+            <span className="eyebrow">
+              <Sparkles size={14} /> Потребує уваги
+            </span>
             <h2>Ваші наступні кроки</h2>
             <Link to="/feed?filter=ACK_REQUIRED">
               <ShieldCheck size={18} />
@@ -322,12 +332,12 @@ export function FeedPage() {
               </span>
             </Link>
             {firstPage.attention.pendingAcknowledgements === 0 && firstPage.attention.overdueTasks === 0 && (
-              <p className="feed-attention__clear"><Check size={16} /> Термінових дій немає.</p>
+              <p className="feed-attention__clear">
+                <Check size={16} /> Термінових дій немає.
+              </p>
             )}
           </Card>
-          {!hasLegacyFilter && (
-            <FeedBirthdayHighlight birthdays={firstPage.birthdays} />
-          )}
+          {!hasLegacyFilter && <FeedBirthdayHighlight birthdays={firstPage.birthdays} />}
         </aside>
       </div>
       {composerOpen && (
@@ -346,10 +356,12 @@ export function FeedPage() {
               void queryClient.invalidateQueries({ queryKey: ['feed'] })
               void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
             }}
-            onPostCreated={() => composerCloseGuard.closeForSuccess(() => {
-              setComposerDirty(false)
-              setComposerOpen(false)
-            })}
+            onPostCreated={() =>
+              composerCloseGuard.closeForSuccess(() => {
+                setComposerDirty(false)
+                setComposerOpen(false)
+              })
+            }
           />
         </Modal>
       )}
@@ -362,41 +374,38 @@ export function FeedPage() {
   )
 }
 
-function FeedSourceCard({
-  item,
-  isNew,
-  onChanged,
-}: {
-  item: FeedSourceView
-  isNew: boolean
-  onChanged: () => void
-}) {
+function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNew: boolean; onChanged: () => void }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [filePreviewOpen, setFilePreviewOpen] = useState(false)
   const revoke = useMutation({
-    mutationFn: () => api(`/feed/file-shares/${encodeURIComponent(item.id)}`, {
-      method: 'DELETE',
-      body: jsonBody({ expectedVersion: item.version }),
-    }),
+    mutationFn: () =>
+      api(`/feed/file-shares/${encodeURIComponent(item.id)}`, {
+        method: 'DELETE',
+        body: jsonBody({ expectedVersion: item.version }),
+      }),
     onSuccess: onChanged,
   })
-  const Icon = item.sourceType === 'TASK'
-    ? SquareCheckBig
-    : item.sourceType === 'EVENT'
-      ? CalendarDays
-      : item.sourceType === 'FILE'
-        ? FileText
-        : Megaphone
-  const actionLabel = item.sourceType === 'TASK'
-    ? 'Відкрити завдання'
-    : item.sourceType === 'EVENT'
-      ? 'Відкрити подію'
-      : item.sourceType === 'FILE'
-        ? 'Переглянути файл'
-        : 'Відкрити оголошення'
+  const Icon =
+    item.sourceType === 'TASK'
+      ? SquareCheckBig
+      : item.sourceType === 'EVENT'
+        ? CalendarDays
+        : item.sourceType === 'FILE'
+          ? FileText
+          : Megaphone
+  const actionLabel =
+    item.sourceType === 'TASK'
+      ? 'Відкрити завдання'
+      : item.sourceType === 'EVENT'
+        ? 'Відкрити подію'
+        : item.sourceType === 'FILE'
+          ? 'Переглянути файл'
+          : 'Відкрити оголошення'
   return (
     <Card className={`feed-source-card feed-source-card--${item.sourceType.toLowerCase()}${isNew ? ' is-new' : ''}`}>
-      <div className="feed-source-card__icon" aria-hidden><Icon size={20} /></div>
+      <div className="feed-source-card__icon" aria-hidden>
+        <Icon size={20} />
+      </div>
       <div className="feed-source-card__content">
         <header>
           <span>{item.label}</span>
@@ -405,7 +414,9 @@ function FeedSourceCard({
         <h2>{item.title}</h2>
         {item.summary && <p>{item.summary}</p>}
         <div className="feed-source-card__meta">
-          {item.metadata.map((entry) => <span key={entry}>{entry}</span>)}
+          {item.metadata.map((entry) => (
+            <span key={entry}>{entry}</span>
+          ))}
           {item.actor && (
             <UserProfileLink className="feed-source-card__actor" userId={item.actor.id}>
               {item.actor.displayName}
@@ -414,53 +425,46 @@ function FeedSourceCard({
         </div>
       </div>
       <div className="feed-source-card__actions">
-        {item.sourceType === 'FILE'
-          ? item.actionState === 'AVAILABLE'
-            ? (
-                <button type="button" className="feed-source-card__action" onClick={() => setFilePreviewOpen(true)}>
-                  <Eye size={15} /> {actionLabel}
-                </button>
-              )
-            : (
-                <span className={`feed-source-card__action is-${item.actionState.toLowerCase()}`} aria-disabled="true">
-                  {item.actionState === 'PROCESSING' ? 'Перевіряється' : 'Заблоковано'}
-                </span>
-              )
-          : (
-              <Link className="feed-source-card__action" to={item.href}>
-                {actionLabel} <ArrowRight size={15} />
-              </Link>
-            )}
-        {item.sourceType === 'FILE' && item.canRevoke && (
-          confirmRevoke
-            ? (
-                <span className="feed-source-card__confirm">
-                  <button type="button" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
-                    {revoke.isPending ? 'Прибираємо…' : 'Підтвердити'}
-                  </button>
-                  <button type="button" disabled={revoke.isPending} onClick={() => setConfirmRevoke(false)}>
-                    Скасувати
-                  </button>
-                </span>
-              )
-            : (
-                <button
-                  type="button"
-                  className="feed-source-card__revoke"
-                  onClick={() => setConfirmRevoke(true)}
-                >
-                  <Archive size={14} /> Прибрати
-                </button>
-              )
+        {item.sourceType === 'FILE' ? (
+          item.actionState === 'AVAILABLE' ? (
+            <button type="button" className="feed-source-card__action" onClick={() => setFilePreviewOpen(true)}>
+              <Eye size={15} /> {actionLabel}
+            </button>
+          ) : (
+            <span className={`feed-source-card__action is-${item.actionState.toLowerCase()}`} aria-disabled="true">
+              {item.actionState === 'PROCESSING' ? 'Перевіряється' : 'Заблоковано'}
+            </span>
+          )
+        ) : (
+          <Link className="feed-source-card__action" to={item.href}>
+            {actionLabel} <ArrowRight size={15} />
+          </Link>
         )}
+        {item.sourceType === 'FILE' &&
+          item.canRevoke &&
+          (confirmRevoke ? (
+            <span className="feed-source-card__confirm">
+              <button type="button" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
+                {revoke.isPending ? 'Прибираємо…' : 'Підтвердити'}
+              </button>
+              <button type="button" disabled={revoke.isPending} onClick={() => setConfirmRevoke(false)}>
+                Скасувати
+              </button>
+            </span>
+          ) : (
+            <button type="button" className="feed-source-card__revoke" onClick={() => setConfirmRevoke(true)}>
+              <Archive size={14} /> Прибрати
+            </button>
+          ))}
       </div>
       {filePreviewOpen && item.sourceType === 'FILE' && (
         <FilePreviewModal
           file={{
             id: fileIdFromDownloadHref(item.href),
             fileName: item.title,
-            mimeType: item.metadata.find((entry) => entry === 'application/pdf' || entry.startsWith('image/'))
-              ?? mimeTypeFromFileName(item.title),
+            mimeType:
+              item.metadata.find((entry) => entry === 'application/pdf' || entry.startsWith('image/')) ??
+              mimeTypeFromFileName(item.title),
           }}
           onClose={() => setFilePreviewOpen(false)}
         />
@@ -480,9 +484,7 @@ function fileIdFromDownloadHref(href: string): string {
 }
 
 function isOwnFeedItem(item: FeedPostView | FeedSourceView, userId: string): boolean {
-  return item.kind === 'POST'
-    ? item.author.id === userId
-    : item.actor?.id === userId
+  return item.kind === 'POST' ? item.author.id === userId : item.actor?.id === userId
 }
 
 function mimeTypeFromFileName(fileName: string): string | null {
@@ -503,7 +505,8 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(item.body)
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
-    editableMentions(item.body, item.mentions))
+    editableMentions(item.body, item.mentions),
+  )
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const like = useMutation({
@@ -511,10 +514,11 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
     onSuccess: onChanged,
   })
   const acknowledge = useMutation({
-    mutationFn: () => api(`/feed/${item.id}/acknowledge`, {
-      method: 'POST',
-      body: jsonBody({ acknowledgementVersion: item.acknowledgementVersion }),
-    }),
+    mutationFn: () =>
+      api(`/feed/${item.id}/acknowledge`, {
+        method: 'POST',
+        body: jsonBody({ acknowledgementVersion: item.acknowledgementVersion }),
+      }),
     onSuccess: onChanged,
   })
   const addComment = useMutation({
@@ -548,10 +552,11 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
     },
   })
   const archive = useMutation({
-    mutationFn: () => api(`/feed/${item.id}`, {
-      method: 'DELETE',
-      body: jsonBody({ expectedVersion: item.version }),
-    }),
+    mutationFn: () =>
+      api(`/feed/${item.id}`, {
+        method: 'DELETE',
+        body: jsonBody({ expectedVersion: item.version }),
+      }),
     onSuccess: onChanged,
   })
   function submitComment(event: FormEvent) {
@@ -583,7 +588,9 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
           <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
           <span>
             <strong>{item.author.displayName}</strong>
-            <small><time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time> · {item.audienceLabel}</small>
+            <small>
+              <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time> · {item.audienceLabel}
+            </small>
           </span>
         </UserProfileLink>
         <div className="feed-card__header-actions">
@@ -601,7 +608,13 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
                   <button role="menuitem" onClick={startEditing}>
                     <Pencil size={15} /> Редагувати
                   </button>
-                  <button role="menuitem" onClick={() => { setConfirmArchive(true); setMenuOpen(false) }}>
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setConfirmArchive(true)
+                      setMenuOpen(false)
+                    }}
+                  >
                     <Archive size={15} /> Архівувати
                   </button>
                 </div>
@@ -612,7 +625,13 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
       </header>
 
       {editing ? (
-        <form className="feed-edit-form" onSubmit={(event) => { event.preventDefault(); update.mutate() }}>
+        <form
+          className="feed-edit-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            update.mutate()
+          }}
+        >
           <MentionTextarea
             label="Текст публікації"
             value={editBody}
@@ -626,17 +645,23 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
             }}
           />
           <div className="feed-edit-form__actions">
-            <Button type="button" variant="secondary" onClick={cancelEditing}>Скасувати</Button>
+            <Button type="button" variant="secondary" onClick={cancelEditing}>
+              Скасувати
+            </Button>
             <Button disabled={!editBody.trim() || update.isPending}>Зберегти зміни</Button>
           </div>
         </form>
       ) : (
-        <div className="feed-card__body"><MentionText body={item.body} mentions={item.mentions} /></div>
+        <div className="feed-card__body">
+          <MentionText body={item.body} mentions={item.mentions} />
+        </div>
       )}
 
       {item.attachments.length > 0 && (
         <div className="feed-card__attachments" aria-label="Вкладення">
-          {item.attachments.map((attachment) => <FeedAttachment key={attachment.id} attachment={attachment} />)}
+          {item.attachments.map((attachment) => (
+            <FeedAttachment key={attachment.id} attachment={attachment} />
+          ))}
         </div>
       )}
 
@@ -644,8 +669,12 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
         <div className="feed-archive-confirm" role="alert">
           <span>Прибрати цю публікацію зі стрічки?</span>
           <div>
-            <Button variant="ghost" onClick={() => setConfirmArchive(false)}>Залишити</Button>
-            <Button variant="danger" disabled={archive.isPending} onClick={() => archive.mutate()}>Архівувати</Button>
+            <Button variant="ghost" onClick={() => setConfirmArchive(false)}>
+              Залишити
+            </Button>
+            <Button variant="danger" disabled={archive.isPending} onClick={() => archive.mutate()}>
+              Архівувати
+            </Button>
           </div>
         </div>
       )}
@@ -655,14 +684,12 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
           <ShieldCheck size={19} />
           <span>
             <strong>{item.hasAcknowledged ? 'Ви підтвердили ознайомлення' : 'Потрібне явне підтвердження'}</strong>
-            <small>{item.acknowledgementCount} із {item.acknowledgementRecipientCount} адресатів підтвердили</small>
+            <small>
+              {item.acknowledgementCount} із {item.acknowledgementRecipientCount} адресатів підтвердили
+            </small>
           </span>
           {item.acknowledgementRequiredForMe && !item.hasAcknowledged && (
-            <Button
-              variant="secondary"
-              disabled={acknowledge.isPending}
-              onClick={() => acknowledge.mutate()}
-            >
+            <Button variant="secondary" disabled={acknowledge.isPending} onClick={() => acknowledge.mutate()}>
               Підтвердити
             </Button>
           )}
@@ -703,9 +730,17 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
                       <UserProfileLink userId={entry.author.id}>{entry.author.displayName}</UserProfileLink>
                       <time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time>
                     </header>
-                    <p><MentionText body={entry.body} mentions={entry.mentions} /></p>
+                    <p>
+                      <MentionText body={entry.body} mentions={entry.mentions} />
+                    </p>
                     {!entry.replyToCommentId && (
-                      <button onClick={() => { setReplyTo(entry.id); setComment(''); setCommentMentions([]) }}>
+                      <button
+                        onClick={() => {
+                          setReplyTo(entry.id)
+                          setComment('')
+                          setCommentMentions([])
+                        }}
+                      >
                         <Reply size={13} /> Відповісти
                       </button>
                     )}
@@ -729,7 +764,18 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
               }}
             />
             <div className="feed-comments__actions">
-              {replyTo && <Button type="button" variant="ghost" onClick={() => { setReplyTo(null); setCommentMentions([]) }}>Скасувати відповідь</Button>}
+              {replyTo && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setReplyTo(null)
+                    setCommentMentions([])
+                  }}
+                >
+                  Скасувати відповідь
+                </Button>
+              )}
               <Button disabled={!comment.trim() || addComment.isPending}>
                 <Send size={15} /> Надіслати
               </Button>
@@ -777,9 +823,7 @@ export function FeedAttachment({ attachment }: { attachment: FeedAttachmentView 
             <Download size={15} />
           </a>
         </div>
-        {previewOpen && (
-          <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />
-        )}
+        {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
       </>
     )
   }
@@ -799,9 +843,7 @@ function parseFilter(value: string | null): FeedListFilter {
 }
 
 function parseItemType(value: string | null): FeedItemType {
-  return value === 'POST' || value === 'TASK' || value === 'EVENT' || value === 'ANNOUNCEMENT' || value === 'FILE'
-    ? value
-    : 'ALL'
+  return value === 'POST' || value === 'TASK' || value === 'EVENT' || value === 'FILE' ? value : 'ALL'
 }
 
 function parseIdParam(value: string | null): string {

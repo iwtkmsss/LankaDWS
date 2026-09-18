@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
-import { badRequest, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import type { ValidatedTaskContext } from './task-types.js'
@@ -22,6 +22,7 @@ export class TaskValidationService {
     const projectId = input.projectId ?? null
     const parentTaskId = input.parentTaskId ?? null
     const reporterId = input.reporterId ?? principal.userId
+    if (reporterId !== principal.userId && !isGlobalAdmin(principal)) throw forbidden()
     const startsAt = input.startsAt ? new Date(input.startsAt) : null
     const dueAt = input.dueAt ? new Date(input.dueAt) : null
 
@@ -170,6 +171,7 @@ export class TaskValidationService {
     const groupId = input.groupId === undefined ? task.groupId : input.groupId
     const projectId = input.projectId === undefined ? task.projectId : input.projectId
     const reporterId = input.reporterId ?? task.reporterId
+    if (reporterId !== task.reporterId && !isGlobalAdmin(principal)) throw forbidden()
     const participants = await this.prisma.taskParticipant.findMany({
       where: {
         taskId: task.id,

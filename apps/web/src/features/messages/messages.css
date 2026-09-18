@@ -331,9 +331,11 @@
 .conversation-header__back { display: none; }
 .conversation-header__copy { display: grid; min-width: 0; flex: 1; gap: 3px; }
 .conversation-header__copy strong,
-.conversation-header__copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-header__copy span,
+.conversation-header__copy h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-header__copy strong { color: var(--ink-900); font-size: 13.5px; }
 .conversation-header__copy span { color: var(--ink-400); font-size: 10px; }
+.conversation-header__copy h1 { margin: 0; color: var(--ink-900); font-size: 18px; line-height: 1.2; }
 .conversation-header__actions { display: flex; align-items: center; gap: 2px; }
 .conversation-header__actions .icon-button { width: 40px; height: 40px; color: var(--ink-500); }
 .conversation-header__actions .icon-button:hover,
@@ -342,10 +344,11 @@
 .conversation-more { position: relative; }
 .conversation-more__menu,
 .message-action-menu {
-  position: absolute;
+  position: fixed;
   z-index: 20;
   display: grid;
   min-width: 220px;
+  max-height: calc(100dvh - 16px);
   gap: 2px;
   border: 1px solid var(--line);
   border-radius: 11px;
@@ -353,7 +356,8 @@
   padding: 6px;
   box-shadow: var(--shadow-lg);
 }
-.conversation-more__menu { top: 44px; right: 0; }
+.conversation-more__menu { position: absolute; top: 44px; right: 0; }
+.message-action-menu { overflow-y: auto; }
 .conversation-more__menu button,
 .message-action-menu button {
   display: flex;
@@ -487,6 +491,7 @@
   font-size: 9px;
   font-weight: 700;
 }
+.conversation-new-messages { width: fit-content; margin: 10px auto; border-radius: 999px; background: var(--cobalt-100); color: var(--cobalt-700); padding: 4px 9px; font-size: 9px; font-weight: 750; }
 .message-row {
   display: flex;
   width: fit-content;
@@ -502,18 +507,18 @@
 .message-author-avatar:focus-visible { outline: 2px solid var(--cobalt-500); outline-offset: 2px; }
 .message-bubble {
   position: relative;
-  min-width: 115px;
+  min-width: 0;
   border: 1px solid rgba(30, 52, 96, .07);
   border-radius: 13px 13px 13px 4px;
-  background: #fff;
+  background: var(--surface-raised);
   color: var(--ink-800);
   padding: 10px 12px 7px;
   box-shadow: 0 3px 12px rgba(26, 48, 92, .07);
 }
 .is-own .message-bubble {
-  border-color: #c9d8ff;
+  border-color: color-mix(in srgb, var(--cobalt-300) 62%, var(--line));
   border-radius: 13px 13px 4px 13px;
-  background: #e7efff;
+  background: color-mix(in srgb, var(--cobalt-100) 74%, var(--surface-raised));
 }
 .message-row.is-highlighted .message-bubble {
   animation: message-highlight .8s ease-out;
@@ -526,10 +531,12 @@
 }
 .message-bubble__author { display: block; width: fit-content; margin-bottom: 4px; color: var(--cobalt-700); font-size: 10px; font-weight: 700; }
 .message-bubble__author:hover { text-decoration: underline; }
-.message-bubble__content { min-width: 0; }
-.message-bubble p { margin: 0; color: var(--ink-600); font-size: 12.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-bubble__meta { display: flex; align-items: center; justify-content: flex-end; gap: 5px; width: 100%; margin-top: 6px; color: var(--ink-500); font-size: 9.5px; font-variant-numeric: tabular-nums; line-height: 1.2; }
-.is-own .message-bubble__meta { color: var(--ink-600); }
+.message-bubble__content { display: inline; min-width: 0; }
+.message-bubble p { display: inline; margin: 0; color: var(--ink-800); font-size: 12.5px; line-height: 1.52; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-bubble__meta { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 0 6px; color: var(--ink-500); font-size: 9.5px; font-variant-numeric: tabular-nums; line-height: 1.2; vertical-align: -0.25em; }
+.message-bubble:has(.message-bubble__likes) .message-bubble__meta { display: flex; width: 100%; margin: 3px 0 0; transform: translateY(-2px); }
+.message-bubble:has(.message-bubble__likes) .message-bubble__likes { margin-right: auto; }
+.is-own .message-bubble__meta { color: var(--ink-400); }
 .message-bubble__meta > .compact-file-name { max-width: min(220px, 62%); color: var(--ink-500); font-size: 8.5px; }
 .message-delivery-status { display: inline-flex; align-items: center; gap: 2px; }
 .message-delivery-status.is-read { color: var(--cobalt-600); }
@@ -550,31 +557,6 @@
 }
 .message-bubble__reply-preview strong { color: var(--cobalt-700); font-size: 9px; }
 .message-bubble__reply-preview span { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.message-bubble__actions {
-  position: absolute;
-  top: 2px;
-  right: calc(100% + 6px);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  opacity: 0;
-  transition: opacity .16s;
-}
-.message-row:not(.is-own) .message-bubble__actions { right: auto; left: calc(100% + 6px); }
-.message-row:hover .message-bubble__actions,
-.message-row:focus-within .message-bubble__actions { opacity: 1; }
-.message-bubble__actions > button {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, .92);
-  color: var(--ink-400);
-}
-.message-action-menu { top: auto; right: calc(100% + 6px); bottom: 0; }
-.message-row:not(.is-own) .message-action-menu { right: auto; left: calc(100% + 6px); }
 .message-bubble__edit { display: grid; min-width: min(420px, 50vw); gap: 7px; }
 .message-bubble__edit textarea { min-height: 72px; max-height: min(60vh, 520px); resize: vertical; }
 .message-bubble__edit-input textarea { height: auto; overflow-y: auto; field-sizing: content; }
@@ -593,7 +575,6 @@
   font-weight: 700;
 }
 .message-bubble__likes.is-mine { background: var(--cobalt-600); color: #fff; }
-.message-bubble__actions > button.is-active { color: var(--cobalt-600); }
 .forward-message { display: grid; gap: 12px; }
 .forward-message__preview { display: grid; gap: 4px; border-left: 3px solid var(--cobalt-500); border-radius: 8px; background: var(--surface-soft); padding: 9px 11px; }
 .forward-message__preview strong { color: var(--cobalt-700); font-size: 10px; }
@@ -638,69 +619,11 @@
 .message-attachment__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 3px; }
 .message-attachment__actions a, .message-attachment__actions button { display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: var(--cobalt-700); padding: 0; font-size: 8px; font-weight: 700; text-decoration: none; }
 .message-attachment__actions a:hover, .message-attachment__actions button:hover { text-decoration: underline; }
+.message-attachments__archive { display: inline-flex; width: fit-content; align-items: center; gap: 5px; color: var(--cobalt-700); font-size: 9px; font-weight: 700; }
 
-.message-composer {
-  position: relative;
-  z-index: 8;
-  flex: 0 0 auto;
-  border-top: 1px solid var(--line);
-  background: rgba(255, 255, 255, .97);
-  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
-}
-.message-composer__row { display: flex; align-items: center; gap: 8px; }
-.message-composer__row > .message-composer__input { min-width: 0; flex: 1; }
-.message-composer__input .mention-field__input { min-width: 0; }
-.message-composer__row > button {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  color: var(--cobalt-600);
-}
-.message-composer__row textarea {
-  min-height: 42px;
-  max-height: 144px;
-  flex: 1;
-  resize: none;
-  border-color: transparent;
-  background: var(--surface-soft);
-  padding: 11px 13px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.message-composer__row .message-composer__send {
-  border-color: var(--cobalt-600);
-  background: var(--cobalt-600);
-  color: #fff;
-  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
-}
-.message-composer__row .message-composer__send:disabled { border-color: var(--line); background: var(--surface-soft); color: var(--ink-300); box-shadow: none; }
-.message-composer__reply {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: -2px 50px 8px;
-  border-left: 3px solid var(--cobalt-500);
-  padding: 4px 8px;
-}
-.message-composer__reply > span { display: grid; min-width: 0; flex: 1; gap: 2px; }
-.message-composer__reply strong { color: var(--cobalt-700); font-size: 9px; }
-.message-composer__reply small { overflow: hidden; color: var(--ink-400); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.message-composer__reply button,
-.message-composer__attachments button { border: 0; background: transparent; color: var(--ink-400); }
-.message-composer__attachments { display: flex; overflow-x: auto; gap: 6px; margin: 0 50px 8px; }
-.message-composer__attachments > span { display: flex; min-width: max-content; align-items: center; gap: 5px; border-radius: 7px; background: var(--cobalt-50); color: var(--ink-600); padding: 5px 7px; font-size: 9px; }
-.message-composer__status { min-height: 18px; margin-left: 50px; color: var(--danger); padding-top: 4px; font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
 .direct-draft__empty { display: grid; flex: 1; place-content: center; justify-items: center; gap: 8px; padding: 24px; color: var(--ink-500); text-align: center; }
 .direct-draft__empty strong { color: var(--ink-800); font-size: 14px; }
 .direct-draft__empty span { max-width: 360px; font-size: 11px; line-height: 1.5; }
-.direct-draft__composer .message-composer__status { display: flex; min-height: 28px; align-items: center; justify-content: space-between; margin-left: 0; }
-.direct-draft__composer .message-composer__status .button { min-height: 26px; padding: 3px 8px; font-size: 9px; }
-
 .messages-no-thread {
   display: grid;
   place-items: center;
@@ -715,7 +638,6 @@
 .new-chat,
 .new-group,
 .thread-info,
-.message-conversion { display: grid; gap: 18px; }
 .new-chat > p { margin: 0; color: var(--ink-500); font-size: 12px; line-height: 1.5; }
 .new-chat > .button { justify-self: start; }
 .new-chat-drawer .overlay__header h2,
@@ -724,7 +646,6 @@
 .new-group > label,
 .new-chat__search-area > label,
 .new-group__search-area > label,
-.message-conversion > label { display: grid; gap: 7px; color: var(--ink-600); font-size: 10px; font-weight: 750; }
 .new-chat__search-area,
 .new-group__search-area { display: grid; gap: 7px; }
 .new-group > label > span { float: right; color: var(--ink-400); }
@@ -835,7 +756,6 @@
 .thread-info__participants select { min-height: 34px; padding: 5px; font-size: 9px; }
 .thread-info__participants article > div button { display: grid; width: 34px; height: 34px; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--danger); }
 .thread-info__add h3 { display: flex; align-items: center; gap: 6px; }
-.message-conversion__check { display: flex !important; grid-template-columns: auto 1fr; align-items: center; }
 
 @keyframes message-highlight {
   0% { transform: scale(1); }
@@ -875,18 +795,7 @@
   .message-row > .avatar, .message-author-avatar { display: grid; width: 28px; height: 28px; }
   .message-bubble { padding: 9px 10px 6px; }
   .message-bubble p { font-size: 12px; }
-  .message-bubble__actions { position: static; flex-direction: column; align-items: flex-end; margin: 3px -4px -3px 0; opacity: 1; }
-  .message-row:not(.is-own) .message-bubble__actions { position: static; }
-  .message-bubble__actions > button { width: 28px; height: 28px; background: transparent; }
-  .message-action-menu,
-  .message-row:not(.is-own) .message-action-menu { right: 0; left: auto; top: auto; bottom: 30px; }
   .message-bubble__edit { min-width: min(270px, 76vw); }
-  .message-composer { padding: 8px 8px max(8px, env(safe-area-inset-bottom)); }
-  .message-composer__row { gap: 5px; }
-  .message-composer__row > button { width: 42px; height: 42px; }
-  .message-composer__reply,
-  .message-composer__attachments { margin-right: 42px; margin-left: 42px; }
-  .message-composer__status { margin-left: 42px; }
   .conversation-search { top: 54px; right: 6px; width: calc(100% - 12px); }
   .conversation-latest { top: 66px; }
 }
@@ -907,7 +816,6 @@
   .conversation-latest,
   .message-day-separator span,
   .message-bubble,
-  .message-bubble__actions > button,
   .message-composer,
   .message-composer__row > button,
   .thread-info__setting
@@ -915,5 +823,5 @@
 :root[data-theme='dark'] .messages-thread-list > button.is-selected { border-color: var(--cobalt-300); background: var(--cobalt-50); }
 :root[data-theme='dark'] .conversation-pane,
 :root[data-theme='dark'] .messages-no-thread { background: var(--canvas); }
-:root[data-theme='dark'] .is-own .message-bubble { border-color: var(--cobalt-300); background: var(--cobalt-100); }
+:root[data-theme='dark'] .is-own .message-bubble { border-color: var(--cobalt-300); background: color-mix(in srgb, var(--cobalt-100) 80%, var(--surface-raised)); }
 :root[data-theme='dark'] .messages-sidebar__results mark { background: var(--cobalt-100); }

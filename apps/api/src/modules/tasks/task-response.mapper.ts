@@ -116,26 +116,20 @@ export class TaskResponseMapper {
         : null,
       permissions: {
         canEdit: this.canEdit(principal, task),
-        canManageReporter: true,
-        canManageResponsibles: true,
-        canManageParticipants: true,
-        canManageRelations: true,
-        canManageRecurrence: true,
+        canManageReporter: isGlobalAdmin(principal),
+        canManageResponsibles: this.canEdit(principal, task),
+        canManageParticipants: this.canEdit(principal, task),
+        canManageRelations: this.canEdit(principal, task),
+        canManageRecurrence: this.canEdit(principal, task),
         canReadTime,
         canWriteTime: true,
-        canArchive: task.createdById === principal.userId || task.reporterId === principal.userId || isGlobalAdmin(principal),
+        canArchive: this.canEdit(principal, task),
       },
     }
   }
 
   private canEdit(principal: AuthPrincipal, task: TaskDetailRecord): boolean {
-    return task.createdById === principal.userId
-      || task.reporterId === principal.userId
-      || task.participants.some((participant) => (
-        participant.user.id === principal.userId
-        && ['RESPONSIBLE', 'COLLABORATOR'].includes(participant.role)
-      ))
-      || isGlobalAdmin(principal)
+    return task.reporterId === principal.userId || isGlobalAdmin(principal)
   }
 
   private parseWeekdays(value: string | null): number[] {

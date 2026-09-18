@@ -118,3 +118,21 @@ export function setMessageReaction(messageId: string, liked: boolean) {
     body: jsonBody({ kind: 'LIKE' }),
   })
 }
+
+export async function uploadMessageAttachments(threadId: string, files: File[]) {
+  const uploaded: ChatAttachmentView[] = []
+  let failed = 0
+  let next = 0
+  async function worker(): Promise<void> {
+    while (next < files.length) {
+      const index = next++
+      try {
+        uploaded[index] = await uploadMessageAttachment(threadId, files[index]!)
+      } catch {
+        failed += 1
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, files.length) }, () => worker()))
+  return { uploaded: uploaded.filter(Boolean), failed }
+}

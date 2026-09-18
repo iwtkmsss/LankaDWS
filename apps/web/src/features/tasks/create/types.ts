@@ -83,6 +83,7 @@ export interface TaskCreateDraft {
   parentTaskId: string
   reporterId: string
   priority: TaskPriorityV2
+  requiresAcceptance: boolean
   startsAt: string
   dueAt: string
   estimatedMinutes: string
@@ -110,6 +111,9 @@ function iso(value: string): string | undefined {
 }
 
 export function mapTaskCreatePayload(draft: TaskCreateDraft): CreateTaskInput {
+  const responsible = draft.participants.find((participant) => (
+    participant.role === 'RESPONSIBLE'
+  ))
   return {
     title: draft.title.trim(),
     description: draft.description.trim(),
@@ -118,12 +122,18 @@ export function mapTaskCreatePayload(draft: TaskCreateDraft): CreateTaskInput {
     parentTaskId: draft.parentTaskId || null,
     reporterId: draft.reporterId,
     priority: draft.priority,
+    requiresAcceptance: draft.requiresAcceptance,
     startsAt: iso(draft.startsAt) ?? null,
     dueAt: iso(draft.dueAt) ?? null,
     estimatedMinutes: draft.estimatedMinutes
       ? Number(draft.estimatedMinutes)
       : null,
-    participants: draft.participants,
+    participants: [
+      ...(responsible ? [responsible] : []),
+      ...draft.participants.filter((participant) => (
+        participant.role !== 'RESPONSIBLE' && participant.userId !== responsible?.userId
+      )),
+    ],
     checklistItems: draft.checklistItems
       .filter((item) => item.title.trim())
       .map((item) => ({
@@ -185,10 +195,10 @@ export function validateTaskCreateDraft(draft: TaskCreateDraft): TaskCreateValid
   if (!draft.reporterId) {
     return { section: 'participants', message: 'Оберіть постановника.' }
   }
-  if (!draft.participants.some((participant) => participant.role === 'RESPONSIBLE')) {
+  if (draft.participants.filter((participant) => participant.role === 'RESPONSIBLE').length !== 1) {
     return {
       section: 'participants',
-      message: 'Додайте принаймні одного відповідального.',
+      message: 'Оберіть одного відповідального.',
     }
   }
   const emptyReminder = draft.reminders.find((reminder) => (

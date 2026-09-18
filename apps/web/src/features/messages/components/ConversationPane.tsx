@@ -23,13 +23,10 @@ interface ConversationPaneProps {
   highlightedMessageId?: string | null
   canLoadOlder: boolean
   loadingOlder: boolean
-  canConvertToTask: boolean
-  canConvertToEvent: boolean
   replyTo: ChatMessageView | null
   attachments: Parameters<typeof MessageComposer>[0]['attachments']
   sending: boolean
   uploading: boolean
-  composerError: string
   initialComposerBody?: string
   onInitialComposerBodyConsumed?: () => void
   onBack: () => void
@@ -44,7 +41,6 @@ interface ConversationPaneProps {
   onReplyCancel: () => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
-  onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
   onDriveAttachment?: (attachment: ChatAttachmentView) => void
@@ -72,10 +68,9 @@ function ConversationAvatar({
 export function ConversationPane(props: ConversationPaneProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const freeAttachmentSlots = 5 - props.attachments.length
   const { isDragging, dropTargetProps } = useFileDropTarget({
-    disabled: !props.thread?.canPost || props.uploading || freeAttachmentSlots <= 0,
-    onFiles: (files) => props.onFiles(files.slice(0, freeAttachmentSlots)),
+    disabled: !props.thread?.canPost || props.uploading,
+    onFiles: props.onFiles,
   })
 
   if (props.loading) {
@@ -191,26 +186,25 @@ export function ConversationPane(props: ConversationPaneProps) {
       )}
 
       <MessageStream
+        key={`stream:${props.thread.id}`}
         threadId={props.thread.id}
         messages={props.messages}
         currentUserId={props.currentUserId}
+        lastReadMessageId={props.thread.lastReadMessageId}
         highlightedMessageId={props.highlightedMessageId}
         canLoadOlder={props.canLoadOlder}
         loadingOlder={props.loadingOlder}
-        canConvertToTask={props.canConvertToTask}
-        canConvertToEvent={props.canConvertToEvent}
         onLoadOlder={props.onLoadOlder}
         onReply={props.onReply}
         onLike={props.onLike}
         onForward={props.onForward}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
-        onConvert={props.onConvert}
       />
 
       {props.thread.canPost && (
         <MessageComposer
-          key={props.thread.id}
+          key={`composer:${props.thread.id}`}
           threadId={props.thread.id}
           initialBody={props.initialComposerBody}
           onInitialBodyConsumed={props.onInitialComposerBodyConsumed}
@@ -218,7 +212,6 @@ export function ConversationPane(props: ConversationPaneProps) {
           attachments={props.attachments}
           sending={props.sending}
           uploading={props.uploading}
-          error={props.composerError}
           onReplyCancel={props.onReplyCancel}
           onRemoveAttachment={props.onRemoveAttachment}
           onFiles={props.onFiles}

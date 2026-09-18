@@ -21,7 +21,6 @@ import {
   type ChatUserSearchPage,
   type ChatUserSearchQuery,
   type CreateChatThreadInput,
-  type ConvertChatMessageToTaskInput,
   type DeleteChatMessageInput,
   type EditChatMessageInput,
   type MarkChatReadInput,
@@ -36,14 +35,13 @@ import {
   type UpdateChatPreferenceInput,
 } from '@lankadws/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
-import { badRequest, conflict, notFound } from '../../common/errors.js'
+import { badRequest, conflict, DomainError, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { isUserSearchValueLongEnough, normalizeUserSearchValue } from '../../common/user-search.js'
 import type { FileObject, Message, MessageThread, Prisma, ThreadParticipant, User } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
-import { TaskCommandService } from '../tasks/task-command.service.js'
 import { scoreChatRecommendation, type ChatRecommendationSignals } from './chat-recommendations.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import {
@@ -67,7 +65,6 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly scope: ScopeService,
     private readonly files: FilesService,
-    private readonly taskCommands: TaskCommandService,
     private readonly realtime: ChatRealtimeService,
   ) {}
 
@@ -767,7 +764,6 @@ export class MessagesService {
     query: ChatMentionCandidatesQuery,
   ): Promise<{ items: MentionCandidateView[] }> {
     const thread = await this.readableThread(principal, threadId)
-    this.assertMentionableThread(thread)
     if (!thread.companyId) throw notFound()
     const participantIds = thread.participants
       .filter((participant) => !participant.leftAt)
@@ -841,7 +837,7 @@ export class MessagesService {
         where: {
           companyId,
           archivedAt: null,
-          status: { notIn: ['DONE', 'CANCELLED', 'ARCHIVED'] },
+          status: { notIn: ['DONE', 'ARCHIVED'] },
           OR: [
             { createdById: principal.userId },
             { reporterId: principal.userId },
@@ -1149,6 +1145,56 @@ export class MessagesService {
       mimeType: uploaded.mimeType,
       scanStatus: uploaded.scanStatus,
     }
+  }
+
+  async archiveAttachments(
+    principal: AuthPrincipal,
+    messageId: string,
+  ): Promise<{ archiveName: string; files: Array<{ id: string; fileName: string; storageKey: string }> }> {
+    const message = await this.prisma.message.findFirst({
+      where: { id: messageId, deletedAt: null },
+      select: { id: true, threadId: true, createdAt: true },
+    })
+    if (!message) throw notFound()
+    const thread = await this.readableThread(principal, message.threadId)
+    const links = await this.prisma.fileLink.findMany({
+      where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { fileId: true },
+    })
+    const files = links.length ? await this.prisma.fileObject.findMany({
+      where: {
+        id: { in: links.map((link) => link.fileId) },
+        workspaceId: principal.workspaceId,
+        companyId: thread.companyId!,
+        scanStatus: 'CLEAN',
+      },
+      select: { id: true, safeFilename: true, storageKey: true },
+    }) : []
+    const byId = new Map(files.map((file) => [file.id, file]))
+    const usedNames = new Map<string, number>()
+    const entries = links.flatMap((link) => {
+      const file = byId.get(link.fileId)
+      if (!file) return []
+      const occurrence = usedNames.get(file.safeFilename) ?? 0
+      usedNames.set(file.safeFilename, occurrence + 1)
+      const dot = file.safeFilename.lastIndexOf('.')
+      const fileName = occurrence === 0 ? file.safeFilename : dot > 0
+        ? `${file.safeFilename.slice(0, dot)} (${occurrence + 1})${file.safeFilename.slice(dot)}`
+        : `${file.safeFilename} (${occurrence + 1})`
+      return [{ id: file.id, fileName, storageKey: file.storageKey }]
+    })
+    if (entries.length < 3) throw new DomainError(409, 'chat_attachment_archive_unavailable')
+    await this.prisma.auditEvent.create({
+      data: {
+        id: id('aud'), workspaceId: principal.workspaceId, companyId: thread.companyId,
+        actorType: 'USER', actorId: principal.userId, action: 'chat.attachments.archive_downloaded',
+        entityType: 'MESSAGE', entityId: message.id, result: 'SUCCESS', risk: 'HIGH',
+        safeDiffJson: JSON.stringify({ threadId: thread.id, attachmentCount: entries.length }),
+        correlationId: id('corr'),
+      },
+    })
+    return { archiveName: `Вкладення-${message.createdAt.toISOString().slice(0, 10)}.zip`, files: entries }
   }
 
   async addParticipant(
@@ -1865,75 +1911,6 @@ export class MessagesService {
     }
   }
 
-  async createTask(
-    principal: AuthPrincipal,
-    messageId: string,
-    input: ConvertChatMessageToTaskInput,
-    idempotencyKey: string,
-  ) {
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        deletedAt: null,
-        thread: {
-          workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
-          ...(!isGlobalAdmin(principal) ? { participants: { some: { userId: principal.userId, leftAt: null } } } : {}),
-        },
-      },
-      select: {
-        id: true,
-        body: true,
-        thread: {
-          select: {
-            companyId: true,
-          },
-        },
-      },
-    })
-    if (!message?.thread.companyId) throw notFound()
-    const task = await this.taskCommands.create(
-      principal,
-      {
-        title: input.title,
-        description: message.body,
-        reporterId: principal.userId,
-        priority: 'MEDIUM',
-        dueAt: input.deadline,
-        participants: [{ userId: input.assigneeId, role: 'RESPONSIBLE' }],
-        checklistItems: [],
-        tagIds: [],
-        relations: [],
-        reminders: [],
-        recurrence: null,
-        attachmentIds: [],
-      },
-      idempotencyKey,
-    )
-    await this.prisma.entityLink.upsert({
-      where: {
-        sourceType_sourceId_targetType_targetId_relation: {
-          sourceType: 'MESSAGE',
-          sourceId: message.id,
-          targetType: 'TASK',
-          targetId: task.id,
-          relation: 'RELATED',
-        },
-      },
-      create: {
-        id: id('lnk'),
-        sourceType: 'MESSAGE',
-        sourceId: message.id,
-        targetType: 'TASK',
-        targetId: task.id,
-        relation: 'RELATED',
-        createdBy: principal.userId,
-      },
-      update: {},
-    })
-    return task
-  }
-
   private async readableThread(
     principal: AuthPrincipal,
     threadId: string,
@@ -2008,12 +1985,6 @@ export class MessagesService {
     if (!membership) throw notFound()
   }
 
-  private assertMentionableThread(thread: Pick<MessageThread, 'kind'>): void {
-    if (thread.kind !== 'DIRECT' && thread.kind !== 'GROUP') {
-      throw badRequest('chat_mentions_unavailable')
-    }
-  }
-
   private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
     const ordered = mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
     let previousEnd = 0
@@ -2036,7 +2007,6 @@ export class MessagesService {
     userIds: string[],
     previousUserIds: string[] = [],
   ): Promise<void> {
-    this.assertMentionableThread(thread)
     if (!thread.companyId) throw notFound()
     const currentParticipantIds = new Set(thread.participants
       .filter((participant) => !participant.leftAt)

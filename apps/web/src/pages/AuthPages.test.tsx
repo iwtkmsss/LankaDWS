@@ -51,7 +51,7 @@ describe('auth completion navigation', () => {
     mocks.state = 'loading'
     renderPage(<LoginPage />)
     expect(screen.getByRole('status', { name: 'Завантаження' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Увійти до LankaDWS' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Увійти до Lanka' })).not.toBeInTheDocument()
   })
 
   it.each([

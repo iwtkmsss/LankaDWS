@@ -5,7 +5,11 @@ import { getConfig } from '../../config/config.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js';
 import { writeFeedProjection } from '../feed/feed-projection.service.js';
-import { deleteStoredFile, promoteFile, writeCleanFile } from '../files/storage.js';
+import {
+  deleteStoredFile,
+  promoteFile,
+  writeCleanFile,
+} from '../files/storage.js';
 import {
   nextRecurrenceOccurrence,
   recurrenceJobRunAt,
@@ -216,19 +220,19 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     entityId: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    if (type === 'announcement.materialize')
-      return this.materializeAnnouncement(entityId);
     if (type === 'file.scan') return this.markDevelopmentScan(entityId);
     if (type === 'file.staged.cleanup') return this.cleanupStagedFile(entityId);
     if (type === 'task.recurrence')
       return this.createRecurringTask(entityId, payload);
     if (type === 'task.reminder') return this.deliverTaskReminder(entityId);
-    if ([
-      'task.created',
-      'task.updated',
-      'task.archived',
-      'task.recurrence_created',
-    ].includes(type)) {
+    if (
+      [
+        'task.created',
+        'task.updated',
+        'task.archived',
+        'task.recurrence_created',
+      ].includes(type)
+    ) {
       return this.projectTaskEvent(entityId, type, payload);
     }
     if (type === 'retention.purge') return this.runRetention(entityId, payload);
@@ -236,69 +240,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       return this.generateAuditExport(entityId, payload);
     if (type === 'search.index' || type === 'document.preview') return;
     throw new Error('UnknownJobType');
-  }
-
-  private async materializeAnnouncement(announcementId: string): Promise<void> {
-    const announcement = await this.prisma.announcement.findUnique({
-      where: { id: announcementId },
-      include: { companies: true, users: true },
-    });
-    if (!announcement) throw new Error('AnnouncementMissing');
-    let effectiveVersion = announcement.version;
-    if (
-      announcement.status === 'SCHEDULED' &&
-      announcement.publishAt &&
-      announcement.publishAt <= new Date()
-    ) {
-      const published = await this.prisma.announcement.update({
-        where: { id: announcement.id },
-        data: { status: 'PUBLISHED', version: { increment: 1 } },
-      });
-      effectiveVersion = published.version;
-    }
-    const users = await this.prisma.user.findMany({
-      where: {
-        workspaceId: announcement.workspaceId,
-        isActive: true,
-        OR: [
-          { id: { in: announcement.users.map((entry) => entry.userId) } },
-          {
-            primaryCompanyId: {
-              in: announcement.companies.map((entry) => entry.companyId),
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-    await this.prisma.$transaction(async (tx) => {
-      for (const user of users) {
-        await tx.announcementReceipt.upsert({
-          where: { announcementId_userId: { announcementId, userId: user.id } },
-          create: {
-            id: id('anr'),
-            announcementId,
-            userId: user.id,
-            effectiveContentVersion: effectiveVersion,
-          },
-          update: { effectiveContentVersion: effectiveVersion },
-        });
-      }
-      for (const company of announcement.companies) {
-        await writeFeedProjection(tx, {
-          workspaceId: announcement.workspaceId,
-          companyId: company.companyId,
-          sourceType: 'ANNOUNCEMENT',
-          sourceId: announcement.id,
-          sourceVersion: effectiveVersion,
-          action: 'PUBLISHED',
-          actorId: announcement.authorId,
-          recipientIds: users.map((user) => user.id),
-          visibility: 'PARTICIPANTS',
-          occurredAt: announcement.publishAt ?? new Date(),
-        });
-      }
-    });
   }
 
   private async markDevelopmentScan(fileId: string): Promise<void> {
@@ -355,22 +296,24 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isInteger(aggregateVersion) || aggregateVersion < 1) {
       throw new Error('TaskProjectionVersionInvalid');
     }
-    await this.prisma.$transaction((tx) => writeFeedProjection(tx, {
-      workspaceId: task.workspaceId,
-      companyId: task.companyId,
-      sourceType: 'TASK',
-      sourceId: task.id,
-      sourceVersion: aggregateVersion,
-      action: eventType.slice('task.'.length).toUpperCase(),
-      actorId: payloadString(payload, 'actorId') || null,
-      recipientIds: [
-        task.createdById,
-        task.reporterId,
-        ...task.participants.map((participant) => participant.userId),
-      ],
-      visibility: 'PARTICIPANTS',
-      occurredAt: task.updatedAt,
-    }));
+    await this.prisma.$transaction((tx) =>
+      writeFeedProjection(tx, {
+        workspaceId: task.workspaceId,
+        companyId: task.companyId,
+        sourceType: 'TASK',
+        sourceId: task.id,
+        sourceVersion: aggregateVersion,
+        action: eventType.slice('task.'.length).toUpperCase(),
+        actorId: payloadString(payload, 'actorId') || null,
+        recipientIds: [
+          task.createdById,
+          task.reporterId,
+          ...task.participants.map((participant) => participant.userId),
+        ],
+        visibility: 'PARTICIPANTS',
+        occurredAt: task.updatedAt,
+      }),
+    );
   }
 
   private async createRecurringTask(
@@ -402,20 +345,32 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (
-      !recurrence
-      || !recurrence.isActive
-      || !recurrence.nextRunAt
-      || recurrence.templateTask.archivedAt
-      || ['CANCELLED', 'ARCHIVED'].includes(recurrence.templateTask.status)
+      !recurrence ||
+      !recurrence.isActive ||
+      !recurrence.nextRunAt ||
+      recurrence.templateTask.archivedAt ||
+      ['ARCHIVED'].includes(recurrence.templateTask.status)
     )
       return;
     const occurrenceAt = new Date(payloadString(payload, 'occurrenceAt'));
     if (
-      Number.isNaN(occurrenceAt.getTime())
-      || occurrenceAt.getTime() !== recurrence.nextRunAt.getTime()
+      Number.isNaN(occurrenceAt.getTime()) ||
+      occurrenceAt.getTime() !== recurrence.nextRunAt.getTime()
     )
       return;
     const source = recurrence.templateTask;
+    const responsible = source.participants.find(
+      (participant) => participant.role === 'RESPONSIBLE',
+    );
+    if (!responsible) throw new Error('TaskResponsibleMissing');
+    const occurrenceParticipants = [
+      responsible,
+      ...source.participants.filter(
+        (participant) =>
+          participant.role !== 'RESPONSIBLE' &&
+          participant.userId !== responsible.userId,
+      ),
+    ];
     const existing = await this.prisma.task.findUnique({
       where: {
         recurrenceId_recurrenceOccurrenceAt: {
@@ -428,8 +383,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (recurrence.daysOfWeekJson) {
       const parsed = JSON.parse(recurrence.daysOfWeekJson) as unknown;
       if (
-        !Array.isArray(parsed)
-        || parsed.some((day) => !Number.isInteger(day) || day < 1 || day > 7)
+        !Array.isArray(parsed) ||
+        parsed.some((day) => !Number.isInteger(day) || day < 1 || day > 7)
       ) {
         throw new Error('RecurrenceWeekdaysInvalid');
       }
@@ -445,9 +400,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       maxOccurrences: recurrence.maxOccurrences,
       timezone: recurrence.timezone,
     };
-    const generatedOccurrences = recurrence.generatedOccurrences + (existing ? 0 : 1);
-    const reachedMaximum = recurrence.maxOccurrences !== null
-      && generatedOccurrences >= recurrence.maxOccurrences;
+    const generatedOccurrences =
+      recurrence.generatedOccurrences + (existing ? 0 : 1);
+    const reachedMaximum =
+      recurrence.maxOccurrences !== null &&
+      generatedOccurrences >= recurrence.maxOccurrences;
     const nextOccurrenceAt = reachedMaximum
       ? null
       : nextRecurrenceOccurrence(rule, occurrenceAt);
@@ -457,159 +414,168 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     );
     if (!existing) {
       const taskId = id('tsk');
-      await this.taskNumbers.runInTransaction(this.prisma, async (tx, number) => {
-        const duration = source.startsAt && source.dueAt
-          ? source.dueAt.getTime() - source.startsAt.getTime()
-          : null;
-        const startsAt = source.startsAt ? occurrenceAt : null;
-        const dueAt = source.dueAt
-          ? new Date(occurrenceAt.getTime() + (duration ?? 0))
-          : null;
-        const task = await tx.task.create({
-          data: {
-            id: taskId,
-            workspaceId: source.workspaceId,
-            companyId: source.companyId,
-            groupId: source.groupId,
-            projectId: source.projectId,
-            number,
-            title: source.title,
-            description: source.description,
-            createdById: source.createdById,
-            reporterId: source.reporterId,
-            status: 'NEW',
-            priority: source.priority,
-            startsAt,
-            dueAt,
-            estimatedMinutes: source.estimatedMinutes,
-            recurrenceId,
-            recurrenceOccurrenceAt: occurrenceAt,
-          },
-        });
-        if (source.participants.length) {
-          await tx.taskParticipant.createMany({
-            data: source.participants.map((participant) => ({
-              id: id('tpart'),
-              taskId,
-              userId: participant.userId,
-              role: participant.role,
-              addedById: source.createdById,
-            })),
-          });
-        }
-        if (source.checklist.length) {
-          await tx.taskChecklistItem.createMany({
-            data: source.checklist.map((item, position) => ({
-              id: id('tcheck'),
-              taskId,
-              title: item.title,
-              isCompleted: false,
-              position,
-            })),
-          });
-        }
-        if (source.tags.length) {
-          await tx.taskTag.createMany({
-            data: source.tags.map((tag) => ({
-              taskId,
-              tagId: tag.tagId,
-            })),
-          });
-        }
-        const relationRows = [
-          ...source.outgoingRelations,
-          ...source.incomingRelations,
-        ].map((relation) => ({
-          id: id('trel'),
-          ...recurrenceRelationForOccurrence(source.id, taskId, relation),
-          createdById: source.createdById,
-        }));
-        if (relationRows.length) {
-          await tx.taskRelation.createMany({ data: relationRows });
-        }
-        await writeTaskReminders(
-          tx,
-          taskId,
-          { startsAt, dueAt },
-          source.participants.map((participant) => participant.userId),
-          source.reminders.flatMap((reminder) => (
-            reminder.userId && reminder.offsetMinutes
-              ? [{
-                  target: { type: 'USER' as const, userId: reminder.userId },
-                  trigger: {
-                    type: reminder.triggerType,
-                    offsetMinutes: reminder.offsetMinutes,
-                  } as {
-                    type: 'BEFORE_START' | 'BEFORE_DUE'
-                    offsetMinutes: number
-                  },
-                }]
-              : []
-          )),
-          new Date(),
-          true,
-        );
-        await tx.taskRecurrence.update({
-          where: { id: recurrenceId },
-          data: {
-            generatedOccurrences: { increment: 1 },
-            nextRunAt: nextOccurrenceAt,
-            isActive: Boolean(nextOccurrenceAt),
-            version: { increment: 1 },
-          },
-        });
-        if (nextOccurrenceAt) {
-          await tx.backgroundJob.create({
+      await this.taskNumbers.runInTransaction(
+        this.prisma,
+        async (tx, number) => {
+          const duration =
+            source.startsAt && source.dueAt
+              ? source.dueAt.getTime() - source.startsAt.getTime()
+              : null;
+          const startsAt = source.startsAt ? occurrenceAt : null;
+          const dueAt = source.dueAt
+            ? new Date(occurrenceAt.getTime() + (duration ?? 0))
+            : null;
+          const task = await tx.task.create({
             data: {
-              id: id('job'),
-              type: 'task.recurrence',
-              entityType: 'TASK_RECURRENCE',
-              entityId: recurrenceId,
-              safePayload: JSON.stringify({
-                occurrenceAt: nextOccurrenceAt.toISOString(),
-              }),
-              idempotencyKey: `task-recurrence:${recurrenceId}:${nextOccurrenceAt.toISOString()}`,
-              runAt: recurrenceJobRunAt(
-                nextOccurrenceAt,
-                maximumReminderOffset,
-              ),
+              id: taskId,
+              workspaceId: source.workspaceId,
+              companyId: source.companyId,
+              groupId: source.groupId,
+              projectId: source.projectId,
+              number,
+              title: source.title,
+              description: source.description,
+              createdById: source.createdById,
+              reporterId: source.reporterId,
+              status: 'NEW',
+              priority: source.priority,
+              startsAt,
+              dueAt,
+              estimatedMinutes: source.estimatedMinutes,
+              recurrenceId,
+              recurrenceOccurrenceAt: occurrenceAt,
             },
           });
-        }
-        await tx.auditEvent.create({
-          data: {
-            id: id('aud'),
-            workspaceId: source.workspaceId,
-            companyId: source.companyId,
-            actorType: 'SYSTEM',
-            action: 'task.recurrence_created',
-            entityType: 'TASK',
-            entityId: taskId,
-            result: 'SUCCESS',
-            risk: 'NORMAL',
-            safeDiffJson: JSON.stringify({
-              sourceTaskId: source.id,
-              recurrenceId,
-              occurrenceAt: occurrenceAt.toISOString(),
-            }),
-            correlationId: id('corr'),
-          },
-        });
-        await tx.outboxEvent.create({
-          data: {
-            id: id('out'),
-            aggregateType: 'TASK',
-            aggregateId: taskId,
-            aggregateVersion: task.version,
-            eventType: 'task.recurrence_created',
-            safePayload: JSON.stringify({
-              taskId,
-              recurrenceId,
-              occurrenceAt: occurrenceAt.toISOString(),
-            }),
-          },
-        });
-      });
+          if (occurrenceParticipants.length) {
+            await tx.taskParticipant.createMany({
+              data: occurrenceParticipants.map((participant) => ({
+                id: id('tpart'),
+                taskId,
+                userId: participant.userId,
+                role: participant.role,
+                addedById: source.createdById,
+              })),
+            });
+          }
+          if (source.checklist.length) {
+            await tx.taskChecklistItem.createMany({
+              data: source.checklist.map((item, position) => ({
+                id: id('tcheck'),
+                taskId,
+                title: item.title,
+                isCompleted: false,
+                position,
+              })),
+            });
+          }
+          if (source.tags.length) {
+            await tx.taskTag.createMany({
+              data: source.tags.map((tag) => ({
+                taskId,
+                tagId: tag.tagId,
+              })),
+            });
+          }
+          const relationRows = [
+            ...source.outgoingRelations,
+            ...source.incomingRelations,
+          ].map((relation) => ({
+            id: id('trel'),
+            ...recurrenceRelationForOccurrence(source.id, taskId, relation),
+            createdById: source.createdById,
+          }));
+          if (relationRows.length) {
+            await tx.taskRelation.createMany({ data: relationRows });
+          }
+          await writeTaskReminders(
+            tx,
+            taskId,
+            { startsAt, dueAt },
+            occurrenceParticipants.map((participant) => participant.userId),
+            source.reminders.flatMap((reminder) =>
+              reminder.userId && reminder.offsetMinutes
+                ? [
+                    {
+                      target: {
+                        type: 'USER' as const,
+                        userId: reminder.userId,
+                      },
+                      trigger: {
+                        type: reminder.triggerType,
+                        offsetMinutes: reminder.offsetMinutes,
+                      } as {
+                        type: 'BEFORE_START' | 'BEFORE_DUE';
+                        offsetMinutes: number;
+                      },
+                    },
+                  ]
+                : [],
+            ),
+            new Date(),
+            true,
+          );
+          await tx.taskRecurrence.update({
+            where: { id: recurrenceId },
+            data: {
+              generatedOccurrences: { increment: 1 },
+              nextRunAt: nextOccurrenceAt,
+              isActive: Boolean(nextOccurrenceAt),
+              version: { increment: 1 },
+            },
+          });
+          if (nextOccurrenceAt) {
+            await tx.backgroundJob.create({
+              data: {
+                id: id('job'),
+                type: 'task.recurrence',
+                entityType: 'TASK_RECURRENCE',
+                entityId: recurrenceId,
+                safePayload: JSON.stringify({
+                  occurrenceAt: nextOccurrenceAt.toISOString(),
+                }),
+                idempotencyKey: `task-recurrence:${recurrenceId}:${nextOccurrenceAt.toISOString()}`,
+                runAt: recurrenceJobRunAt(
+                  nextOccurrenceAt,
+                  maximumReminderOffset,
+                ),
+              },
+            });
+          }
+          await tx.auditEvent.create({
+            data: {
+              id: id('aud'),
+              workspaceId: source.workspaceId,
+              companyId: source.companyId,
+              actorType: 'SYSTEM',
+              action: 'task.recurrence_created',
+              entityType: 'TASK',
+              entityId: taskId,
+              result: 'SUCCESS',
+              risk: 'NORMAL',
+              safeDiffJson: JSON.stringify({
+                sourceTaskId: source.id,
+                recurrenceId,
+                occurrenceAt: occurrenceAt.toISOString(),
+              }),
+              correlationId: id('corr'),
+            },
+          });
+          await tx.outboxEvent.create({
+            data: {
+              id: id('out'),
+              aggregateType: 'TASK',
+              aggregateId: taskId,
+              aggregateVersion: task.version,
+              eventType: 'task.recurrence_created',
+              safePayload: JSON.stringify({
+                taskId,
+                recurrenceId,
+                occurrenceAt: occurrenceAt.toISOString(),
+              }),
+            },
+          });
+        },
+      );
     }
   }
 
@@ -644,28 +610,35 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const reminderUserId = reminder.userId;
-    const hasCompanyAccess = reminder.user.isActive
-      && (reminder.user.accountType === 'ADMIN' || reminder.user.primaryCompanyId === task.companyId);
-    const hasGroupAccess = !task.groupId
-      || reminder.user.groupMemberships.some((membership) => (
-        membership.groupId === task.groupId && !membership.leftAt
-      ));
-    const isDirectActor = task.createdById === reminderUserId
-      || task.reporterId === reminderUserId
-      || Boolean(await this.prisma.taskParticipant.findFirst({
-        where: {
-          taskId: task.id,
-          userId: reminderUserId,
-          removedAt: null,
-        },
-        select: { id: true },
-      }));
+    const hasCompanyAccess =
+      reminder.user.isActive &&
+      (reminder.user.accountType === 'ADMIN' ||
+        reminder.user.primaryCompanyId === task.companyId);
+    const hasGroupAccess =
+      !task.groupId ||
+      reminder.user.groupMemberships.some(
+        (membership) =>
+          membership.groupId === task.groupId && !membership.leftAt,
+      );
+    const isDirectActor =
+      task.createdById === reminderUserId ||
+      task.reporterId === reminderUserId ||
+      Boolean(
+        await this.prisma.taskParticipant.findFirst({
+          where: {
+            taskId: task.id,
+            userId: reminderUserId,
+            removedAt: null,
+          },
+          select: { id: true },
+        }),
+      );
     const canManage = reminder.user.accountType === 'ADMIN';
     if (
-      task.archivedAt
-      || !hasCompanyAccess
-      || !hasGroupAccess
-      || (!isDirectActor && !canManage)
+      task.archivedAt ||
+      !hasCompanyAccess ||
+      !hasGroupAccess ||
+      (!isDirectActor && !canManage)
     ) {
       await this.prisma.taskReminder.updateMany({
         where: { id: reminder.id, status: 'ACTIVE' },
@@ -749,8 +722,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     const workspaceId = payloadString(payload, 'workspaceId');
     const actorId = payloadString(payload, 'actorId');
     const companyId = payloadString(payload, 'companyId');
-    if (!workspaceId || !actorId)
-      throw new Error('ExportPayloadInvalid');
+    if (!workspaceId || !actorId) throw new Error('ExportPayloadInvalid');
     const events = await this.prisma.auditEvent.findMany({
       where: { workspaceId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

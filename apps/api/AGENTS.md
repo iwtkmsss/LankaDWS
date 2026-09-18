@@ -4,7 +4,7 @@ These instructions extend the repository root `AGENTS.md`.
 
 ## Backend navigation
 
-- Module registry: `src/app.module.ts`. Wired modules: admin, announcements, audit, auth, authorization, calendar, communication, companies, dashboard, documents, employees, feed, files, groups, health, import-control, jobs, knowledge, lifecycle, org, preferences, retention, tasks. (`src/modules/analytics` and `src/modules/requests` are empty placeholders, not wired.)
+- Module registry: `src/app.module.ts`. Wired modules: admin, audit, auth, authorization, calendar, communication, companies, dashboard, documents, employees, feed, files, groups, health, import-control, jobs, knowledge, lifecycle, org, preferences, retention, tasks. (`src/modules/analytics` and `src/modules/requests` are empty placeholders, not wired.)
 - Global search: `src/modules/communication/search.controller.ts`.
 - Chat API: `src/modules/communication/messages.controller.ts`.
 - Chat business logic: `src/modules/communication/messages.service.ts`.

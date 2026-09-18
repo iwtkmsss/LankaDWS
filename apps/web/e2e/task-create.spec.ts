@@ -150,7 +150,7 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   })
   await expect(dialog.locator('.task-create-attachments li').filter({ hasText: attachmentName })).toBeVisible()
 
-  const responsibleSearch = dialog.getByRole('combobox', { name: 'Додати: відповідальний' })
+  const responsibleSearch = dialog.getByRole('combobox', { name: 'Змінити: відповідальний' })
   await responsibleSearch.fill('Андр')
   await dialog.getByRole('option', { name: /Андрій Коваль/ }).click()
   const collaboratorSearch = dialog.getByRole('combobox', { name: 'Додати: співвиконавець' })
@@ -214,11 +214,11 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   })
   expect(payload.participants).toEqual(
     expect.arrayContaining([
-      { userId: 'usr_maria', role: 'RESPONSIBLE' },
       { userId: 'usr_andrii', role: 'RESPONSIBLE' },
       { userId: 'usr_olena', role: 'COLLABORATOR' },
     ]),
   )
+  expect(payload.participants.filter((participant) => participant.role === 'RESPONSIBLE')).toHaveLength(1)
   expect(payload.attachmentIds).toHaveLength(1)
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
   await expect(page.getByRole('dialog', { name: 'Нове завдання' })).toHaveCount(0)
@@ -226,7 +226,8 @@ test('creates a task through the complete modal workflow', async ({ page }, test
   await expect(detailPage.getByRole('heading', { name: title })).toBeVisible()
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.evaluate(() => document.body.style.overflow)).resolves.toBe('')
-  await detailPage.getByRole('button', { name: 'До списку' }).click()
+  await detailPage.getByLabel('Дії із завданням').click()
+  await detailPage.getByRole('menuitem', { name: 'До списку' }).click()
   await expect(page).toHaveURL(/\/tasks$/)
 })
 
@@ -246,7 +247,8 @@ test('opens a task as a standalone page without fetching the task list', async (
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   expect(listRequests).toEqual([])
 
-  await page.getByRole('button', { name: 'До списку' }).click()
+  await page.getByLabel('Дії із завданням').click()
+  await page.getByRole('menuitem', { name: 'До списку' }).click()
   await expect(page).toHaveURL(/\/tasks\?role=CREATOR&search=dashboard$/)
 })
 
@@ -254,7 +256,6 @@ test('sends a selected task comment mention as structured data', async ({ page }
   await login(page)
   await page.goto('/tasks/tsk_design')
 
-  await page.getByRole('button', { name: 'Розгорнути секцію «Обговорення»' }).click()
   const discussion = page.locator('.task-discussion')
   const comment = discussion.getByRole('textbox', { name: 'Коментар до завдання' })
   await comment.fill('@оле')
@@ -281,7 +282,6 @@ test('sends a selected task comment mention as structured data', async ({ page }
   })
 
   await expect(page.getByRole('link', { name: '@Олена Бондар' }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' }).click()
   await expect(page.locator('.task-role-group').filter({ hasText: 'Олена Бондар' })).toBeVisible()
 })
 

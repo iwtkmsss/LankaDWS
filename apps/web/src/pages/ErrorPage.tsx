@@ -32,7 +32,7 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
             : status === 'maintenance'
               ? {
                   title: 'Триває технічне обслуговування',
-                  text: 'LankaDWS тимчасово не приймає зміни. Спробуйте ще раз за кілька хвилин.',
+                  text: 'Lanka тимчасово не приймає зміни. Спробуйте ще раз за кілька хвилин.',
                   icon: Wrench,
                 }
               : {
@@ -46,7 +46,7 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
     <main className="error-page">
       <div className="error-brand">
         <BrandMark />
-        <strong>LankaDWS</strong>
+        <strong>Lanka</strong>
       </div>
       <section>
         <img src="/assets/errors/error-orbit.png" alt="" width="440" height="320" />

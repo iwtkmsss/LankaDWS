@@ -32,7 +32,7 @@ const unresolvedDecisionGates: ImportReadinessGate[] = [
     id: 'D-024',
     title: 'Мапінг оргструктури',
     status: 'BLOCKING',
-    detail: 'Потрібна активна й підписана версія відповідності source org unit → підрозділ LankaDWS.',
+    detail: 'Потрібна активна й підписана версія відповідності source org unit → підрозділ Lanka.',
   },
 ]
 

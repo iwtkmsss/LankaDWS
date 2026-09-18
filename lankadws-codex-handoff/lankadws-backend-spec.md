@@ -89,7 +89,7 @@ Backend — один NestJS modular monolith із чіткими модулям�
 - `DocumentsModule` / `FilesModule`;
 - `KnowledgeModule`;
 - `AnnouncementsModule`;
-- `LifecycleModule` для onboarding/offboarding;
+- `LifecycleModule` для offboarding;
 - `ChatModule` / `CommentsModule`;
 - `NotificationsModule`;
 - `SearchModule`;
@@ -424,7 +424,7 @@ Form schemas підтримують лише дозволені field types із
 | `Event` | workspace/company, owner, title, start/end UTC, source timezone, allDay, visibility, recurrence?, version |
 | `EventParticipant` | event/user, role, response state |
 | `PresenceRecord` | workspace/company, user, state, start/end, visibility, sourceRequestId?, version |
-| `LifecycleProcess` | type onboarding/offboarding, workspace/company, employee, templateVersion, owner, start/end, status, progress, version |
+| `LifecycleProcess` | offboarding type, workspace/company, employee, templateVersion, owner, start/end, status, progress, version |
 | `LifecycleTemplate` | workspace/company scope, name, type, status, current version |
 | `LifecycleTemplateVersion` | immutable task/dependency definition, publishedAt |
 | `LifecycleStep` | process, source template step, linkedTaskId, owner, status, dueAt, blocker reason |
@@ -538,7 +538,7 @@ Production бажано подавати web/API з одного site origin ч�
 - `/knowledge/articles`, slug/detail, versions, publish/archive/acknowledge;
 - `/announcements`, `/announcements/:id`, draft/publish/schedule/archive/read-state;
 - `/employees`, `/employees/:id` як safe projections поверх users/lifecycle;
-- `/lifecycle/processes`, onboarding/offboarding commands/steps;
+- `/lifecycle/processes`, offboarding commands/steps;
 - `/messages/threads`, `/messages/threads/:id/messages`;
 - `/comments` scoped by entity reference;
 - `/notifications`, read/unread/preferences;
@@ -638,12 +638,12 @@ Final approval atomically фіксує decision і створює `ApprovalEffec
 - суттєве edit published content створює new version/audit diff; re-mark unread тільки після explicit command;
 - announcement не виконує mandatory legal acknowledgement.
 
-### 8.5 Onboarding/offboarding
+### 8.5 Offboarding
 
 - process створюється з immutable template version;
 - кожний operational step створює real Task;
 - dependencies/owners/due dates не є decorative checklist;
-- account creation, access grant, equipment, documents і acknowledgements мають explicit state;
+- access revocation, equipment returns and final documents have explicit state;
 - offboarding revoke sessions/accesses transactionally або через критичний idempotent effect;
 - завершення блокується, якщо active ownership/approver references не передані;
 - deactivation не hard-delete-ить User або UsernameReservation;

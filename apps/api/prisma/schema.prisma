@@ -22,12 +22,9 @@ enum AccountType {
 
 enum TaskStatus {
   NEW
-  PLANNED
   IN_PROGRESS
   IN_REVIEW
   DONE
-  BLOCKED
-  CANCELLED
   ARCHIVED
 }
 
@@ -1177,6 +1174,7 @@ model Task {
   createdById            String
   reporterId             String
   status                 TaskStatus          @default(NEW)
+  requiresAcceptance     Boolean             @default(false)
   priority               Priority            @default(MEDIUM)
   startsAt               DateTime?
   dueAt                  DateTime?
@@ -1702,59 +1700,6 @@ model Acknowledgement {
   @@index([userId, confirmedAt, dueAt])
 }
 
-model Announcement {
-  id          String                        @id
-  workspaceId String
-  authorId    String
-  title       String
-  body        String
-  status      String
-  isPinned    Boolean                       @default(false)
-  publishAt   DateTime?
-  expiresAt   DateTime?
-  version     Int                           @default(1)
-  archivedAt  DateTime?
-  createdAt   DateTime                      @default(now())
-  updatedAt   DateTime                      @updatedAt
-  companies   AnnouncementAudienceCompany[]
-  users       AnnouncementAudienceUser[]
-  receipts    AnnouncementReceipt[]
-
-  @@index([workspaceId, status, publishAt])
-}
-
-model AnnouncementAudienceCompany {
-  id             String       @id
-  announcementId String
-  companyId      String
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, companyId])
-}
-
-model AnnouncementAudienceUser {
-  id             String       @id
-  announcementId String
-  userId         String
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, userId])
-}
-
-model AnnouncementReceipt {
-  id                      String       @id
-  announcementId          String
-  userId                  String
-  deliveredAt             DateTime     @default(now())
-  readAt                  DateTime?
-  dismissedAt             DateTime?
-  effectiveContentVersion Int
-  announcement            Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, userId])
-  @@index([userId, readAt, deliveredAt])
-}
-
 model Notification {
   id             String    @id
   recipientId    String
@@ -1868,9 +1813,23 @@ model Comment {
   editedAt         DateTime?
   deletedAt        DateTime?
   version          Int       @default(1)
+  reactions        TaskCommentReaction[]
 
   @@index([entityType, entityId, createdAt])
   @@index([replyToCommentId])
+}
+
+model TaskCommentReaction {
+  id        String           @id
+  commentId String
+  userId    String
+  kind      FeedReactionKind @default(LIKE)
+  createdAt DateTime         @default(now())
+  comment   Comment          @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, kind])
+  @@index([commentId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model SavedView {

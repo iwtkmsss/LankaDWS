@@ -3,13 +3,6 @@
 .drive-main { display: grid; min-width: 0; gap: 12px; }
 
 .drive-create { display: flex; align-items: center; gap: 8px; }
-.drive-company-select select {
-  min-height: 36px; max-width: 190px; border: 1px solid var(--line); border-radius: 9px;
-  background: var(--surface); color: var(--ink-800); padding: 0 30px 0 10px; font-size: 12px;
-}
-.drive-company-select select:focus { outline: 2px solid var(--cobalt-300); outline-offset: 1px; }
-.drive-company-select select:disabled { opacity: .6; cursor: not-allowed; }
-
 .drive-views { display: grid; gap: 2px; align-content: start; }
 .drive-views button {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px;
@@ -24,12 +17,12 @@
 
 .drive-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .drive-search {
-  display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0;
+  display: flex; flex-direction: row; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0;
   border: 1px solid var(--line); border-radius: 999px; background: var(--surface-soft);
   padding: 0 14px; min-height: 38px; color: var(--ink-500);
 }
 .drive-search input { width: 100%; min-width: 0; border: 0; background: transparent; font-size: 12px; color: var(--ink-800); }
-.drive-search input:focus { outline: none; }
+.drive-search input:focus { outline: none; box-shadow: none; }
 .drive-search:focus-within { border-color: var(--cobalt-500); background: var(--surface); }
 
 .drive-chip {
@@ -157,8 +150,6 @@
 
 @media (max-width: 620px) {
   .drive-create { width: 100%; flex-wrap: wrap; }
-  .drive-company-select { flex: 1 1 100%; }
-  .drive-company-select select { width: 100%; max-width: none; }
   .drive-layout-toggle { margin-left: 0; }
   .drive-grid { grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); }
   .drive-share__grant { grid-template-columns: minmax(0, 1fr); }

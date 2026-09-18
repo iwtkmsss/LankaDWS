@@ -30,17 +30,15 @@ function renderStream(onLoadOlder = vi.fn(async () => undefined)) {
       threadId="thread-1"
       messages={[message()]}
       currentUserId="user-1"
+      lastReadMessageId={null}
       canLoadOlder
       loadingOlder={false}
-      canConvertToTask={false}
-      canConvertToEvent={false}
       onLoadOlder={onLoadOlder}
       onReply={vi.fn()}
       onLike={vi.fn()}
       onForward={vi.fn()}
       onEdit={vi.fn()}
       onDelete={vi.fn()}
-      onConvert={vi.fn()}
     />,
   )
   const stream = rendered.container.querySelector('.message-stream') as HTMLDivElement
@@ -72,6 +70,16 @@ describe('MessageStream history pagination', () => {
     expect(onLoadOlder).not.toHaveBeenCalled()
   })
 
+  it('does not treat the click that opens a chat as an upward scroll', () => {
+    const { stream, onLoadOlder } = renderStream()
+
+    fireEvent.pointerDown(stream, { clientY: 200 })
+    stream.scrollTop = -700
+    fireEvent.scroll(stream)
+
+    expect(onLoadOlder).not.toHaveBeenCalled()
+  })
+
   it('does not render an unread separator in the message stream', () => {
     renderStream()
 
@@ -81,7 +89,7 @@ describe('MessageStream history pagination', () => {
   it('loads one older page after the user reaches the top while scrolling upward', () => {
     const { stream, onLoadOlder } = renderStream()
 
-    fireEvent.pointerDown(stream)
+    fireEvent.wheel(stream, { deltaY: -50 })
     stream.scrollTop = -700
     fireEvent.scroll(stream)
 

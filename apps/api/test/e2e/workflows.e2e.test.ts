@@ -891,20 +891,20 @@ describe('LankaDWS API workflows', () => {
       where: { sourceType: 'TASK', sourceId: taskId, action: 'ASSIGNED' },
     });
     expect(storedTaskProjection.safePayload).not.toContain('Перевірити канонічну картку');
-    await maria.agent
-      .patch(`/api/v1/tasks/${taskId}/status`)
-      .set('x-csrf-token', maria.csrf)
-      .send({ status: 'BLOCKED', expectedVersion: 1 })
+    await andrii.agent
+      .post(`/api/v1/tasks/${taskId}/transitions`)
+      .set('x-csrf-token', andrii.csrf)
+      .send({ action: 'START', expectedVersion: 1 })
       .expect(200);
-    const blockedFeed = await andrii.agent
+    const statusChangedFeed = await andrii.agent
       .get('/api/v1/feed?company=cmp_lankadws_ua&type=TASK')
       .expect(200);
-    const blockedTaskViews = (blockedFeed.body as FeedListResult).items
+    const statusChangedTaskViews = (statusChangedFeed.body as FeedListResult).items
       .filter((item) => item.kind === 'SOURCE' && item.id === taskId);
-    expect(blockedTaskViews).toEqual([
-      expect.objectContaining({ id: taskId, action: 'BLOCKED', label: 'Завдання заблоковано' }),
+    expect(statusChangedTaskViews).toEqual([
+      expect.objectContaining({ id: taskId, action: 'STATUS_CHANGED', label: 'Статус завдання змінено' }),
     ]);
-    expect(blockedTaskViews[0]?.itemId).not.toBe(taskFeedItem.itemId);
+    expect(statusChangedTaskViews[0]?.itemId).not.toBe(taskFeedItem.itemId);
     expect(await app.get(PrismaService).feedSourceHead.findUniqueOrThrow({
       where: {
         workspaceId_companyId_sourceType_sourceId: {
@@ -915,7 +915,7 @@ describe('LankaDWS API workflows', () => {
         },
       },
     })).toMatchObject({
-      itemId: blockedTaskViews[0]?.itemId,
+      itemId: statusChangedTaskViews[0]?.itemId,
       sourceVersion: 2,
       countsAsUnread: true,
     });
@@ -2420,7 +2420,7 @@ describe('LankaDWS API workflows', () => {
       .toEqual({ version: 1 });
   });
 
-  it('keeps structured chat mentions scoped to direct and group participants', async () => {
+  it('keeps structured chat mentions scoped to active chat participants', async () => {
     const maria = await login('maria');
     const andrii = await login('andrii');
     const olena = await login('olena');
@@ -2597,8 +2597,11 @@ describe('LankaDWS API workflows', () => {
         body: `${andriiToken}, не змінюй учасників задачі.`,
         mentions: [{ userId: 'usr_andrii', start: 0, end: andriiToken.length, label: 'Андрій Коваль' }],
       })
-      .expect(400);
-    expect((contextualMention.body as { code: string }).code).toBe('chat_mentions_unavailable');
+      .expect(201);
+    expect(await prisma.contentMention.findFirst({
+      where: { sourceType: 'MESSAGE', sourceId: (contextualMention.body as { id: string }).id },
+      select: { userId: true },
+    })).toEqual({ userId: 'usr_andrii' });
     expect(await prisma.taskParticipant.count()).toBe(taskParticipantCount);
   });
 

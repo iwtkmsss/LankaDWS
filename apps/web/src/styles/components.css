@@ -428,8 +428,8 @@ button.task-attachment:hover { border-color: var(--line-strong); background: var
 .task-file-picker > span { display: grid; gap: 1px; }
 .task-file-picker strong { font-size: 10px; }
 .task-file-picker small { color: var(--ink-400); font-size: 8px; font-weight: 500; }
-.task-file-picker input, .task-comment-file-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.task-file-picker:focus-within, .task-comment-file-picker:focus-within { outline: 2px solid var(--cobalt-500); outline-offset: 2px; }
+.task-file-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.task-file-picker:focus-within { outline: 2px solid var(--cobalt-500); outline-offset: 2px; }
 .task-content-message { margin: 0; color: var(--ink-500); font-size: 10px; line-height: 1.45; }
 .task-discussion { display: grid; gap: 12px; }
 .task-discussion > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
@@ -453,21 +453,6 @@ button.task-attachment:hover { border-color: var(--line-strong); background: var
 .task-comment-attachments { display: grid; gap: 5px; margin: 7px 0; }
 .task-comment-actions { display: flex; align-items: center; gap: 8px; }
 .task-comment-reply { display: inline-flex; min-height: 28px; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--cobalt-700); padding: 2px 0; font-size: 9px; font-weight: 720; }
-.task-comment-form { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); padding: 10px; }
-.task-comment-form textarea { width: 100%; resize: vertical; background: var(--surface); line-height: 1.5; }
-.task-reply-context { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border-radius: 9px; background: var(--cobalt-50); color: var(--cobalt-700); padding: 7px 8px; }
-.task-reply-context > span { display: grid; min-width: 0; gap: 2px; }
-.task-reply-context strong { font-size: 10px; }
-.task-reply-context small { overflow: hidden; color: var(--ink-500); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.task-reply-context > button { display: inline-grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink-400); }
-.task-comment-selected-files { display: flex; flex-wrap: wrap; gap: 5px; }
-.task-comment-selected-files > span { display: grid; min-width: 0; max-width: 100%; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-600); padding: 3px 4px 3px 8px; }
-.task-comment-selected-files strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.task-comment-selected-files button { display: inline-grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--ink-400); }
-.task-comment-controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.task-comment-controls > div { display: flex; min-width: 0; align-items: center; gap: 8px; }
-.task-comment-file-picker { display: inline-flex; min-height: 34px; align-items: center; gap: 5px; border-radius: 7px; color: var(--cobalt-700); cursor: pointer; padding: 4px 3px; font-size: 9px; font-weight: 720; }
-.task-comment-controls select { width: auto; max-width: 150px; min-height: 34px; padding-block: 5px; font-size: 9px; }
 .task-parent-link { display: inline-flex; width: fit-content; min-height: 34px; align-items: center; gap: 6px; border-radius: 8px; color: var(--cobalt-700); padding: 5px 7px; font-size: 11px; font-weight: 720; }
 .task-parent-link:hover { background: var(--cobalt-50); }
 .task-blocker { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; border: 1px solid #efc56d; border-radius: 10px; background: var(--warning-bg); color: var(--ink-700); padding: 11px 12px; }
@@ -570,12 +555,6 @@ button.task-attachment:hover { border-color: var(--line-strong); background: var
   .task-attachment-row > button { width: 44px; min-height: 48px; }
   .task-comments article.is-reply { margin-left: 20px; }
   .task-comment-reply { min-height: 44px; }
-  .task-reply-context > button, .task-comment-selected-files button { width: 44px; height: 44px; }
-  .task-comment-controls { align-items: stretch; flex-direction: column; }
-  .task-comment-controls > div { display: grid; grid-template-columns: 1fr 1fr; }
-  .task-comment-file-picker, .task-comment-controls select { width: 100%; max-width: none; min-height: 44px; }
-  .task-comment-file-picker { justify-content: center; }
-  .task-comment-controls > .button { width: 100%; min-height: 44px; }
   .task-participant-remove { width: 44px; height: 44px; flex-basis: 44px; }
   .task-participants > header { align-items: stretch; flex-direction: column; }
   .task-participants > header .button { width: 100%; }

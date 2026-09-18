@@ -28,6 +28,7 @@ import {
   useModalCloseGuard,
 } from '../../../shared/ui'
 import { loadTaskCreateOptions } from './api'
+import type { TaskDetailView } from '@lankadws/contracts'
 import { clearTaskDraft, loadTaskDraft, saveTaskDraft, taskDraftKey } from './draft'
 import { TaskChecklistSection } from './TaskChecklistSection'
 import { TaskBasicsSection } from './TaskMainSection'
@@ -55,22 +56,26 @@ function defaultDraft(
   userId: string,
   groupId: string,
   initialResponsibleId: string,
+  copySource?: TaskDetailView,
 ): TaskCreateDraft {
   const startsAt = new Date()
   startsAt.setSeconds(0, 0)
   return {
-    title: '',
-    description: '',
+    title: copySource?.title ?? '',
+    description: copySource?.description ?? '',
     groupId,
     projectId: '',
     parentTaskId: '',
     reporterId: userId,
-    priority: 'MEDIUM',
+    priority: copySource?.priority === 'CRITICAL' ? 'URGENT' : copySource?.priority ?? 'MEDIUM',
+    requiresAcceptance: false,
     startsAt: toLocalDateTime(startsAt),
-    dueAt: toLocalDateTime(new Date(startsAt.getTime() + 60 * 60 * 1_000)),
+    dueAt: copySource?.deadline
+      ? toLocalDateTime(new Date(copySource.deadline))
+      : toLocalDateTime(new Date(startsAt.getTime() + 60 * 60 * 1_000)),
     estimatedMinutes: '',
     participants: [{
-      userId: initialResponsibleId || userId,
+      userId: copySource?.assignee.id || initialResponsibleId || userId,
       role: 'RESPONSIBLE',
     }],
     checklistItems: [],
@@ -158,28 +163,42 @@ function OptionsSectionState({
 export function TaskCreateModal({
   groupId,
   initialResponsibleId = '',
+  copyFrom = '',
+  copySource,
   onClose,
   onDone,
 }: {
   groupId: string
   initialResponsibleId?: string
+  copyFrom?: string
+  copySource?: TaskDetailView
   onClose: () => void
   onDone: (taskId: string) => void
 }) {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const userId = user?.id ?? ''
-  const draftKey = taskDraftKey(userId, groupId)
+  const draftKey = taskDraftKey(userId, copyFrom ? `copy-${copyFrom}` : groupId)
   const initial = useMemo(
-    () => defaultDraft(userId, groupId, initialResponsibleId),
-    [groupId, initialResponsibleId, userId],
+    () => defaultDraft(userId, groupId, initialResponsibleId, copySource),
+    [copySource, groupId, initialResponsibleId, userId],
   )
   const restored = useMemo(() => loadTaskDraft(draftKey), [draftKey])
   const [draft, setDraft] = useState<TaskCreateDraft>(() => {
     const value = restored ?? initial
+    const responsible = value.participants.find((participant) => participant.role === 'RESPONSIBLE')
+      ?? initial.participants[0]
     return {
       ...value,
+      requiresAcceptance: value.requiresAcceptance ?? false,
       projectId: value.parentTaskId ? value.projectId : '',
+      reporterId: user?.accountType === 'ADMIN' ? value.reporterId : userId,
+      participants: [
+        responsible,
+        ...value.participants.filter((participant) => (
+          participant.role !== 'RESPONSIBLE' && participant.userId !== responsible.userId
+        )),
+      ],
       tagIds: [],
       relations: [],
     }
@@ -259,27 +278,32 @@ export function TaskCreateModal({
     if (!options.data) return
     const availableIds = new Set(options.data.users.map((option) => option.id))
     setDraft((current) => {
-      const participants = current.participants.filter((participant) => (
+      const availableParticipants = current.participants.filter((participant) => (
         availableIds.has(participant.userId)
       ))
-      if (
-        !participants.some((participant) => participant.role === 'RESPONSIBLE')
-        && availableIds.has(userId)
-      ) {
-        participants.push({ userId, role: 'RESPONSIBLE' })
-      }
-      const reporterId = availableIds.has(current.reporterId)
+      const responsible = availableParticipants.find((participant) => (
+        participant.role === 'RESPONSIBLE'
+      )) ?? (availableIds.has(userId) ? { userId, role: 'RESPONSIBLE' as const } : null)
+      const participants = [
+        ...(responsible ? [responsible] : []),
+        ...availableParticipants.filter((participant) => (
+          participant.role !== 'RESPONSIBLE' && participant.userId !== responsible?.userId
+        )),
+      ]
+      const reporterId = user?.accountType !== 'ADMIN'
+        ? userId
+        : availableIds.has(current.reporterId)
         ? current.reporterId
         : availableIds.has(userId) ? userId : ''
       if (
         reporterId === current.reporterId
-        && participants.length === current.participants.length
+        && JSON.stringify(participants) === JSON.stringify(current.participants)
       ) {
         return current
       }
       return { ...current, reporterId, participants }
     })
-  }, [options.data, userId])
+  }, [options.data, user?.accountType, userId])
 
   function update(updateDraft: (current: TaskCreateDraft) => TaskCreateDraft) {
     setDraft(updateDraft)
@@ -363,7 +387,7 @@ export function TaskCreateModal({
         closeDisabled={create.isPending}
         initialFocusRef={titleRef}
         className="task-create-dialog"
-        size="lg"
+        size="xl"
         footer={footer}
       >
         <form id="task-create-form" className="task-create-form" noValidate onSubmit={submit}>

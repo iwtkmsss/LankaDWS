@@ -9,8 +9,8 @@ LankaDWS — npm-workspaces modular monolith. `apps/web` є React/Vite client, `
 ## Модулі
 
 - Identity: auth, password/TOTP lifecycle, opaque sessions, users, одна організація, рекурсивна структура підрозділів, roles та authorization.
-- Work: collaborative tasks/participants/checklist/relations/reminders/recurrence/time, calendar/presence та onboarding/offboarding.
-- Content: documents/files, knowledge, announcements, contextual chat/comments і notifications.
+- Work: collaborative tasks/participants/checklist/relations/reminders/recurrence/time, calendar/presence та offboarding.
+- Content: documents/files, knowledge, contextual chat/comments і notifications.
 - Platform: локальні пошуки модулів, analytics, append-only audit/export, durable jobs/outbox, retention/legal hold, backup/restore та health/observability.
 
 Cross-module effect починається з outbox/job reference, записаного поряд з aggregate та audit. Worker перетворює effect на idempotent durable job після commit. Scanner, filesystem-heavy export/preview та async notification не виконуються в business transaction.
@@ -20,7 +20,6 @@ Cross-module effect починається з outbox/job reference, записа
 - Login створює/ротує session лише після password та optional second-factor verification.
 - Absence submit атомарно пише snapshot, encrypted private HR detail, approval attempt, audit та outbox.
 - Approval атомарно пише version-checked decision, audit і effect records; пізніший effect failure не відкочує рішення людини.
-- Announcement publish фіксує audience/version та materialization event; receipts створює worker.
 - Task create атомарно пише canonical task, participant roles, checklist, tags, relations, reminders, recurrence, staged file links, idempotency record, audit та outbox. Файл до commit лишається в наявному quarantine lifecycle.
 - Deactivation і credential reset відкликають sessions та змінюють authorization version у тому самому logical operation.
 - Retention purge виконується лише після dry-run/re-auth, повторно обчислює eligible rows і виключає active exact-scope legal holds.

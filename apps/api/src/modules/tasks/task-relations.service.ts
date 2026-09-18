@@ -5,7 +5,6 @@ import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 interface RelationRow {
@@ -19,7 +18,6 @@ export class TaskRelationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
-    private readonly approvals: TaskApprovalService,
   ) {}
 
   async createMany(
@@ -60,13 +58,6 @@ export class TaskRelationsService {
           createdById: principal.userId,
         },
       })
-      await this.approvals.invalidatePending(
-        tx,
-        principal,
-        task,
-        expectedVersion + 1,
-        'RELATION_ADDED',
-      )
       return { id: relationId, version: expectedVersion + 1 }
     })
   }
@@ -77,7 +68,7 @@ export class TaskRelationsService {
     relationId: string,
     expectedVersion: number,
   ): Promise<{ version: number }> {
-    const task = await this.access.editableTask(principal, taskId)
+    await this.access.editableTask(principal, taskId)
     this.assertVersion(expectedVersion)
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
@@ -88,13 +79,6 @@ export class TaskRelationsService {
         },
       })
       if (!removed.count) throw badRequest('task_relation')
-      await this.approvals.invalidatePending(
-        tx,
-        principal,
-        task,
-        expectedVersion + 1,
-        'RELATION_REMOVED',
-      )
       return { version: expectedVersion + 1 }
     })
   }

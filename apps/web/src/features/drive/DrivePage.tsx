@@ -8,8 +8,7 @@ import {
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, apiUrl } from '../../shared/api/client'
-import { useAuth } from '../../shared/auth/AuthProvider'
+import { apiUrl } from '../../shared/api/client'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { FileDropOverlay, useFileDropTarget } from '../../shared/files/FileDropzone'
 import { FilePreviewModal } from '../../shared/files/FilePreviewModal'
@@ -51,11 +50,6 @@ const MODIFIED: Array<{ value: DriveModifiedFilter; label: string }> = [
   { value: 'YEAR', label: 'За рік' },
 ]
 
-interface CompanyOption {
-  id: string
-  name: string
-}
-
 function FilterChip<T extends string>({
   options, value, onChange, label,
 }: {
@@ -82,7 +76,6 @@ function FilterChip<T extends string>({
 }
 
 export default function DrivePage() {
-  const { user } = useAuth()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { documentId } = useParams()
@@ -107,14 +100,6 @@ export default function DrivePage() {
   const modified = (params.get('modified') ?? 'ANY') as DriveModifiedFilter
   const sort = (params.get('sort') ?? 'MODIFIED') as DriveSort
   const direction = (params.get('dir') ?? 'DESC') as DriveSortDirection
-  const isGlobalAdmin = user?.accountType === 'ADMIN'
-  const companyId = isGlobalAdmin ? params.get('companyId') ?? undefined : user?.company?.id
-  const companies = useQuery({
-    queryKey: ['drive-company-options'],
-    queryFn: () => api<{ items: CompanyOption[] }>('/companies'),
-    enabled: isGlobalAdmin,
-  })
-
   const update = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams(params)
     for (const [key, value] of Object.entries(changes)) {
@@ -126,7 +111,6 @@ export default function DrivePage() {
 
   const queryInput = {
     view, folderId, type, people, modified, sort, direction,
-    ...(companyId ? { company: companyId } : {}),
     ...(debouncedValue ? { search: debouncedValue } : {}),
   }
   const query = useQuery({
@@ -140,7 +124,7 @@ export default function DrivePage() {
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
       setUploading(true)
-      for (const file of files) await uploadToDrive(file, companyId, folderId ?? null)
+      for (const file of files) await uploadToDrive(file, folderId ?? null)
     },
     onSuccess: () => { setBanner(''); refresh() },
     onError: fail('Не вдалося завантажити файл. Перевірте формат і розмір.'),
@@ -178,12 +162,12 @@ export default function DrivePage() {
     onError: fail('Не вдалося відновити.'),
   })
   const newFolder = useMutation({
-    mutationFn: async (name: string) => { await createFolder({ name, parentId: folderId ?? null, companyId }) },
+    mutationFn: async (name: string) => { await createFolder({ name, parentId: folderId ?? null }) },
     onSuccess: () => { setBanner(''); refresh() },
   })
 
   const dropTarget = useFileDropTarget({
-    disabled: uploading || view === 'TRASH' || !companyId,
+    disabled: uploading || view === 'TRASH',
     onFiles: (files) => upload.mutate(files),
   })
 
@@ -225,26 +209,10 @@ export default function DrivePage() {
         title="Диск"
         action={(
           <div className="drive-create">
-            {isGlobalAdmin && (
-              <label className="drive-company-select">
-                <span className="sr-only">Компанія</span>
-                <select
-                  aria-label="Компанія"
-                  value={companyId ?? ''}
-                  disabled={companies.isPending || companies.isError}
-                  onChange={(event) => update({ companyId: event.target.value || undefined, folder: undefined })}
-                >
-                  <option value="">Оберіть компанію</option>
-                  {companies.data?.items.map((company) => (
-                    <option key={company.id} value={company.id}>{company.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <Button onClick={() => fileInput.current?.click()} disabled={uploading || !companyId}>
+            <Button onClick={() => fileInput.current?.click()} disabled={uploading}>
               <Plus size={17} aria-hidden />{uploading ? 'Завантажуємо…' : 'Завантажити'}
             </Button>
-            <Button variant="secondary" onClick={() => setCreatingFolder(true)} disabled={!companyId}>
+            <Button variant="secondary" onClick={() => setCreatingFolder(true)}>
               <FolderPlus size={17} aria-hidden />Нова папка
             </Button>
           </div>
@@ -340,7 +308,7 @@ export default function DrivePage() {
               title={emptyCopy.title}
               description={emptyCopy.description}
               action={!isTrash && !debouncedValue && (
-                <Button onClick={() => fileInput.current?.click()} disabled={!companyId}>
+                <Button onClick={() => fileInput.current?.click()}>
                   <Upload size={17} aria-hidden />Завантажити файл
                 </Button>
               )}

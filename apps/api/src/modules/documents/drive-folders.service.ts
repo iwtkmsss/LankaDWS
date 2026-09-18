@@ -17,8 +17,8 @@ export class DriveFoldersService {
     private readonly sharing: DriveSharingService,
   ) {}
 
-  async create(principal: AuthPrincipal, input: { companyId?: string; name: string; parentId?: string | null }) {
-    const companyId = this.scope.assertCompany(principal, input.companyId)
+  async create(principal: AuthPrincipal, input: { name: string; parentId?: string | null }) {
+    const companyId = this.scope.assertCompany(principal, undefined)
     if (input.parentId) {
       const parent = await this.readable(principal, input.parentId)
       if (parent.companyId !== companyId) throw badRequest('drive_folder_company_mismatch')

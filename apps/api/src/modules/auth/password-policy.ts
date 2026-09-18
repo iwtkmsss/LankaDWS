@@ -16,6 +16,6 @@ export function assertPasswordPolicy(password: string, username: string, twoFact
   }
   const normalized = password.toLowerCase().replaceAll(/[^a-z0-9]/g, '')
   if (commonValues.has(normalized) || normalized.includes('lankadws') || normalized.includes(username.toLowerCase())) {
-    throw badRequest('password_blocklisted', 'Оберіть довшу парольну фразу, не пов’язану з LankaDWS або нікнеймом.')
+    throw badRequest('password_blocklisted', 'Оберіть довшу парольну фразу, не пов’язану з Lanka або нікнеймом.')
   }
 }

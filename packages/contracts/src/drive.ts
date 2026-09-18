@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { companyScopeSchema } from './domain.js'
 
 export const driveViewSchema = z.enum(['MY_DRIVE', 'SHARED', 'RECENT', 'TRASH'])
 export type DriveView = z.infer<typeof driveViewSchema>
@@ -29,7 +28,6 @@ export const driveShareRoleSchema = z.enum(['VIEWER', 'EDITOR'])
 export type DriveShareRole = z.infer<typeof driveShareRoleSchema>
 
 export const driveListQuerySchema = z.object({
-  company: companyScopeSchema.optional(),
   view: driveViewSchema.default('MY_DRIVE'),
   folderId: z.string().trim().min(1).max(120).optional(),
   search: z.string().trim().max(200).optional(),
@@ -97,7 +95,6 @@ export const driveListResultSchema = z.object({
 export type DriveListResult = z.infer<typeof driveListResultSchema>
 
 export const createDriveFolderSchema = z.object({
-  companyId: z.string().trim().min(1).max(120).optional(),
   name: z.string().trim().min(1).max(120),
   parentId: z.string().trim().min(1).max(120).nullable().optional(),
 })
@@ -129,7 +126,6 @@ export const importDriveFileSchema = z.object({
   fileId: z.string().trim().min(1).max(120),
   name: z.string().trim().min(1).max(200).optional(),
   folderId: z.string().trim().min(1).max(120).nullable().optional(),
-  companyId: z.string().trim().min(1).max(120).optional(),
 })
 export type ImportDriveFileInput = z.infer<typeof importDriveFileSchema>
 

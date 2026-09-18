@@ -12,8 +12,6 @@ import {
   chatThreadPageSchema,
   chatUserSearchQuerySchema,
   addChatParticipantSchema,
-  convertChatMessageToEventSchema,
-  convertChatMessageToTaskSchema,
   createCalendarEventSchema,
   createChatThreadSchema,
   deleteChatMessageSchema,
@@ -354,39 +352,14 @@ describe('transport schemas', () => {
     expect(() => sendChatMessageSchema.parse({ body: '', attachmentIds: [] })).toThrow()
     expect(chatMentionCandidatesQuerySchema.parse({ q: 'о', limit: '8' }))
       .toEqual({ q: 'о', limit: 8 })
-    expect(() => sendChatMessageSchema.parse({
+    expect(sendChatMessageSchema.parse({
       body: 'Файли',
       attachmentIds: ['1', '2', '3', '4', '5', '6'],
-    })).toThrow()
+    }).attachmentIds).toEqual(['1', '2', '3', '4', '5', '6'])
     expect(editChatMessageSchema.parse({ body: '  Уточнений текст  ', expectedVersion: 2 }))
       .toEqual({ body: 'Уточнений текст', expectedVersion: 2 })
     expect(deleteChatMessageSchema.parse({ expectedVersion: 3 }))
       .toEqual({ expectedVersion: 3 })
-    expect(convertChatMessageToTaskSchema.parse({
-      title: '  Узгодити макет  ',
-      assigneeId: 'usr_two',
-      deadline: '2026-07-25T12:00:00.000Z',
-    })).toEqual({
-      title: 'Узгодити макет',
-      assigneeId: 'usr_two',
-      deadline: '2026-07-25T12:00:00.000Z',
-    })
-    expect(convertChatMessageToEventSchema.parse({
-      title: '  Демонстрація  ',
-      startAt: '2026-07-25T12:00:00.000Z',
-      endAt: '2026-07-25T13:00:00.000Z',
-    })).toEqual({
-      title: 'Демонстрація',
-      startAt: '2026-07-25T12:00:00.000Z',
-      endAt: '2026-07-25T13:00:00.000Z',
-      sourceTimezone: 'Europe/Kyiv',
-      allDay: false,
-    })
-    expect(() => convertChatMessageToEventSchema.parse({
-      title: 'Демонстрація',
-      startAt: '2026-07-25T13:00:00.000Z',
-      endAt: '2026-07-25T12:00:00.000Z',
-    })).toThrow()
     expect(addChatParticipantSchema.parse({
       userId: 'usr_two',
       expectedThreadVersion: 2,
@@ -487,6 +460,14 @@ describe('transport schemas', () => {
       participants: [
         { userId: 'usr_one', role: 'RESPONSIBLE' },
         { userId: 'usr_one', role: 'COLLABORATOR' },
+      ],
+    })).toThrow()
+
+    expect(() => createTaskSchema.parse({
+      title: 'Кілька відповідальних',
+      participants: [
+        { userId: 'usr_one', role: 'RESPONSIBLE' },
+        { userId: 'usr_two', role: 'RESPONSIBLE' },
       ],
     })).toThrow()
   })

@@ -1,4 +1,3 @@
-import { OrganizationCapability } from '@lankadws/contracts'
 import type {
   ChatAttachmentView,
   ChatContactUser,
@@ -17,7 +16,7 @@ import {
 import { MessageCircle } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, ApiProblem, jsonBody, randomId } from '../../shared/api/client'
+import { api, jsonBody, randomId } from '../../shared/api/client'
 import { useAuth } from '../../shared/auth/AuthProvider'
 import { useTopbarContent } from '../../layout/TopbarContent'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
@@ -33,12 +32,11 @@ import {
   searchChatUsers,
   sendMessage,
   setMessageReaction,
-  uploadMessageAttachment,
+  uploadMessageAttachments,
 } from './api/messageApi'
 import { messageKeys } from './api/messageKeys'
 import { ConversationPane } from './components/ConversationPane'
 import { DirectDraftPane } from './components/DirectDraftPane'
-import { MessageConversionDrawer } from './components/MessageConversionDrawer'
 import { MessagesSidebar } from './components/MessagesSidebar'
 import { NewChatDrawer } from './components/NewChatDrawer'
 import { ForwardMessageDrawer } from './components/ForwardMessageDrawer'
@@ -53,12 +51,6 @@ import {
 } from './lib/messageCache'
 import { normalizedCodePointLength } from './lib/messageText'
 import './messages.css'
-
-function visibleApiError(error: unknown, fallback: string): string {
-  if (!(error instanceof ApiProblem)) return fallback
-  const reason = error.problem.detail?.trim() || error.problem.title
-  return `${fallback} ${reason} Код: ${error.problem.code}. Запит: ${error.problem.correlationId}.`
-}
 
 export function chatThreadCompanyScope(
   user: {
@@ -96,7 +88,7 @@ export function MessagesPage() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const client = useQueryClient()
-  const { user, canUseCapability } = useAuth()
+  const { user } = useAuth()
   const { openUserProfile } = useUserProfile()
   const threadCompanyScope = chatThreadCompanyScope(user)
   const adminCompanies = useQuery({
@@ -121,22 +113,17 @@ export function MessagesPage() {
   const [startingUserId, setStartingUserId] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null)
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
-  const [composerError, setComposerError] = useState('')
   const [draftBody, setDraftBody] = useState('')
-  const [draftError, setDraftError] = useState('')
-  const [composerSeed, setComposerSeed] = useState<{ threadId: string; body: string } | null>(null)
+  const [composerSeed, setComposerSeed] = useState<{ threadId: string; body: string; attachments: ChatAttachmentView[] } | null>(null)
   const [infoOpen, setInfoOpen] = useState(false)
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null)
-  const [conversion, setConversion] = useState<{
-    kind: 'task' | 'event'
-    message: ChatMessageView
-  } | null>(null)
   const [forwarding, setForwarding] = useState<ChatMessageView | null>(null)
   const markedReadRef = useRef('')
   const directAttemptRef = useRef({ userId: '', key: '' })
   const directStartingRef = useRef('')
   const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
   const draftBodyRef = useRef('')
+  const pendingDraftFilesRef = useRef<File[]>([])
   // The message SSE stream is opened once at the shell level (AppShell);
   // mounting it here as well would open a second EventSource per user.
 
@@ -157,7 +144,14 @@ export function MessagesPage() {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(threadCompanyScope),
   })
-  const threads = threadPages.data?.pages.flatMap((page) => page.items) ?? []
+  const threads = useMemo(() => {
+    const seen = new Set<string>()
+    return (threadPages.data?.pages.flatMap((page) => page.items) ?? []).filter((thread) => {
+      if (seen.has(thread.id)) return false
+      seen.add(thread.id)
+      return true
+    })
+  }, [threadPages.data])
   const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
 
   const canWrite = true
@@ -192,10 +186,14 @@ export function MessagesPage() {
     getNextPageParam: (lastPage) => lastPage.olderCursor ?? undefined,
     enabled: Boolean(threadId),
   })
-  const messages = useMemo(
-    () => messagePages.data?.pages.flatMap((page) => page.items.slice().reverse()) ?? [],
-    [messagePages.data],
-  )
+  const messages = useMemo(() => {
+    const seen = new Set<string>()
+    return (messagePages.data?.pages.flatMap((page) => page.items.slice().reverse()) ?? []).filter((message) => {
+      if (seen.has(message.id)) return false
+      seen.add(message.id)
+      return true
+    })
+  }, [messagePages.data])
   const selectedPreview = threads.find((thread) => thread.id === threadId)
 
   const direct = useMutation({
@@ -213,20 +211,25 @@ export function MessagesPage() {
         participantIds: [contact.id],
       }, directAttemptRef.current.key)
     },
-    onSuccess: (thread) => {
+    onSuccess: async (thread) => {
       directStartingRef.current = ''
       directAttemptRef.current = { userId: '', key: '' }
       setStartingUserId(null)
       setQuery('')
-      setDraftError('')
-      setComposerSeed({ threadId: thread.id, body: draftBodyRef.current })
+      const pendingFiles = pendingDraftFilesRef.current
+      pendingDraftFilesRef.current = []
+      let uploadedAttachments: ChatAttachmentView[] = []
+      if (pendingFiles.length) {
+        const result = await uploadMessageAttachments(thread.id, pendingFiles)
+        uploadedAttachments = result.uploaded
+      }
+      setComposerSeed({ threadId: thread.id, body: draftBodyRef.current, attachments: uploadedAttachments })
       void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
       navigate(`/messages/${thread.id}`)
     },
-    onError: (error) => {
+    onError: () => {
       directStartingRef.current = ''
       setStartingUserId(null)
-      setDraftError(visibleApiError(error, 'Не вдалося зберегти чат.'))
     },
   })
 
@@ -237,8 +240,8 @@ export function MessagesPage() {
 
   useEffect(() => {
     draftBodyRef.current = ''
+    pendingDraftFilesRef.current = []
     setDraftBody('')
-    setDraftError('')
     directAttemptRef.current = { userId: '', key: '' }
     directStartingRef.current = ''
     direct.reset()
@@ -271,30 +274,20 @@ export function MessagesPage() {
       upsertMessageCache(client, threadId!, serverMessage, result.tempId)
       setReplyTo(null)
       setAttachments([])
-      setComposerError('')
       sendAttemptRef.current = { signature: '', key: '', tempId: '' }
       await client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
     },
-    onError: (error, input) => {
+    onError: (_error, input) => {
       removeMessageCache(client, threadId!, input.tempId)
-      setComposerError(visibleApiError(error, 'Не вдалося надіслати. Текст збережено, можна повторити.'))
     },
   })
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
-      const results = await Promise.allSettled(
-        files.map((file) => uploadMessageAttachment(threadId!, file)),
-      )
-      return {
-        uploaded: results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
-        failed: results.filter((result) => result.status === 'rejected').length,
-      }
+      return uploadMessageAttachments(threadId!, files)
     },
-    onSuccess: ({ uploaded, failed }) => {
-      setAttachments((current) => [...current, ...uploaded].slice(0, 5))
-      setComposerError(failed ? `Не вдалося додати ${failed} файл(и). Перевірте формат і розмір.` : '')
+    onSuccess: ({ uploaded }) => {
+      setAttachments((current) => [...current, ...uploaded])
     },
-    onError: () => setComposerError('Не вдалося додати файл. Спробуйте ще раз.'),
   })
 
   const markRead = useMutation({
@@ -322,11 +315,9 @@ export function MessagesPage() {
 
   useEffect(() => {
     setReplyTo(null)
-    setAttachments([])
-    setComposerError('')
+    setAttachments(composerSeed?.threadId === threadId ? composerSeed?.attachments ?? [] : [])
     setHighlightedMessageId(null)
     setInfoOpen(false)
-    setConversion(null)
     sendAttemptRef.current = { signature: '', key: '', tempId: '' }
   }, [threadId])
 
@@ -445,15 +436,12 @@ export function MessagesPage() {
   // it through a notification instead of a new bubble in the conversation.
   async function likeMessage(message: ChatMessageView) {
     if (!threadId) return
-    setComposerError('')
     try {
       upsertMessageCache(client, threadId, await setMessageReaction(
         message.id,
         !message.reactions.likedByMe,
       ))
-    } catch (error) {
-      setComposerError(visibleApiError(error, 'Не вдалося змінити вподобання.'))
-    }
+    } catch {}
   }
 
   function openDirect(contact: ChatContactUser) {
@@ -486,9 +474,6 @@ export function MessagesPage() {
     })
   }
 
-  const canConvertToTask = true
-  const canConvertToEvent = canUseCapability(OrganizationCapability.CalendarWrite)
-    && canUseCapability(OrganizationCapability.CalendarWrite)
   const newChatAction = useMemo(() => (
     <Button type="button" onClick={() => {
       setParams((current) => {
@@ -543,13 +528,10 @@ export function MessagesPage() {
           highlightedMessageId={highlightedMessageId}
           canLoadOlder={Boolean(messagePages.hasNextPage)}
           loadingOlder={messagePages.isFetchingNextPage}
-          canConvertToTask={canConvertToTask}
-          canConvertToEvent={canConvertToEvent}
           replyTo={replyTo}
           attachments={attachments}
           sending={send.isPending}
           uploading={upload.isPending}
-          composerError={composerError}
           initialComposerBody={composerSeed?.threadId === threadId ? composerSeed.body : undefined}
           onInitialComposerBodyConsumed={() => setComposerSeed(null)}
           onBack={() => navigate(`/messages?${params}`)}
@@ -579,10 +561,9 @@ export function MessagesPage() {
           onReplyCancel={() => setReplyTo(null)}
           onEdit={editMessage}
           onDelete={deleteMessage}
-          onConvert={(kind, message) => setConversion({ kind, message })}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
           onFiles={(files) => upload.mutate(files)}
-          onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment].slice(0, 5))}
+          onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}
           onSend={submitMessage}
           onRetry={() => {
             void detail.refetch()
@@ -599,7 +580,6 @@ export function MessagesPage() {
             contact={targetContact.data}
             body={draftBody}
             creating={direct.isPending}
-            error={draftError}
             onBack={() => navigate('/messages')}
             onBodyChange={(value) => {
               draftBodyRef.current = value
@@ -609,10 +589,12 @@ export function MessagesPage() {
                 direct.mutate(targetContact.data)
               }
             }}
-            onRetry={() => {
-              if (directStartingRef.current) return
-              directStartingRef.current = targetContact.data.id
-              direct.mutate(targetContact.data)
+            onFiles={(files) => {
+              pendingDraftFilesRef.current.push(...files)
+              if (!directStartingRef.current && !direct.isSuccess) {
+                directStartingRef.current = targetContact.data.id
+                direct.mutate(targetContact.data)
+              }
             }}
           />
         )
@@ -663,15 +645,6 @@ export function MessagesPage() {
             setInfoOpen(false)
             navigate('/messages')
           }}
-        />
-      )}
-      {conversion && detail.data && user && (
-        <MessageConversionDrawer
-          kind={conversion.kind}
-          message={conversion.message}
-          thread={detail.data}
-          currentUserId={user.id}
-          onClose={() => setConversion(null)}
         />
       )}
       {forwarding && (

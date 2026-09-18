@@ -1,14 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { id, sha256 } from '../../common/crypto.js'
-import { badRequest, conflict, forbidden } from '../../common/errors.js'
-import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { badRequest, conflict } from '../../common/errors.js'
+import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskHierarchyService } from './task-hierarchy.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
@@ -32,7 +31,6 @@ export class TaskCommandService {
     private readonly recurrence: TaskRecurrenceService,
     private readonly attachments: TaskAttachmentsService,
     private readonly feedProjection: FeedProjectionService,
-    private readonly approvals: TaskApprovalService,
   ) {}
 
   async create(
@@ -90,6 +88,7 @@ export class TaskCommandService {
           startsAt: context.startsAt,
           dueAt: context.dueAt,
           estimatedMinutes: input.estimatedMinutes ?? null,
+          requiresAcceptance: input.requiresAcceptance ?? false,
         },
       })
       await this.participants.createMany(tx, taskId, principal.userId, context.participants)
@@ -143,20 +142,10 @@ export class TaskCommandService {
           data: { version: { increment: 1 } },
         })
         if (!parentUpdate.count) throw conflict('task_version')
-        const [parent, parentParticipants] = await Promise.all([
-          tx.task.findUniqueOrThrow({ where: { id: context.parentTaskId } }),
-          tx.taskParticipant.findMany({
-            where: { taskId: context.parentTaskId, removedAt: null },
-            select: { userId: true },
-          }),
-        ])
-        await this.approvals.invalidatePending(
-          tx,
-          principal,
-          parent,
-          parent.version,
-          'SUBTASK_CREATED',
-        )
+        const parentParticipants = await tx.taskParticipant.findMany({
+          where: { taskId: context.parentTaskId, removedAt: null },
+          select: { userId: true },
+        })
         const versionedParent = await tx.task.findUniqueOrThrow({
           where: { id: context.parentTaskId },
         })
@@ -261,6 +250,7 @@ export class TaskCommandService {
     input: UpdateTaskInput,
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.editableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     const dates = this.validation.validateUpdateDates(task, input)
     const scope = await this.validation.validateUpdateScope(principal, task, input)
     const nextParentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
@@ -276,6 +266,9 @@ export class TaskCommandService {
       ...(input.dueAt !== undefined && dates.dueAt?.getTime() !== task.dueAt?.getTime() ? ['dueAt'] : []),
       ...(input.estimatedMinutes !== undefined && input.estimatedMinutes !== task.estimatedMinutes
         ? ['estimatedMinutes']
+        : []),
+      ...(input.requiresAcceptance !== undefined && input.requiresAcceptance !== task.requiresAcceptance
+        ? ['requiresAcceptance']
         : []),
     ]
 
@@ -304,19 +297,13 @@ export class TaskCommandService {
           ...(input.estimatedMinutes === undefined
             ? {}
             : { estimatedMinutes: input.estimatedMinutes }),
+          ...(input.requiresAcceptance === undefined
+            ? {}
+            : { requiresAcceptance: input.requiresAcceptance }),
           version: { increment: 1 },
         },
       })
       if (!result.count) throw conflict('task_version')
-      if (changedFields.length) {
-        await this.approvals.invalidatePending(
-          tx,
-          principal,
-          task,
-          input.expectedVersion + 1,
-          'TASK_UPDATED',
-        )
-      }
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -329,7 +316,13 @@ export class TaskCommandService {
           entityId: taskId,
           result: 'SUCCESS',
           risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ fields: changedFields }),
+          safeDiffJson: JSON.stringify({
+            changedFields,
+            changes: {
+              ...(input.title !== undefined && input.title !== task.title ? { title: input.title } : {}),
+              ...(input.description !== undefined && input.description !== task.description ? { description: true } : {}),
+            },
+          }),
           correlationId: id('corr'),
         },
       })
@@ -353,15 +346,7 @@ export class TaskCommandService {
     taskId: string,
     expectedVersion: number,
   ): Promise<{ id: string; version: number }> {
-    const task = await this.access.readableTask(principal, taskId)
-    if (
-      task.createdById !== principal.userId
-      && task.reporterId !== principal.userId
-      && !isGlobalAdmin(principal)
-    ) {
-      throw forbidden()
-    }
-    await this.approvals.assertNoPending(task.id)
+    const task = await this.access.editableTask(principal, taskId)
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion, archivedAt: null },
@@ -372,6 +357,15 @@ export class TaskCommandService {
         },
       })
       if (!result.count) throw conflict('task_version')
+      await tx.taskApprovalRound.updateMany({
+        where: { taskId, status: 'PENDING' },
+        data: {
+          status: 'INVALIDATED',
+          invalidatedAt: new Date(),
+          invalidatedById: principal.userId,
+          resolutionTaskVersion: expectedVersion + 1,
+        },
+      })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),

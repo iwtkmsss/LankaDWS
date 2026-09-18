@@ -16,7 +16,7 @@ export class TaskAccessService {
 
   async editableTask(principal: AuthPrincipal, taskId: string): Promise<Task> {
     const task = await this.findReadableTask(principal, taskId)
-    if (!task || !await this.canEdit(principal, task)) throw notFound()
+    if (!task || !this.canEdit(principal, task)) throw notFound()
     return task
   }
 
@@ -48,23 +48,7 @@ export class TaskAccessService {
     return participant ? task : null
   }
 
-  private async canEdit(principal: AuthPrincipal, task: Task): Promise<boolean> {
-    if (
-      task.createdById === principal.userId
-      || task.reporterId === principal.userId
-      || isGlobalAdmin(principal)
-    ) {
-      return true
-    }
-
-    return Boolean(await this.prisma.taskParticipant.findFirst({
-      where: {
-        taskId: task.id,
-        userId: principal.userId,
-        role: { in: ['RESPONSIBLE', 'COLLABORATOR'] },
-        removedAt: null,
-      },
-      select: { id: true },
-    }))
+  private canEdit(principal: AuthPrincipal, task: Task): boolean {
+    return task.reporterId === principal.userId || isGlobalAdmin(principal)
   }
 }

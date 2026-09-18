@@ -1,6 +1,8 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Req, Sse, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query, Req, Res, Sse, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
+import * as archiver from 'archiver'
+import type { Response } from 'express'
 import {
   addChatParticipantSchema,
   chatMentionCandidatesQuerySchema,
@@ -9,8 +11,6 @@ import {
   chatReactionSchema,
   chatThreadListQuerySchema,
   chatUserSearchQuerySchema,
-  convertChatMessageToEventSchema,
-  convertChatMessageToTaskSchema,
   createChatThreadSchema,
   deleteChatMessageSchema,
   editChatMessageSchema,
@@ -25,8 +25,8 @@ import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
-import { CalendarService } from '../calendar/calendar.service.js'
 import type { UploadedBinary } from '../files/files.service.js'
+import { createCleanFileReadStream } from '../files/storage.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import { MessagesService } from './messages.service.js'
 
@@ -34,7 +34,6 @@ import { MessagesService } from './messages.service.js'
 export class MessagesController {
   constructor(
     private readonly messages: MessagesService,
-    private readonly calendar: CalendarService,
     private readonly realtime: ChatRealtimeService,
   ) {}
 
@@ -242,6 +241,23 @@ export class MessagesController {
     return this.messages.post(principalFrom(request), id, parsed.data, key)
   }
 
+  @Get(':id/attachments/archive')
+  async archiveAttachments(
+    @Req() request: LankaDWSRequest,
+    @Param('id') id: string,
+    @Res() response: Response,
+  ): Promise<void> {
+    const archiveData = await this.messages.archiveAttachments(principalFrom(request), id)
+    response.setHeader('Content-Type', 'application/zip')
+    response.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(archiveData.archiveName)}`)
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    const zip = new archiver.ZipArchive({ zlib: { level: 6 } })
+    zip.on('error', () => response.destroy())
+    zip.pipe(response)
+    for (const file of archiveData.files) zip.append(createCleanFileReadStream(file.storageKey), { name: file.fileName })
+    await zip.finalize()
+  }
+
   @Get(':id')
   message(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.messages.message(principalFrom(request), id)
@@ -291,29 +307,4 @@ export class MessagesController {
     return this.messages.react(principalFrom(request), id, false)
   }
 
-  @Post(':id/task')
-  createTask(
-    @Req() request: LankaDWSRequest,
-    @Param('id') id: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    const parsed = convertChatMessageToTaskSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('chat_task_invalid')
-    if (!key) throw badRequest('idempotency_key_required')
-    return this.messages.createTask(principalFrom(request), id, parsed.data, key)
-  }
-
-  @Post(':id/event')
-  createEvent(
-    @Req() request: LankaDWSRequest,
-    @Param('id') id: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    const parsed = convertChatMessageToEventSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('chat_event_invalid')
-    if (!key) throw badRequest('idempotency_key_required')
-    return this.calendar.createFromMessage(principalFrom(request), id, parsed.data, key)
-  }
 }

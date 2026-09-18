@@ -409,7 +409,7 @@ function KnowledgePage() {
       <section className="article-grid" aria-label="Матеріали бази знань">
         {query.isLoading ? <PageDataLoader /> : query.isError ? <ErrorState /> : <>
           {query.data?.items.map((item) => <div className="knowledge-article-card" key={item.id}>
-            <Link to={{ pathname: `/knowledge/${item.slug}`, search: params.toString() }}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція LankaDWS'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>
+            <Link to={{ pathname: `/knowledge/${item.slug}`, search: params.toString() }}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція Lanka'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>
             {managing && <div className="knowledge-article-actions"><Button variant="secondary" aria-label={`Редагувати ${item.title}`} onClick={() => openEditor(item.slug)}><Pencil size={16} />Редагувати</Button><Button variant="danger" aria-label={`Видалити ${item.title}`} onClick={() => setDeleting(item)}><Trash2 size={16} />Видалити</Button></div>}
           </div>)}
           {!query.data?.items.length && <p className="knowledge-empty">{search ? 'За вашим запитом матеріалів не знайдено.' : 'Матеріалів поки немає.'}</p>}

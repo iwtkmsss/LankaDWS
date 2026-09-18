@@ -415,7 +415,7 @@ export function AppShell({ children }: PropsWithChildren) {
           >
             <BrandMark />
             <span className="sidebar__brand-copy">
-              <strong>LankaDWS</strong>
+              <strong>Lanka</strong>
               <small>CORPORATE WORKSPACE</small>
             </span>
           </Link>
@@ -529,18 +529,18 @@ export function AppShell({ children }: PropsWithChildren) {
           }}>
             <Menu size={21} />
           </IconButton>
-          <div className="topbar__route-content" aria-label="Дії поточного розділу">
+          <div className="topbar__route-content" role="group" aria-label="Дії поточного розділу">
             <TopbarContent />
           </div>
           <div className="topbar__center-content">
             <TopbarCenterContent fallback={(
-              <button className="search-trigger" aria-label="Пошук у LankaDWS" onClick={() => {
+              <button className="search-trigger" aria-label="Пошук у Lanka" onClick={() => {
                 setProfileOpen(false)
                 setMoreOpen(false)
                 setPaletteOpen(true)
               }}>
                 <Search size={17} />
-                <span>Пошук у LankaDWS</span>
+                <span>Пошук у Lanka</span>
                 <kbd>Ctrl K</kbd>
               </button>
             )} />

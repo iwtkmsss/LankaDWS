@@ -1,11 +1,5 @@
 
 import { Injectable } from '@nestjs/common'
-import type {
-  DecideTaskApprovalInput,
-  RequestTaskApprovalInput,
-  TaskApprovalOption,
-  TaskApprovalView,
-} from '@lankadws/contracts'
 import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
 import {
@@ -20,7 +14,48 @@ import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import type { TaskTransaction } from './task-types.js'
 
-const terminalStatuses = ['DONE', 'CANCELLED', 'ARCHIVED'] as const
+const terminalStatuses = ['DONE', 'ARCHIVED'] as const
+
+// Historical implementation retained only to read old migrations/tests. It is
+// intentionally not registered in TasksModule and has no public API routes.
+interface RequestTaskApprovalInput {
+  approverId: string
+  expectedVersion: number
+}
+
+interface DecideTaskApprovalInput {
+  decision: 'APPROVE' | 'NEEDS_CHANGES'
+  expectedVersion: number
+  note: string
+}
+
+interface TaskApprovalOption {
+  id: string
+  displayName: string
+  avatarAsset: string | null
+  jobTitle: string
+  suggested: boolean
+}
+
+interface TaskApprovalView {
+  current: TaskApprovalRoundView | null
+  history: TaskApprovalRoundView[]
+  canRequest: boolean
+  canDecide: boolean
+}
+
+interface TaskApprovalRoundView {
+  id: string
+  roundNumber: number
+  status: 'PENDING' | 'APPROVED' | 'NEEDS_CHANGES' | 'INVALIDATED'
+  approver: { id: string; displayName: string; avatarAsset: string | null }
+  requestedBy: { id: string; displayName: string; avatarAsset: string | null }
+  requestedTaskVersion: number
+  requestedAt: string
+  decisionNote: string | null
+  decidedAt: string | null
+  invalidatedAt: string | null
+}
 
 type ApprovalResult = {
   approvalId: string
@@ -261,7 +296,7 @@ export class TaskApprovalService {
             where: {
               parentTaskId: task.id,
               archivedAt: null,
-              status: { notIn: ['DONE', 'CANCELLED', 'ARCHIVED'] },
+              status: { notIn: ['DONE', 'ARCHIVED'] },
             },
             select: { id: true },
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

@@ -132,7 +132,6 @@ describe('TaskCommandService', () => {
       recurrence as never,
       attachments as never,
       feedProjection as never,
-      {} as never,
     )
 
     const input = createInput({
@@ -173,33 +172,29 @@ describe('TaskCommandService', () => {
 })
 
 describe('TaskAccessService', () => {
-  it('lets a collaborator edit while a watcher remains read-only', async () => {
+  it('lets the reporter edit while every participant role remains read-only', async () => {
     const task = {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
       groupId: null,
       createdById: 'usr_creator',
-      reporterId: 'usr_reporter',
+      reporterId: 'usr_actor',
     }
     const prisma = {
       task: {
         findFirst: vi.fn().mockResolvedValue(task),
       },
       taskParticipant: {
-        findFirst: vi.fn()
-          .mockResolvedValueOnce({ id: 'part_1' })
-          .mockResolvedValueOnce({ id: 'part_1' }),
+        findFirst: vi.fn(),
       },
     }
     const service = new TaskAccessService(prisma as never)
 
     await expect(service.editableTask(principal(), 'tsk_1')).resolves.toBe(task)
 
-    prisma.taskParticipant.findFirst
-      .mockReset()
-      .mockResolvedValueOnce({ id: 'part_2' })
-      .mockResolvedValueOnce(null)
+    prisma.task.findFirst.mockResolvedValue({ ...task, reporterId: 'usr_reporter' })
+    prisma.taskParticipant.findFirst.mockResolvedValue({ id: 'part_2' })
     await expect(service.editableTask(principal(), 'tsk_1'))
       .rejects.toBeInstanceOf(DomainError)
   })

@@ -27,7 +27,7 @@ Do not rebuild these mechanisms:
 - Employee search already exists:
   `GET /api/v1/employees?search=...`.
 - Org hierarchy already exists through `OrgUnit.parentId`.
-- Canonical create pages/drawers already exist for Task, Chat, Calendar, Request, Group, Drive and Announcement.
+- Canonical create pages/drawers already exist for Task, Chat, Calendar, Request, Group and Drive.
 
 ## Read first — do not scan the whole repository
 

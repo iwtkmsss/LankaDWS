@@ -7,7 +7,7 @@
 - `apps/web/public/assets/heroes/manager-overview.webp` — manager dashboard cutout.
 - `apps/web/public/assets/heroes/hr-overview.webp` — HR dashboard cutout.
 - `apps/web/public/assets/heroes/admin-overview.webp` і `admin-system.webp` — administrator visuals.
-- `apps/web/public/assets/lifecycle/onboarding-workspace.webp` і `offboarding-workspace.webp` — lifecycle states.
+- `apps/web/public/assets/lifecycle/offboarding-workspace.webp` — offboarding state.
 - `apps/web/public/assets/errors/error-orbit.png` — 403/404/500/offline/conflict/maintenance pages.
 - `apps/web/public/assets/empty-states/workspace.webp`, `search.webp` і `calendar.webp` — compact illustrated empty states for files, filtered search and free calendar periods.
 - `apps/web/public/assets/avatars/avatar-*.webp` — local demo avatar cutouts.

@@ -5,7 +5,6 @@ import type { TaskAccessService } from '../authorization/task-access.service.js'
 import type { FeedProjectionService } from '../feed/feed-projection.service.js'
 import type { Task } from '../../generated/prisma/client.js'
 import { TaskParticipantsService } from './task-participants.service.js'
-import type { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 function principal(): AuthPrincipal {
@@ -44,12 +43,25 @@ function makeService(overrides: {
     prisma as unknown as PrismaService,
     access as unknown as TaskAccessService,
     {} as unknown as FeedProjectionService,
-    {} as unknown as TaskApprovalService,
   )
   return { service, userFindMany }
 }
 
 describe('TaskParticipantsService.mentionCandidates group boundary', () => {
+  it('rejects an aggregate with more than one responsible', async () => {
+    const { service } = makeService({})
+
+    await expect(service.createMany(
+      {} as TaskTransaction,
+      'tsk_1',
+      'usr_maria',
+      [
+        { userId: 'usr_maria', role: 'RESPONSIBLE' },
+        { userId: 'usr_andrii', role: 'RESPONSIBLE' },
+      ],
+    )).rejects.toMatchObject({ status: 400, code: 'task_responsible_required' })
+  })
+
   it('does not constrain candidates by group for an ungrouped task', async () => {
     const { service, userFindMany } = makeService({ readableTask: { groupId: null } })
 

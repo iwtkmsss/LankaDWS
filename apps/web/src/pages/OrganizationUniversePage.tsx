@@ -4,6 +4,7 @@ import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, Pen
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
+import { useTopbarContent } from '../layout/TopbarContent'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { Avatar, Card, EmptyState, ErrorState, Skeleton } from '../shared/ui'
@@ -38,6 +39,10 @@ export default function OrganizationUniversePage() {
   const orgUnitId = params.get('orgUnit') ?? ''
   const managerId = params.get('manager') ?? ''
   const presence = params.get('presence') ?? ''
+  const editStructureAction = useMemo(() => user?.accountType === 'ADMIN' && companyId
+    ? <Link className="button button--secondary topbar-action" to={`/admin/companies/${encodeURIComponent(companyId)}/structure?editing=1`}><PencilRuler size={16} />Редагувати структуру</Link>
+    : null, [companyId, user?.accountType])
+  useTopbarContent(editStructureAction)
 
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: () => api<{ items: Company[] }>('/companies') })
   const companies = companiesQuery.data?.items ?? []
@@ -100,7 +105,6 @@ export default function OrganizationUniversePage() {
       <Card className="organization-context-bar">
         <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => update('companyId', event.target.value, ['unitId', 'orgUnit', 'manager', 'employeeId'])}>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
         <div className="organization-heading-actions">
-          {user?.accountType === 'ADMIN' && companyId && <Link className="button button--secondary" to={`/admin/companies/${encodeURIComponent(companyId)}/structure?editing=1`}><PencilRuler size={16} />Редагувати структуру</Link>}
           <div className="organization-view-switch" role="group" aria-label="Режим перегляду">
             <button type="button" className={view === 'people' ? 'is-active' : ''} onClick={() => chooseView('people')}><List size={16} />Працівники</button>
             <button type="button" className={view === 'structure' ? 'is-active' : ''} onClick={() => chooseView('structure')}><Network size={16} />Структура</button>
@@ -227,8 +231,11 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, presenc
     <Card className="directory-card directory-card--people">
       <header className="directory-people-heading">
         <div className="directory-people-title">
-          <div><span className="eyebrow">Команда</span><h2>{scopeName ?? 'Усі працівники'}</h2><p>{scopeName ? 'Працівники вибраного підрозділу та його доступна робоча інформація.' : 'Каталог працівників усієї компанії.'}</p></div>
-          <div className="directory-people-count"><strong>{query.data?.items.length ?? 0}</strong><span>знайдено</span></div>
+          <span className="eyebrow">Команда</span>
+          <div className="directory-people-title__summary">
+            <div><h2>{scopeName ?? 'Усі працівники'}</h2><p>{scopeName ? 'Працівники вибраного підрозділу та його доступна робоча інформація.' : 'Каталог працівників усієї компанії.'}</p></div>
+            <div className="directory-people-count"><strong>{query.data?.items.length ?? 0}</strong><span>Знайдено.</span></div>
+          </div>
         </div>
       </header>
       <div className="directory-toolbar">

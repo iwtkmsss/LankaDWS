@@ -430,48 +430,6 @@
         ]
       }
     },
-    "/api/v1/tasks/{id}/approval-options": {
-      "get": {
-        "operationId": "TasksController_approvalOptions",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Tasks"
-        ]
-      }
-    },
-    "/api/v1/tasks/{id}/approval-requests": {
-      "post": {
-        "operationId": "TasksController_requestApproval",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Tasks"
-        ]
-      }
-    },
-    "/api/v1/tasks/{id}/approval-decisions": {
-      "post": {
-        "operationId": "TasksController_decideApproval",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Tasks"
-        ]
-      }
-    },
     "/api/v1/tasks/{id}/mention-candidates": {
       "get": {
         "operationId": "TasksController_mentionCandidates",
@@ -549,6 +507,20 @@
             }
           }
         },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/attachments/from-drive": {
+      "post": {
+        "operationId": "TasksController_attachDriveFile",
+        "parameters": [],
         "responses": {
           "201": {
             "description": ""
@@ -683,12 +655,12 @@
         ]
       }
     },
-    "/api/v1/tasks/{id}/status": {
-      "patch": {
-        "operationId": "TasksController_changeStatus",
+    "/api/v1/tasks/{id}/transitions": {
+      "post": {
+        "operationId": "TasksController_transition",
         "parameters": [],
         "responses": {
-          "200": {
+          "201": {
             "description": ""
           }
         },
@@ -703,6 +675,58 @@
         "parameters": [],
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/comments/{commentId}": {
+      "patch": {
+        "operationId": "TasksController_updateComment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_deleteComment",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/comments/{commentId}/reactions": {
+      "post": {
+        "operationId": "TasksController_addCommentReaction",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Tasks"
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_removeCommentReaction",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -2003,116 +2027,6 @@
         ]
       }
     },
-    "/api/v1/announcements": {
-      "get": {
-        "operationId": "AnnouncementsController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      },
-      "post": {
-        "operationId": "AnnouncementsController_create",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/audiences": {
-      "get": {
-        "operationId": "AnnouncementsController_audiences",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/audience-preview": {
-      "post": {
-        "operationId": "AnnouncementsController_audience",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/{id}": {
-      "get": {
-        "operationId": "AnnouncementsController_detail",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/{id}/publish": {
-      "post": {
-        "operationId": "AnnouncementsController_publish",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/{id}/read": {
-      "post": {
-        "operationId": "AnnouncementsController_read",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
-    "/api/v1/announcements/{id}/archive": {
-      "post": {
-        "operationId": "AnnouncementsController_archive",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Announcements"
-        ]
-      }
-    },
     "/api/v1/messages/threads": {
       "get": {
         "operationId": "MessagesController_threads",
@@ -2420,6 +2334,20 @@
         ]
       }
     },
+    "/api/v1/messages/{id}/attachments/archive": {
+      "get": {
+        "operationId": "MessagesController_archiveAttachments",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
     "/api/v1/messages/{id}": {
       "get": {
         "operationId": "MessagesController_message",
@@ -2476,34 +2404,6 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
-    "/api/v1/messages/{id}/task": {
-      "post": {
-        "operationId": "MessagesController_createTask",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
-    "/api/v1/messages/{id}/event": {
-      "post": {
-        "operationId": "MessagesController_createEvent",
-        "parameters": [],
-        "responses": {
-          "201": {
             "description": ""
           }
         },

@@ -88,7 +88,7 @@ export type CreateChatThreadInput = z.infer<typeof createChatThreadSchema>
 export const sendChatMessageSchema = z.object({
   body: z.string().trim().max(8_000).default(''),
   replyToId: z.string().trim().min(1).max(120).nullable().optional(),
-  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5).default([])
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).default([])
     .transform((items) => [...new Set(items)].sort()),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
 }).superRefine((value, context) => {
@@ -116,13 +116,6 @@ export const deleteChatMessageSchema = z.object({
   expectedVersion: z.number().int().positive(),
 })
 export type DeleteChatMessageInput = z.infer<typeof deleteChatMessageSchema>
-
-export const convertChatMessageToTaskSchema = z.object({
-  title: z.string().trim().min(2).max(180),
-  assigneeId: z.string().trim().min(1).max(120),
-  deadline: z.string().datetime().optional(),
-})
-export type ConvertChatMessageToTaskInput = z.infer<typeof convertChatMessageToTaskSchema>
 
 const calendarEventFields = {
   title: z.string().trim().min(2).max(180),
@@ -157,10 +150,6 @@ export const calendarEventAudienceSchema = z.discriminatedUnion('type', [
   }),
 ])
 export type CalendarEventAudienceInput = z.infer<typeof calendarEventAudienceSchema>
-
-export const convertChatMessageToEventSchema = z.object(calendarEventFields)
-  .superRefine(assertEventWindow)
-export type ConvertChatMessageToEventInput = z.infer<typeof convertChatMessageToEventSchema>
 
 export const createCalendarEventSchema = z.object({
   ...calendarEventFields,

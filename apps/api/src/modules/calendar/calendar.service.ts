@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common'
 import {
   OrganizationCapability,
   type CalendarEventAudienceInput,
-  type ConvertChatMessageToEventInput,
   type CreateCalendarEventInput,
   type UpdateCalendarEventInput,
 } from '@lankadws/contracts'
@@ -13,7 +12,6 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
-const createFromMessageOperation = 'calendar.event.create-from-message'
 const createOperation = 'calendar.event.create'
 
 // A private event keeps its owner company row for persistence and relies on
@@ -166,56 +164,6 @@ export class CalendarService {
     return { id: event.id, version: nextVersion }
   }
 
-  async createFromMessage(
-    principal: AuthPrincipal,
-    messageId: string,
-    input: ConvertChatMessageToEventInput,
-    idempotencyKey: string,
-  ): Promise<{ id: string; version: number }> {
-    const message = await this.prisma.message.findFirst({
-      where: {
-        id: messageId,
-        deletedAt: null,
-        thread: {
-          workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
-          participants: {
-            some: {
-              userId: principal.userId,
-              leftAt: null,
-            },
-          },
-        },
-      },
-      select: {
-        id: true,
-        thread: {
-          select: {
-            companyId: true,
-          },
-        },
-      },
-    })
-    if (!message?.thread.companyId) throw notFound()
-
-    const companyId = message.thread.companyId
-    await this.capabilities.assertEnabled(
-      principal,
-      companyId,
-      OrganizationCapability.CalendarWrite,
-    )
-    return this.persistEvent(
-      principal,
-      companyId,
-      input,
-      [companyId],
-      false,
-      idempotencyKey,
-      createFromMessageOperation,
-      message.id,
-    )
-  }
-
   /**
    * Every audience company must be in the principal's workspace scope.
    */
@@ -234,17 +182,14 @@ export class CalendarService {
   private async persistEvent(
     principal: AuthPrincipal,
     companyId: string,
-    input: ConvertChatMessageToEventInput,
+    input: CreateCalendarEventInput,
     audienceCompanyIds: string[],
     isPrivate: boolean,
     idempotencyKey: string,
     operation: string,
-    messageId?: string,
   ): Promise<{ id: string; version: number }> {
     this.assertTimezone(input.sourceTimezone)
     const requestFingerprint = fingerprint(JSON.stringify({
-      companyId,
-      messageId: messageId ?? null,
       audienceCompanyIds: [...audienceCompanyIds].sort(),
       isPrivate,
       ...input,
@@ -301,19 +246,6 @@ export class CalendarService {
           companyId: audienceCompanyId,
         })),
       })
-      if (messageId) {
-        await tx.entityLink.create({
-          data: {
-            id: id('lnk'),
-            sourceType: 'EVENT',
-            sourceId: eventId,
-            targetType: 'MESSAGE',
-            targetId: messageId,
-            relation: 'RELATED',
-            createdBy: principal.userId,
-          },
-        })
-      }
       await tx.idempotencyRecord.create({
         data: {
           id: id('idem'),
@@ -334,14 +266,12 @@ export class CalendarService {
           companyId,
           actorType: 'USER',
           actorId: principal.userId,
-          action: messageId
-            ? 'calendar.event.created-from-message'
-            : 'calendar.event.created',
+          action: 'calendar.event.created',
           entityType: 'EVENT',
           entityId: eventId,
           result: 'SUCCESS',
           risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ source: messageId ? 'MESSAGE' : 'CALENDAR' }),
+          safeDiffJson: JSON.stringify({ source: 'CALENDAR' }),
           correlationId: id('corr'),
         },
       })

@@ -13,7 +13,6 @@ import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import type { TaskTransaction } from './task-types.js'
 
 @Injectable()
@@ -22,7 +21,6 @@ export class TaskParticipantsService {
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
     private readonly feedProjection: FeedProjectionService,
-    private readonly approvals: TaskApprovalService,
   ) {}
 
   async createMany(
@@ -31,6 +29,10 @@ export class TaskParticipantsService {
     actorId: string,
     participants: TaskParticipantInput[],
   ): Promise<void> {
+    const responsibleCount = participants.filter((participant) => (
+      participant.role === 'RESPONSIBLE'
+    )).length
+    if (responsibleCount !== 1) throw badRequest('task_responsible_required')
     await tx.taskParticipant.createMany({
       data: participants.map((participant) => ({
         id: id('tpart'),
@@ -158,6 +160,7 @@ export class TaskParticipantsService {
     expectedVersion: number,
   ): Promise<{ version: number }> {
     const task = await this.access.editableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     await this.assertEligibleUser(principal, task.groupId, userId)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
@@ -171,6 +174,24 @@ export class TaskParticipantsService {
         where: { taskId_userId: { taskId, userId } },
         select: { role: true, removedAt: true },
       })
+      if (
+        existing?.role === 'RESPONSIBLE'
+        && !existing.removedAt
+        && role !== 'RESPONSIBLE'
+      ) {
+        throw conflict('task_responsible_required')
+      }
+      if (role === 'RESPONSIBLE') {
+        await tx.taskParticipant.updateMany({
+          where: {
+            taskId,
+            userId: { not: userId },
+            role: 'RESPONSIBLE',
+            removedAt: null,
+          },
+          data: { removedAt: new Date() },
+        })
+      }
       const participant = await tx.taskParticipant.upsert({
         where: { taskId_userId: { taskId, userId } },
         create: {
@@ -186,15 +207,6 @@ export class TaskParticipantsService {
           removedAt: null,
         },
       })
-      if (!existing || existing.removedAt || existing.role !== role) {
-        await this.approvals.invalidatePending(
-          tx,
-          principal,
-          task,
-          expectedVersion + 1,
-          existing && !existing.removedAt ? 'PARTICIPANT_CHANGED' : 'PARTICIPANT_ADDED',
-        )
-      }
       const [versionedTask, activeParticipants] = await Promise.all([
         tx.task.findUniqueOrThrow({ where: { id: taskId } }),
         tx.taskParticipant.findMany({
@@ -252,6 +264,7 @@ export class TaskParticipantsService {
     expectedVersion: number,
   ): Promise<{ version: number; accessRetained: boolean }> {
     const task = await this.access.readableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     const participant = await this.prisma.taskParticipant.findUnique({
@@ -259,17 +272,11 @@ export class TaskParticipantsService {
       select: { role: true, removedAt: true },
     })
     if (!participant || participant.removedAt) throw badRequest('task_participant')
+    if (participant.role === 'RESPONSIBLE') throw conflict('task_responsible_required')
     const selfWatcherExit = userId === principal.userId && participant.role === 'WATCHER'
     if (!selfWatcherExit) {
       await this.access.editableTask(principal, taskId)
     }
-    if (participant.role === 'RESPONSIBLE') {
-      const responsibleCount = await this.prisma.taskParticipant.count({
-        where: { taskId, role: 'RESPONSIBLE', removedAt: null },
-      })
-      if (responsibleCount <= 1) throw conflict('task_responsible_required')
-    }
-
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion },
@@ -317,13 +324,6 @@ export class TaskParticipantsService {
           data: { state: 'CANCELLED' },
         })
       }
-      await this.approvals.invalidatePending(
-        tx,
-        principal,
-        task,
-        expectedVersion + 1,
-        'PARTICIPANT_REMOVED',
-      )
       const [versionedTask, activeParticipants] = await Promise.all([
         tx.task.findUniqueOrThrow({ where: { id: taskId } }),
         tx.taskParticipant.findMany({

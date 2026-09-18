@@ -24,7 +24,9 @@ import {
   CircleAlert,
   ChevronDown,
   ChevronRight,
+  Copy,
   FileText,
+  Forward,
   ListTodo,
   LoaderCircle,
   Mail,
@@ -33,9 +35,13 @@ import {
   Network,
   PanelRightClose,
   Paperclip,
+  Pin,
   Phone,
+  Reply,
+  Search,
   Send,
   ShieldCheck,
+  Trash2,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -46,15 +52,20 @@ import {
   getChatUser,
   getThreadDetail,
   getThreadPage,
+  searchChatUsers,
   createThread,
   sendMessage,
-  uploadMessageAttachment,
+  uploadMessageAttachments,
 } from '../features/messages/api/messageApi'
 import { messageKeys } from '../features/messages/api/messageKeys'
 import { formatChatTime } from '../features/messages/lib/chatDates'
 import { MessageComposer } from '../features/messages/components/MessageComposer'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { MentionText } from '../shared/mentions/MentionRenderer'
 import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
+import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
+import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
+import { normalizedCodePointLength } from '../features/messages/lib/messageText'
 import '../features/messages/messages.css'
 import { api, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -216,8 +227,9 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const [chatScreen, setChatScreen] = useState<ChatScreen>('threads')
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all')
+  const [chatUserQuery, setChatUserQuery] = useState('')
+  const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
-  const [composerError, setComposerError] = useState('')
   const [profileSummaryOpen, setProfileSummaryOpen] = useState(false)
   const [chatFilesOpen, setChatFilesOpen] = useState(false)
   const markedReadRef = useRef('')
@@ -251,6 +263,20 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     ).values(),
   ], [threadPages.data])
   const selectedPreview = threads.find((thread) => thread.id === selectedThreadId)
+  const {
+    debouncedValue: debouncedChatUserQuery,
+    isComposing: isChatSearchComposing,
+    onCompositionStart: onChatSearchCompositionStart,
+    onCompositionEnd: onChatSearchCompositionEnd,
+  } = useDebouncedSearchValue(chatUserQuery)
+  const chatUserSearch = useQuery({
+    queryKey: messageKeys.users('all', debouncedChatUserQuery),
+    queryFn: ({ signal }) => searchChatUsers('all', debouncedChatUserQuery, signal),
+    enabled: tab === 'chat'
+      && chatSearchOpen
+      && !isChatSearchComposing
+      && normalizedCodePointLength(debouncedChatUserQuery) >= 1,
+  })
 
   const detail = useQuery({
     queryKey: messageKeys.detail(selectedThreadId ?? ''),
@@ -308,7 +334,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     setProfileSummaryOpen(true)
     setChatFilesOpen(false)
     setAttachments([])
-    setComposerError('')
     draftSendAttemptRef.current = {
       signature: '',
       threadId: '',
@@ -353,10 +378,9 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         attempt.threadId = thread.id
       }
       if (files.length && attempt.attachmentIds.length !== files.length) {
-        const uploaded = await Promise.all(
-          files.map((file) => uploadMessageAttachment(attempt.threadId, file)),
-        )
-        attempt.attachmentIds = uploaded.map((attachment) => attachment.id)
+        const result = await uploadMessageAttachments(attempt.threadId, files)
+        if (result.failed) throw new Error('chat_attachment_upload_failed')
+        attempt.attachmentIds = result.uploaded.map((attachment) => attachment.id)
       }
       await sendMessage(attempt.threadId, {
         body,
@@ -367,7 +391,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     },
     onSuccess: async ({ threadId }) => {
       setSelectedThreadId(threadId)
-      setComposerError('')
       draftSendAttemptRef.current = {
         signature: '',
         threadId: '',
@@ -396,7 +419,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     ),
     onSuccess: async () => {
       setAttachments([])
-      setComposerError('')
       await Promise.all([
         client.invalidateQueries({ queryKey: messageKeys.pages(selectedThreadId!) }),
         client.invalidateQueries({ queryKey: messageKeys.detail(selectedThreadId!) }),
@@ -404,20 +426,21 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         client.invalidateQueries({ queryKey: ['threads', 'summary'] }),
       ])
     },
-    onError: () => setComposerError('Не вдалося надіслати. Текст збережено, можна повторити.'),
   })
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
-      const uploaded = await Promise.all(
-        files.slice(0, 5 - attachments.length).map((file) => uploadMessageAttachment(selectedThreadId!, file)),
-      )
-      return uploaded
+      return uploadMessageAttachments(selectedThreadId!, files)
     },
-    onSuccess: (uploaded) => {
-      setAttachments((current) => [...current, ...uploaded].slice(0, 5))
-      setComposerError('')
+    onSuccess: ({ uploaded }) => {
+      setAttachments((current) => [...current, ...uploaded])
     },
-    onError: () => setComposerError('Не вдалося додати файл.'),
+  })
+  const { isDragging: isConversationDragging, dropTargetProps: conversationDropTargetProps } = useFileDropTarget({
+    disabled: tab !== 'chat'
+      || chatScreen !== 'conversation'
+      || !detail.data?.canPost
+      || upload.isPending,
+    onFiles: (files) => upload.mutate(files),
   })
   const markThreadRead = useMutation({
     mutationFn: ({ threadId, messageId }: { threadId: string; messageId: string }) => api(
@@ -470,7 +493,17 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     setProfileSummaryOpen(false)
     setChatFilesOpen(false)
     setAttachments([])
-    setComposerError('')
+  }
+
+  function openUserChat(contact: ChatContactUser) {
+    setChatUserQuery('')
+    setChatSearchOpen(false)
+    if (contact.directThreadId) {
+      selectThread(contact.directThreadId)
+      return
+    }
+    navigate(`/messages?to=${encodeURIComponent(contact.id)}`)
+    props.onClose()
   }
 
   function openNotification(item: NotificationItem) {
@@ -499,8 +532,39 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
 
       {tab === 'chat' && chatScreen === 'threads' && (
         <section className="right-panel__screen right-panel__threads" aria-label="Діалоги">
-          <div className="right-panel__screen-heading">
-            <div><h2>Чат</h2><p>Останні робочі діалоги</p></div>
+          <div className="right-panel__screen-heading right-panel__threads-heading">
+            <div
+              className="right-panel__user-search"
+              onFocusCapture={() => setChatSearchOpen(true)}
+              onBlurCapture={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setChatSearchOpen(false)
+              }}
+            >
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                value={chatUserQuery}
+                placeholder="Пошук людей"
+                aria-label="Пошук користувачів для чату"
+                aria-autocomplete="list"
+                aria-expanded={chatSearchOpen && Boolean(chatUserQuery)}
+                onChange={(event) => setChatUserQuery(event.target.value)}
+                onCompositionStart={onChatSearchCompositionStart}
+                onCompositionEnd={onChatSearchCompositionEnd}
+              />
+              {chatSearchOpen && normalizedCodePointLength(chatUserQuery) >= 1 && (
+                <div className="right-panel__user-search-results" role="listbox" aria-label="Користувачі">
+                  {chatUserSearch.isLoading || chatUserQuery !== debouncedChatUserQuery ? (
+                    <span>Шукаємо…</span>
+                  ) : chatUserSearch.data?.items.length ? chatUserSearch.data.items.map((contact) => (
+                    <button key={contact.id} type="button" role="option" onClick={() => openUserChat(contact)}>
+                      <Avatar name={contact.displayName} src={contact.avatarAsset} />
+                      <span><strong>{contact.displayName}</strong><small>@{contact.username}</small></span>
+                    </button>
+                  )) : <span>Користувачів не знайдено</span>}
+                </div>
+              )}
+            </div>
             <Link to="/messages?new=1" onClick={props.onClose}>Новий чат</Link>
           </div>
           {threadPages.isLoading ? <Skeleton rows={7} /> : threadPages.isError ? (
@@ -540,11 +604,13 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
 
       {tab === 'chat' && chatScreen === 'conversation' && (
         <section
-          className="right-panel__screen right-panel__conversation"
+          className="right-panel__screen right-panel__conversation is-file-drop-target"
           aria-label={targetIsCurrentUser
             ? `Профіль: ${profile.data?.displayName ?? ''}`
             : `Діалог: ${detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? ''}`}
+          {...conversationDropTargetProps}
         >
+          <FileDropOverlay active={isConversationDragging} label="Відпустіть файли, щоб прикріпити до повідомлення" />
           <div className={`right-panel__person-overview ${profileSummaryOpen ? 'is-open' : ''}`}>
             <header className="right-panel__conversation-header">
               <IconButton label="До списку діалогів" onClick={() => { props.onClearTarget(); setChatScreen('threads'); setProfileSummaryOpen(false) }}><ArrowLeft size={19} /></IconButton>
@@ -608,7 +674,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 key={targetContact.data.id}
                 contact={targetContact.data}
                 sending={sendDraft.isPending}
-                error={sendDraft.isError ? 'Не вдалося надіслати. Текст і файли збережено, можна повторити.' : ''}
                 onEdit={() => sendDraft.reset()}
                 onSend={async (input) => {
                   try {
@@ -639,6 +704,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                   key={`stream:${selectedThreadId}`}
                   messages={messages}
                   currentUserId={user?.id ?? ''}
+                  lastReadMessageId={detail.data.lastReadMessageId}
                   canLoadOlder={Boolean(messagePages.hasNextPage)}
                   loadingOlder={messagePages.isFetchingNextPage}
                   onLoadOlder={() => messagePages.fetchNextPage()}
@@ -652,11 +718,10 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                   attachments={attachments}
                   sending={send.isPending}
                   uploading={upload.isPending}
-                  error={composerError}
                   onReplyCancel={() => {}}
                   onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
                   onFiles={(files) => upload.mutate(files)}
-                  onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment].slice(0, 5))}
+                  onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}
                   onSend={async (input) => {
                     try {
                       await send.mutateAsync(input)
@@ -674,20 +739,16 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
 
       {tab === 'notifications' && (
         <section className="right-panel__screen right-panel__notifications" aria-label="Сповіщення">
-          <div className="right-panel__screen-heading">
-            <div><h2>Сповіщення</h2><p>Робочі оновлення та важливі дії</p></div>
-            {Boolean(notifications.data?.items.some((item) => !item.readAt)) && (
-              <button type="button" disabled={markAllNotifications.isPending} onClick={() => markAllNotifications.mutate()}>Прочитати всі</button>
-            )}
-          </div>
-          <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень">
-            {([
-              ['all', 'Усі'],
-              ['unread', 'Непрочитані'],
-              ['mentions', 'Згадки'],
-            ] as const).map(([value, label]) => (
-              <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
-            ))}
+          <div className="right-panel__screen-heading right-panel__notifications-heading">
+            <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень">
+              {([
+                ['all', 'Усі'],
+                ['unread', 'Непрочитані'],
+                ['mentions', 'Згадки'],
+              ] as const).map(([value, label]) => (
+                <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
+              ))}
+            </div>
           </div>
           {notifications.isLoading ? <Skeleton rows={7} /> : notifications.isError ? (
             <ErrorState title="Не вдалося завантажити сповіщення" onRetry={() => void notifications.refetch()} />
@@ -711,7 +772,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
               ))}
             </div>
           ) : <div className="right-panel__empty"><Bell size={28} /><strong>Нових сповіщень немає</strong></div>}
-          <Link className="right-panel__footer-link" to="/notifications" onClick={props.onClose}>Усі сповіщення <ChevronRight size={16} /></Link>
+          <footer className="right-panel__notifications-footer">
+            {Boolean(notifications.data?.items.some((item) => !item.readAt)) && (
+              <button type="button" disabled={markAllNotifications.isPending} onClick={() => markAllNotifications.mutate()}>Прочитати всі</button>
+            )}
+            <Link className="right-panel__footer-link" to="/notifications" onClick={props.onClose}>Усі сповіщення <ChevronRight size={16} /></Link>
+          </footer>
         </section>
       )}
     </aside>
@@ -826,13 +892,11 @@ function ChatFilesGrid({ files }: { files: ChatAttachmentView[] }) {
 function DirectDraftComposer({
   contact,
   sending,
-  error,
   onEdit,
   onSend,
 }: {
   contact: ChatContactUser
   sending: boolean
-  error: string
   onEdit: () => void
   onSend: (input: { body: string; files: File[] }) => Promise<boolean>
 }) {
@@ -857,7 +921,7 @@ function DirectDraftComposer({
   function addFiles(nextFiles: File[]) {
     if (!nextFiles.length || sending) return
     onEdit()
-    setFiles((current) => [...current, ...nextFiles].slice(0, 5))
+    setFiles((current) => [...current, ...nextFiles])
   }
 
   async function submit() {
@@ -882,17 +946,16 @@ function DirectDraftComposer({
   }
 
   const { isDragging, dropTargetProps } = useFileDropTarget({
-    disabled: sending || files.length >= 5,
+    disabled: sending,
     onFiles: addFiles,
   })
 
   return (
-    <div
-      className="message-composer right-panel__draft-composer is-file-drop-target"
-      {...dropTargetProps}
-    >
-      <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити" />
-      {files.length > 0 && (
+    <MessageComposerFrame
+      className="right-panel__draft-composer is-file-drop-target"
+      dropTargetProps={dropTargetProps}
+      overlay={<FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити" />}
+      attachments={files.length > 0 && (
         <div className="message-composer__attachments">
           {files.map((file, index) => (
             <span key={`${file.name}:${file.size}:${file.lastModified}:${index}`}>
@@ -913,27 +976,31 @@ function DirectDraftComposer({
           ))}
         </div>
       )}
-      <div className="message-composer__row">
-        <input
-          ref={inputRef}
-          type="file"
-          hidden
-          multiple
-          disabled={sending || files.length >= 5}
-          onChange={(event) => {
-            addFiles([...event.target.files ?? []])
-            event.target.value = ''
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Додати файли"
-          title="Додати файли або перетягнути їх сюди"
-          disabled={sending || files.length >= 5}
-          onClick={() => inputRef.current?.click()}
-        >
-          <Paperclip size={21} />
-        </button>
+      leadingActions={(
+        <>
+          <input
+            ref={inputRef}
+            type="file"
+            hidden
+            multiple
+            disabled={sending}
+            onChange={(event) => {
+              addFiles([...event.target.files ?? []])
+              event.target.value = ''
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Додати файли"
+            title="Додати файли або перетягнути їх сюди"
+            disabled={sending}
+            onClick={() => inputRef.current?.click()}
+          >
+            <Paperclip size={21} />
+          </button>
+        </>
+      )}
+      input={(
         <textarea
           ref={textareaRef}
           className="message-composer__input"
@@ -954,6 +1021,8 @@ function DirectDraftComposer({
           }}
           onPaste={handlePaste}
         />
+      )}
+      sendAction={(
         <button
           type="button"
           className="message-composer__send"
@@ -963,9 +1032,8 @@ function DirectDraftComposer({
         >
           {sending ? <LoaderCircle className="is-spinning" size={20} /> : <Send size={20} />}
         </button>
-      </div>
-      <div className="message-composer__status" role="status" aria-live="polite">{error}</div>
-    </div>
+      )}
+    />
   )
 }
 
@@ -982,19 +1050,43 @@ function ConversationEmptyState({ title, description }: { title: string; descrip
 function PanelMessageStream({
   messages,
   currentUserId,
+  lastReadMessageId,
   canLoadOlder,
   loadingOlder,
   onLoadOlder,
 }: {
   messages: ChatMessageView[]
   currentUserId: string
+  lastReadMessageId: string | null
   canLoadOlder: boolean
   loadingOlder: boolean
   onLoadOlder: () => Promise<unknown>
 }) {
   const [showBottom, setShowBottom] = useState(false)
   const loadingRequestedRef = useRef(false)
+  const lastScrollTopRef = useRef<number | null>(null)
+  const scrollingUpRef = useRef(false)
+  const hasScrollIntentRef = useRef(false)
+  const pointerYRef = useRef<number | null>(null)
+  const touchYRef = useRef<number | null>(null)
   const scroll = usePreservedChatScroll(messages.length)
+  const initialReadRef = useRef(lastReadMessageId)
+  const openedAtRef = useRef(Date.now())
+  const [liveIds, setLiveIds] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    initialReadRef.current = lastReadMessageId
+    openedAtRef.current = Date.now()
+    setLiveIds(new Set())
+  }, [])
+
+  useEffect(() => {
+    const incoming = messages.filter((message) => message.authorId !== currentUserId && Date.parse(message.createdAt) >= openedAtRef.current).map((message) => message.id)
+    if (!incoming.length) return
+    setLiveIds((current) => new Set([...current, ...incoming]))
+  }, [currentUserId, messages])
+
+  const initialReadIndex = initialReadRef.current ? messages.findIndex((message) => message.id === initialReadRef.current) : -1
 
   useEffect(() => {
     if (!loadingOlder) loadingRequestedRef.current = false
@@ -1009,31 +1101,61 @@ function PanelMessageStream({
     })
   }
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const element = scroll.containerRef.current
-      if (element && element.scrollHeight <= element.clientHeight + 1) loadOlder()
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [canLoadOlder, loadingOlder, messages.length])
-
   return (
     <div className="right-panel__message-stage">
       <div
         ref={scroll.containerRef}
         className="right-panel__messages"
         aria-live="polite"
-        onKeyDown={scroll.onUserScrollIntent}
-        onPointerDown={scroll.onUserScrollIntent}
+        onKeyDown={(event) => {
+          if (!['ArrowUp', 'PageUp', 'Home'].includes(event.key)) return
+          scroll.onUserScrollIntent()
+          hasScrollIntentRef.current = true
+          scrollingUpRef.current = true
+        }}
+        onPointerDown={(event) => {
+          pointerYRef.current = event.clientY
+          lastScrollTopRef.current = event.currentTarget.scrollTop
+        }}
+        onPointerMove={(event) => {
+          if (pointerYRef.current === null) return
+          scroll.onUserScrollIntent()
+          hasScrollIntentRef.current = true
+          scrollingUpRef.current = event.clientY > pointerYRef.current
+          pointerYRef.current = event.clientY
+        }}
+        onPointerUp={() => { pointerYRef.current = null }}
         onScroll={() => {
-          scroll.onScroll()
           const element = scroll.containerRef.current
           if (!element) return
+          const previousScrollTop = lastScrollTopRef.current
+          const scrolledUp = scrollingUpRef.current
+            || (previousScrollTop !== null && element.scrollTop < previousScrollTop)
+          lastScrollTopRef.current = element.scrollTop
+          scrollingUpRef.current = false
+          scroll.onScroll()
           setShowBottom(element.scrollHeight - element.scrollTop - element.clientHeight > 180)
-          if (element.scrollTop <= 72) loadOlder()
+          if (hasScrollIntentRef.current && scrolledUp && element.scrollTop <= 72) {
+            hasScrollIntentRef.current = false
+            loadOlder()
+          }
         }}
-        onTouchStart={scroll.onUserScrollIntent}
-        onWheel={scroll.onUserScrollIntent}
+        onTouchStart={(event) => {
+          touchYRef.current = event.touches[0]?.clientY ?? null
+        }}
+        onTouchMove={(event) => {
+          const nextY = event.touches[0]?.clientY
+          if (nextY === undefined || touchYRef.current === null) return
+          scroll.onUserScrollIntent()
+          hasScrollIntentRef.current = true
+          scrollingUpRef.current = nextY > touchYRef.current
+          touchYRef.current = nextY
+        }}
+        onWheel={(event) => {
+          scroll.onUserScrollIntent()
+          hasScrollIntentRef.current = true
+          scrollingUpRef.current = event.deltaY < 0
+        }}
       >
         {loadingOlder && (
           <div className="right-panel__messages-loader" role="status">
@@ -1042,9 +1164,16 @@ function PanelMessageStream({
           </div>
         )}
         <div ref={scroll.contentRef} className="right-panel__message-list">
-          {messages.map((message) => (
-            <CompactMessage key={message.id} message={message} own={message.authorId === currentUserId} />
-          ))}
+          {messages.map((message, index) => {
+            const isNew = message.authorId !== currentUserId && (
+              initialReadRef.current === null || initialReadIndex === -1 || index > initialReadIndex || liveIds.has(message.id)
+            )
+            const boundary = isNew && (index === initialReadIndex + 1 || initialReadIndex === -1 && index === 0)
+            return <div key={message.id}>
+              {boundary && <div className="right-panel__new-messages">Нові повідомлення</div>}
+              <CompactMessage message={message} own={message.authorId === currentUserId} isNew={isNew} />
+            </div>
+          })}
         </div>
       </div>
       {showBottom && (
@@ -1060,16 +1189,46 @@ function PanelMessageStream({
   )
 }
 
-function CompactMessage({ message, own }: { message: ChatMessageView; own: boolean }) {
+function CompactMessage({ message, own, isNew = false }: { message: ChatMessageView; own: boolean; isNew?: boolean }) {
   const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
+  const menuCloseTimer = useRef<number | null>(null)
   const singleImageAttachment = message.attachments.length === 1 && isPreviewableImage(message.attachments[0]!)
     ? message.attachments[0]
     : null
+  const cleanAttachmentCount = message.attachments.filter((attachment) => attachment.scanStatus === 'CLEAN').length
   const deliveryLabel = message.id.startsWith('optimistic:')
     ? 'Надсилається'
     : message.readByCount > 0
       ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
       : 'Відправлено'
+  const closeMenu = () => {
+    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
+    setMenuPosition(null)
+  }
+  const delayMenuClose = () => {
+    menuCloseTimer.current = window.setTimeout(closeMenu, 120)
+  }
+  const keepMenuOpen = () => {
+    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
+  }
+  useEffect(() => {
+    const closeOnAnotherMenu = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== `right-panel-message:${message.id}`) closeMenu()
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest(`#right-panel-message-${message.id}`)) closeMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
+    window.addEventListener('lanka:context-menu-open', closeOnAnotherMenu)
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('lanka:context-menu-open', closeOnAnotherMenu)
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  })
   const messageMeta = (
     <footer className="right-panel__message-meta">
       {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
@@ -1085,7 +1244,22 @@ function CompactMessage({ message, own }: { message: ChatMessageView; own: boole
     </footer>
   )
   return (
-    <article className={`right-panel__message ${own ? 'is-own' : ''}`}>
+    <article
+      id={`right-panel-message-${message.id}`}
+      className={`right-panel__message ${own ? 'is-own' : ''}${isNew ? ' is-new' : ''}`}
+      onContextMenu={(event) => {
+        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+        event.preventDefault()
+        window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `right-panel-message:${message.id}` }))
+        const menuWidth = 248
+        const menuHeight = 340
+        const inset = 8
+        setMenuPosition({
+          left: Math.max(inset, Math.min(event.clientX, window.innerWidth - menuWidth - inset)),
+          top: Math.max(inset, Math.min(event.clientY, window.innerHeight - menuHeight - inset)),
+        })
+      }}
+    >
       {!own && (
         <UserProfileLink
           className="right-panel__message-author-avatar"
@@ -1104,7 +1278,7 @@ function CompactMessage({ message, own }: { message: ChatMessageView; own: boole
           </div>
         ) : message.body ? (
           <div className="right-panel__message-content">
-            <p>{message.body}</p>
+            <p><MentionText body={message.body} mentions={message.mentions} /></p>
             {messageMeta}
           </div>
         ) : null}
@@ -1130,9 +1304,44 @@ function CompactMessage({ message, own }: { message: ChatMessageView; own: boole
             <FileText size={15} /><span>{attachment.fileName}</span><small>Перевіряється</small>
           </span>
         ))}
+        {cleanAttachmentCount >= 3 && (
+          <a
+            className="right-panel__message-archive"
+            href={apiUrl(`/messages/${encodeURIComponent(message.id)}/attachments/archive`)}
+            download
+          >
+            Завантажити {cleanAttachmentCount} файли ZIP
+          </a>
+        )}
         {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
         {!message.body && !message.deletedAt && messageMeta}
       </div>
+      {menuPosition && (
+        <div
+          className="right-panel__message-action-menu"
+          style={menuPosition}
+          role="menu"
+          aria-label="Дії з повідомленням"
+          onMouseEnter={keepMenuOpen}
+          onMouseLeave={delayMenuClose}
+        >
+          <div className="right-panel__message-reactions" aria-hidden="true">
+            <span>❤</span><span>🔥</span><span>👍</span><span>👎</span><span>🥰</span><span>👏</span>
+          </div>
+          <button type="button" role="menuitem" onClick={closeMenu}><Reply size={17} /> Відповісти</button>
+          <button type="button" role="menuitem" onClick={closeMenu}><Pin size={17} /> Прикріпити</button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              void navigator.clipboard?.writeText(message.body)
+              closeMenu()
+            }}
+          ><Copy size={17} /> Копіювати текст</button>
+          <button type="button" role="menuitem" onClick={closeMenu}><Forward size={17} /> Переслати</button>
+          {own && <button type="button" role="menuitem" className="is-danger" onClick={closeMenu}><Trash2 size={17} /> Видалити</button>}
+        </div>
+      )}
     </article>
   )
 }

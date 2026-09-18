@@ -11,55 +11,71 @@ export type FeedRecipientType = z.infer<typeof feedRecipientTypeSchema>
 export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE'])
 export type FeedListFilter = z.infer<typeof feedListFilterSchema>
 
-export const feedItemTypeSchema = z.enum(['ALL', 'POST', 'TASK', 'EVENT', 'ANNOUNCEMENT', 'FILE'])
+export const feedItemTypeSchema = z.enum(['ALL', 'POST', 'TASK', 'EVENT', 'FILE'])
 export type FeedItemType = z.infer<typeof feedItemTypeSchema>
 
-export const feedListQuerySchema = z.object({
-  company: companyScopeSchema.optional(),
-  filter: feedListFilterSchema.default('ALL'),
-  type: feedItemTypeSchema.default('ALL'),
-  authorId: z.string().trim().min(1).max(120).optional(),
-  groupId: z.string().trim().min(1).max(120).optional(),
-  audienceId: z.string().trim().min(1).max(120).optional(),
-  mentioned: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  important: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  dateFrom: z.string().date().optional(),
-  dateTo: z.string().date().optional(),
-  cursor: z.string().max(500).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-}).superRefine((value, context) => {
-  if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
-    context.addIssue({
-      code: 'custom',
-      path: ['dateTo'],
-      message: 'dateTo must not be earlier than dateFrom.',
-    })
-  }
-})
+export const feedListQuerySchema = z
+  .object({
+    company: companyScopeSchema.optional(),
+    filter: feedListFilterSchema.default('ALL'),
+    type: feedItemTypeSchema.default('ALL'),
+    authorId: z.string().trim().min(1).max(120).optional(),
+    groupId: z.string().trim().min(1).max(120).optional(),
+    audienceId: z.string().trim().min(1).max(120).optional(),
+    mentioned: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    important: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    dateFrom: z.string().date().optional(),
+    dateTo: z.string().date().optional(),
+    cursor: z.string().max(500).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .superRefine((value, context) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+      context.addIssue({
+        code: 'custom',
+        path: ['dateTo'],
+        message: 'dateTo must not be earlier than dateFrom.',
+      })
+    }
+  })
 export type FeedListQuery = z.infer<typeof feedListQuerySchema>
 
-export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema.extend({
-  company: companyScopeSchema,
-  audienceType: z.enum(['COMPANY', 'GROUP']),
-  audienceId: z.string().trim().min(1).max(120).optional(),
-}).superRefine((value, context) => {
-  if (value.audienceType === 'GROUP' && !value.audienceId) {
-    context.addIssue({ code: 'custom', path: ['audienceId'], message: 'Group audience requires audienceId.' })
-  }
-})
+export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema
+  .extend({
+    company: companyScopeSchema,
+    audienceType: z.enum(['COMPANY', 'GROUP']),
+    audienceId: z.string().trim().min(1).max(120).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.audienceType === 'GROUP' && !value.audienceId) {
+      context.addIssue({ code: 'custom', path: ['audienceId'], message: 'Group audience requires audienceId.' })
+    }
+  })
 export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQuerySchema>
 
 export const feedAudienceInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('COMPANY') }),
   z.object({
     type: z.literal('COMPANIES'),
-    companyIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+    companyIds: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(100)
       .transform((items) => [...new Set(items)]),
   }),
   z.object({ type: z.literal('GROUP'), groupId: z.string().trim().min(1).max(120) }),
   z.object({
     type: z.literal('USERS'),
-    userIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+    userIds: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(100)
       .transform((items) => [...new Set(items)]),
   }),
 ])
@@ -71,32 +87,40 @@ export const shareFileToFeedSchema = z.object({
 })
 export type ShareFileToFeedInput = z.infer<typeof shareFileToFeedSchema>
 
-export const createFeedPostSchema = z.object({
-  companyId: z.string().trim().min(1).max(120),
-  body: z.string().trim().max(10_000),
-  audience: feedAudienceInputSchema,
-  requiresAcknowledgement: z.boolean().default(false),
-  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(10)
-    .transform((items) => [...new Set(items)])
-    .default([]),
-  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
-    .transform((items) => [...new Set(items)])
-    .default([]),
-  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
-}).superRefine((value, context) => {
-  if (!value.body && value.attachmentIds.length === 0) {
-    context.addIssue({ code: 'custom', path: ['body'], message: 'Post requires text or an attachment.' })
-  }
-  if (value.audience.type === 'COMPANIES' && !value.audience.companyIds.includes(value.companyId)) {
-    context.addIssue({ code: 'custom', path: ['companyId'], message: 'Primary company must be selected.' })
-  }
-})
+export const createFeedPostSchema = z
+  .object({
+    companyId: z.string().trim().min(1).max(120),
+    body: z.string().trim().max(10_000),
+    audience: feedAudienceInputSchema,
+    requiresAcknowledgement: z.boolean().default(false),
+    attachmentIds: z
+      .array(z.string().trim().min(1).max(120))
+      .max(10)
+      .transform((items) => [...new Set(items)])
+      .default([]),
+    mentionedUserIds: z
+      .array(z.string().trim().min(1).max(120))
+      .max(100)
+      .transform((items) => [...new Set(items)])
+      .default([]),
+    mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+  })
+  .superRefine((value, context) => {
+    if (!value.body && value.attachmentIds.length === 0) {
+      context.addIssue({ code: 'custom', path: ['body'], message: 'Post requires text or an attachment.' })
+    }
+    if (value.audience.type === 'COMPANIES' && !value.audience.companyIds.includes(value.companyId)) {
+      context.addIssue({ code: 'custom', path: ['companyId'], message: 'Primary company must be selected.' })
+    }
+  })
 export type CreateFeedPostInput = z.infer<typeof createFeedPostSchema>
 
 export const updateFeedPostSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   expectedVersion: z.number().int().positive(),
-  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
+  mentionedUserIds: z
+    .array(z.string().trim().min(1).max(120))
+    .max(100)
     .transform((items) => [...new Set(items)])
     .optional(),
   mentions: z.array(structuredMentionInputSchema).max(100).optional(),
@@ -106,7 +130,9 @@ export type UpdateFeedPostInput = z.infer<typeof updateFeedPostSchema>
 export const createFeedCommentSchema = z.object({
   body: z.string().trim().min(1).max(4_000),
   replyToCommentId: z.string().trim().min(1).max(120).nullable().optional(),
-  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
+  mentionedUserIds: z
+    .array(z.string().trim().min(1).max(120))
+    .max(100)
     .transform((items) => [...new Set(items)])
     .default([]),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
@@ -118,17 +144,24 @@ export const acknowledgeFeedPostSchema = z.object({
 })
 export type AcknowledgeFeedPostInput = z.infer<typeof acknowledgeFeedPostSchema>
 
-export const markFeedReadSchema = z.object({
-  markers: z.array(z.object({
-    companyId: z.string().trim().min(1).max(120),
-    lastItemId: z.string().trim().min(1).max(120),
-  })).min(1).max(50),
-}).superRefine((value, context) => {
-  const companyIds = value.markers.map((marker) => marker.companyId)
-  if (new Set(companyIds).size !== companyIds.length) {
-    context.addIssue({ code: 'custom', path: ['markers'], message: 'Each company can appear only once.' })
-  }
-})
+export const markFeedReadSchema = z
+  .object({
+    markers: z
+      .array(
+        z.object({
+          companyId: z.string().trim().min(1).max(120),
+          lastItemId: z.string().trim().min(1).max(120),
+        }),
+      )
+      .min(1)
+      .max(50),
+  })
+  .superRefine((value, context) => {
+    const companyIds = value.markers.map((marker) => marker.companyId)
+    if (new Set(companyIds).size !== companyIds.length) {
+      context.addIssue({ code: 'custom', path: ['markers'], message: 'Each company can appear only once.' })
+    }
+  })
 export type MarkFeedReadInput = z.infer<typeof markFeedReadSchema>
 
 export interface FeedAudienceOption {
@@ -213,7 +246,7 @@ export interface FeedSourceView {
   id: string
   itemId: string
   companyId: string
-  sourceType: 'TASK' | 'EVENT' | 'ANNOUNCEMENT' | 'FILE'
+  sourceType: 'TASK' | 'EVENT' | 'FILE'
   action: string
   actor: {
     id: string

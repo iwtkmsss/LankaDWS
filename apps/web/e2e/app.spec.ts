@@ -9,6 +9,14 @@ async function login(page: Page, username = 'maria') {
   await expect(page).toHaveURL(/\/feed$/)
 }
 
+async function openTaskEditing(page: Page) {
+  const status = page.getByLabel('Змінити статус')
+  if (await status.isVisible()) return
+  await page.getByLabel('Дії із завданням').click()
+  await page.getByRole('menuitem', { name: 'Редагувати' }).click()
+  await expect(status).toBeVisible()
+}
+
 test('profile menu closes when clicking outside it', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await login(page, 'dmytro')
@@ -88,18 +96,13 @@ test('home landing uses the feed and removed overview is not addressable', async
 async function createTaskThroughModal(
   page: Page,
   title: string,
-  options: { description?: string; additionalResponsible?: string } = {},
+  options: { description?: string } = {},
 ) {
   await page.goto('/tasks/new')
   const dialog = page.getByRole('dialog', { name: 'Нове завдання' })
   await expect(dialog).toBeVisible()
   await page.getByLabel('Назва завдання').fill(title)
   if (options.description) await page.getByLabel('Опис').fill(options.description)
-  if (options.additionalResponsible) {
-    const responsibleSearch = page.getByRole('combobox', { name: 'Додати: відповідальний' })
-    await responsibleSearch.fill(options.additionalResponsible)
-    await page.getByRole('option', { name: new RegExp(options.additionalResponsible) }).click()
-  }
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
   await expect(page.getByRole('heading', { name: title })).toBeVisible()
@@ -168,7 +171,7 @@ test('organization map moves the camera, highlights a branch and keeps selection
   const transformAtZoomLimit = await map.locator('.organization-map__world').getAttribute('style')
   await page.mouse.wheel(0, 180)
   await expect(map.locator('.organization-map__world')).toHaveAttribute('style', transformAtZoomLimit ?? '')
-  await expect(map.getByRole('button', { name: /LankaDWS/ }).first()).toBeVisible()
+  await expect(map.getByRole('button', { name: /Lanka/ }).first()).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Структура', exact: true })).toHaveClass(/is-active/)
   await expect(page.getByRole('combobox', { name: 'Оберіть компанію' })).toHaveValue('cmp_lankadws_ua')
@@ -180,8 +183,8 @@ test('administrator manages a recursive company structure', async ({ page }, tes
   const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
   await expect(map).toBeVisible()
   await page.getByRole('button', { name: 'Редагувати структуру' }).click()
-  await map.getByRole('button', { name: /LankaDWS\./ }).click()
-  await expect(map.getByRole('heading', { name: 'LankaDWS' })).toBeVisible()
+  await map.getByRole('button', { name: /Lanka\./ }).click()
+  await expect(map.getByRole('heading', { name: 'Lanka' })).toBeVisible()
   await expect(map.getByRole('searchbox', { name: 'Керівник', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Новий підрозділ' }).click()
 
@@ -234,7 +237,7 @@ test('top bar exposes global search without company navigation buttons', async (
   await login(page, 'maria')
   const topbar = page.locator('.topbar')
   await expect(topbar).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Пошук у LankaDWS' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
   await expect(topbar.getByRole('button', { name: 'Компанії' })).toHaveCount(0)
   await expect(topbar.getByRole('button', { name: 'Структура' })).toHaveCount(0)
   await page.keyboard.press('Control+K')
@@ -260,7 +263,7 @@ test('create actions use the left top-bar slot while search stays centered', asy
 
   if (testInfo.project.name === 'desktop-chromium') {
     const topbarBox = await topbar.boundingBox()
-    const searchBox = await topbar.getByRole('button', { name: 'Пошук у LankaDWS' }).boundingBox()
+    const searchBox = await topbar.getByRole('button', { name: 'Пошук у Lanka' }).boundingBox()
     expect(topbarBox).not.toBeNull()
     expect(searchBox).not.toBeNull()
     expect(Math.abs(
@@ -280,7 +283,7 @@ test('create actions use the left top-bar slot while search stays centered', asy
   if (testInfo.project.name === 'desktop-chromium') {
     await page.goto('/calendar')
     await expect(topbar.getByRole('button', { name: 'Створити подію' })).toBeVisible()
-    await expect(topbar.getByRole('button', { name: 'Пошук у LankaDWS' })).toBeVisible()
+    await expect(topbar.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
     const [calendarToolbar, calendarNavigation] = await Promise.all([
       page.locator('.calendar-view-switch').boundingBox(),
       page.locator('.calendar-nav--topbar').boundingBox(),
@@ -297,18 +300,12 @@ test('create actions use the left top-bar slot while search stays centered', asy
   await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeVisible()
 })
 
-test('global admin chooses a company before adding a drive file', async ({ page }) => {
+test('global admin uses a personal drive without choosing a company', async ({ page }) => {
   await login(page, 'dmytro')
   await page.goto('/drive')
 
   const topbar = page.locator('.topbar')
-  const company = topbar.getByRole('combobox', { name: 'Компанія' })
-  await expect(company).toBeVisible()
-  await expect(company.locator('option')).not.toHaveCount(1)
-  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeDisabled()
-  await expect(topbar.getByRole('button', { name: 'Нова папка' })).toBeDisabled()
-  await company.selectOption('cmp_lankadws_ua')
-  await expect(page).toHaveURL(/\/drive\?companyId=cmp_lankadws_ua/)
+  await expect(topbar.getByRole('combobox', { name: 'Компанія' })).toHaveCount(0)
   await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeEnabled()
   await expect(topbar.getByRole('button', { name: 'Нова папка' })).toBeEnabled()
 })
@@ -388,7 +385,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
     description: 'Один зрозумілий результат із окремою відповідальною підзадачею.',
   })
 
-  await page.getByRole('button', { name: 'Розгорнути секцію «Підзадачі»' }).click()
+  await page.getByLabel(/секцію «Зв’язки»/).click()
   await page.getByRole('button', { name: 'Додати підзадачу' }).click()
   const subtaskForm = page.locator('.task-subtask-form')
   await subtaskForm.getByPlaceholder('Який окремий результат потрібен?').fill(subtaskTitle)
@@ -398,6 +395,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   await expect(page.getByText('0 із 1 завершено')).toBeVisible()
   await expect(page.locator('.task-subtask-list').getByText(subtaskTitle)).toBeVisible()
 
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   const blocker = page.getByRole('alert').filter({ hasText: 'Завдання ще не готове до завершення' })
   await expect(blocker).toBeVisible()
@@ -405,18 +403,22 @@ test('task detail creates a real subtask and explains why the parent cannot fini
 
   await page.locator('.task-subtask-list').getByRole('link', { name: new RegExp(subtaskTitle) }).click()
   await expect(page.getByRole('heading', { name: subtaskTitle })).toBeVisible()
+  const parentLink = page.getByRole('link', { name: /До батьківського завдання/ })
+  if (!await parentLink.isVisible()) await page.getByLabel(/секцію «Зв’язки»/).click()
   await expect(page.getByRole('link', { name: /До батьківського завдання/ })).toBeVisible()
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
 
   await page.getByRole('link', { name: /До батьківського завдання/ }).click()
   await expect(page.getByRole('heading', { name: parentTitle })).toBeVisible()
   await expect(page.getByText('1 із 1 завершено')).toBeVisible()
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
 
-  await page.getByRole('button', { name: 'Розгорнути секцію «Матеріали»' }).click()
-  const materials = page.locator('.task-materials')
+  await page.getByLabel('Матеріали').click()
+  const materials = page.locator('.task-detail-materials')
   const fileName = `task-material-${testInfo.project.name}.txt`
   await materials.getByLabel(/Додати файл/).setInputFiles({
     name: fileName,
@@ -424,10 +426,9 @@ test('task detail creates a real subtask and explains why the parent cannot fini
     buffer: Buffer.from('Контекст завдання'),
   })
   await expect(materials.getByText(fileName)).toBeVisible()
-  await page.getByRole('button', { name: 'Розгорнути секцію «Обговорення»' }).click()
   const discussion = page.locator('.task-discussion')
   await discussion.getByLabel('Додати файл із матеріалів').selectOption({ label: fileName })
-  await discussion.getByPlaceholder('Додати корисний коментар…').fill('Матеріал додано до рішення.')
+  await discussion.getByPlaceholder('Написати повідомлення…').fill('Матеріал додано до рішення.')
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   await expect(discussion.getByText('Матеріал додано до рішення.')).toBeVisible()
   await discussion.getByRole('button', { name: 'Відповісти' }).click()
@@ -459,60 +460,66 @@ test('task role views explain why a task is visible and participant management s
   await page.getByRole('tab', { name: /Спостерігаю/ }).click()
   await expect(page).toHaveURL(/role=OBSERVER/)
   await page.getByRole('link', { name: /Підготувати доступи нового працівника/ }).click()
-  await page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' }).click()
-  await expect(page.getByRole('heading', { name: 'Учасники' })).toBeVisible()
-  await expect(page.getByText('Спостерігачі', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Спостерігачі' })).toBeVisible()
   await expect(page.getByLabel('Змінити статус')).toHaveCount(0)
 
   const title = `Перевірити керування учасниками · ${testInfo.project.name}`
-  await createTaskThroughModal(page, title, { additionalResponsible: 'Андрій Коваль' })
-  const expandParticipants = page.getByRole('button', { name: 'Розгорнути секцію «Учасники»' })
-  if (await expandParticipants.isVisible()) await expandParticipants.click()
-  await page.getByRole('button', { name: 'Керувати' }).click()
-  const participantSection = page.locator('.task-participants')
+  await createTaskThroughModal(page, title)
+  await openTaskEditing(page)
+  const participantSection = page.getByRole('region', { name: 'Спостерігачі' })
   const participantId = 'usr_marko'
   const participantName = 'Марко Литвин'
-  await participantSection.getByLabel('Людина').selectOption(participantId)
-  await participantSection.getByLabel('Роль у завданні').selectOption('OBSERVER')
-  await participantSection.getByRole('button', { name: 'Додати учасника' }).click()
-  await expect(participantSection.getByText('Учасника додано.')).toBeVisible()
+  await participantSection.getByLabel('Додати: спостерігачі').selectOption(participantId)
+  await participantSection.getByRole('button', { name: 'Додати учасника до ролі «Спостерігачі»' }).click()
+  await expect(page.getByText('Учасника додано.')).toBeVisible()
   const participantChip = participantSection.locator('.task-role-people strong', { hasText: participantName })
   await expect(participantChip).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({
-    path: `artifacts/screenshots/${testInfo.project.name}-task-roles.png`,
-    fullPage: true,
-  })
   await participantSection
     .getByRole('button', { name: new RegExp(`Вилучити ${participantName}`) })
     .click()
-  await expect(participantSection.getByText('Учасника вилучено.')).toBeVisible()
+  await expect(page.getByText('Учасника вилучено.')).toBeVisible()
   await expect(participantChip).toHaveCount(0)
 })
 
-test('task approval completes through the standalone detail for requester and approver', async ({ page }, testInfo) => {
+test('only an administrator can edit or delete task discussion messages', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
   await login(page, 'maria')
-  const title = `Погодження інтеграції · ${testInfo.project.name} · ${Date.now()}`
+  const title = `Адмінські дії в обговоренні · ${testInfo.project.name} · ${Date.now()}`
   await createTaskThroughModal(page, title)
   const taskUrl = page.url()
-  const approval = page.getByRole('region', { name: 'Погодження' })
+  const discussion = page.getByRole('region', { name: 'Обговорення' })
+  const originalMessage = 'Повідомлення для перевірки прав адміністратора.'
+  await discussion.getByPlaceholder('Написати повідомлення…').fill(originalMessage)
+  await discussion.getByRole('button', { name: 'Надіслати' }).click()
+  const originalBubble = discussion.locator('article', { hasText: originalMessage })
+  await expect(originalBubble).toBeVisible()
+  await expect(originalBubble.getByRole('button', { name: /Редагувати повідомлення/ })).toHaveCount(0)
+  await expect(originalBubble.getByRole('button', { name: /Видалити повідомлення/ })).toHaveCount(0)
 
-  await approval.getByLabel('Approver завдання').selectOption('usr_dmytro')
-  await approval.getByRole('button', { name: 'Запросити погодження' }).click()
-  await expect(approval.getByText('Запит на погодження надіслано.')).toBeVisible()
-  await expect(approval.getByText(/Очікуємо рішення від/)).toBeVisible()
-
-  await page.context().clearCookies()
+  await page.locator('.profile-button').click()
+  await page.getByRole('button', { name: 'Вийти' }).click()
+  await expect(page).toHaveURL(/\/login$/)
   await login(page, 'dmytro')
   await page.goto(taskUrl)
-  const approverView = page.getByRole('region', { name: 'Погодження' })
-  await approverView.getByLabel('Коментар до рішення (необов’язково)').fill('Перевірено в інтеграційному E2E.')
-  await approverView.getByRole('button', { name: 'Погодити' }).click()
 
-  await expect(approverView.getByText('Завдання погоджено й завершено.')).toBeVisible()
-  await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
-  await expect(approverView.getByText(/Історія погоджень · 1/)).toBeVisible()
+  const adminDiscussion = page.getByRole('region', { name: 'Обговорення' })
+  const adminBubble = adminDiscussion.locator('article', { hasText: originalMessage })
+  await adminBubble.getByRole('button', { name: /Редагувати повідомлення/ }).click()
+  const editForm = adminDiscussion.locator('form.task-comment-edit-form')
+  const editor = editForm.getByLabel('Редагувати повідомлення')
+  const updatedMessage = 'Відредаговано адміністратором.'
+  await editor.fill(updatedMessage)
+  await editForm.getByRole('button', { name: 'Зберегти' }).click()
+  const updatedBubble = adminDiscussion.locator('article', { hasText: updatedMessage })
+  await expect(updatedBubble).toBeVisible()
+  await expect(updatedBubble.getByText('ред.')).toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await updatedBubble.getByRole('button', { name: /Видалити повідомлення/ }).click()
+  await expect(updatedBubble).toHaveCount(0)
+  await expect(adminDiscussion.getByText('Повідомлення видалено.')).toBeVisible()
 })
 
 test('task list column customization persists and resets', async ({ page }, testInfo) => {

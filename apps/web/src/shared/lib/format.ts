@@ -14,7 +14,7 @@ export function formatFileSize(bytes: number | null | undefined): string {
 }
 
 export const statusLabels: Record<string, string> = {
-  NEW: 'Нове', PLANNED: 'Заплановано', IN_PROGRESS: 'У роботі', IN_REVIEW: 'На перевірці', DONE: 'Виконано', BLOCKED: 'Заблоковано', CANCELLED: 'Скасовано', ARCHIVED: 'Архів',
+  NEW: 'Нове', IN_PROGRESS: 'У роботі', IN_REVIEW: 'На перевірці', DONE: 'Завершене', ARCHIVED: 'Архівоване',
   DRAFT: 'Чернетка', SUBMITTED: 'Подано', PENDING: 'На погодженні', APPROVED: 'Погоджено', RETURNED: 'Повернуто', REJECTED: 'Відхилено',
   NOT_STARTED: 'Не розпочато', QUEUED: 'У черзі', RUNNING: 'Виконується', SUCCEEDED: 'Завершено', PARTIAL_FAILURE: 'Часткова помилка', FAILED: 'Помилка',
   ACTIVE: 'Активний', INACTIVE: 'Деактивований', READY: 'Готово', SUSPENDED: 'Призупинений', PUBLISHED: 'Опубліковано', SCHEDULED: 'Заплановано',

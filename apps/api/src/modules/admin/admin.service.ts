@@ -182,7 +182,7 @@ export class AdminService {
       if (fullAdminCount <= 1) throw forbidden('Не можна деактивувати останнього повного адміністратора.')
     }
     const activeTaskWhere = {
-      status: { notIn: ['DONE', 'ARCHIVED', 'CANCELLED'] },
+      status: { notIn: ['DONE', 'ARCHIVED'] },
       OR: [
         { reporterId: targetId },
         {

@@ -18,7 +18,7 @@ export class LifecycleController {
   }
 
   @Post()
-  start(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; employeeId: string; processType: 'ONBOARDING' | 'OFFBOARDING'; startAt: string; endAt?: string }) {
+  start(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; employeeId: string; startAt: string; endAt?: string }) {
     return this.lifecycle.start(principalFrom(request), body)
   }
 

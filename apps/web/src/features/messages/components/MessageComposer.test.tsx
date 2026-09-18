@@ -21,7 +21,6 @@ function renderComposer(
         attachments={attachments}
         sending={false}
         uploading={false}
-        error=""
         onReplyCancel={vi.fn()}
         onRemoveAttachment={vi.fn()}
         onFiles={onFiles}
@@ -58,6 +57,7 @@ describe('MessageComposer', () => {
     expect(onSend).toHaveBeenCalledTimes(1)
     finish?.(true)
     await waitFor(() => expect(input).toHaveValue(''))
+    await waitFor(() => expect(input).toHaveFocus())
   })
 
   it('sends with Enter and clears the draft after success', async () => {

@@ -32,7 +32,7 @@ export function fetchDrive(query: DriveQueryInput): Promise<DriveListResult> {
   return api<DriveListResult>(`/drive${qs ? `?${qs}` : ''}`)
 }
 
-export function createFolder(input: { name: string; parentId?: string | null; companyId?: string }) {
+export function createFolder(input: { name: string; parentId?: string | null }) {
   return api<DriveFolderItem>('/drive/folders', { method: 'POST', body: jsonBody(input) })
 }
 
@@ -105,7 +105,7 @@ export function revokeShare(shareId: string) {
 }
 
 /** Saves a file the user can already see (e.g. a chat attachment) onto their Drive. */
-export function importFileToDrive(input: { fileId: string; name?: string; folderId?: string | null; companyId?: string }) {
+export function importFileToDrive(input: { fileId: string; name?: string; folderId?: string | null }) {
   return api<{ id: string; name: string }>('/drive/import-file', { method: 'POST', body: jsonBody(input) })
 }
 
@@ -114,11 +114,11 @@ export function driveDocumentAsAttachment(documentId: string) {
   return api<ChatAttachmentLike>(`/drive/documents/${encodeURIComponent(documentId)}/as-attachment`, { method: 'POST' })
 }
 
-export async function uploadToDrive(file: File, companyId: string | undefined, folderId: string | null): Promise<string> {
+export async function uploadToDrive(file: File, folderId: string | null): Promise<string> {
   const form = new FormData()
   form.set('file', file)
   const uploaded = await api<{ id: string; scanStatus: string }>(
-    `/files${companyId ? `?company=${encodeURIComponent(companyId)}` : ''}`,
+    '/files',
     { method: 'POST', body: form },
   )
   let scanStatus = uploaded.scanStatus
@@ -129,7 +129,7 @@ export async function uploadToDrive(file: File, companyId: string | undefined, f
   if (scanStatus !== 'CLEAN') throw new Error('scan')
   const created = await api<{ id: string }>('/documents', {
     method: 'POST',
-    body: jsonBody({ ...(companyId ? { companyId } : {}), name: file.name.replace(/\.[^/.]+$/, ''), fileId: uploaded.id }),
+    body: jsonBody({ name: file.name.replace(/\.[^/.]+$/, ''), fileId: uploaded.id }),
   })
   if (folderId) await moveDocument(created.id, folderId, 1)
   return created.id

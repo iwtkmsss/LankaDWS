@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common'
 import { FeedModule } from '../feed/feed.module.js'
 import { FilesModule } from '../files/files.module.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
-import { TaskApprovalService } from './task-approval.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
@@ -21,7 +20,6 @@ import { TasksService } from './tasks.service.js'
 const taskServices = [
   TaskCatalogService,
   TaskAttachmentsService,
-  TaskApprovalService,
   TaskChecklistService,
   TaskCommandService,
   TaskHierarchyService,

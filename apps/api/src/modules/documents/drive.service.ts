@@ -44,9 +44,9 @@ export class DriveService {
   /** Saves a file the principal can already read (a chat attachment, say) onto their Drive. */
   async importFile(
     principal: AuthPrincipal,
-    input: { fileId: string; name?: string; folderId?: string | null; companyId?: string },
+    input: { fileId: string; name?: string; folderId?: string | null },
   ) {
-    const companyId = this.scope.assertCompany(principal, input.companyId)
+    const companyId = this.scope.assertCompany(principal, undefined)
     if (input.folderId) {
       const folder = await this.prisma.driveFolder.findFirst({
         where: { id: input.folderId, companyId, trashedAt: null },
@@ -120,7 +120,7 @@ export class DriveService {
   }
 
   async list(principal: AuthPrincipal, query: DriveListQuery): Promise<DriveListResult> {
-    const companyIds = this.scope.allowedCompanies(principal, query.company)
+    const companyIds = this.scope.allowedCompanies(principal)
     const grants = await this.sharing.grantsFor(principal)
     const admin = isGlobalAdmin(principal)
     const since = modifiedSince(query.modified)

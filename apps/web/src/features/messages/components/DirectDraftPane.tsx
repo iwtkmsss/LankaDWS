@@ -1,26 +1,37 @@
 import type { ChatContactUser } from '@lankadws/contracts'
-import { ArrowLeft, LoaderCircle, Send } from 'lucide-react'
-import { useEffect, useRef } from 'react'
-import { Avatar, Button, IconButton } from '../../../shared/ui'
+import { ArrowLeft, LoaderCircle, Paperclip, Send } from 'lucide-react'
+import { useEffect, useRef, type ClipboardEvent } from 'react'
+import { MessageComposerFrame } from '../../../shared/messages/MessageComposerFrame'
+import { Avatar, IconButton } from '../../../shared/ui'
 
 export function DirectDraftPane({
   contact,
   body,
   creating,
-  error,
   onBack,
   onBodyChange,
-  onRetry,
+  onFiles,
 }: {
   contact: ChatContactUser
   body: string
   creating: boolean
-  error: string
   onBack: () => void
   onBodyChange: (value: string) => void
-  onRetry: () => void
+  onFiles: (files: File[]) => void
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function addFiles(files: File[]) {
+    if (files.length && !creating) onFiles(files)
+  }
+
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files]
+    if (!files.length) return
+    event.preventDefault()
+    addFiles(files)
+  }
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -45,8 +56,27 @@ export function DirectDraftPane({
         <span>Діалог з’явиться у списку після першого повідомлення.</span>
       </div>
 
-      <div className="message-composer direct-draft__composer">
-        <div className="message-composer__row">
+      <MessageComposerFrame
+        className="direct-draft__composer"
+        leadingActions={(
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              hidden
+              multiple
+              disabled={creating}
+              onChange={(event) => {
+                addFiles([...event.target.files ?? []])
+                event.target.value = ''
+              }}
+            />
+            <button type="button" aria-label="Додати файли" disabled={creating} onClick={() => inputRef.current?.click()}>
+              <Paperclip size={21} />
+            </button>
+          </>
+        )}
+        input={(
           <textarea
             ref={textareaRef}
             autoFocus
@@ -57,18 +87,15 @@ export function DirectDraftPane({
             value={body}
             placeholder="Напишіть повідомлення…"
             onChange={(event) => onBodyChange(event.target.value)}
+            onPaste={handlePaste}
           />
+        )}
+        sendAction={(
           <button type="button" className="message-composer__send" aria-label="Надіслати" disabled>
             {creating ? <LoaderCircle className="is-spinning" size={20} /> : <Send size={20} />}
           </button>
-        </div>
-        <div className="message-composer__status" role="status" aria-live="polite">
-          {creating ? 'Зберігаємо чат…' : error}
-          {error && (
-            <Button type="button" variant="ghost" onClick={onRetry}>Спробувати ще раз</Button>
-          )}
-        </div>
-      </div>
+        )}
+      />
     </section>
   )
 }

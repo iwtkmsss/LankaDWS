@@ -1,3 +1,4 @@
+import { createReadStream } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, normalize, resolve } from 'node:path'
 import { getConfig } from '../../config/config.js'
@@ -24,6 +25,10 @@ export async function promoteFile(key: string): Promise<void> {
 
 export async function readCleanFile(key: string): Promise<Buffer> {
   return readFile(safePath(getConfig().FILE_STORAGE_DIR, key))
+}
+
+export function createCleanFileReadStream(key: string) {
+  return createReadStream(safePath(getConfig().FILE_STORAGE_DIR, key))
 }
 
 export async function writeCleanFile(key: string, bytes: Buffer): Promise<void> {

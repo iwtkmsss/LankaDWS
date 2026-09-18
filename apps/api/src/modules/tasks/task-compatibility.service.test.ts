@@ -27,23 +27,27 @@ function serviceWith(prisma: Record<string, unknown>, access: Record<string, unk
     {} as never,
     {} as never,
     {} as never,
-    {
-      invalidatePending: vi.fn().mockResolvedValue(false),
-      assertNoPending: vi.fn().mockResolvedValue(undefined),
-    } as never,
   )
 }
 
 describe('TaskCompatibilityService', () => {
-  it('requires the dedicated approval command for IN_REVIEW', async () => {
-    const service = serviceWith({})
+  it('keeps comment editing and deletion admin-only', async () => {
+    const access = {
+      readableTask: vi.fn().mockResolvedValue({
+        id: 'task_1',
+        companyId: 'cmp_1',
+      }),
+    }
+    const service = serviceWith({}, access)
 
-    await expect(service.changeStatus(
-      principal(),
-      'task_1',
-      'IN_REVIEW',
-      1,
-    )).rejects.toMatchObject({ status: 400, code: 'task_approval_required' })
+    await expect(service.updateComment(principal(), 'task_1', 'comment_1', {
+      body: 'Оновлений текст',
+      mentions: [],
+      expectedVersion: 1,
+    })).rejects.toMatchObject({ status: 403, code: 'forbidden' })
+    await expect(service.deleteComment(principal(), 'task_1', 'comment_1', {
+      expectedVersion: 1,
+    })).rejects.toMatchObject({ status: 403, code: 'forbidden' })
   })
 
   it('maps the legacy collaborator list onto v2 participants, dueAt and URGENT', async () => {
@@ -58,6 +62,8 @@ describe('TaskCompatibilityService', () => {
       priority: 'URGENT',
       dueAt: new Date('2026-08-01T12:00:00.000Z'),
       version: 3,
+      createdAt: new Date('2026-07-01T09:00:00.000Z'),
+      updatedAt: new Date('2026-07-02T09:00:00.000Z'),
       createdById: 'usr_creator',
       reporterId: 'usr_reporter',
       reporter: {

@@ -20,6 +20,7 @@ function draft(): TaskCreateDraft {
     parentTaskId: '',
     reporterId: 'usr_1',
     priority: 'HIGH',
+    requiresAcceptance: false,
     startsAt: '2026-08-01T09:00',
     dueAt: '2026-08-01T18:00',
     estimatedMinutes: '120',
@@ -103,8 +104,35 @@ describe('task create payload', () => {
       participants: [{ userId: 'usr_1', role: 'WATCHER' }],
     })).toEqual({
       section: 'participants',
-      message: 'Додайте принаймні одного відповідального.',
+      message: 'Оберіть одного відповідального.',
     })
+
+    expect(validateTaskCreateDraft({
+      ...draft(),
+      participants: [
+        { userId: 'usr_1', role: 'RESPONSIBLE' },
+        { userId: 'usr_2', role: 'RESPONSIBLE' },
+      ],
+    })).toEqual({
+      section: 'participants',
+      message: 'Оберіть одного відповідального.',
+    })
+  })
+
+  it('keeps only the first responsible in a defensive payload mapping', () => {
+    const payload = mapTaskCreatePayload({
+      ...draft(),
+      participants: [
+        { userId: 'usr_1', role: 'RESPONSIBLE' },
+        { userId: 'usr_2', role: 'RESPONSIBLE' },
+        { userId: 'usr_3', role: 'WATCHER' },
+      ],
+    })
+
+    expect(payload.participants).toEqual([
+      { userId: 'usr_1', role: 'RESPONSIBLE' },
+      { userId: 'usr_3', role: 'WATCHER' },
+    ])
   })
 })
 
