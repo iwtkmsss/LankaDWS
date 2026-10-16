@@ -1,3 +1,4 @@
+import { personName } from '../../../shared/lib/personName'
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import { FileText, HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
@@ -5,9 +6,12 @@ import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
 import { MessageComposerFrame } from '../../../shared/messages/MessageComposerFrame'
 import { DrivePicker } from '../../drive/DrivePicker'
+import { useDiscardDraftAttachment } from '../../../shared/files/useDiscardDraftAttachment'
 import { replyPreviewText } from '../lib/replyPreview'
+import { setMessageDraft, useMessageDrafts } from '../lib/messageDrafts'
 
 interface MessageComposerProps {
+  currentUserId: string
   threadId: string
   initialBody?: string
   onInitialBodyConsumed?: () => void
@@ -22,38 +26,34 @@ interface MessageComposerProps {
   onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
 }
 
-function draftKey(threadId: string): string {
-  return `lankadws:message-draft:${threadId}`
-}
-
-function storedDraft(threadId: string): string {
-  try {
-    return window.sessionStorage.getItem(draftKey(threadId)) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-function storeDraft(threadId: string, body: string): void {
-  try {
-    if (body) window.sessionStorage.setItem(draftKey(threadId), body)
-    else window.sessionStorage.removeItem(draftKey(threadId))
-  } catch {
-    // The in-memory draft remains available when browser storage is blocked.
-  }
-}
-
 export function MessageComposer(props: MessageComposerProps) {
-  const [body, setBody] = useState(() => props.initialBody ?? storedDraft(props.threadId))
-  const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
+  const draft = useMessageDrafts(props.currentUserId)[props.threadId]
+  const body = draft?.body ?? ''
+  const mentions = draft?.mentions ?? []
   const [drivePickerOpen, setDrivePickerOpen] = useState(false)
+  const removal = useDiscardDraftAttachment(props.onRemoveAttachment)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const submittingRef = useRef(false)
   const focusAfterSendRef = useRef(false)
 
   useEffect(() => {
-    if (props.initialBody) props.onInitialBodyConsumed?.()
+    if (props.initialBody) {
+      setMessageDraft(props.currentUserId, props.threadId, props.initialBody)
+      props.onInitialBodyConsumed?.()
+    } else if (!draft) {
+      // Preserve drafts written by the previous composer storage format.
+      try {
+        const key = `lankadws:message-draft:${props.threadId}`
+        const legacyBody = window.sessionStorage.getItem(key)
+        if (legacyBody) {
+          setMessageDraft(props.currentUserId, props.threadId, legacyBody)
+          window.sessionStorage.removeItem(key)
+        }
+      } catch {
+        // Browser storage may be unavailable.
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -62,14 +62,12 @@ export function MessageComposer(props: MessageComposerProps) {
   }, [props.threadId])
 
   useEffect(() => {
-    storeDraft(props.threadId, body)
-  }, [body, props.threadId])
-
-  useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = '0'
-    textarea.style.height = `${Math.min(144, textarea.scrollHeight)}px`
+    const style = getComputedStyle(textarea)
+    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+    textarea.style.height = `${Math.min(144, textarea.scrollHeight + borders)}px`
   }, [body])
 
   useEffect(() => {
@@ -81,14 +79,13 @@ export function MessageComposer(props: MessageComposerProps) {
 
   async function submit() {
     const value = trimMentionValue(body, mentions)
-    if ((!value.body && props.attachments.length === 0) || props.sending || submittingRef.current) return
+    if ((!value.body && props.attachments.length === 0) || props.sending || submittingRef.current || removal.isPending()) return
     submittingRef.current = true
     try {
       const sent = await props.onSend(value)
       if (sent) {
         focusAfterSendRef.current = true
-        setBody('')
-        setMentions([])
+        setMessageDraft(props.currentUserId, props.threadId, '')
       }
     } finally {
       submittingRef.current = false
@@ -109,7 +106,7 @@ export function MessageComposer(props: MessageComposerProps) {
         reply={props.replyTo && (
           <div className="message-composer__reply">
           <span>
-            <strong>Відповідь: {props.replyTo.author.displayName}</strong>
+            <strong>Відповідь: {personName(props.replyTo.author.displayName)}</strong>
             <small>{replyPreviewText(props.replyTo)}</small>
           </span>
           <button type="button" aria-label="Скасувати відповідь" onClick={props.onReplyCancel}>
@@ -123,11 +120,12 @@ export function MessageComposer(props: MessageComposerProps) {
             {props.attachments.map((attachment) => (
               <span key={attachment.id}>
                 <FileText size={15} />
-                {attachment.fileName}
+                <span className="message-composer__attachment-name" title={attachment.fileName}>{attachment.fileName}</span>
                 <button
                   type="button"
                   aria-label={`Прибрати ${attachment.fileName}`}
-                  onClick={() => props.onRemoveAttachment(attachment.id)}
+                  disabled={props.sending || removal.pending}
+                  onClick={() => { if (!submittingRef.current) void removal.discard(attachment.id) }}
                 >
                   <X size={14} />
                 </button>
@@ -187,8 +185,7 @@ export function MessageComposer(props: MessageComposerProps) {
             disabled={props.sending}
             onTextareaRef={(element) => { textareaRef.current = element }}
             onChange={(nextBody, nextMentions) => {
-              setBody(nextBody)
-              setMentions(nextMentions)
+              setMessageDraft(props.currentUserId, props.threadId, nextBody, nextMentions)
             }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
@@ -203,7 +200,7 @@ export function MessageComposer(props: MessageComposerProps) {
             type="button"
             className="message-composer__send"
             aria-label="Надіслати"
-            disabled={(!body.trim() && props.attachments.length === 0) || props.sending}
+            disabled={(!body.trim() && props.attachments.length === 0) || props.sending || removal.pending}
             onClick={() => void submit()}
           >
             {props.sending
@@ -212,6 +209,7 @@ export function MessageComposer(props: MessageComposerProps) {
           </button>
         )}
       />
+      {removal.error && <div className="form-error" role="alert">{removal.error}</div>}
       {drivePickerOpen && props.onDriveAttachment && (
         <DrivePicker
           onPick={(attachment) => props.onDriveAttachment?.(attachment)}

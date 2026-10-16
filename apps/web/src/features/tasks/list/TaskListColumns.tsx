@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   TASK_DETAIL_PREFERENCE_MODULE,
-  TASK_LIST_COLUMN_IDS,
   TASK_LIST_COLUMNS_PREFERENCE_KEY,
   TASK_LIST_COLUMNS_PREFERENCE_SCHEMA_VERSION,
   type TaskListColumnId,
@@ -22,11 +21,20 @@ const columnLabels: Record<TaskListColumnId, string> = {
   dueDate: 'Строк',
   status: 'Статус',
   reporter: 'Постановник',
-  group: 'Група',
   priority: 'Пріоритет',
   subtaskProgress: 'Підзадачі',
   activity: 'Активність',
 }
+
+const availableColumns: TaskListColumnId[] = [
+  'reporter',
+  'responsibles',
+  'dueDate',
+  'status',
+  'priority',
+  'subtaskProgress',
+  'activity',
+]
 
 const preferenceUrl = `/me/ui-preferences/${TASK_DETAIL_PREFERENCE_MODULE}/${TASK_LIST_COLUMNS_PREFERENCE_KEY}`
 const preferenceQueryKey = ['ui-preference', TASK_DETAIL_PREFERENCE_MODULE, TASK_LIST_COLUMNS_PREFERENCE_KEY]
@@ -39,6 +47,7 @@ export function useTaskListColumnsPreference() {
   })
   const stored = query.data?.preference ?? null
   const value = stored?.value ?? DEFAULT_TASK_LIST_COLUMNS
+  const visibleColumns = value.visible.filter((column) => availableColumns.includes(column))
   const save = useMutation({
     mutationFn: (nextValue: TaskListColumnsPreferenceValue) => api<TaskListColumnsUserUiPreferenceView>(preferenceUrl, {
       method: 'PUT',
@@ -66,14 +75,14 @@ export function useTaskListColumnsPreference() {
   const saving = save.isPending || reset.isPending
 
   return {
-    visible: value.visible,
+    visible: visibleColumns,
     isLoading: query.isLoading,
     isSaving: saving,
     error: save.error ?? reset.error,
     setVisible: (column: TaskListColumnId, visible: boolean) => {
       const nextVisible = visible
-        ? [...value.visible, column]
-        : value.visible.filter((item) => item !== column)
+        ? [...visibleColumns, column]
+        : visibleColumns.filter((item) => item !== column)
       if (nextVisible.length <= 5) save.mutate({ visible: nextVisible })
     },
     reset: () => reset.mutate(),
@@ -93,9 +102,8 @@ export function TaskListColumnsControl({ controller }: { controller: ReturnType<
         Колонки
       </summary>
       <div className="task-list-columns__body">
-        <p>Назва й номер завдання показуються завжди. Оберіть до п’яти додаткових колонок.</p>
-        <div className="task-list-columns__mandatory">Завдання (назва й номер)</div>
-        {TASK_LIST_COLUMN_IDS.map((column) => {
+        <p>Оберіть до 5 додаткових колонок</p>
+        {availableColumns.map((column) => {
           const checked = controller.visible.includes(column)
           return (
             <label key={column}>

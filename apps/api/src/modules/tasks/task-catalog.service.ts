@@ -1,13 +1,13 @@
+import { searchUsers } from '../../common/search-users.js'
 import { Injectable } from '@nestjs/common'
 import type { ProjectOption, TagOption, TaskOption } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, notFound } from '../../common/errors.js'
+import { badRequest, conflict } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
 interface TaskOptionsQuery {
-  groupId?: string
   projectId?: string
   search?: string
 }
@@ -102,21 +102,8 @@ export class TaskCatalogService {
   async options(principal: AuthPrincipal, query: TaskOptionsQuery) {
     const companyId = this.scope.assertCompany(principal, undefined)
     const search = query.search?.trim()
-    const groupId = query.groupId?.trim() || null
     const projectId = query.projectId?.trim() || null
-    const [group, project] = await Promise.all([
-      groupId
-        ? this.prisma.group.findFirst({
-            where: {
-              id: groupId,
-              workspaceId: principal.workspaceId,
-              companyId,
-              status: 'ACTIVE',
-              members: { some: { userId: principal.userId, leftAt: null } },
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
+    const [project] = await Promise.all([
       projectId
         ? this.prisma.project.findFirst({
             where: {
@@ -129,33 +116,15 @@ export class TaskCatalogService {
           })
         : Promise.resolve(null),
     ])
-    if (groupId && !group) throw notFound()
     if (projectId && !project) throw badRequest('task_project')
     const [users, projects, tags, tasks] = await Promise.all([
-      this.prisma.user.findMany({
-        where: {
-          workspaceId: principal.workspaceId,
-          isActive: true,
-          ...(search
-            ? { OR: [{ displayName: { contains: search } }, { jobTitle: { contains: search } }] }
-            : {}),
-        },
-        select: {
-          id: true,
-          displayName: true,
-          avatarAsset: true,
-          jobTitle: true,
-        },
-        orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
-        take: 50,
-      }),
+      searchUsers(this.prisma, principal, search ?? ''),
       this.projects(principal, search),
       this.tags(principal, search),
       this.prisma.task.findMany({
         where: {
           workspaceId: principal.workspaceId,
           companyId,
-          groupId,
           ...(projectId ? { projectId } : {}),
           archivedAt: null,
           ...(isGlobalAdmin(principal)
@@ -186,7 +155,6 @@ export class TaskCatalogService {
           number: true,
           title: true,
           status: true,
-          groupId: true,
           projectId: true,
           parentTaskId: true,
         },

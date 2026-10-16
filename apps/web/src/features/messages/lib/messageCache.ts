@@ -118,14 +118,16 @@ export function upsertThreadPreview(
       }))
       if (!found) pages[0] = {
         ...pages[0]!,
-        items: [preview.item, ...pages[0]!.items].slice(0, 30),
+        items: [preview.item, ...pages[0]!.items],
       }
+      let unpinnedCount = 0
       pages[0] = {
         ...pages[0]!,
         items: [...pages[0]!.items].sort((left, right) =>
-          (right.lastMessageAt ?? '').localeCompare(left.lastMessageAt ?? '')
+          Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+          || (right.lastMessageAt ?? '').localeCompare(left.lastMessageAt ?? '')
           || right.id.localeCompare(left.id),
-        ),
+        ).filter((item) => item.pinned || unpinnedCount++ < 30),
       }
       return { ...current, pages }
     },

@@ -1,15 +1,16 @@
+import { conversationName, personName } from '../../../shared/lib/personName'
 import type { ChatMessageView, ChatThreadListItem } from '@lankadws/contracts'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Forward } from 'lucide-react'
 import { useState } from 'react'
 import { idempotencyKey, randomId } from '../../../shared/api/client'
 import { Avatar, Drawer, EmptyState, Skeleton } from '../../../shared/ui'
-import { getThreadPage, sendMessage } from '../api/messageApi'
+import { getThreadDetail, getThreadPage, sendMessage } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
 import { replyPreviewText } from '../lib/replyPreview'
 
 /**
- * Forwards the text of a message into another conversation. Attachments stay
+ * Forwards the text of a message into a selected conversation. Attachments stay
  * with the original message; the forwarded copy carries the attribution line
  * and the text so the recipient can follow the thread back.
  */
@@ -43,13 +44,25 @@ export function ForwardMessageDrawer({
     onSuccess: (_result, threadId) => onForwarded(threadId),
     onError: () => setError('Не вдалося переслати повідомлення. Спробуйте ще раз.'),
   })
-  const targets = (threads.data?.items ?? []).filter((item) => item.id !== currentThreadId)
+  const currentThread = useQuery({
+    queryKey: messageKeys.detail(currentThreadId),
+    queryFn: ({ signal }) => getThreadDetail(currentThreadId, signal),
+    staleTime: 30_000,
+    enabled: Boolean(currentThreadId),
+  })
+  const targets: Pick<ChatThreadListItem, 'id' | 'title' | 'lastMessage' | 'avatarAsset'>[] = [...threads.data?.items ?? []]
+  // The current conversation may be beyond the first page of the thread list.
+  if (currentThread.data && !targets.some((item) => item.id === currentThreadId)) {
+    targets.push({ id: currentThreadId, title: currentThread.data.title, lastMessage: '', avatarAsset: null })
+  }
+  targets.sort((left, right) =>
+    Number(right.id === currentThreadId) - Number(left.id === currentThreadId))
 
   return (
     <Drawer title="Переслати повідомлення" onRequestClose={() => onClose()}>
       <div className="forward-message">
         <section className="forward-message__preview" aria-label="Повідомлення для пересилання">
-          <strong>{message.author.displayName}</strong>
+          <strong>{personName(message.author.displayName)}</strong>
           <p>{replyPreviewText(message)}</p>
           {message.attachments.length > 0 && (
             <small>Файли залишаться в початковому повідомленні.</small>
@@ -62,7 +75,7 @@ export function ForwardMessageDrawer({
           />
         ) : (
           <ul className="forward-message__targets">
-            {targets.map((thread: ChatThreadListItem) => (
+            {targets.map((thread) => (
               <li key={thread.id}>
                 <button
                   type="button"
@@ -72,9 +85,9 @@ export function ForwardMessageDrawer({
                     forward.mutate(thread.id)
                   }}
                 >
-                  <Avatar size="sm" name={thread.title} src={thread.avatarAsset ?? null} />
+                  <Avatar size="sm" name={conversationName(thread)} src={thread.avatarAsset ?? null} />
                   <span>
-                    <strong>{thread.title}</strong>
+                    <strong>{conversationName(thread)}</strong>
                     <small>{thread.lastMessage || 'Без повідомлень'}</small>
                   </span>
                   <Forward size={16} />
@@ -90,7 +103,7 @@ export function ForwardMessageDrawer({
 }
 
 function forwardedBody(message: ChatMessageView): string {
-  const attribution = `Переслано від ${message.author.displayName}:`
+  const attribution = `Переслано від ${personName(message.author.displayName)}:`
   const body = message.body.trim()
   if (body) return `${attribution}\n${body}`
   // A message can carry attachments and no text; name them so the forward

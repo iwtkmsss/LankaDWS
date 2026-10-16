@@ -1,4 +1,6 @@
+import { orgUnitIconSchema } from '@lankadws/contracts'
 import { Injectable } from '@nestjs/common'
+import { z } from 'zod'
 import type {
   AdminOrgUnitListQuery, AdminOrgUnitView, ArchiveOrgUnitInput, AssignOrgUnitEmployeesInput, CreateOrgUnitInput,
   OrgCompanyView, OrgUnitEmployeeView, OrgUnitListQuery, OrgUnitView,
@@ -10,9 +12,12 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
-type ManagerRow = { id: string; displayName: string; jobTitle: string; isActive: boolean; primaryCompanyId: string | null }
+type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null }
 const normalizeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 const normalizedName = (value: string) => normalizeName(value).toLocaleLowerCase('uk')
+const archivedStructureSchema = z.object({ structure: z.array(z.object({
+  id: z.string(), parentId: z.string().nullable(), sortOrder: z.number(), version: z.number(), status: z.enum(['ACTIVE', 'ARCHIVED']),
+})) })
 
 @Injectable()
 export class OrgService {
@@ -33,15 +38,15 @@ export class OrgService {
     // A manager must be an active member of this company's structure. Global
     // admin status alone does not make a user a valid manager.
     if (!manager?.isActive || manager.primaryCompanyId !== companyId) return null
-    return { id: manager.id, displayName: manager.displayName, jobTitle: manager.jobTitle }
+    return { id: manager.id, displayName: manager.displayName, jobTitle: manager.jobTitle, avatarAsset: manager.avatarAsset ?? null }
   }
 
   private async company(principal: AuthPrincipal, companyId: string) {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, workspaceId: principal.workspaceId },
       select: {
-        id: true, displayName: true, description: true, version: true,
-        manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
+        id: true, displayName: true, description: true, logoFileId: true, version: true,
+        manager: { select: { id: true, displayName: true, jobTitle: true, avatarAsset: true, isActive: true, primaryCompanyId: true } },
       },
     })
     if (!company) throw notFound()
@@ -108,8 +113,8 @@ export class OrgService {
 
   private unitSelect(companyId: string) {
     return {
-      id: true, companyId: true, parentId: true, name: true, description: true, status: true, sortOrder: true, version: true,
-      manager: { select: { id: true, displayName: true, jobTitle: true, isActive: true, primaryCompanyId: true } },
+      id: true, companyId: true, parentId: true, name: true, icon: true, description: true, status: true, sortOrder: true, version: true,
+      manager: { select: { id: true, displayName: true, jobTitle: true, avatarAsset: true, isActive: true, primaryCompanyId: true } },
       _count: { select: {
         children: { where: { status: 'ACTIVE' as const } },
         assignments: { where: { endedAt: null, isPrimary: true, user: { isActive: true, accountType: 'USER' as const, primaryCompanyId: companyId } } },
@@ -118,12 +123,12 @@ export class OrgService {
   }
 
   private unitView(unit: {
-    id: string; companyId: string; parentId: string | null; name: string; description: string | null; manager: ManagerRow | null
+    id: string; companyId: string; parentId: string | null; name: string; icon?: string | null; description: string | null; manager: ManagerRow | null
     status: 'ACTIVE' | 'ARCHIVED' | 'INACTIVE'; sortOrder: number; version: number
     _count: { children: number; assignments: number }
   }): OrgUnitView {
     return {
-      id: unit.id, companyId: unit.companyId, parentId: unit.parentId, name: unit.name, description: unit.description,
+      id: unit.id, companyId: unit.companyId, parentId: unit.parentId, name: unit.name, icon: orgUnitIconSchema.safeParse(unit.icon).data ?? null, description: unit.description,
       manager: this.managerView(unit.manager, unit.companyId), activeEmployeeCount: unit._count.assignments,
       childCount: unit._count.children, sortOrder: unit.sortOrder, version: unit.version,
     }
@@ -141,7 +146,7 @@ export class OrgService {
       select: this.unitSelect(companyId), orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
     return {
-      company: { id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
+      company: { logoAsset: company.logoFileId ? `/api/v1/companies/${company.id}/logo/${company.logoFileId}` : null, id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
       items: units.map((unit) => this.unitView(unit)),
     }
   }
@@ -156,7 +161,7 @@ export class OrgService {
       select: this.unitSelect(companyId), orderBy: [{ status: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
     return {
-      company: { id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
+      company: { logoAsset: company.logoFileId ? `/api/v1/companies/${company.id}/logo/${company.logoFileId}` : null, id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
       items: units.map((unit) => ({ ...this.unitView(unit), status: unit.status as 'ACTIVE' | 'ARCHIVED' })),
     }
   }
@@ -172,12 +177,12 @@ export class OrgService {
     const unit = await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
       const created = await tx.orgUnit.create({ data: {
         id: unitId, workspaceId: principal.workspaceId, companyId, parentId, name: normalizeName(input.name), description: input.description || null,
-        normalizedName: normalizedName(input.name), managerId: input.managerId ?? null, sortOrder,
+        icon: input.icon ?? null, normalizedName: normalizedName(input.name), managerId: input.managerId ?? null, sortOrder,
       } })
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.created', entityType: 'ORG_UNIT', entityId: unitId, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ parentId, description: input.description || null, managerId: input.managerId ?? null }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ icon: input.icon ?? null, parentId, description: input.description || null, managerId: input.managerId ?? null }), correlationId: id('corr'),
       } })
       return created
     }))
@@ -205,14 +210,14 @@ export class OrgService {
         where: { id: unit.id, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE', version: input.expectedVersion },
         data: {
           name: normalizeName(nextName), description: nextDescription, normalizedName: normalizedName(nextName), parentId: nextParentId, sortOrder,
-          ...(input.managerId !== undefined ? { managerId: input.managerId } : {}), version: { increment: 1 },
+          ...(input.icon !== undefined ? { icon: input.icon } : {}), ...(input.managerId !== undefined ? { managerId: input.managerId } : {}), version: { increment: 1 },
         },
       })
       if (updated.count !== 1) throw conflict('Підрозділ уже змінено іншим адміністратором.')
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.updated', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ icon: input.icon, name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId }), correlationId: id('corr'),
       } })
     }))
     return { id: unit.id, version: input.expectedVersion + 1 }
@@ -260,39 +265,69 @@ export class OrgService {
     const unit = await this.prisma.orgUnit.findFirst({
       where: { id: unitId, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE' },
       include: {
-        children: { where: { status: 'ACTIVE' }, select: { id: true, name: true, normalizedName: true, sortOrder: true } },
+        children: { where: { status: 'ACTIVE' }, select: { id: true, name: true, normalizedName: true, sortOrder: true, version: true } },
         assignments: { where: { endedAt: null, isPrimary: true, user: { accountType: 'USER', primaryCompanyId: companyId } }, select: { userId: true, positionTitle: true } },
       },
     })
     if (!unit) throw notFound()
     if (unit.version !== input.expectedVersion) throw conflict('Підрозділ уже змінено іншим адміністратором.')
-    const destinationId = unit.parentId ?? input.targetUnitId
-    if (!destinationId) throw conflict('Для відділу верхнього рівня потрібно обрати цільовий підрозділ.')
-    const destination = await this.activeParent(principal, companyId, destinationId)
+    if (input.archiveBranch) {
+      if (input.targetUnitId) throw conflict('Для архівації всієї гілки цільовий підрозділ не потрібен.')
+      return this.prisma.$transaction(async (tx) => {
+        const branch = await tx.orgUnit.findMany({
+          where: { workspaceId: principal.workspaceId, companyId },
+          select: { id: true, parentId: true, status: true, version: true, sortOrder: true },
+        })
+        const descendants = this.descendantIds(unit.id, branch)
+        descendants.add(unit.id)
+        const activeBranch = branch.filter((item) => item.status === 'ACTIVE' && descendants.has(item.id))
+        const root = activeBranch.find((item) => item.id === unit.id)
+        if (!root || root.version !== input.expectedVersion) throw conflict('Підрозділ уже змінено іншим адміністратором.')
+        for (const item of activeBranch) {
+          const result = await tx.orgUnit.updateMany({
+            where: { id: item.id, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE', version: item.version },
+            data: { status: 'ARCHIVED', version: { increment: 1 } },
+          })
+          if (result.count !== 1) throw conflict('Гілку вже змінено іншим адміністратором.')
+        }
+        await tx.userOrgAssignment.updateMany({
+          where: { companyId, orgUnitId: { in: activeBranch.map((item) => item.id) }, endedAt: null },
+          data: { endedAt: new Date(), isPrimary: false },
+        })
+        await tx.auditEvent.create({ data: {
+          id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
+          action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
+          safeDiffJson: JSON.stringify({ archiveBranch: true, archivedUnits: activeBranch.length,
+            structure: activeBranch.map((item) => ({ ...item, version: item.version + 1, status: 'ARCHIVED' })),
+          }), correlationId: id('corr'),
+        } })
+        return { id: unit.id, archived: true as const, version: input.expectedVersion + 1, archivedUnits: activeBranch.length }
+      })
+    }
+    const destinationId = unit.parentId ?? null
+    const destination = destinationId ? await this.activeParent(principal, companyId, destinationId) : null
     const descendants = this.descendantIds(unit.id, await this.allUnits(companyId))
-    if (destination.id === unit.id || descendants.has(destination.id)) throw conflict('Ціль не може бути частиною архівованої гілки.')
+    if (destination && (destination.id === unit.id || descendants.has(destination.id))) throw conflict('Ціль не може бути частиною архівованої гілки.')
     const destinationChildren = await this.prisma.orgUnit.findMany({
-      where: { companyId, parentId: destination.id, status: 'ACTIVE', id: { not: unit.id } }, select: { normalizedName: true },
+      where: { companyId, parentId: destinationId, status: 'ACTIVE', id: { not: unit.id } }, select: { normalizedName: true },
     })
     const existingNames = new Set(destinationChildren.map((item) => item.normalizedName))
     const nameConflicts = unit.children.filter((child) => existingNames.has(child.normalizedName)).map((child) => child.name)
     if (nameConflicts.length) throw conflict(`Конфлікт назв після перенесення: ${nameConflicts.join(', ')}`)
-    const firstMovedSortOrder = await this.nextSortOrder(companyId, destination.id)
+    const firstMovedSortOrder = await this.nextSortOrder(companyId, destinationId)
     const now = new Date()
     await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
       for (const [index, child] of [...unit.children].sort((left, right) => left.sortOrder - right.sortOrder).entries()) {
-        await tx.orgUnit.updateMany({
-          where: { id: child.id, companyId, status: 'ACTIVE' },
-          data: { parentId: destination.id, sortOrder: firstMovedSortOrder + index * 10, version: { increment: 1 } },
+        const moved = await tx.orgUnit.updateMany({
+          where: { id: child.id, companyId, status: 'ACTIVE', version: child.version, parentId: unit.id },
+          data: { parentId: destinationId, sortOrder: firstMovedSortOrder + index * 10, version: { increment: 1 } },
         })
+        if (moved.count !== 1) throw conflict('Дочірній підрозділ уже змінено іншим адміністратором.')
       }
-      for (const assignment of unit.assignments) {
-        await tx.userOrgAssignment.updateMany({ where: { userId: assignment.userId, endedAt: null, isPrimary: true }, data: { endedAt: now, isPrimary: false } })
-        await tx.userOrgAssignment.create({ data: {
-          id: id('uoa'), companyId, userId: assignment.userId, orgUnitId: destination.id,
-          isPrimary: true, positionTitle: assignment.positionTitle, startedAt: now,
-        } })
-      }
+      await tx.userOrgAssignment.updateMany({
+        where: { companyId, orgUnitId: unit.id, endedAt: null },
+        data: { endedAt: now, isPrimary: false },
+      })
       const archived = await tx.orgUnit.updateMany({
         where: { id: unit.id, companyId, status: 'ACTIVE', version: input.expectedVersion },
         data: { status: 'ARCHIVED', version: { increment: 1 } },
@@ -301,10 +336,13 @@ export class OrgService {
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ destinationId: destination.id, employeesMoved: unit.assignments.length, childrenMoved: unit.children.length }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ destinationId, employeesUnassigned: unit.assignments.length, childrenMoved: unit.children.length,
+          structure: [{ id: unit.id, parentId: unit.parentId, sortOrder: unit.sortOrder, version: unit.version + 1, status: 'ARCHIVED' },
+            ...unit.children.map((child) => ({ id: child.id, parentId: unit.id, sortOrder: child.sortOrder, version: child.version + 1, status: 'ACTIVE' }))],
+        }), correlationId: id('corr'),
       } })
     }))
-    return { id: unit.id, archived: true as const, version: input.expectedVersion + 1, destinationId: destination.id }
+    return { id: unit.id, archived: true as const, version: input.expectedVersion + 1, destinationId }
   }
 
   async restoreUnit(principal: AuthPrincipal, companyId: string, unitId: string, input: RestoreOrgUnitInput) {
@@ -317,21 +355,73 @@ export class OrgService {
       await this.activeParent(principal, companyId, parentId)
       if (parentId === unit.id || this.descendantIds(unit.id, await this.allUnits(companyId)).has(parentId)) throw conflict('Не можна відновити підрозділ у його дочірній гілці.')
     }
-    await this.assertUniqueName(companyId, parentId, name, unit.id)
-    const sortOrder = await this.nextSortOrder(companyId, parentId)
     await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
-      const result = await tx.orgUnit.updateMany({
-        where: { id: unit.id, companyId, status: 'ARCHIVED', version: input.expectedVersion },
-        data: { status: 'ACTIVE', parentId, name: normalizeName(name), normalizedName: normalizedName(name), sortOrder, version: { increment: 1 } },
+      const [units, archive] = await Promise.all([
+        tx.orgUnit.findMany({ where: { workspaceId: principal.workspaceId, companyId } }),
+        tx.auditEvent.findFirst({ where: { workspaceId: principal.workspaceId, companyId, entityType: 'ORG_UNIT', entityId: unit.id, action: 'org_unit.archived', result: 'SUCCESS' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { safeDiffJson: true } }),
+      ])
+      let snapshot: z.infer<typeof archivedStructureSchema> | undefined
+      if (archive?.safeDiffJson) {
+        try {
+          const parsed = archivedStructureSchema.safeParse(JSON.parse(archive.safeDiffJson))
+          if (parsed.success) snapshot = parsed.data
+        } catch { /* Older audit records may not include a structure snapshot. */ }
+      }
+      const descendants = this.descendantIds(unit.id, units)
+      const currentRoot = units.find((item) => item.id === unit.id)
+      if (currentRoot?.status !== 'ARCHIVED' || currentRoot.version !== input.expectedVersion) throw conflict('Підрозділ уже змінено іншим адміністратором.')
+      const structure = snapshot?.structure ?? units.filter((item) => item.id === unit.id || (item.status === 'ARCHIVED' && descendants.has(item.id)))
+      const byId = new Map(units.map((item) => [item.id, item]))
+      const restoredIds = new Set(structure.map((item) => item.id))
+      if (!restoredIds.has(unit.id)) throw conflict('Не вдалося прочитати збережену структуру підрозділу.')
+      const planned = structure.map((item) => {
+        const current = byId.get(item.id)
+        if (!current || current.version !== item.version || current.status !== item.status) throw conflict('Гілку вже змінено. Оновіть структуру перед відновленням.')
+        return { ...item, name: item.id === unit.id ? normalizeName(name) : current.name, parentId: item.id === unit.id ? parentId : item.parentId }
       })
-      if (result.count !== 1) throw conflict('Підрозділ уже змінено іншим адміністратором.')
+      const parents = new Map(units.map((item) => [item.id, item.parentId]))
+      for (const item of planned) parents.set(item.id, item.parentId)
+      for (const item of planned) {
+        if (item.parentId && !restoredIds.has(item.parentId) && byId.get(item.parentId)?.status !== 'ACTIVE') throw conflict('Спочатку відновіть батьківський підрозділ.')
+        const visited = new Set([item.id])
+        let ancestor = item.parentId
+        while (ancestor) {
+          if (visited.has(ancestor)) throw conflict('Відновлення утворює цикл у структурі.')
+          visited.add(ancestor)
+          ancestor = parents.get(ancestor) ?? null
+        }
+        const siblings = [...units.filter((candidate) => candidate.status === 'ACTIVE' && !restoredIds.has(candidate.id)), ...planned]
+        if (siblings.some((candidate) => candidate.id !== item.id && candidate.parentId === item.parentId && normalizedName(candidate.name) === normalizedName(item.name))) throw conflict(`Конфлікт назви підрозділу: ${item.name}`)
+      }
+      // Move promoted active children first, freeing their temporary sibling names.
+      const updates = [...planned.filter((item) => item.status === 'ACTIVE'), ...planned.filter((item) => item.status === 'ARCHIVED')]
+      for (const item of updates) {
+        const result = await tx.orgUnit.updateMany({
+          where: { id: item.id, workspaceId: principal.workspaceId, companyId, status: item.status, version: item.version },
+          data: { status: 'ACTIVE', parentId: item.parentId, name: item.name, normalizedName: normalizedName(item.name), sortOrder: item.sortOrder, version: { increment: 1 } },
+        })
+        if (result.count !== 1) throw conflict('Гілку вже змінено іншим адміністратором.')
+      }
       await tx.auditEvent.create({ data: {
         id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
         action: 'org_unit.restored', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ parentId, name: normalizeName(name) }), correlationId: id('corr'),
+        safeDiffJson: JSON.stringify({ parentId, name: normalizeName(name), restoredUnitIds: planned.map((item) => item.id) }), correlationId: id('corr'),
       } })
     }))
     return { id: unit.id, restored: true as const, version: input.expectedVersion + 1 }
+  }
+
+  async listUnassignedEmployees(principal: AuthPrincipal, companyId: string, cursor?: string) {
+    await this.company(principal, this.scope.assertCompany(principal, companyId))
+    const where = { workspaceId: principal.workspaceId, primaryCompanyId: companyId, accountType: 'USER' as const, isActive: true,
+      orgAssignments: { none: { companyId, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' as const } } } }
+    const [rows, total] = await Promise.all([
+      this.prisma.user.findMany({ where: { ...where, ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 21,
+        select: { id: true, displayName: true, jobTitle: true, avatarAsset: true } }),
+      this.prisma.user.count({ where }),
+    ])
+    const items = rows.slice(0, 20)
+    return { items, total, nextCursor: rows.length > 20 ? items.at(-1)!.id : null }
   }
 
   async listEmployees(principal: AuthPrincipal, unitId: string, company?: string): Promise<{ items: OrgUnitEmployeeView[] }> {

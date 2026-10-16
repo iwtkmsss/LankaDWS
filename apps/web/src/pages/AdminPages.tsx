@@ -1,17 +1,26 @@
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
+import { personName } from '../shared/lib/personName'
+import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Check,
   Download,
   KeyRound,
   Plus,
   Search,
 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { adminUserInputSchema, adminUserUpdateInputSchema, PASSWORD_MIN_LENGTH } from '@lankadws/contracts'
 import { removeWhitespace } from '../shared/lib/credentials'
 import { FileDropzone } from '../shared/files/FileDropzone'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
+import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { formatDateTime } from '../shared/lib/format'
 import {
   Avatar,
@@ -54,20 +63,100 @@ export default function AdminPages() {
   return path.startsWith('/admin/users') ? <UsersPage /> : <AuditPage />
 }
 
+function errorMessage(error: unknown) {
+  const problem = error && typeof error === 'object' && 'problem' in error
+    ? error.problem as { detail?: string; title?: string } : undefined
+  return problem?.detail ?? problem?.title ?? (error instanceof Error ? error.message : 'Не вдалося виконати дію.')
+}
+
+function accountErrors(error: unknown): Record<string, string[]> {
+  const problem = error && typeof error === 'object' && 'problem' in error
+    ? error.problem as { errors?: Record<string, string[]>; code?: string; detail?: string } : undefined
+  if (problem?.errors) return problem.errors
+  if (problem?.code === 'password_policy' || problem?.code === 'password_blocklisted') return { password: [problem.detail ?? 'Оберіть інший пароль.'] }
+  if (problem?.code === 'user_assignment') return { companyId: ['Перевірте, чи доступні обрані компанія та підрозділ.'] }
+  if (problem?.detail === 'username_taken' || problem?.detail === 'Нікнейм уже використаний або зарезервований.') return { username: ['Цей логін уже використаний або зарезервований. Оберіть інший.'] }
+  return {}
+}
+
+function validateAccountBody(body: Record<string, unknown>, editing = false) {
+  const parsed = (editing ? adminUserUpdateInputSchema : adminUserInputSchema).safeParse(body)
+  const errors: Record<string, string[]> = {}
+  if (!parsed.success) for (const issue of parsed.error.issues) {
+    const name = String(issue.path[0])
+    const messages = errors[name] ??= []
+    messages.push(issue.message)
+  }
+  if (body.accountType === 'USER' && !body.companyId) errors.companyId = ['Оберіть компанію.']
+  if (Object.keys(errors).length) throw Object.assign(new Error('Перевірте виділені поля.'), {
+    problem: { detail: 'Перевірте виділені поля.', errors },
+  })
+}
+
+function RequiredMark() { return <span className="account-required" aria-hidden="true"> *</span> }
+
 function UsersPage() {
   const { userId } = useParams()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const filterSearch = params.toString()
-  const [search, setSearch] = useState('')
+  const search = params.get('search') ?? ''
+  const debounce = useDebouncedSearchValue(search)
+  const waitingForSearch = debounce.isComposing || search.trim() !== debounce.debouncedValue
+  const parsedPage = Number(params.get('page') ?? 1)
+  const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  const columns = [
+    { key: 'displayName', label: 'Користувач' },
+    { key: 'accountType', label: 'Тип / компанія' },
+    { key: 'twoFactor', label: '2FA' },
+    { key: 'isActive', label: 'Статус' },
+  ]
+  const sort = columns.some((column) => column.key === params.get('sort')) ? params.get('sort')! : 'displayName'
+  const direction = params.get('direction') === 'desc' ? 'desc' : 'asc'
   const [creating, setCreating] = useState(params.get('new') === '1')
   const query = useQuery({
-    queryKey: ['admin-users', search, params.get('isActive'), params.get('companyId'), params.get('accountType')],
-    queryFn: () =>
-      api<{ items: AdminUser[] }>(
-        `/admin/users?search=${encodeURIComponent(search)}&isActive=${params.get('isActive') ?? ''}&companyId=${params.get('companyId') ?? ''}&accountType=${params.get('accountType') ?? ''}`,
-      ),
+    queryKey: ['admin-users', debounce.debouncedValue, params.get('isActive'), params.get('companyId'), params.get('accountType'), page, sort, direction],
+    queryFn: ({ signal }) => {
+      const filters = new URLSearchParams({ search: debounce.debouncedValue, page: String(page) })
+      filters.set('sort', sort)
+      filters.set('direction', direction)
+      for (const key of ['isActive', 'companyId', 'accountType']) {
+        const value = params.get(key)
+        if (value) filters.set(key, value)
+      }
+      return api<{ items: AdminUser[]; page: number; pageSize: number; total: number }>(`/admin/users?${filters}`, { signal })
+    },
+    enabled: !waitingForSearch,
   })
+  const lastPage = query.data ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize)) : undefined
+  useEffect(() => {
+    if (!waitingForSearch && lastPage !== undefined && page > lastPage) {
+      setParams((current) => {
+        const next = new URLSearchParams(current)
+        if (Number(current.get('page') ?? 1) > lastPage) next.set('page', String(lastPage))
+        return next
+      }, { replace: true })
+    }
+  }, [lastPage, page, params, setParams, waitingForSearch])
+  function setSearch(value: string) {
+    const next = new URLSearchParams(params)
+    if (value) next.set('search', value)
+    else next.delete('search')
+    next.delete('page')
+    setParams(next, { replace: true })
+  }
+  function setPage(value: number) {
+    const next = new URLSearchParams(params)
+    next.set('page', String(value))
+    setParams(next)
+  }
+  function setSort(key: string) {
+    const next = new URLSearchParams(params)
+    next.set('sort', key)
+    next.set('direction', sort === key && direction === 'asc' ? 'desc' : 'asc')
+    next.delete('page')
+    setParams(next)
+  }
   function closeCreate() {
     setCreating(false)
     if (params.has('new')) {
@@ -80,12 +169,11 @@ function UsersPage() {
     <div>
       <PageHeader
         title="Користувачі"
-        description="Глобальні адміністратори та користувачі ізольованих компаній"
+        description="Адміністратори та користувачі організації"
         action={
-          <Button onClick={() => setCreating(true)}>
-            <Plus size={17} />
-            Додати користувача
-          </Button>
+          <div className="admin-user-filters">
+            <Button className="admin-users-create" onClick={() => setCreating(true)}><Plus size={17} />Додати користувача</Button>
+          </div>
         }
       />
       <Card className="list-card admin-users-card">
@@ -95,12 +183,15 @@ function UsersPage() {
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              aria-label="Пошук користувачів"
+              onCompositionStart={debounce.onCompositionStart}
+              onCompositionEnd={debounce.onCompositionEnd}
               placeholder="Ім’я, нікнейм або посада"
             />
           </label>
           <UserFilters params={params} onChange={setParams} />
         </div>
-        {query.isLoading ? (
+        {query.isLoading || waitingForSearch ? (
           <Skeleton rows={7} />
         ) : query.isError ? (
           <ErrorState />
@@ -109,10 +200,15 @@ function UsersPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Користувач</th>
-                  <th>Тип / компанія</th>
-                  <th>2FA</th>
-                  <th>Статус</th>
+                  {columns.map((column) => {
+                    const active = sort === column.key
+                    const SortIcon = active ? direction === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown
+                    return <th key={column.key} scope="col" aria-sort={active ? direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
+                      <button type="button" onClick={() => setSort(column.key)}>
+                        {column.label}<SortIcon size={13} aria-hidden="true" />
+                      </button>
+                    </th>
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -120,9 +216,9 @@ function UsersPage() {
                   <tr key={user.id}>
                     <td>
                       <Link to={`/admin/users/${user.id}${filterSearch ? `?${filterSearch}` : ''}`}>
-                        <Avatar name={user.displayName} src={user.avatarAsset} />
+                        <Avatar name={personName(user.displayName)} src={user.avatarAsset} />
                         <span>
-                          <strong>{user.displayName}</strong>
+                          <strong>{personName(user.displayName)}</strong>
                           <small>
                             @{user.username} · {user.jobTitle}
                           </small>
@@ -155,6 +251,11 @@ function UsersPage() {
           <EmptyState title="Користувачів немає" description="Змініть фільтр або створіть обліковий запис." />
         )}
       </Card>
+      {query.data && query.data.total > query.data.pageSize && !waitingForSearch && <nav aria-label="Сторінки користувачів" className="list-toolbar">
+        <Button variant="secondary" disabled={page <= 1 || query.isFetching} onClick={() => setPage(page - 1)}>Попередня</Button>
+        <span>Сторінка {page} з {Math.ceil(query.data.total / query.data.pageSize)} · {query.data.total} користувачів</span>
+        <Button variant="secondary" disabled={page * query.data.pageSize >= query.data.total || query.isFetching} onClick={() => setPage(page + 1)}>Наступна</Button>
+      </nav>}
       {userId && (
         <UserDrawer id={userId} onClose={() => navigate(`/admin/users${filterSearch ? `?${filterSearch}` : ''}`)} />
       )}
@@ -170,6 +271,7 @@ function UserFilters({ params, onChange }: { params: URLSearchParams; onChange: 
   })
   function set(name: string, value: string) {
     const next = new URLSearchParams(params)
+    next.delete('page')
     if (value) next.set(name, value)
     else next.delete(name)
     onChange(next)
@@ -224,7 +326,7 @@ interface UserAccountProfile {
   company: { id: string; name: string } | null
 }
 
-function UserAccountFields({ user, isActive, setIsActive, accountType, onAccountTypeChange, companyId, onCompanyChange, companies, units, unitsLoading }: {
+function UserAccountFields({ user, isActive, setIsActive, accountType, onAccountTypeChange, companyId, onCompanyChange, companies, units, unitsLoading, errors = {} }: {
   user?: UserAccountProfile
   isActive: boolean
   setIsActive: (value: boolean) => void
@@ -235,14 +337,26 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
   companies: Array<{ id: string; name: string; isActive: boolean }>
   units: Array<{ id: string; name: string }>
   unitsLoading: boolean
+  errors?: Record<string, string[]>
 }) {
   const [orgSelection, setOrgSelection] = useState({ companyId, id: user?.orgUnit?.id ?? '' })
   const [photoName, setPhotoName] = useState('')
+  const errorId = useId()
+  const firstError = Object.keys(errors)[0]
+  useEffect(() => {
+    if (firstError) document.getElementById(`${errorId}-${firstError}`)?.closest('label')?.querySelector<HTMLElement>('input, select, button')?.focus()
+  }, [errorId, firstError])
+  function errorProps(name: string, label: string) {
+    return { 'aria-label': label, 'aria-invalid': Boolean(errors[name]), 'aria-describedby': errors[name] ? `${errorId}-${name}` : undefined }
+  }
+  function fieldError(name: string) {
+    return errors[name] && <small className="account-field-error" id={`${errorId}-${name}`}>{errors[name][0]}</small>
+  }
   return (
     <>
       <label>
-        Тип облікового запису
-        <select value={isActive ? accountType : 'INACTIVE'} onChange={(event) => {
+        <span>Тип облікового запису<RequiredMark /></span>
+        <select aria-label="Тип облікового запису" required value={isActive ? accountType : 'INACTIVE'} onChange={(event) => {
           const value = event.target.value
           setIsActive(value !== 'INACTIVE')
           if (value === 'ADMIN' || value === 'USER') onAccountTypeChange(value)
@@ -253,20 +367,24 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
         </select>
       </label>
       <label>
-        Логін
-        <input name="username" defaultValue={user?.username ?? ''} required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        <span>Логін<RequiredMark /></span>
+        <input {...errorProps('username', 'Логін')} name="username" defaultValue={user?.username ?? ''} required pattern="[a-z0-9._\-]{3,32}" autoComplete="username" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        {fieldError('username')}
       </label>
       <label>
-        Ім’я
-        <input name="firstName" defaultValue={user?.firstName ?? ''} required autoComplete="given-name" />
+        <span>Ім’я<RequiredMark /></span>
+        <input {...errorProps('firstName', 'Ім’я')} name="firstName" defaultValue={user?.firstName ?? ''} required autoComplete="given-name" />
+        {fieldError('firstName')}
       </label>
       <label>
-        Прізвище
-        <input name="lastName" defaultValue={user?.lastName ?? ''} required autoComplete="family-name" />
+        <span>Прізвище<RequiredMark /></span>
+        <input {...errorProps('lastName', 'Прізвище')} name="lastName" defaultValue={user?.lastName ?? ''} required autoComplete="family-name" />
+        {fieldError('lastName')}
       </label>
       <label>
         По батькові
-        <input name="middleName" defaultValue={user?.middleName ?? ''} />
+        <input {...errorProps('middleName', 'По батькові')} name="middleName" defaultValue={user?.middleName ?? ''} />
+        {fieldError('middleName')}
       </label>
       <label>
         Стать
@@ -274,23 +392,28 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
       </label>
       <label>
         Телефон
-        <input name="phone" defaultValue={user?.phone ?? ''} type="tel" />
+        <input {...errorProps('phone', 'Телефон')} name="phone" defaultValue={user?.phone ?? ''} type="tel" />
+        {fieldError('phone')}
       </label>
       <label>
-        Email
-        <input name="contactEmail" defaultValue={user?.contactEmail ?? ''} type="email" required={!user} autoComplete="email" />
+        <span>Email{!user && <RequiredMark />}</span>
+        <input {...errorProps('contactEmail', 'Email')} name="contactEmail" defaultValue={user?.contactEmail ?? ''} type="email" required={!user} autoComplete="email" />
+        {fieldError('contactEmail')}
       </label>
       <label>
-        {user ? 'Новий пароль (за потреби)' : 'Пароль'}
-        <input name="password" type="password" required={!user} minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        <span>{user ? 'Новий пароль (за потреби)' : 'Пароль'}{!user && <RequiredMark />}</span>
+        <input {...errorProps('password', user ? 'Новий пароль (за потреби)' : 'Пароль')} aria-describedby={errors.password ? `${errorId}-password` : `${errorId}-password-hint`} name="password" type="password" required={!user} minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        {fieldError('password') || <small id={`${errorId}-password-hint`}>Від {PASSWORD_MIN_LENGTH} до 128 символів без пробілів.</small>}
       </label>
       <label>
-        {user ? 'Підтвердження нового паролю' : 'Підтвердження паролю'}
-        <input name="passwordConfirmation" type="password" required={!user} minLength={15} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        <span>{user ? 'Підтвердження нового паролю' : 'Підтвердження паролю'}{!user && <RequiredMark />}</span>
+        <input {...errorProps('passwordConfirmation', user ? 'Підтвердження нового паролю' : 'Підтвердження паролю')} name="passwordConfirmation" type="password" required={!user} minLength={PASSWORD_MIN_LENGTH} autoComplete="new-password" onInput={(event) => { event.currentTarget.value = removeWhitespace(event.currentTarget.value) }} />
+        {fieldError('passwordConfirmation')}
       </label>
       <label>
         День народження
-        <input name="birthDate" defaultValue={user?.birthDate ?? ''} type="date" />
+        <DateTimePicker {...errorProps('birthDate', 'День народження')} name="birthDate" defaultValue={user?.birthDate ?? ''} type="date" />
+        {fieldError('birthDate')}
       </label>
       <div className="admin-photo-field">
         <span className="admin-photo-field__label">Фотографія</span>
@@ -298,20 +421,22 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
           label="Фотографія"
           name="photo"
           accept="image/png,image/jpeg,image/webp"
-          title="Перетягніть фото сюди"
-          hint={photoName || 'PNG, JPEG або WEBP'}
-          buttonLabel="Вибрати фото"
+          title="Перетягніть файл сюди"
+          buttonLabel={null}
           onFiles={(files) => setPhotoName(files[0]?.name ?? '')}
-        />
+        >
+          {photoName && <small className="admin-photo-field__filename" role="status" title={photoName}>{photoName}</small>}
+        </FileDropzone>
       </div>
       <label className="span-2">
         Посада
-        <input name="jobTitle" defaultValue={user?.jobTitle ?? ''} />
+        <input {...errorProps('jobTitle', 'Посада')} name="jobTitle" defaultValue={user?.jobTitle ?? ''} />
+        {fieldError('jobTitle')}
       </label>
       {accountType === 'USER' && (
         <label className="span-2">
-          Компанія
-          <select name="companyId" required value={companyId} onChange={(event) => onCompanyChange(event.target.value)}>
+          <span>Компанія<RequiredMark /></span>
+          <select {...errorProps('companyId', 'Компанія')} name="companyId" required value={companyId} onChange={(event) => onCompanyChange(event.target.value)}>
             <option disabled value="">
               Оберіть компанію
             </option>
@@ -323,16 +448,19 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
                 </option>
               ))}
           </select>
+          {fieldError('companyId')}
         </label>
       )}
       {accountType === 'USER' && (
         <label className="span-2">
-          Підрозділ
-          <select name="orgUnitId" disabled={!companyId || unitsLoading} value={orgSelection.companyId === companyId ? orgSelection.id : ''} onChange={(event) => setOrgSelection({ companyId, id: event.target.value })}>
-            <option value="">Оберіть підрозділ</option>
+          Підрозділ (необов’язково)
+          <select {...errorProps('orgUnitId', 'Підрозділ')} name="orgUnitId" disabled={!companyId || unitsLoading} value={orgSelection.companyId === companyId ? orgSelection.id : ''} onChange={(event) => setOrgSelection({ companyId, id: event.target.value })}>
+            <option value="">{UNASSIGNED_DEPARTMENT_LABEL}</option>
             {units.map((unit) => <option value={unit.id} key={unit.id}>{unit.name}</option>)}
           </select>
+          {fieldError('orgUnitId')}
           {!companyId && <small>Спочатку оберіть компанію.</small>}
+          {companyId && <small>«{UNASSIGNED_DEPARTMENT_LABEL}» належить обраній компанії. Решта даних користувача зберігається.</small>}
         </label>
       )}
     </>
@@ -344,6 +472,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
   const [accountType, setAccountType] = useState<'USER' | 'ADMIN'>('USER')
   const [isActive, setIsActive] = useState(true)
   const [result, setResult] = useState<{ userId: string; username: string } | null>(null)
+  const creatingRef = useRef(false)
   const [companyId, setCompanyId] = useState(defaultCompanyId)
   const companies = useQuery({
     queryKey: ['admin-companies'],
@@ -355,12 +484,18 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
     enabled: accountType === 'USER' && Boolean(companyId),
   })
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    const created = await api<{ userId: string; username: string }>('/admin/users', {
-      method: 'POST',
-      body: jsonBody({
+  const photoRef = useRef<File | null>(null)
+  const photoMutation = useMutation({
+    mutationFn: async (created: { userId: string }) => {
+      if (!photoRef.current) return
+      const avatar = new FormData()
+      avatar.set('file', photoRef.current)
+      await api(`/admin/users/${created.userId}/avatar`, { method: 'POST', body: avatar })
+      void client.invalidateQueries({ queryKey: ['admin-users'] })
+    },
+  })
+  const mutation = useMutation({ mutationFn: async ({ data, photo }: { data: FormData; photo: FormDataEntryValue | null }) => {
+    const body = {
         firstName: data.get('firstName'),
         lastName: data.get('lastName'),
         middleName: data.get('middleName') || undefined,
@@ -376,16 +511,25 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
         companyId: accountType === 'USER' ? companyId : undefined,
         orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || undefined) : undefined,
         isActive,
-      }),
-    })
-    const photo = data.get('photo')
-    if (photo instanceof File && photo.size > 0) {
-      const avatar = new FormData()
-      avatar.set('file', photo)
-      await api(`/admin/users/${created.userId}/avatar`, { method: 'POST', body: avatar })
     }
+    validateAccountBody(body)
+    const created = await api<{ userId: string; username: string }>('/admin/users', {
+      method: 'POST',
+      body: jsonBody(body),
+    })
     setResult(created)
     void client.invalidateQueries({ queryKey: ['admin-users'] })
+    if (photo instanceof File && photo.size > 0) {
+      photoRef.current = photo
+      photoMutation.mutate(created)
+    }
+  }, onSettled: () => { creatingRef.current = false } })
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (creatingRef.current || result) return
+    creatingRef.current = true
+    const data = new FormData(event.currentTarget)
+    mutation.mutate({ data, photo: data.get('photo') })
   }
 
   return (
@@ -394,14 +538,14 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
         <div className="credential-result">
           <KeyRound size={28} />
           <h3>Доступ створено</h3>
-          <p>Передайте тимчасовий пароль захищеним каналом. Повторно він не показується.</p>
+          <p>Передайте встановлений пароль користувачу захищеним каналом.</p>
           <dl>
             <div>
               <dt>Логін</dt>
               <dd>@{result.username}</dd>
             </div>
             <div>
-              <dt>Тимчасовий пароль</dt>
+              <dt>Пароль</dt>
               <dd>
                 <code>Встановлено адміністратором</code>
               </dd>
@@ -411,12 +555,17 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
               <dd>Постійний пароль</dd>
             </div>
           </dl>
-          <Button onClick={onClose}>Готово</Button>
+          {photoMutation.isPending && <p role="status">Фото завантажується…</p>}
+          {photoMutation.isError && <p role="alert" className="form-error">Акаунт створено, але фото не завантажено. {errorMessage(photoMutation.error)}</p>}
+          {photoMutation.isError && <Button disabled={photoMutation.isPending} onClick={() => photoMutation.mutate(result)}>Повторити завантаження фото</Button>}
+          <Button disabled={photoMutation.isPending} onClick={onClose}>Готово</Button>
         </div>
       ) : (
-        <form className="entity-form account-form" onSubmit={(event) => void submit(event)}>
-          <UserAccountFields isActive={isActive} setIsActive={setIsActive} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
-          <Button className="span-2">Створити доступ</Button>
+        <form className="entity-form account-form" noValidate onSubmit={(event) => void submit(event)}>
+          <UserAccountFields errors={accountErrors(mutation.error)} isActive={isActive} setIsActive={setIsActive} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
+          {mutation.isError && <p role="alert" className="form-error span-2">{Object.keys(accountErrors(mutation.error)).length ? 'Перевірте виділені поля.' : errorMessage(mutation.error)}</p>}
+          {units.isError && <p role="alert" className="form-error span-2">Не вдалося завантажити підрозділи.</p>}
+          <Button className="span-2" disabled={mutation.isPending || companies.isLoading || (accountType === 'USER' && Boolean(companyId) && (units.isLoading || units.isError))}>{mutation.isPending ? 'Створення…' : 'Створити доступ'}</Button>
         </form>
       )}
     </Drawer>
@@ -450,14 +599,12 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryKey: ['admin-user', id],
     queryFn: () => api<Detail>(`/admin/users/${id}`),
   })
-  if (query.isLoading || query.isError || !query.data) {
-    return (
-      <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
-        {query.isLoading ? <Skeleton /> : <ErrorState />}
-      </Drawer>
-    )
-  }
-  return <UserEditor key={id} user={query.data} onClose={onClose} />
+  return (
+    <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
+      {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> :
+        <UserEditor key={id} user={query.data} onClose={onClose} />}
+    </Drawer>
+  )
 }
 
 function UserEditor({
@@ -485,6 +632,8 @@ function UserEditor({
   const [accountType, setAccountType] = useState(user.accountType)
   const [isActive, setIsActive] = useState(user.isActive)
   const [companyId, setCompanyId] = useState(user.company?.id ?? '')
+  const [newOwnerId, setNewOwnerId] = useState('')
+  const photoRef = useRef<File | null>(null)
   const companies = useQuery({
     queryKey: ['admin-companies'],
     queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
@@ -494,26 +643,38 @@ function UserEditor({
     queryFn: () => api<{ items: Array<{ id: string; name: string }> }>(`/org/units?company=${encodeURIComponent(companyId)}`),
     enabled: accountType === 'USER' && Boolean(companyId),
   })
-  const mutation = useMutation({
-    mutationFn: async ({ body, photo }: { body: object; photo: FormDataEntryValue | null }) => {
-      await api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) })
-      if (photo instanceof File && photo.size > 0) {
-        const avatar = new FormData()
-        avatar.set('file', photo)
-        await api(`/admin/users/${user.id}/avatar`, { method: 'POST', body: avatar })
-      }
+  function invalidateUser() {
+    void client.invalidateQueries({ queryKey: ['admin-users'] })
+    void client.invalidateQueries({ queryKey: ['admin-user', user.id] })
+    void client.invalidateQueries({ queryKey: ['admin-companies'] })
+    void client.invalidateQueries({ queryKey: ['admin-org-units'] })
+    void client.invalidateQueries({ queryKey: ['org-units'] })
+  }
+  const photoMutation = useMutation({
+    mutationFn: async () => {
+      if (!photoRef.current) return
+      const avatar = new FormData()
+      avatar.set('file', photoRef.current)
+      await api(`/admin/users/${user.id}/avatar`, { method: 'POST', body: avatar })
     },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['admin-users'] })
-      void client.invalidateQueries({ queryKey: ['admin-user', user.id] })
-      void client.invalidateQueries({ queryKey: ['admin-companies'] })
-      void client.invalidateQueries({ queryKey: ['admin-org-units'] })
-      void client.invalidateQueries({ queryKey: ['org-units'] })
-      onClose()
+    onSuccess: () => { invalidateUser(); onClose() },
+  })
+  const mutation = useMutation({
+    mutationFn: async ({ body }: { body: Record<string, unknown>; photo: FormDataEntryValue | null }) => {
+      validateAccountBody(body, true)
+      await api(`/admin/users/${user.id}`, { method: 'PATCH', body: jsonBody(body) })
+    },
+    onSuccess: (_, { photo }) => {
+      invalidateUser()
+      if (photo instanceof File && photo.size > 0) {
+        photoRef.current = photo
+        photoMutation.mutate()
+      } else onClose()
     },
   })
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (mutation.isPending || photoMutation.isPending) return
     const data = new FormData(event.currentTarget)
     mutation.mutate({ photo: data.get('photo'), body: {
       firstName: data.get('firstName'),
@@ -522,7 +683,8 @@ function UserEditor({
       username: data.get('username'),
       accountType,
       companyId: accountType === 'USER' ? companyId : undefined,
-      orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || undefined) : undefined,
+      orgUnitId: accountType === 'USER' ? (data.get('orgUnitId') || null) : null,
+      newOwnerId: !isActive && newOwnerId ? newOwnerId : undefined,
       isActive,
       contactEmail: data.get('contactEmail') || null,
       phone: data.get('phone') || null,
@@ -534,9 +696,8 @@ function UserEditor({
     } })
   }
   return (
-    <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
-      <form className="entity-form account-form" onSubmit={submit}>
-        <UserAccountFields isActive={isActive} setIsActive={setIsActive} user={user} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
+      <form className="entity-form account-form" noValidate onSubmit={submit}>
+        <UserAccountFields errors={accountErrors(mutation.error)} isActive={isActive} setIsActive={setIsActive} user={user} accountType={accountType} onAccountTypeChange={setAccountType} companyId={companyId} onCompanyChange={setCompanyId} companies={companies.data?.items ?? []} units={units.data?.items ?? []} unitsLoading={units.isLoading} />
         {(user.leadership.companies.length + user.leadership.orgUnits.length) > 0 && <p className="privacy-note span-2">
           Зміна компанії, типу доступу або деактивація очистить керівні маркери: {[
             ...user.leadership.companies.map((company) => company.name),
@@ -544,12 +705,17 @@ function UserEditor({
           ].join(', ')}.
         </p>}
         {!isActive && <p className="privacy-note span-2">Вхід і доступ до системи заблоковано. Після збереження всі сеанси користувача будуть завершені.</p>}
-        {mutation.isError && <p className="form-error span-2">Не вдалося зберегти зміни.</p>}
-        <Button className="span-2" disabled={mutation.isPending}>
+        {!isActive && user.isActive && <div className="span-2">
+          <UserSearchCombobox label="Новий відповідальний за задачі та документи" value={newOwnerId} onChange={setNewOwnerId} excludeIds={[user.id]} />
+          <small>Потрібен, якщо є активні задачі або документи.</small>
+        </div>}
+        {mutation.isError && <p role="alert" className="form-error span-2">{Object.keys(accountErrors(mutation.error)).length ? 'Перевірте виділені поля.' : errorMessage(mutation.error)}</p>}
+        {photoMutation.isError && <><p role="alert" className="form-error span-2">Зміни збережено, але фото не завантажено. {errorMessage(photoMutation.error)}</p><Button type="button" disabled={photoMutation.isPending} onClick={() => photoMutation.mutate()}>Повторити завантаження фото</Button></>}
+        {units.isError && <p role="alert" className="form-error span-2">Не вдалося завантажити підрозділи.</p>}
+        <Button className="span-2" disabled={mutation.isPending || photoMutation.isPending || photoMutation.isError || companies.isLoading || (accountType === 'USER' && Boolean(companyId) && (units.isLoading || units.isError))}>
           Зберегти зміни
         </Button>
       </form>
-    </Drawer>
   )
 }
 

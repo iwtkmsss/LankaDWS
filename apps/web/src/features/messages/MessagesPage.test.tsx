@@ -5,14 +5,16 @@ import type {
 import {
   QueryClient,
   QueryClientProvider,
+  QueryObserver,
   type InfiniteData,
 } from '@tanstack/react-query'
-import { act, render, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getMessage, getThreadPreview } from './api/messageApi'
 import { messageKeys } from './api/messageKeys'
 import { useMessageRealtime } from './hooks/useMessageRealtime'
-import { addOptimisticMessage, upsertMessageCache } from './lib/messageCache'
+import { notifyMessageSound } from './lib/messageSound'
+import { addOptimisticMessage, upsertMessageCache, upsertThreadPreview } from './lib/messageCache'
 import { chatCreationCompanyId, chatThreadCompanyScope } from './MessagesPage'
 
 vi.mock('./api/messageApi', async (importOriginal) => {
@@ -23,6 +25,11 @@ vi.mock('./api/messageApi', async (importOriginal) => {
     getThreadPreview: vi.fn(),
   }
 })
+
+vi.mock('./lib/messageSound', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./lib/messageSound')>(),
+  notifyMessageSound: vi.fn(),
+}))
 
 class FakeEventSource extends EventTarget {
   static instances: FakeEventSource[] = []
@@ -83,16 +90,46 @@ const preview: ChatThreadPreview = {
 }
 
 function RealtimeHarness() {
-  useMessageRealtime()
+  useMessageRealtime(true, 'usr_current')
   return null
 }
 
 describe('MessagesPage realtime flow', () => {
+  it('refreshes both chat lists when personal pins change in another session', async () => {
+    const client = new QueryClient()
+    const keys = [messageKeys.threads('all', false), messageKeys.threads('company-1', true)]
+    for (const key of keys) client.setQueryData(key, { pages: [], pageParams: [] })
+    render(<QueryClientProvider client={client}><RealtimeHarness /></QueryClientProvider>)
+    await act(async () => {
+      FakeEventSource.instances[0]?.dispatchEvent(new MessageEvent('summary', { data: JSON.stringify({
+        kinds: ['messages'], occurredAt: '2026-10-14T12:00:00.000Z',
+      }) }))
+    })
+    for (const key of keys) expect(client.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it('retains old pins and the regular page when an incoming preview updates the cache', () => {
+    const client = new QueryClient()
+    const key = messageKeys.threads('all', false)
+    const pins = Array.from({ length: 35 }, (_, index) => ({ ...preview.item, id: `pin-${index}`, pinned: true }))
+    const regular = Array.from({ length: 30 }, (_, index) => ({ ...preview.item, id: `chat-${index}`, pinned: false }))
+    client.setQueryData(key, { pages: [{ items: [...pins, ...regular], counts: preview.counts, nextCursor: 'cursor' }], pageParams: [null] })
+    upsertThreadPreview(client, { ...preview, item: { ...preview.item, pinned: false } })
+    const items = client.getQueryData<InfiniteData<{ items: ChatThreadPreview['item'][] }>>(key)?.pages[0]?.items ?? []
+    expect(items.filter((item) => item.pinned)).toHaveLength(35)
+    expect(items.filter((item) => !item.pinned)).toHaveLength(30)
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
   beforeEach(() => {
     FakeEventSource.instances = []
     vi.stubGlobal('EventSource', FakeEventSource)
     vi.mocked(getMessage).mockReset()
     vi.mocked(getThreadPreview).mockReset()
+    vi.mocked(notifyMessageSound).mockReset()
     vi.mocked(getMessage).mockResolvedValue(message)
     vi.mocked(getThreadPreview).mockResolvedValue(preview)
   })
@@ -137,6 +174,23 @@ describe('MessagesPage realtime flow', () => {
       messageKeys.pages('thread-1'),
     )
     expect(cached?.pages.flatMap((page) => page.items)).toEqual([message])
+    await waitFor(() => expect(notifyMessageSound).toHaveBeenCalledExactlyOnceWith(
+      'usr_current', 'thread-1', message, preview,
+    ))
+  })
+
+  it('does not ring for edits, deletes, read markers or thread changes', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><RealtimeHarness /></QueryClientProvider>)
+    await act(async () => {
+      for (const eventType of ['message.edited', 'message.deleted', 'thread.read', 'thread.updated']) {
+        FakeEventSource.instances[0]?.dispatchEvent(new MessageEvent('chat', { data: JSON.stringify({
+          threadId: 'thread-1', eventType, messageId: 'message-1', occurredAt: '2026-10-12T10:00:00.000Z',
+        }) }))
+      }
+    })
+    await waitFor(() => expect(getMessage).toHaveBeenCalledTimes(4))
+    expect(notifyMessageSound).not.toHaveBeenCalled()
   })
 
   it('ignores malformed event data without breaking the channel', async () => {
@@ -154,6 +208,69 @@ describe('MessagesPage realtime flow', () => {
 
     expect(getMessage).not.toHaveBeenCalled()
     expect(getThreadPreview).not.toHaveBeenCalled()
+  })
+
+  it('fetches messages missed during a disconnect when SSE becomes ready again', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const page = { pages: [{ items: [message], olderCursor: null, newerCursor: null }], pageParams: [null] }
+    client.setQueryData(messageKeys.pages('thread-1'), { ...page, pages: [{ ...page.pages[0], items: [] }] })
+    const queryFn = vi.fn().mockResolvedValue(page)
+    const observer = new QueryObserver(client, {
+      queryKey: messageKeys.pages('thread-1'), queryFn, staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => undefined)
+    const view = render(<QueryClientProvider client={client}><RealtimeHarness /></QueryClientProvider>)
+    const source = FakeEventSource.instances[0]!
+    await act(async () => { source.dispatchEvent(new MessageEvent('ready')) })
+    await waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1))
+    queryFn.mockClear()
+    const missedMessage = { ...message, id: 'message-missed', body: 'Після втрати зв’язку' }
+    queryFn.mockResolvedValue({ ...page, pages: [{ ...page.pages[0], items: [message, missedMessage] }] })
+    await act(async () => {
+      source.onerror?.(new Event('error'))
+      source.dispatchEvent(new MessageEvent('ready'))
+    })
+    await waitFor(() => expect(client.getQueryData(messageKeys.pages('thread-1'))).toEqual({
+      ...page, pages: [{ ...page.pages[0], items: [message, missedMessage] }],
+    }))
+    expect(queryFn).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    view.unmount()
+  })
+
+  it.each([true, false])('refreshes chats without a working SSE channel (EventSource available: %s)', async (available) => {
+    vi.useFakeTimers()
+    if (!available) vi.stubGlobal('EventSource', undefined)
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    const view = render(<QueryClientProvider client={client}><RealtimeHarness /></QueryClientProvider>)
+    if (available) {
+      await act(async () => { FakeEventSource.instances[0]!.onerror?.(new Event('error')) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000) })
+      await act(async () => { FakeEventSource.instances[0]!.onerror?.(new Event('error')) })
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(available ? 2_000 : 5_000) })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['messages', 'thread'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['messages', 'threads'] })
+    invalidate.mockClear()
+    view.unmount()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(invalidate).not.toHaveBeenCalled()
+  })
+
+  it('retries through chat queries when point reads fail', async () => {
+    vi.mocked(getMessage).mockRejectedValue(new Error('Temporary failure'))
+    vi.mocked(getThreadPreview).mockRejectedValue(new Error('Temporary failure'))
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    render(<QueryClientProvider client={client}><RealtimeHarness /></QueryClientProvider>)
+    await act(async () => {
+      FakeEventSource.instances[0]!.dispatchEvent(new MessageEvent('chat', { data: JSON.stringify({
+        threadId: 'thread-1', eventType: 'message.created', messageId: message.id, occurredAt: message.createdAt,
+      }) }))
+    })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: messageKeys.pages('thread-1') })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['messages', 'threads'] })
   })
 
   it('invalidates message pages when another participant reads the thread', async () => {

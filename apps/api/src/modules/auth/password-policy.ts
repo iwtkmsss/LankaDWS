@@ -1,4 +1,5 @@
 import { badRequest } from '../../common/errors.js'
+import { PASSWORD_MIN_LENGTH } from '@lankadws/contracts'
 
 const commonValues = new Set([
   'password',
@@ -9,8 +10,8 @@ const commonValues = new Set([
   'administrator',
 ])
 
-export function assertPasswordPolicy(password: string, username: string, twoFactorRequired = false): void {
-  const minimum = twoFactorRequired ? 8 : 15
+export function assertPasswordPolicy(password: string, username: string): void {
+  const minimum = PASSWORD_MIN_LENGTH
   if (password.length < minimum || password.length > 128) {
     throw badRequest('password_policy', `Пароль має містити від ${minimum} до 128 символів.`)
   }

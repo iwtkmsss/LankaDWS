@@ -191,13 +191,14 @@ export function FeedComposerForm({
     <form className="feed-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
       <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити до публікації" />
       <MentionTextarea
+        formatting
         className="feed-composer__body"
         label="Текст публікації"
         value={body}
         mentions={mentions}
         candidateUrl={mentionCandidateUrl}
         maxLength={10_000}
-        rows={5}
+        rows={10}
         placeholder="Коротко опишіть оновлення, рішення або потрібну дію…"
         disabled={busy}
         autoFocus

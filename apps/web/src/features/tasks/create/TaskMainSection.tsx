@@ -1,3 +1,5 @@
+import { DateTimePicker } from '../../../shared/ui/DateTimePicker'
+import { FormattedTextarea } from '../../../shared/text/FormattedTextarea'
 import { useMutation } from '@tanstack/react-query'
 import { FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
@@ -71,9 +73,7 @@ export function TaskBasicsSection({
             }))}
           />
         </label>
-        <label className="span-2">
-          Опис
-          <textarea
+        <div className="span-2"><FormattedTextarea label="Опис"
             value={draft.description}
             rows={5}
             maxLength={20_000}
@@ -83,7 +83,7 @@ export function TaskBasicsSection({
               description: event.target.value,
             }))}
           />
-        </label>
+        </div>
       </div>
       <div className="task-create-attachments-layout">
         <section
@@ -133,23 +133,34 @@ export function TaskBasicsSection({
             </ul>
           )}
         </section>
-
-        <label className="task-create-acceptance">
-          <input
-            type="checkbox"
-            checked={draft.requiresAcceptance}
-            onChange={(event) => update((current) => ({
-              ...current,
-              requiresAcceptance: event.target.checked,
-            }))}
-          />
-          <span>
-            <strong>Передати на перевірку після завершення</strong>
-            <small>Після завершення відповідальним задача перейде постановнику.</small>
-          </span>
-        </label>
       </div>
       <div className="task-create-core__meta">
+        <label>
+          Дата початку
+          <DateTimePicker
+            type="datetime-local"
+            value={draft.startsAt}
+            onChange={(event) => update((current) => ({
+              ...current,
+              startsAt: event.target.value,
+            }))}
+          />
+        </label>
+        <label>
+          Кінцевий термін
+          <DateTimePicker
+            ref={dueAtRef}
+            type="datetime-local"
+            value={draft.dueAt}
+            min={draft.startsAt || undefined}
+            aria-invalid={invalidField === 'dueAt' || undefined}
+            aria-describedby={invalidField === 'dueAt' ? 'task-create-error' : undefined}
+            onChange={(event) => update((current) => ({
+              ...current,
+              dueAt: event.target.value,
+            }))}
+          />
+        </label>
         <label>
           Пріоритет
           <select
@@ -165,31 +176,19 @@ export function TaskBasicsSection({
             <option value="URGENT">Терміновий</option>
           </select>
         </label>
-        <label>
-          Дата початку
+        <label className="task-create-acceptance">
           <input
-            type="datetime-local"
-            value={draft.startsAt}
+            type="checkbox"
+            checked={draft.requiresAcceptance}
             onChange={(event) => update((current) => ({
               ...current,
-              startsAt: event.target.value,
+              requiresAcceptance: event.target.checked,
             }))}
           />
-        </label>
-        <label>
-          Кінцевий термін
-          <input
-            ref={dueAtRef}
-            type="datetime-local"
-            value={draft.dueAt}
-            min={draft.startsAt || undefined}
-            aria-invalid={invalidField === 'dueAt' || undefined}
-            aria-describedby={invalidField === 'dueAt' ? 'task-create-error' : undefined}
-            onChange={(event) => update((current) => ({
-              ...current,
-              dueAt: event.target.value,
-            }))}
-          />
+          <span>
+            <strong>Передати на перевірку після завершення</strong>
+            <small>Постановник перевірить результат роботи.</small>
+          </span>
         </label>
       </div>
     </section>
@@ -213,7 +212,7 @@ export function TaskContextSection({
   onRetryOptions: () => void
   onOptionsChanged: () => void
 }) {
-  const loadMatches = useCallback((search: string, signal: AbortSignal) => loadTaskCreateOptions('', draft.projectId, search, signal), [draft.projectId])
+  const loadMatches = useCallback((search: string, signal: AbortSignal) => loadTaskCreateOptions(draft.projectId, search, signal), [draft.projectId])
   const [projectName, setProjectName] = useState('')
   const [tagName, setTagName] = useState('')
   const [tagColor, setTagColor] = useState('#3b72ff')

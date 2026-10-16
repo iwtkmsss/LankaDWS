@@ -10,24 +10,64 @@ export class KnowledgeService {
 
   async list(principal: AuthPrincipal, search?: string) {
     const audiences = await this.prisma.articleAudience.findMany({ where: { OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] }, select: { articleId: true } })
-    const rows = await this.prisma.knowledgeArticle.findMany({ where: { id: { in: audiences.map((entry) => entry.articleId) }, status: 'ACTIVE', ...(search ? { versions: { some: { OR: [{ title: { contains: search } }, { body: { contains: search } }] } } } : {}) }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: { updatedAt: 'desc' } })
-    return { items: rows.map((row) => ({ id: row.id, slug: row.slug, title: row.versions[0]?.title ?? row.slug, changeSummary: row.versions[0]?.changeSummary ?? '', reviewAt: row.reviewAt?.toISOString() ?? null, version: row.version, updatedAt: row.updatedAt.toISOString() })) }
+    const rows = await this.prisma.knowledgeArticle.findMany({ where: { workspaceId: principal.workspaceId, id: { in: audiences.map((entry) => entry.articleId) }, status: 'ACTIVE', ...(search ? { versions: { some: { OR: [{ title: { contains: search } }, { body: { contains: search } }] } } } : {}) }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: { updatedAt: 'desc' } })
+    const receipts = rows.length ? await this.prisma.acknowledgement.findMany({ where: { entityType: 'ARTICLE', entityId: { in: rows.map((row) => row.id) }, userId: principal.userId, confirmedAt: { not: null } }, select: { entityId: true, version: true } }) : []
+    const confirmed = new Set(receipts.map((receipt) => `${receipt.entityId}:${receipt.version}`))
+    const links = rows.length ? await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: { in: rows.map((row) => row.id) }, purpose: 'ATTACHMENT' }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { entityId: true, fileId: true } }) : []
+    const images = links.length ? await this.prisma.fileObject.findMany({ where: { id: { in: links.map((link) => link.fileId) }, workspaceId: principal.workspaceId, scanStatus: 'CLEAN', detectedMime: { in: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] } }, select: { id: true } }) : []
+    const imageIds = new Set(images.map((image) => image.id))
+    const thumbnails = new Map<string, string>()
+    for (const link of links) if (imageIds.has(link.fileId) && !thumbnails.has(link.entityId)) thumbnails.set(link.entityId, link.fileId)
+    return { items: rows.map((row) => ({ id: row.id, slug: row.slug, title: row.versions[0]?.title ?? row.slug, changeSummary: row.versions[0]?.changeSummary ?? '', reviewAt: row.reviewAt?.toISOString() ?? null, version: row.version, createdAt: row.createdAt.toISOString(), requiresAcknowledgement: row.requiresAcknowledgement, hasAcknowledged: confirmed.has(`${row.id}:${row.version}`), updatedAt: row.updatedAt.toISOString(), imageFileId: thumbnails.get(row.id) ?? null })) }
+  }
+
+  async readingSummary(principal: AuthPrincipal) {
+    const result = await this.pendingAcknowledgements(principal, false)
+    return { unreadCount: result.pendingCount, requiredUnreadCount: result.requiredPendingCount }
+  }
+
+  async pendingAcknowledgements(principal: AuthPrincipal, requiredOnly = true) {
+    const audiences = await this.prisma.articleAudience.findMany({
+      where: { OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] },
+      select: { articleId: true },
+    })
+    const articles = await this.prisma.knowledgeArticle.findMany({
+      where: { workspaceId: principal.workspaceId, status: 'ACTIVE', ...(requiredOnly ? { requiresAcknowledgement: true } : {}), id: { in: audiences.map((row) => row.articleId) } },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+    if (!articles.length) return { pendingCount: 0, requiredPendingCount: 0, nextArticle: null }
+    const receipts = await this.prisma.acknowledgement.findMany({
+      where: { entityType: 'ARTICLE', entityId: { in: articles.map((row) => row.id) }, userId: principal.userId, confirmedAt: { not: null } },
+      select: { entityId: true, version: true },
+    })
+    const confirmed = new Set(receipts.map((row) => `${row.entityId}:${row.version}`))
+    const pending = articles.filter((row) => !confirmed.has(`${row.id}:${row.version}`))
+    const next = pending[0]
+    return { pendingCount: pending.length, requiredPendingCount: pending.filter((row) => row.requiresAcknowledgement).length, nextArticle: next ? { slug: next.slug, title: next.versions[0]?.title ?? next.slug } : null }
   }
 
   async detail(principal: AuthPrincipal, slug: string) {
-    const resolved = await this.prisma.knowledgeArticle.findFirst({ where: { slug, status: 'ACTIVE' }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } })
+    const resolved = await this.prisma.knowledgeArticle.findFirst({ where: { workspaceId: principal.workspaceId, slug, status: 'ACTIVE' }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } })
     if (!resolved) throw notFound()
     const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: resolved.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] } })
     if (!audience) throw notFound()
     const acknowledgement = await this.prisma.acknowledgement.findFirst({ where: { entityType: 'ARTICLE', entityId: resolved.id, version: resolved.version, userId: principal.userId } })
-    const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT' }, select: { fileId: true } })
+    const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT' }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { fileId: true } })
     const attachmentRows = attachmentLinks.length === 0 ? [] : await this.prisma.fileObject.findMany({ where: { id: { in: attachmentLinks.map((link) => link.fileId) }, workspaceId: principal.workspaceId }, select: { id: true, safeFilename: true, bytes: true, detectedMime: true, scanStatus: true } })
-    const attachments = attachmentRows.map(({ detectedMime, ...file }) => ({ ...file, mimeType: detectedMime }))
+    const attachments = attachmentLinks.flatMap((link) => {
+      const row = attachmentRows.find((file) => file.id === link.fileId)
+      if (!row) return []
+      const { detectedMime, ...file } = row
+      return [{ ...file, mimeType: detectedMime }]
+    })
     const audienceRows = await this.prisma.articleAudience.findMany({ where: { articleId: resolved.id, principalType: 'COMPANY' }, select: { principalId: true } })
     return { ...resolved, currentVersion: resolved.versions[0] ?? null, acknowledgement, attachments, companyIds: audienceRows.map((row) => row.principalId) }
   }
 
-  async create(principal: AuthPrincipal, input: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string }) {
+  async create(principal: AuthPrincipal, input: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string; requiresAcknowledgement?: boolean }) {
+    if (principal.accountType !== 'ADMIN') throw forbidden()
+    if (input.requiresAcknowledgement !== undefined && typeof input.requiresAcknowledgement !== 'boolean') throw badRequest('article_fields')
     const slug = input.slug.trim().toLowerCase()
     if (!/^[a-z0-9-]{3,80}$/.test(slug) || !input.title.trim() || !input.body.trim()) throw badRequest('article_fields')
     if (!input.companyIds.length || input.companyIds.some((company) => !principal.allowedCompanyIds.includes(company))) throw badRequest('article_audience')
@@ -35,7 +75,7 @@ export class KnowledgeService {
     const articleId = id('art')
     const versionId = id('artv')
     await this.prisma.$transaction(async (tx) => {
-      await tx.knowledgeArticle.create({ data: { id: articleId, workspaceId: principal.workspaceId, slug, ownerId: principal.userId, status: 'ACTIVE', currentVersionId: versionId, reviewAt: input.reviewAt ? new Date(input.reviewAt) : null } })
+      await tx.knowledgeArticle.create({ data: { id: articleId, workspaceId: principal.workspaceId, slug, ownerId: principal.userId, status: 'ACTIVE', currentVersionId: versionId, requiresAcknowledgement: input.requiresAcknowledgement ?? false, reviewAt: input.reviewAt ? new Date(input.reviewAt) : null } })
       await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId, version: 1, title: input.title.trim(), body: input.body.trim(), changeSummary: 'Перша публікація', createdBy: principal.userId, publishedAt: new Date() } })
       await tx.articleAudience.createMany({ data: input.companyIds.map((companyId) => ({ id: id('audn'), articleId, principalType: 'COMPANY', principalId: companyId })) })
       if (attachmentIds.length) await tx.fileLink.createMany({ data: attachmentIds.map((fileId) => ({ id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: articleId, purpose: 'ATTACHMENT', aclMode: 'INHERIT' })) })
@@ -44,8 +84,9 @@ export class KnowledgeService {
     return { id: articleId, slug }
   }
 
-  async update(principal: AuthPrincipal, slug: string, input: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; expectedVersion: number }) {
+  async update(principal: AuthPrincipal, slug: string, input: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; removedAttachmentIds?: string[]; requiresAcknowledgement?: boolean; expectedVersion: number }) {
     if (principal.accountType !== 'ADMIN') throw forbidden()
+    if (input.requiresAcknowledgement !== undefined && typeof input.requiresAcknowledgement !== 'boolean') throw badRequest('article_fields')
     if (typeof input.title !== 'string' || !input.title.trim() || typeof input.body !== 'string' || !input.body.trim() || typeof input.changeSummary !== 'string' || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) throw badRequest('article_fields')
     // Audience is optional on update; an empty selection would orphan the
     // article, so it is rejected the same way it is on create.
@@ -53,10 +94,12 @@ export class KnowledgeService {
     if (companyIds && (!companyIds.length || companyIds.some((company) => !principal.allowedCompanyIds.includes(company)))) throw badRequest('article_audience')
     const article = await this.detail(principal, slug)
     if (article.workspaceId !== principal.workspaceId) throw notFound()
+    if (input.removedAttachmentIds !== undefined && (!Array.isArray(input.removedAttachmentIds) || input.removedAttachmentIds.some((fileId) => typeof fileId !== 'string' || !article.attachments.some((file) => file.id === fileId)))) throw badRequest('article_attachment_invalid')
+    const removedAttachmentIds = [...new Set(input.removedAttachmentIds ?? [])]
     const attachmentIds = await this.assertAttachments(principal, input.attachmentIds)
     const versionId = id('artv')
     await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, version: input.expectedVersion, status: 'ACTIVE' }, data: { version: { increment: 1 }, currentVersionId: versionId } })
+      const updated = await tx.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, version: input.expectedVersion, status: 'ACTIVE' }, data: { version: { increment: 1 }, currentVersionId: versionId, ...(input.requiresAcknowledgement !== undefined ? { requiresAcknowledgement: input.requiresAcknowledgement } : {}) } })
       if (updated.count !== 1) throw conflict('Матеріал уже змінено. Відкрийте його повторно, щоб завантажити актуальну версію.')
       await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId: article.id, version: input.expectedVersion + 1, title: input.title.trim(), body: input.body.trim(), changeSummary: input.changeSummary.trim() || 'Оновлено матеріал', createdBy: principal.userId, publishedAt: new Date() } })
       if (companyIds) {
@@ -64,6 +107,7 @@ export class KnowledgeService {
         await tx.articleAudience.createMany({ data: companyIds.map((companyId) => ({ id: id('audn'), articleId: article.id, principalType: 'COMPANY', principalId: companyId })) })
       }
       for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: {} })
+      if (removedAttachmentIds.length) await tx.fileLink.deleteMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds } } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     })
     return { id: article.id, slug }
@@ -90,11 +134,12 @@ export class KnowledgeService {
   async acknowledge(principal: AuthPrincipal, slug: string, expectedVersion: number) {
     const article = await this.detail(principal, slug)
     if (article.version !== expectedVersion) throw conflict()
+    const confirmedAt = new Date()
     await this.prisma.acknowledgement.upsert({
       where: { entityType_entityId_version_userId: { entityType: 'ARTICLE', entityId: article.id, version: expectedVersion, userId: principal.userId } },
-      create: { id: id('ack'), entityType: 'ARTICLE', entityId: article.id, version: expectedVersion, userId: principal.userId, dueAt: new Date(Date.now() + 7 * 86_400_000), openedAt: new Date(), confirmedAt: new Date() },
-      update: { confirmedAt: new Date() },
+      create: { id: id('ack'), entityType: 'ARTICLE', entityId: article.id, version: expectedVersion, userId: principal.userId, dueAt: new Date(Date.now() + 7 * 86_400_000), openedAt: confirmedAt, confirmedAt },
+      update: { confirmedAt },
     })
-    return { confirmed: true }
+    return { confirmed: true, confirmedAt: confirmedAt.toISOString() }
   }
 }

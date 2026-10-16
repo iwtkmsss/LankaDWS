@@ -1,3 +1,4 @@
+import { USER_SEARCH_MAX_QUERY_LENGTH, userSearchLimitSchema } from './user-search.js'
 import { z } from 'zod'
 import { companyScopeSchema } from './domain.js'
 import { mentionSearchQuerySchema, structuredMentionInputSchema } from './mentions.js'
@@ -43,14 +44,15 @@ export type ChatMessageSearchQuery = z.infer<typeof chatMessageSearchQuerySchema
 
 export const chatUserSearchQuerySchema = z.object({
   company: z.string().trim().min(1).max(120),
-  q: z.string().max(100),
-  limit: z.coerce.number().int().min(1).max(30).default(20),
+  q: z.string().max(USER_SEARCH_MAX_QUERY_LENGTH),
+  limit: userSearchLimitSchema,
+  exclude: z.string().max(24_200).optional(),
 })
 export type ChatUserSearchQuery = z.infer<typeof chatUserSearchQuerySchema>
 
 export const recommendedChatUsersQuerySchema = z.object({
   company: z.string().trim().min(1).max(120),
-  limit: z.coerce.number().int().min(1).max(12).default(6),
+  limit: userSearchLimitSchema,
 })
 export type RecommendedChatUsersQuery = z.infer<typeof recommendedChatUsersQuerySchema>
 
@@ -103,9 +105,11 @@ export const sendChatMessageSchema = z.object({
 export type SendChatMessageInput = z.infer<typeof sendChatMessageSchema>
 
 export const editChatMessageSchema = z.object({
-  body: z.string().trim().min(1).max(8_000),
+  body: z.string().trim().max(8_000),
   expectedVersion: z.number().int().positive(),
   mentions: z.array(structuredMentionInputSchema).max(100).optional(),
+  attachmentIds: z.array(z.string().trim().min(1).max(120))
+    .transform((items) => [...new Set(items)]).optional(),
 })
 export type EditChatMessageInput = z.infer<typeof editChatMessageSchema>
 
@@ -117,6 +121,13 @@ export const deleteChatMessageSchema = z.object({
 })
 export type DeleteChatMessageInput = z.infer<typeof deleteChatMessageSchema>
 
+export const calendarRecurrenceSchema = z.object({
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+  interval: z.number().int().min(1).max(365).default(1),
+  until: z.string().datetime().nullable().default(null),
+})
+export type CalendarRecurrenceInput = z.infer<typeof calendarRecurrenceSchema>
+
 const calendarEventFields = {
   title: z.string().trim().min(2).max(180),
   description: z.string().trim().max(4_000).optional(),
@@ -124,12 +135,20 @@ const calendarEventFields = {
   endAt: z.string().datetime(),
   sourceTimezone: z.string().trim().min(1).max(80).default('Europe/Kyiv'),
   allDay: z.boolean().default(false),
+  recurrence: calendarRecurrenceSchema.nullable().optional(),
+  reminderMinutes: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(15), z.literal(30), z.literal(60), z.literal(120), z.literal(1440)]).nullable().optional(),
 }
 
 function assertEventWindow(
-  value: { startAt: string; endAt: string },
+  value: { startAt: string; endAt: string; recurrence?: CalendarRecurrenceInput | null; reminderMinutes?: number | null; audience: CalendarEventAudienceInput },
   context: z.core.$RefinementCtx,
 ): void {
+  if (value.reminderMinutes != null && value.audience.type !== 'PRIVATE') {
+    context.addIssue({ code: 'custom', path: ['reminderMinutes'], message: 'Reminders are only available for private events.' })
+  }
+  if (value.recurrence?.until && Date.parse(value.recurrence.until) < Date.parse(value.startAt)) {
+    context.addIssue({ code: 'custom', path: ['recurrence', 'until'], message: 'Repeat end must not precede event start.' })
+  }
   if (Date.parse(value.endAt) <= Date.parse(value.startAt)) {
     context.addIssue({
       code: 'custom',
@@ -251,6 +270,7 @@ export type ChatAttachmentView = z.infer<typeof chatAttachmentViewSchema>
 
 export const chatThreadListItemSchema = z.object({
   id: z.string(),
+  pinned: z.boolean().optional(),
   companyId: z.string(),
   title: z.string(),
   kind: chatThreadKindSchema,
@@ -265,6 +285,8 @@ export const chatThreadListItemSchema = z.object({
   notificationMode: chatNotificationModeSchema,
 })
 export type ChatThreadListItem = z.infer<typeof chatThreadListItemSchema>
+
+export const setChatPinSchema = z.object({ pinned: z.boolean() }).strict()
 
 export const chatThreadCountsSchema = z.object({
   all: z.number().int().nonnegative(),

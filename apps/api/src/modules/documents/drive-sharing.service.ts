@@ -4,9 +4,10 @@ import { id } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 
 interface PrincipalKey {
-  principalType: 'USER' | 'GROUP'
+  principalType: 'USER'
   principalId: string
 }
 
@@ -22,20 +23,11 @@ function strongest(left: DriveShareRole | undefined, right: DriveShareRole): Dri
 
 @Injectable()
 export class DriveSharingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly realtime?: ChatRealtimeService) {}
 
-  async principalKeys(principal: AuthPrincipal): Promise<PrincipalKey[]> {
-    const memberships = await this.prisma.groupMember.findMany({
-      where: {
-        userId: principal.userId,
-        leftAt: null,
-        group: { companyId: { in: principal.allowedCompanyIds }, status: 'ACTIVE' },
-      },
-      select: { groupId: true },
-    })
+  principalKeys(principal: AuthPrincipal): PrincipalKey[] {
     return [
       { principalType: 'USER', principalId: principal.userId },
-      ...memberships.map((membership) => ({ principalType: 'GROUP' as const, principalId: membership.groupId })),
     ]
   }
 
@@ -44,7 +36,7 @@ export class DriveSharingService {
    * over the whole subtree before the documents inside them are collected.
    */
   async grantsFor(principal: AuthPrincipal): Promise<DriveGrants> {
-    const keys = await this.principalKeys(principal)
+    const keys = this.principalKeys(principal)
     const shares = await this.prisma.driveShare.findMany({
       where: {
         workspaceId: principal.workspaceId,
@@ -125,22 +117,16 @@ export class DriveSharingService {
       orderBy: { createdAt: 'asc' },
     })
     const userIds = shares.filter((share) => share.principalType === 'USER').map((share) => share.principalId)
-    const groupIds = shares.filter((share) => share.principalType === 'GROUP').map((share) => share.principalId)
-    const [users, groups] = await Promise.all([
-      this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, displayName: true } }),
-      this.prisma.group.findMany({ where: { id: { in: groupIds } }, select: { id: true, name: true } }),
-    ])
-    const nameById = new Map<string, string>([
-      ...users.map((user) => [user.id, user.displayName] as const),
-      ...groups.map((group) => [group.id, group.name] as const),
-    ])
+    const users = await this.prisma.user.findMany({ where: { id: { in: userIds }, workspaceId: principal.workspaceId }, select: { id: true, displayName: true, avatarAsset: true } })
+    const userById = new Map(users.map((user) => [user.id, user]))
     return shares.map((share) => ({
       id: share.id,
       targetType: share.targetType as DriveShareTargetType,
       targetId: share.targetId,
-      principalType: share.principalType as 'USER' | 'GROUP',
+      principalType: share.principalType as 'USER',
       principalId: share.principalId,
-      principalName: nameById.get(share.principalId) ?? 'Недоступний принципал',
+      principalName: userById.get(share.principalId)?.displayName ?? 'Недоступний принципал',
+      avatarAsset: userById.get(share.principalId)?.avatarAsset ?? null,
       role: share.role as DriveShareRole,
       inherited: false,
       createdAt: share.createdAt.toISOString(),
@@ -149,55 +135,80 @@ export class DriveSharingService {
 
   async create(
     principal: AuthPrincipal,
-    input: { targetType: DriveShareTargetType; targetId: string; principalType: 'USER' | 'GROUP'; principalId: string; role: DriveShareRole },
+    input: { targetType: DriveShareTargetType; targetId: string; principalType: 'USER'; principalId: string; role: DriveShareRole },
   ) {
     await this.assertTargetOwned(principal, input.targetType, input.targetId)
     if (input.principalType === 'USER' && input.principalId === principal.userId) {
       throw badRequest('drive_share_self')
     }
-    const exists = input.principalType === 'USER'
-      ? await this.prisma.user.findFirst({ where: { id: input.principalId, workspaceId: principal.workspaceId, isActive: true }, select: { id: true } })
-      : await this.prisma.group.findFirst({ where: { id: input.principalId, companyId: { in: principal.allowedCompanyIds }, status: 'ACTIVE' }, select: { id: true } })
+    const exists = await this.prisma.user.findFirst({ where: { id: input.principalId, workspaceId: principal.workspaceId, isActive: true }, select: { id: true } })
     if (!exists) throw badRequest('drive_share_principal_invalid')
 
+    const target = input.targetType === 'FOLDER'
+      ? await this.prisma.driveFolder.findFirst({ where: { id: input.targetId, companyId: { in: principal.allowedCompanyIds }, workspaceId: principal.workspaceId }, select: { name: true, companyId: true } })
+      : await this.prisma.document.findFirst({ where: { id: input.targetId, companyId: { in: principal.allowedCompanyIds }, workspaceId: principal.workspaceId }, select: { name: true, companyId: true } })
+    if (!target) throw notFound()
     const shareId = id('drsh')
-    await this.prisma.driveShare.upsert({
-      where: {
-        targetType_targetId_principalType_principalId: {
+    const changed = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.driveShare.findUnique({ where: { targetType_targetId_principalType_principalId: {
+        targetType: input.targetType, targetId: input.targetId, principalType: input.principalType, principalId: input.principalId,
+      } }, select: { role: true } })
+      const share = await tx.driveShare.upsert({
+        where: {
+          targetType_targetId_principalType_principalId: {
+            targetType: input.targetType,
+            targetId: input.targetId,
+            principalType: input.principalType,
+            principalId: input.principalId,
+          },
+        },
+        create: {
+          id: shareId,
+          workspaceId: principal.workspaceId,
           targetType: input.targetType,
           targetId: input.targetId,
           principalType: input.principalType,
           principalId: input.principalId,
+          role: input.role,
+          createdBy: principal.userId,
         },
-      },
-      create: {
-        id: shareId,
-        workspaceId: principal.workspaceId,
-        targetType: input.targetType,
-        targetId: input.targetId,
-        principalType: input.principalType,
-        principalId: input.principalId,
-        role: input.role,
-        createdBy: principal.userId,
-      },
-      update: { role: input.role },
-    })
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId: await this.companyOf(principal, input.targetType, input.targetId),
-        actorType: 'USER',
-        actorId: principal.userId,
-        action: 'drive.shared',
-        entityType: input.targetType,
+        update: { role: input.role },
+      })
+      await tx.auditEvent.create({
+        data: {
+          id: id('aud'),
+          workspaceId: principal.workspaceId,
+          companyId: target.companyId,
+          actorType: 'USER',
+          actorId: principal.userId,
+          action: 'drive.shared',
+          entityType: input.targetType,
+          entityId: input.targetId,
+          result: 'SUCCESS',
+          risk: 'HIGH',
+          safeDiffJson: JSON.stringify({ principalType: input.principalType, role: input.role }),
+          correlationId: id('corr'),
+        },
+      })
+      if (existing?.role === input.role) return false
+      const notificationId = id('ntf')
+      const kind = input.targetType === 'FOLDER' ? 'папки' : 'файлу'
+      const access = input.role === 'EDITOR' ? 'редагування' : 'перегляду'
+      await tx.notification.create({ data: {
+        id: notificationId,
+        recipientId: input.principalId,
+        category: 'DRIVE',
+        safeTitle: `${existing ? 'Змінено ваш доступ' : 'Вам відкрито доступ'} до ${kind} «${target.name}»`,
+        safeSnippet: `${principal.displayName} надав доступ для ${access}.`,
+        entityType: input.targetType === 'FOLDER' ? 'DRIVE_FOLDER' : 'DOCUMENT',
         entityId: input.targetId,
-        result: 'SUCCESS',
-        risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ principalType: input.principalType, role: input.role }),
-        correlationId: id('corr'),
-      },
+        requiresAction: false,
+        deliveredAt: new Date(),
+        dedupeKey: `drive-share:${share.id}:${notificationId}`,
+      } })
+      return true
     })
+    if (changed) this.realtime?.publishSummary([input.principalId], ['notifications'])
     return this.list(principal, input.targetType, input.targetId)
   }
 
@@ -246,9 +257,12 @@ export class DriveSharingService {
   private async assertTargetVisible(principal: AuthPrincipal, targetType: DriveShareTargetType, targetId: string): Promise<void> {
     const row = targetType === 'FOLDER'
       ? await this.prisma.driveFolder.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true } })
-      : await this.prisma.document.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true } })
+      : await this.prisma.document.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true, confidentiality: true } })
     if (!row) throw notFound()
     if (row.ownerId === principal.userId || isGlobalAdmin(principal)) return
+    // Document readers can inspect sharing metadata under the same visibility
+    // rules as the Drive list and document detail. Changes still require ownership.
+    if ('confidentiality' in row && (row.confidentiality === 'GENERAL' || row.confidentiality === 'INTERNAL')) return
     const grants = await this.grantsFor(principal)
     if (!grants.roleOf(targetType, targetId)) throw notFound()
   }

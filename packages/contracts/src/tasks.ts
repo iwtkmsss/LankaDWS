@@ -39,10 +39,13 @@ export const taskParticipantInputSchema = z.object({
 export type TaskParticipantInput = z.infer<typeof taskParticipantInputSchema>
 
 export const taskCommentInputSchema = z.object({
-  body: z.string().min(1).max(4_000),
+  body: z.string().max(4_000),
   replyToCommentId: entityIdSchema.nullable().optional(),
   attachmentIds: z.array(entityIdSchema).max(5).default([]),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).refine((value) => value.body.trim().length > 0 || value.attachmentIds.length > 0, {
+  message: 'Comment text or an attachment is required',
+  path: ['body'],
 })
 export type TaskCommentInput = z.infer<typeof taskCommentInputSchema>
 
@@ -170,7 +173,6 @@ export type TaskRecurrenceInput = z.infer<typeof taskRecurrenceInputSchema>
 const createTaskBaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(20_000).default(''),
-  groupId: entityIdSchema.nullable().optional(),
   projectId: entityIdSchema.nullable().optional(),
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
@@ -254,7 +256,6 @@ export const updateTaskSchema = z.object({
   expectedVersion: z.number().int().positive(),
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(20_000).optional(),
-  groupId: entityIdSchema.nullable().optional(),
   projectId: entityIdSchema.nullable().optional(),
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
@@ -312,7 +313,6 @@ export const taskOptionSchema = z.object({
   number: z.string().regex(/^\d+$/).max(80),
   title: z.string().min(1).max(200),
   status: z.string().min(1).max(40),
-  groupId: entityIdSchema.nullable(),
   projectId: entityIdSchema.nullable(),
   parentTaskId: entityIdSchema.nullable(),
 })

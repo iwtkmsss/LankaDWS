@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const driveViewSchema = z.enum(['MY_DRIVE', 'SHARED', 'RECENT', 'TRASH'])
+export const driveViewSchema = z.enum(['MY_DRIVE', 'SHARED', 'RECENT', 'TRASH', 'USERS'])
 export type DriveView = z.infer<typeof driveViewSchema>
 
 export const driveFileTypeSchema = z.enum(['ALL', 'FOLDER', 'DOCUMENT', 'IMAGE', 'PDF', 'OTHER'])
@@ -21,7 +21,7 @@ export type DriveSortDirection = z.infer<typeof driveSortDirectionSchema>
 export const driveShareTargetTypeSchema = z.enum(['DOCUMENT', 'FOLDER'])
 export type DriveShareTargetType = z.infer<typeof driveShareTargetTypeSchema>
 
-export const drivePrincipalTypeSchema = z.enum(['USER', 'GROUP'])
+export const drivePrincipalTypeSchema = z.enum(['USER'])
 export type DrivePrincipalType = z.infer<typeof drivePrincipalTypeSchema>
 
 export const driveShareRoleSchema = z.enum(['VIEWER', 'EDITOR'])
@@ -30,6 +30,7 @@ export type DriveShareRole = z.infer<typeof driveShareRoleSchema>
 export const driveListQuerySchema = z.object({
   view: driveViewSchema.default('MY_DRIVE'),
   folderId: z.string().trim().min(1).max(120).optional(),
+  ownerId: z.string().trim().min(1).max(120).optional(),
   search: z.string().trim().max(200).optional(),
   type: driveFileTypeSchema.default('ALL'),
   people: drivePeopleFilterSchema.default('ANYONE'),
@@ -53,8 +54,11 @@ export const driveFolderItemSchema = z.object({
   ownerId: z.string(),
   ownerName: z.string(),
   isOwner: z.boolean(),
+  accessRole: driveShareRoleSchema.default('VIEWER'),
+  isShared: z.boolean().default(false),
   sharedWithCount: z.number().int().nonnegative(),
   childCount: z.number().int().nonnegative(),
+  sizeBytes: z.number().int().nonnegative().nullable(),
   updatedAt: z.string(),
   trashedAt: z.string().nullable(),
 })
@@ -68,20 +72,75 @@ export const driveFileItemSchema = z.object({
   folderId: z.string().nullable(),
   fileId: z.string().nullable(),
   mimeType: z.string().nullable(),
+  extension: z.string().nullable(),
   fileType: z.enum(['DOCUMENT', 'IMAGE', 'PDF', 'OTHER']),
   sizeBytes: z.number().int().nonnegative().nullable(),
   ownerId: z.string(),
   ownerName: z.string(),
   isOwner: z.boolean(),
+  accessRole: driveShareRoleSchema.default('VIEWER'),
+  isShared: z.boolean().default(false),
   sharedWithCount: z.number().int().nonnegative(),
   version: z.number().int().positive(),
-  versionCount: z.number().int().nonnegative(),
   updatedAt: z.string(),
   trashedAt: z.string().nullable(),
 })
 export type DriveFileItem = z.infer<typeof driveFileItemSchema>
 
+export const driveOwnerSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  username: z.string(),
+})
+export type DriveOwner = z.infer<typeof driveOwnerSchema>
+
+export const driveOwnersQuerySchema = z.object({
+  search: z.string().trim().max(200).optional(),
+  cursor: z.string().trim().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(25),
+})
+export type DriveOwnersQuery = z.infer<typeof driveOwnersQuerySchema>
+
+export const driveOwnersResultSchema = z.object({
+  items: z.array(driveOwnerSchema.extend({ itemCount: z.number().int().nonnegative() })),
+  nextCursor: z.string().nullable(),
+})
+export type DriveOwnersResult = z.infer<typeof driveOwnersResultSchema>
+
+export const driveDestinationsQuerySchema = z.object({
+  targetType: driveShareTargetTypeSchema,
+  targetId: z.string().trim().min(1).max(120),
+  folderId: z.string().trim().min(1).max(120).optional(),
+  cursor: z.string().trim().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+})
+export type DriveDestinationsQuery = z.infer<typeof driveDestinationsQuerySchema>
+export const driveDestinationsResultSchema = z.object({
+  items: z.array(z.object({ id: z.string(), name: z.string(), hasChildren: z.boolean() })),
+  nextCursor: z.string().nullable(),
+})
+export type DriveDestinationsResult = z.infer<typeof driveDestinationsResultSchema>
+
+export const drivePickerQuerySchema = z.object({
+  search: z.string().trim().max(200).optional(),
+  folderId: z.string().trim().min(1).max(120).optional(),
+  cursor: z.string().trim().min(1).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+})
+export type DrivePickerQuery = z.infer<typeof drivePickerQuerySchema>
+export const drivePickerItemSchema = driveFileItemSchema.pick({ id: true, name: true, fileType: true, sizeBytes: true }).extend({
+  folderPath: z.array(z.string()).optional(),
+})
+export type DrivePickerItem = z.infer<typeof drivePickerItemSchema>
+export const drivePickerResultSchema = z.object({
+  folders: z.array(z.object({ id: z.string(), name: z.string() })),
+  items: z.array(drivePickerItemSchema),
+  nextCursor: z.string().nullable(),
+})
+export type DrivePickerResult = z.infer<typeof drivePickerResultSchema>
+
 export const driveListResultSchema = z.object({
+  owner: driveOwnerSchema.nullable().optional(),
   breadcrumbs: z.array(driveBreadcrumbSchema),
   folders: z.array(driveFolderItemSchema),
   files: z.array(driveFileItemSchema),
@@ -145,6 +204,7 @@ export const driveShareViewSchema = z.object({
   principalType: drivePrincipalTypeSchema,
   principalId: z.string(),
   principalName: z.string(),
+  avatarAsset: z.string().nullable().default(null),
   role: driveShareRoleSchema,
   inherited: z.boolean(),
   createdAt: z.string(),

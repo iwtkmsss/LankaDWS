@@ -3,7 +3,6 @@ import { lazy } from 'react'
 import type { OrganizationCapabilityCode } from '@lankadws/contracts'
 import {
   BookOpen,
-  Building2,
   Bell,
   CalendarDays,
   CheckSquare2,
@@ -46,6 +45,7 @@ const loadLegacyRedirect = () => import('../pages/LegacyRouteRedirectPage')
 
 const Feed = lazy(loadFeed)
 const Tasks = lazy(loadTasks)
+const TaskCreate = lazy(() => import('../pages/TaskCreatePage'))
 const Calendar = lazy(loadCalendar)
 const Content = lazy(loadContent)
 const Drive = lazy(loadDrive)
@@ -68,7 +68,7 @@ export const routes: RouteMeta[] = [
     component: Tasks,
     preload: loadTasks,
   },
-  { path: '/tasks/new', title: 'Нове завдання', component: Tasks },
+  { path: '/tasks/new', title: 'Нове завдання', component: TaskCreate },
   { path: '/tasks/:taskId', title: 'Деталі завдання', component: Tasks },
   {
     path: '/calendar',
@@ -136,24 +136,6 @@ export const routes: RouteMeta[] = [
     preload: loadCommunication,
   },
   { path: '/messages/:threadId', title: 'Діалог', component: Communication },
-  {
-    path: '/groups',
-    title: 'Робочі групи',
-    capability: 'GROUPS_UI',
-    nav: true,
-    navGroup: 'company',
-    navOrder: 1,
-    navIcon: Building2,
-    releaseState: 'released',
-    component: Content,
-  },
-  {
-    path: '/groups/:groupId',
-    title: 'Робоча група',
-    capability: 'GROUPS_UI',
-    releaseState: 'released',
-    component: Content,
-  },
   {
     path: '/drive',
     title: 'Диск',

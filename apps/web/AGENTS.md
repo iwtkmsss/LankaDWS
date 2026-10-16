@@ -8,7 +8,7 @@ These instructions extend the repository root `AGENTS.md`.
 - Router/guards: `src/app/router.tsx`.
 - App shell, quick create and global command palette: `src/layout/AppShell.tsx`.
 - Chat and notifications: `src/pages/CommunicationPages.tsx`.
-- Groups, Drive and Knowledge: `src/pages/ContentPages.tsx`.
+- Knowledge: `src/pages/ContentPages.tsx`. Drive: `src/features/drive/*`.
 - Live Feed: `src/pages/FeedPage.tsx`.
 - Organization (combined directory + structure + companies): `/organization` → `src/pages/OrganizationUniversePage.tsx`. `/employees*` and `/companies*` are `src/pages/LegacyRouteRedirectPage.tsx`; company structure admin is `src/pages/AdminOrganizationPage.tsx`.
 - Calendar: `src/pages/CalendarPage.tsx`.

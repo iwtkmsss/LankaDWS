@@ -1,0 +1,32 @@
+.organization-icon-picker,
+.organization-logo-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.organization-icon-picker legend,
+.organization-logo-picker legend { margin-bottom: 10px; font-weight: 600; }
+.organization-icon-picker > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.organization-icon-picker label { position: relative; min-width: 0; cursor: pointer; }
+.organization-icon-picker input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.organization-icon-picker label > span {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 76px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--ink-500); padding: 8px 3px;
+}
+.organization-icon-picker input:checked + span { border-color: var(--accent-solid); color: var(--accent-solid); background: var(--surface-soft); }
+.organization-icon-picker input:focus-visible + span { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+.organization-logo-picker__row { display: flex; align-items: center; gap: 16px; }
+.organization-logo-picker__preview { display: grid; place-items: center; width: 80px; height: 80px; flex-shrink: 0; border: 1px solid var(--line); border-radius: 14px; color: var(--accent-solid); background: var(--surface-soft); }
+.organization-logo-picker__row > div { min-width: 0; display: grid; gap: 8px; }
+.organization-logo-picker input { width: 100%; min-width: 0; font-size: 12px; }
+.organization-logo-picker small { color: var(--ink-500); }
+.organization-logo-picker button { justify-self: start; }
+.organization-company-logo { display: inline-block; flex-shrink: 0; object-fit: contain; border-radius: 6px; }
+.organization-navigator__select > svg { flex-shrink: 0; color: var(--accent-solid); }
+.organization-navigator__select:has(> svg) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.organization-map__outline-select > svg { flex-shrink: 0; color: var(--accent-solid); }
+.organization-map__outline-select:has(> svg) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.organization-unit-header h2 { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 380px) { .organization-icon-picker > div { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

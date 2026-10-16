@@ -18,6 +18,7 @@ import {
   removeChatParticipantSchema,
   recommendedChatUsersQuerySchema,
   sendChatMessageSchema,
+  setChatPinSchema,
   updateChatParticipantSchema,
   updateChatPreferenceSchema,
 } from '@lankadws/contracts'
@@ -61,9 +62,11 @@ export class MessagesController {
     return this.messages.create(principalFrom(request), parsed.data, key)
   }
 
-  @Post('groups/:groupId/thread')
-  groupThread(@Req() request: LankaDWSRequest, @Param('groupId') groupId: string) {
-    return this.messages.groupThread(principalFrom(request), groupId)
+  @Put('threads/:id/pin')
+  setPin(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() rawBody: unknown) {
+    const parsed = setChatPinSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('chat_pin_invalid')
+    return this.messages.setPin(principalFrom(request), id, parsed.data.pinned)
   }
 
   @Get('threads/:id')

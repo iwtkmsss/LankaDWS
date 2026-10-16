@@ -1,10 +1,11 @@
-import { CheckSquare2, Gauge, Search, Users, X } from 'lucide-react'
+import { personName } from '../../shared/lib/personName'
+import { CheckSquare2, Gauge, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { routes } from '../../app/routes'
 import { api } from '../../shared/api/client'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
-import { DialogBase, IconButton } from '../../shared/ui'
+import { Avatar, DialogBase, IconButton } from '../../shared/ui'
 import { useUserProfile } from '../employees/UserProfileDrawer'
 
 interface PaletteItem {
@@ -14,6 +15,7 @@ interface PaletteItem {
   type: string
   route: string
   companyId: string | null
+  avatarAsset?: string | null
 }
 
 export interface PaletteShortcut {
@@ -97,7 +99,7 @@ export function CommandPalette({ onClose, shortcuts }: {
 
   function itemIcon(item: PaletteItem) {
     if (item.type === 'TASK') return <CheckSquare2 size={18} />
-    if (item.type === 'EMPLOYEE') return <Users size={18} />
+    if (item.type === 'EMPLOYEE') return <Avatar size="sm" name={item.title} src={item.avatarAsset} />
     const baseRoute = item.route.split('?')[0]
     const RouteIcon = routes.find((candidate) => candidate.path === baseRoute)?.navIcon
     return RouteIcon ? <RouteIcon size={18} /> : <Gauge size={18} />
@@ -171,7 +173,7 @@ export function CommandPalette({ onClose, shortcuts }: {
                     onClick={() => open(item)}
                   >
                     <i>{itemIcon(item)}</i>
-                    <span><strong>{item.title}</strong><small>{item.safeSnippet}</small></span>
+                    <span><strong>{item.type === 'EMPLOYEE' ? personName(item.title) : item.title}</strong><small>{item.safeSnippet}</small></span>
                   </button>
                 </li>
               )

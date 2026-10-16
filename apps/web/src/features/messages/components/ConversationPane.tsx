@@ -1,3 +1,4 @@
+import { conversationName } from '../../../shared/lib/personName'
 import type {
   ChatAttachmentView,
   ChatMessageView,
@@ -12,6 +13,7 @@ import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
 import { ConversationSearch } from './ConversationSearch'
 import { MessageComposer } from './MessageComposer'
 import { MessageStream } from './MessageStream'
+import { useReadingMessageThread } from '../lib/messageSound'
 
 interface ConversationPaneProps {
   thread?: ChatThreadDetail
@@ -39,7 +41,7 @@ interface ConversationPaneProps {
   onLike: (message: ChatMessageView) => void
   onForward: (message: ChatMessageView) => void
   onReplyCancel: () => void
-  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
@@ -56,7 +58,7 @@ function ConversationAvatar({
     const other = thread?.participants.find((participant) =>
       participant.displayName === thread.title,
     )
-    return <Avatar name={thread?.title ?? preview?.title ?? ''} src={other?.avatarAsset ?? preview?.avatarAsset} />
+    return <Avatar name={thread ? conversationName(thread) : preview ? conversationName(preview) : ''} src={other?.avatarAsset ?? preview?.avatarAsset} />
   }
   return (
     <span className="conversation-header__group-avatar" aria-hidden="true">
@@ -66,6 +68,7 @@ function ConversationAvatar({
 }
 
 export function ConversationPane(props: ConversationPaneProps) {
+  useReadingMessageThread(props.currentUserId, !props.loading && !props.error ? props.thread?.id : undefined)
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const { isDragging, dropTargetProps } = useFileDropTarget({
@@ -87,16 +90,13 @@ export function ConversationPane(props: ConversationPaneProps) {
     ? props.thread.participants.find((participant) => participant.id !== props.currentUserId)
     : null
   const subtitle = props.thread.kind === 'DIRECT'
-    ? [
-        directParticipant?.username ? `@${directParticipant.username}` : '',
-        directParticipant?.jobTitle ?? '',
-      ].filter(Boolean).join(' · ')
+    ? directParticipant?.jobTitle ?? ''
     : `${props.thread.participants.length} учасників`
 
   return (
     <section
       className="conversation-pane is-file-drop-target"
-      aria-label={`Діалог: ${props.thread.title}`}
+      aria-label={`Діалог: ${conversationName(props.thread)}`}
       {...dropTargetProps}
     >
       <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити їх до повідомлення" />
@@ -108,12 +108,12 @@ export function ConversationPane(props: ConversationPaneProps) {
           <button
             type="button"
             className="conversation-header__person"
-            aria-label={`Інформація та файли: ${props.thread.title}`}
+            aria-label={`Інформація та файли: ${conversationName(props.thread)}`}
             onClick={props.onInfo}
           >
             <ConversationAvatar thread={props.thread} preview={props.preview} />
             <span className="conversation-header__copy">
-              <strong>{props.thread.title}</strong>
+              <strong>{conversationName(props.thread)}</strong>
               <span>{subtitle}</span>
             </span>
           </button>
@@ -204,6 +204,7 @@ export function ConversationPane(props: ConversationPaneProps) {
 
       {props.thread.canPost && (
         <MessageComposer
+          currentUserId={props.currentUserId}
           key={`composer:${props.thread.id}`}
           threadId={props.thread.id}
           initialBody={props.initialComposerBody}

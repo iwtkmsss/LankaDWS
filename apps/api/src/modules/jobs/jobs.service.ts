@@ -1,4 +1,11 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js';
+import { notifyTaskParticipants } from '../tasks/task-notifications.js';
+import {
+  Injectable,
+  Optional,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { id } from '../../common/crypto.js';
 import { getConfig } from '../../config/config.js';
@@ -17,6 +24,7 @@ import {
   type RecurrenceRule,
 } from '../tasks/task-recurrence.service.js';
 import { writeTaskReminders } from '../tasks/task-reminder.service.js';
+import { deliverCalendarReminder } from '../calendar/calendar-reminder.js';
 import {
   buildRetentionPlan,
   executeRetentionPlan,
@@ -41,6 +49,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly taskNumbers: TaskNumberAllocator,
+    @Optional() private readonly realtime?: ChatRealtimeService,
   ) {}
 
   onModuleInit(): void {
@@ -225,12 +234,22 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (type === 'task.recurrence')
       return this.createRecurringTask(entityId, payload);
     if (type === 'task.reminder') return this.deliverTaskReminder(entityId);
+    if (type === 'calendar.reminder') {
+      const recipient = await deliverCalendarReminder(this.prisma, entityId, payload);
+      if (recipient) this.realtime?.publishSummary([recipient], ['notifications']);
+      return;
+    }
     if (
       [
         'task.created',
         'task.updated',
         'task.archived',
         'task.recurrence_created',
+        'task.status_changed',
+        'task.participant_changed',
+        'task.subtask_created',
+        'task.attachment_added',
+        'task.attachment_removed',
       ].includes(type)
     ) {
       return this.projectTaskEvent(entityId, type, payload);
@@ -245,36 +264,43 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
   private async markDevelopmentScan(fileId: string): Promise<void> {
     if (getConfig().MALWARE_SCANNER !== 'development-clean')
       throw new Error('ScannerUnavailable');
-    const file = await this.prisma.fileObject.findUnique({
-      where: { id: fileId },
-    });
-    if (!file) throw new Error('FileMissing');
-    await promoteFile(file.storageKey);
-    await this.prisma.fileObject.update({
-      where: { id: fileId },
-      data: { scanStatus: 'CLEAN' },
+    await this.prisma.$transaction(async (tx) => {
+      const file = await tx.fileObject.findUnique({
+        where: { id: fileId },
+      });
+      if (!file || file.scanStatus === 'CLEAN') return;
+      await promoteFile(file.storageKey);
+      await tx.fileObject.update({
+        where: { id: fileId },
+        data: { scanStatus: 'CLEAN' },
+      });
     });
   }
 
   private async cleanupStagedFile(fileId: string): Promise<void> {
-    const file = await this.prisma.fileObject.findUnique({
-      where: { id: fileId },
-      include: {
-        feedShares: {
-          where: { status: 'ACTIVE' },
-          select: { id: true },
-          take: 1,
+    await this.prisma.$transaction(async (tx) => {
+      const job = await tx.backgroundJob.findUnique({
+        where: { idempotencyKey: `file-staged-cleanup:${fileId}` },
+      });
+      if (job?.safePayload !== JSON.stringify({ disposable: true })) return;
+      const file = await tx.fileObject.findUnique({
+        where: { id: fileId },
+        include: {
+          feedShares: {
+            select: { id: true },
+            take: 1,
+          },
         },
-      },
+      });
+      if (!file || file.createdAt > new Date(Date.now() - 86_400_000)) return;
+      const link = await tx.fileLink.findFirst({
+        where: { fileId },
+        select: { id: true },
+      });
+      if (link || file.feedShares.length) return;
+      await deleteStoredFile(file.storageKey);
+      await tx.fileObject.delete({ where: { id: fileId } });
     });
-    if (!file || file.createdAt > new Date(Date.now() - 86_400_000)) return;
-    const link = await this.prisma.fileLink.findFirst({
-      where: { fileId },
-      select: { id: true },
-    });
-    if (link || file.feedShares.length) return;
-    await deleteStoredFile(file.storageKey);
-    await this.prisma.fileObject.delete({ where: { id: fileId } });
   }
 
   private async projectTaskEvent(
@@ -296,14 +322,21 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isInteger(aggregateVersion) || aggregateVersion < 1) {
       throw new Error('TaskProjectionVersionInvalid');
     }
-    await this.prisma.$transaction((tx) =>
-      writeFeedProjection(tx, {
+    await this.prisma.$transaction(async (tx) => {
+      const diff = (payload.notificationDiff ?? payload) as Record<string, unknown>;
+      const recipients = await notifyTaskParticipants(tx, taskId, payloadString(payload, 'actorId') || null, aggregateVersion, eventType, diff);
+      if (['task.created', 'task.updated', 'task.archived', 'task.recurrence_created', 'task.attachment_added', 'task.attachment_removed'].includes(eventType)) await writeFeedProjection(tx, {
         workspaceId: task.workspaceId,
         companyId: task.companyId,
         sourceType: 'TASK',
         sourceId: task.id,
         sourceVersion: aggregateVersion,
         action: eventType.slice('task.'.length).toUpperCase(),
+        taskDetails: {
+          changedFields: Array.isArray(diff.changedFields)
+            ? diff.changedFields.filter((field): field is string => typeof field === 'string')
+            : [],
+        },
         actorId: payloadString(payload, 'actorId') || null,
         recipientIds: [
           task.createdById,
@@ -312,8 +345,9 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         ],
         visibility: 'PARTICIPANTS',
         occurredAt: task.updatedAt,
-      }),
-    );
+      });
+      return recipients;
+    }).then((recipients) => this.realtime?.publishSummary(recipients, ['notifications']));
   }
 
   private async createRecurringTask(
@@ -430,7 +464,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
               id: taskId,
               workspaceId: source.workspaceId,
               companyId: source.companyId,
-              groupId: source.groupId,
               projectId: source.projectId,
               number,
               title: source.title,
@@ -590,12 +623,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
             isActive: true,
             accountType: true,
             primaryCompanyId: true,
-            groupMemberships: {
-              select: {
-                groupId: true,
-                leftAt: true,
-              },
-            },
           },
         },
       },
@@ -614,12 +641,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       reminder.user.isActive &&
       (reminder.user.accountType === 'ADMIN' ||
         reminder.user.primaryCompanyId === task.companyId);
-    const hasGroupAccess =
-      !task.groupId ||
-      reminder.user.groupMemberships.some(
-        (membership) =>
-          membership.groupId === task.groupId && !membership.leftAt,
-      );
     const isDirectActor =
       task.createdById === reminderUserId ||
       task.reporterId === reminderUserId ||
@@ -637,7 +658,6 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     if (
       task.archivedAt ||
       !hasCompanyAccess ||
-      !hasGroupAccess ||
       (!isDirectActor && !canManage)
     ) {
       await this.prisma.taskReminder.updateMany({
@@ -669,6 +689,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         update: {},
       });
     });
+    this.realtime?.publishSummary([reminderUserId], ['notifications']);
   }
 
   private async runRetention(

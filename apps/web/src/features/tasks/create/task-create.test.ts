@@ -15,7 +15,6 @@ function draft(): TaskCreateDraft {
   return {
     title: '  Запустити кампанію  ',
     description: 'Підготувати матеріали',
-    groupId: '',
     projectId: 'prj_1',
     parentTaskId: '',
     reporterId: 'usr_1',

@@ -1,3 +1,5 @@
+import { personName } from '../shared/lib/personName'
+import { getRecommendedChatUsers } from '../features/messages/api/messageApi'
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -22,7 +24,7 @@ import {
 } from 'lucide-react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { RouteMeta } from '../app/routes'
-import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes } from '../app/routes'
+import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes, routeTitle } from '../app/routes'
 import { CommandPalette } from '../features/search/CommandPalette'
 import { useUserProfile } from '../features/employees/UserProfileDrawer'
 import { api } from '../shared/api/client'
@@ -33,6 +35,8 @@ import { Avatar, BrandMark, IconButton } from '../shared/ui'
 import { RightCommunicationPanel } from './RightCommunicationPanel'
 import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
 import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
+import { useMessageSoundActivation } from '../features/messages/lib/messageSound'
+import { useDocumentTitle } from '../shared/lib/useDocumentTitle'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -83,7 +87,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
   const feedCompanyScope = user?.company?.id ?? 'all'
-  useMessageRealtime(Boolean(user))
+  useMessageRealtime(Boolean(user), user?.id)
+  useMessageSoundActivation(user?.id)
   const prefetchNavigationRoute = (route: RouteMeta) => {
     void route.preload?.()
     if (!user?.company?.id) return
@@ -92,7 +97,7 @@ export function AppShell({ children }: PropsWithChildren) {
     if (route.path === '/tasks') {
       void queryClient.prefetchQuery({
         queryKey: ['tasks', 'RESPONSIBLE', 1, null, '', '', '', '', '', false, '', '', '', '', '', '', '', ''],
-        queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&groupId=&assigneeId=&creatorId=&coExecutorId=&observerId='),
+        queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&assigneeId=&creatorId=&coExecutorId=&observerId='),
       })
     } else if (route.path === '/feed') {
       void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
@@ -109,7 +114,7 @@ export function AppShell({ children }: PropsWithChildren) {
       })
       void queryClient.prefetchQuery({
         queryKey: ['messages', 'recommended', company],
-        queryFn: () => api(`/messages/users/recommended?company=${encodeURIComponent(company)}&limit=6`),
+        queryFn: () => getRecommendedChatUsers(company),
         staleTime: 60_000,
       })
     } else if (route.path === '/drive') {
@@ -214,7 +219,7 @@ export function AppShell({ children }: PropsWithChildren) {
   } as const
   const notificationSummary = useQuery({
     queryKey: ['notifications', 'summary'],
-    queryFn: () => api<{ action: number; unread: number }>('/notifications/summary'),
+    queryFn: () => api<{ action: number; unread: number; tasks: number }>('/notifications/summary'),
     enabled: Boolean(user),
     ...summaryBadgeFallback,
   })
@@ -230,7 +235,16 @@ export function AppShell({ children }: PropsWithChildren) {
     enabled: Boolean(user),
     ...summaryBadgeFallback,
   })
+  const knowledgeSummary = useQuery({
+    queryKey: ['knowledge', 'summary', 'unread'],
+    queryFn: () => api<{ unreadCount: number; requiredUnreadCount: number }>('/knowledge/articles/summary'),
+    enabled: Boolean(user),
+    ...summaryBadgeFallback,
+  })
+  const knowledgePending = knowledgeSummary.data?.unreadCount ?? 0
   const chatUnread = chatSummary.data?.unread ?? 0
+  useDocumentTitle(routeTitle(location.pathname), notificationSummary.data?.unread ?? 0)
+  const taskUnread = notificationSummary.data?.tasks ?? 0
   const feedUnread = feedSummary.data?.unreadCount ?? 0
   useEffect(() => {
     window.localStorage.setItem('lankadws.sidebar.collapsed', String(sidebarCollapsed))
@@ -342,8 +356,8 @@ export function AppShell({ children }: PropsWithChildren) {
         to={scopedPath(route.path)}
         end={false}
         role={menuItem ? 'menuitem' : undefined}
-        aria-label={sidebarCollapsed ? title : undefined}
-        title={sidebarCollapsed ? title : undefined}
+        aria-label={sidebarCollapsed ? `${title}${route.path === '/knowledge' && knowledgePending > 0 ? ` · ${knowledgePending} неознайомлених записів` : ''}` : undefined}
+        title={sidebarCollapsed ? `${title}${route.path === '/knowledge' && knowledgePending > 0 ? ` · ${knowledgePending} неознайомлених записів` : ''}` : undefined}
         onClick={() => {
           setMobileNav(false)
           setMoreOpen(false)
@@ -353,6 +367,11 @@ export function AppShell({ children }: PropsWithChildren) {
       >
         <Icon size={18} />
         <span>{title}</span>
+        {route.path === '/tasks' && taskUnread > 0 && (
+          <b className="nav-unread-badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
+            {taskUnread > 99 ? '99+' : taskUnread}
+          </b>
+        )}
         {route.path === '/messages' && chatUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${chatUnread} непрочитаних діалогів`}>
             {chatUnread > 99 ? '99+' : chatUnread}
@@ -361,6 +380,11 @@ export function AppShell({ children }: PropsWithChildren) {
         {route.path === '/feed' && feedUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
             {feedUnread > 99 ? '99+' : feedUnread}
+          </b>
+        )}
+        {route.path === '/knowledge' && knowledgePending > 0 && (
+          <b className={`nav-unread-badge nav-knowledge-badge ${(knowledgeSummary.data?.requiredUnreadCount ?? 0) > 0 ? 'is-required' : ''}`} aria-label={`${knowledgePending} неознайомлених записів`}>
+            {sidebarCollapsed ? '!' : knowledgePending > 99 ? '99+' : knowledgePending}
           </b>
         )}
         {route.path === '/notifications' && (notificationSummary.data?.unread ?? 0) > 0 && (
@@ -469,7 +493,7 @@ export function AppShell({ children }: PropsWithChildren) {
         <div ref={profileMenuRef} className="sidebar__profile">
           {profileOpen && (
             <div className="profile-popover">
-              <strong>{user.displayName}</strong>
+              <strong>{personName(user.displayName)}</strong>
               <small>
                 @{user.username}
               </small>
@@ -504,17 +528,17 @@ export function AppShell({ children }: PropsWithChildren) {
           )}
           <button
             className="profile-button"
-            aria-label={sidebarCollapsed ? `Профіль: ${user.displayName}` : undefined}
-            title={sidebarCollapsed ? user.displayName : undefined}
+            aria-label={sidebarCollapsed ? `Профіль: ${personName(user.displayName)}` : undefined}
+            title={sidebarCollapsed ? personName(user.displayName) : undefined}
             onClick={() => {
               setMoreOpen(false)
               setProfileOpen((value) => !value)
             }}
             aria-expanded={profileOpen}
           >
-            <Avatar name={user.displayName} src={user.avatarAsset} />
+            <Avatar name={personName(user.displayName)} src={user.avatarAsset} />
             <span>
-              <strong>{user.displayName}</strong>
+              <strong>{personName(user.displayName)}</strong>
               <small>{user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : user.company?.name ?? 'Користувач'}</small>
             </span>
             <ChevronDown size={15} />
@@ -541,7 +565,6 @@ export function AppShell({ children }: PropsWithChildren) {
               }}>
                 <Search size={17} />
                 <span>Пошук у Lanka</span>
-                <kbd>Ctrl K</kbd>
               </button>
             )} />
           </div>
@@ -601,6 +624,11 @@ export function AppShell({ children }: PropsWithChildren) {
             <NavLink key={route.path} to={scopedPath(route.path)}>
               <Icon size={19} />
               <span>{title}</span>
+              {route.path === '/tasks' && taskUnread > 0 && (
+                <b className="bottom-nav__badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
+                  {taskUnread > 99 ? '99+' : taskUnread}
+                </b>
+              )}
               {route.path === '/messages' && chatUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${chatUnread} непрочитаних`}>
                   {chatUnread > 99 ? '99+' : chatUnread}

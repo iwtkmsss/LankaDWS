@@ -110,41 +110,6 @@ enum OutboxState {
   FAILED
 }
 
-enum GroupDiscoverability {
-  LISTED
-  HIDDEN
-}
-
-enum GroupJoinPolicy {
-  OPEN
-  REQUEST
-  INVITE_ONLY
-}
-
-enum GroupStatus {
-  ACTIVE
-  ARCHIVED
-}
-
-enum GroupMemberRole {
-  OWNER
-  MODERATOR
-  MEMBER
-}
-
-enum GroupJoinRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-enum GroupNotificationMode {
-  ALL
-  MENTIONS
-  NONE
-}
-
 enum FeedPostStatus {
   PUBLISHED
   ARCHIVED
@@ -152,7 +117,6 @@ enum FeedPostStatus {
 
 enum FeedRecipientType {
   COMPANY
-  GROUP
   USER
 }
 
@@ -249,7 +213,6 @@ model Workspace {
   updatedAt             DateTime               @updatedAt
   companies             Company[]
   users                 User[]
-  groups                Group[]
   projects              Project[]
   tags                  Tag[]
   orgUnits              OrgUnit[]
@@ -271,6 +234,7 @@ model Company {
   workspaceId           String
   displayName           String
   legalName             String
+  logoFileId            String?
   code                  String
   description           String?
   isActive              Boolean                @default(true)
@@ -286,7 +250,6 @@ model Company {
   manager               User?                  @relation("CompanyManager", fields: [managerId], references: [id], onDelete: SetNull)
   primaryUsers          User[]                 @relation("PrimaryCompany")
   capabilities          CompanyCapability[]
-  groups                Group[]
   projects              Project[]
   tags                  Tag[]
   orgUnits              OrgUnit[]
@@ -346,10 +309,6 @@ model User {
   recoveryCodes                RecoveryCode[]
   sessions                     UserSession[]
   enabledCapabilities          CompanyCapability[]            @relation("CapabilityEnabler")
-  ownedGroups                  Group[]                        @relation("GroupOwner")
-  groupMemberships             GroupMember[]
-  requestedGroupJoins          GroupJoinRequest[]             @relation("GroupJoinRequester")
-  decidedGroupJoins            GroupJoinRequest[]             @relation("GroupJoinDecider")
   authoredFeedPosts            FeedPost[]                     @relation("FeedPostAuthor")
   feedItems                    FeedItem[]                     @relation("FeedItemActor")
   ownedFeedFileShares          FeedFileShare[]                @relation("FeedFileShareOwner")
@@ -420,79 +379,10 @@ model CompanyCapability {
   @@index([enabledById])
 }
 
-model Group {
-  id              String               @id
-  workspaceId     String
-  companyId       String
-  key             String
-  name            String
-  description     String?
-  discoverability GroupDiscoverability @default(LISTED)
-  joinPolicy      GroupJoinPolicy      @default(REQUEST)
-  status          GroupStatus          @default(ACTIVE)
-  ownerId         String
-  version         Int                  @default(1)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  archivedAt      DateTime?
-  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  owner           User                 @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  members         GroupMember[]
-  joinRequests    GroupJoinRequest[]
-  feedPosts       FeedPost[]
-  feedFileShares  FeedFileShare[]
-  tasks           Task[]
-
-  @@unique([companyId, key])
-  @@index([workspaceId, companyId, status])
-  @@index([companyId, discoverability, status, updatedAt])
-  @@index([ownerId, status])
-}
-
-model GroupMember {
-  id               String                @id
-  groupId          String
-  userId           String
-  role             GroupMemberRole       @default(MEMBER)
-  notificationMode GroupNotificationMode @default(ALL)
-  joinedAt         DateTime              @default(now())
-  leftAt           DateTime?
-  lastSeenAt       DateTime?
-  version          Int                   @default(1)
-  group            Group                 @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, userId])
-  @@index([userId, leftAt])
-  @@index([groupId, role, leftAt])
-}
-
-model GroupJoinRequest {
-  id          String                 @id
-  groupId     String
-  requesterId String
-  status      GroupJoinRequestStatus @default(PENDING)
-  activeKey   String?                @unique
-  decidedById String?
-  decidedAt   DateTime?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  version     Int                    @default(1)
-  group       Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  requester   User                   @relation("GroupJoinRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  decidedBy   User?                  @relation("GroupJoinDecider", fields: [decidedById], references: [id], onDelete: SetNull)
-
-  @@index([groupId, status, createdAt])
-  @@index([requesterId, status])
-  @@index([decidedById])
-}
-
 model FeedPost {
   id                        String                         @id
   workspaceId               String
   companyId                 String
-  groupId                   String?
   authorId                  String
   body                      String
   status                    FeedPostStatus                 @default(PUBLISHED)
@@ -506,7 +396,6 @@ model FeedPost {
   updatedAt                 DateTime                       @updatedAt
   workspace                 Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   company                   Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  group                     Group?                         @relation(fields: [groupId], references: [id], onDelete: Restrict)
   author                    User                           @relation("FeedPostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   recipients                FeedPostRecipient[]
   acknowledgementRecipients FeedAcknowledgementRecipient[]
@@ -518,7 +407,6 @@ model FeedPost {
 
   @@index([workspaceId, companyId, status, publishedAt, id])
   @@index([authorId, status, publishedAt])
-  @@index([groupId, status, publishedAt])
 }
 
 model FeedPostRecipient {
@@ -620,7 +508,6 @@ model FeedFileShare {
   ownerId          String
   audienceType     FeedRecipientType
   audienceKey      String
-  groupId          String?
   status           FeedFileShareStatus      @default(ACTIVE)
   version          Int                      @default(1)
   createdAt        DateTime                 @default(now())
@@ -630,14 +517,12 @@ model FeedFileShare {
   company          Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   file             FileObject               @relation(fields: [fileId], references: [id], onDelete: Restrict)
   owner            User                     @relation("FeedFileShareOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  group            Group?                   @relation(fields: [groupId], references: [id], onDelete: Restrict)
   directRecipients FeedFileShareRecipient[]
   items            FeedItem[]
 
   @@index([workspaceId, companyId, status, createdAt])
   @@index([fileId, status, createdAt])
   @@index([ownerId, status, createdAt])
-  @@index([groupId, status])
 }
 
 model FeedFileShareRecipient {
@@ -756,6 +641,7 @@ model OrgUnit {
   sourceKey      String?
   parentId       String?
   name           String
+  icon           String?
   description    String?
   normalizedName String
   managerId      String?
@@ -994,7 +880,6 @@ model ImportBinaryTransfer {
   attempt             Int                        @default(0)
   lastErrorCode       String?
   fileObjectId        String?
-  documentVersionId   String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
   run                 ImportRun                  @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -1165,7 +1050,6 @@ model Task {
   id                     String              @id
   workspaceId            String
   companyId              String
-  groupId                String?
   projectId              String?
   parentTaskId           String?
   number                 String              @unique
@@ -1188,7 +1072,6 @@ model Task {
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   checklist              TaskChecklistItem[]
-  group                  Group?              @relation(fields: [groupId], references: [id], onDelete: Restrict)
   project                Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
   parent                 Task?               @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: Restrict)
   subtasks               Task[]              @relation("TaskHierarchy")
@@ -1209,7 +1092,6 @@ model Task {
 
   @@unique([recurrenceId, recurrenceOccurrenceAt])
   @@index([companyId, status, dueAt, id])
-  @@index([groupId, status, dueAt, id])
   @@index([projectId, status, dueAt, id])
   @@index([parentTaskId, status, dueAt, id])
   @@index([reporterId, status, dueAt])
@@ -1465,6 +1347,7 @@ model Event {
   version        Int             @default(1)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+  recurrenceJson String?
   audiences      EventAudience[]
 
   @@index([companyId, startAt, endAt])
@@ -1574,13 +1457,12 @@ model Document {
   ownerId          String
   status           String
   confidentiality  Confidentiality   @default(INTERNAL)
-  currentVersionId String?
+  fileId           String?
   folderId         String?
   version          Int               @default(1)
   archivedAt       DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  versions         DocumentVersion[]
   folder           DriveFolder?      @relation(fields: [folderId], references: [id])
 
   @@index([companyId, status, updatedAt, id])
@@ -1622,20 +1504,6 @@ model DriveShare {
   @@index([targetType, targetId])
 }
 
-model DocumentVersion {
-  id            String   @id
-  documentId    String
-  version       Int
-  fileId        String
-  createdBy     String
-  changeSummary String
-  status        String
-  createdAt     DateTime @default(now())
-  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  @@unique([documentId, version])
-}
-
 model DocumentAcl {
   id            String @id
   documentId    String
@@ -1653,6 +1521,7 @@ model KnowledgeArticle {
   ownerId          String
   status           RecordStatus              @default(ACTIVE)
   currentVersionId String?
+  requiresAcknowledgement Boolean           @default(false)
   reviewAt         DateTime?
   version          Int                       @default(1)
   createdAt        DateTime                  @default(now())

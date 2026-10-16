@@ -1,8 +1,9 @@
+import { personName } from '../../../shared/lib/personName'
 import type { PrincipalView, TaskParticipantRoleV2 } from '@lankadws/contracts'
 import { Eye, UserCheck, UserCog, UsersRound, X } from 'lucide-react'
-import { useCallback, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Avatar } from '../../../shared/ui'
-import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
+import { UserSearchCombobox } from '../../employees/UserSearchCombobox'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -10,12 +11,6 @@ import type {
   TaskCreateUserOption,
   UpdateTaskCreateDraft,
 } from './types'
-
-const participantRoleLabels: Record<TaskParticipantRoleV2, string> = {
-  RESPONSIBLE: 'Відповідальний',
-  COLLABORATOR: 'Співвиконавець',
-  WATCHER: 'Спостерігач',
-}
 
 function userLabel(
   userId: string,
@@ -39,16 +34,16 @@ function PersonCard({
 }) {
   return (
     <li className="task-create-role-person">
-      <Avatar name={person.displayName} src={person.avatarAsset} size="sm" />
+      <Avatar name={personName(person.displayName)} src={person.avatarAsset} size="sm" />
       <span>
-        <strong>{person.displayName}</strong>
+        <strong>{personName(person.displayName)}</strong>
         <small>{person.jobTitle || roleLabel}</small>
       </span>
       {onRemove && (
         <button
           type="button"
           className="icon-button"
-          aria-label={`Прибрати ${person.displayName} з ролі «${roleLabel}»`}
+          aria-label={`Прибрати ${personName(person.displayName)} з ролі «${roleLabel}»`}
           onClick={onRemove}
         >
           <X size={15} aria-hidden />
@@ -82,19 +77,6 @@ function ParticipantRoleCard({
   update: UpdateTaskCreateDraft
 }) {
   const selected = draft.participants.filter((participant) => participant.role === role)
-  const loadOptions = useCallback(async (search: string) => {
-    const normalizedSearch = search.trim().toLocaleLowerCase('uk')
-    return users
-      .filter((person) => !selected.some((participant) => participant.userId === person.id))
-      .filter((person) => `${person.displayName} ${person.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedSearch))
-      .map((person) => {
-        const currentRole = draft.participants.find((participant) => participant.userId === person.id)?.role
-        const detail = currentRole
-          ? `${person.jobTitle || 'Учасник команди'} · Зараз: ${participantRoleLabels[currentRole]}`
-          : person.jobTitle
-        return { id: person.id, label: person.displayName, detail }
-      })
-  }, [draft.participants, selected, users])
 
   function assign(userId: string) {
     if (!userId) return
@@ -145,12 +127,13 @@ function ParticipantRoleCard({
         <p className="task-create-role-card__empty">Ще нікого не додано</p>
       )}
 
-      <AsyncTaskCombobox
+      <UserSearchCombobox
         label={`${single ? 'Змінити' : 'Додати'}: ${title.toLocaleLowerCase('uk')}`}
         value=""
         placeholder="Почніть вводити ім’я"
         clearOnSelect
-        loadOptions={loadOptions}
+        includeAdmins
+        excludeIds={selected.map((participant) => participant.userId)}
         onChange={assign}
       />
     </section>
@@ -169,13 +152,6 @@ function ReporterRoleCard({
   update: UpdateTaskCreateDraft
 }) {
   const reporter = draft.reporterId ? userLabel(draft.reporterId, users, currentUser) : null
-  const loadOptions = useCallback(async (search: string) => {
-    const normalizedSearch = search.trim().toLocaleLowerCase('uk')
-    return users
-      .filter((person) => person.id !== draft.reporterId)
-      .filter((person) => `${person.displayName} ${person.jobTitle}`.toLocaleLowerCase('uk').includes(normalizedSearch))
-      .map((person) => ({ id: person.id, label: person.displayName, detail: person.jobTitle }))
-  }, [draft.reporterId, users])
 
   return (
     <section className="task-create-role-card" aria-labelledby="task-create-role-reporter">
@@ -195,12 +171,13 @@ function ReporterRoleCard({
       )}
 
       {currentUser?.accountType === 'ADMIN' && (
-        <AsyncTaskCombobox
+        <UserSearchCombobox
           label="Змінити постановника"
           value={draft.reporterId}
-          selectedOption={reporter ? { id: reporter.id, label: reporter.displayName, detail: reporter.jobTitle } : null}
           placeholder="Почніть вводити ім’я"
-          loadOptions={loadOptions}
+          includeAdmins
+          defaultUser={reporter}
+          excludeIds={draft.reporterId ? [draft.reporterId] : []}
           onChange={(reporterId) => {
             if (!reporterId) return
             update((current) => ({ ...current, reporterId }))
@@ -244,6 +221,12 @@ export function TaskParticipantsSection({
   return (
     <div className="task-create-participants">
       <div className="task-create-role-grid">
+        <ReporterRoleCard
+          draft={draft}
+          users={options.users}
+          currentUser={currentUser}
+          update={update}
+        />
         <ParticipantRoleCard
           role="RESPONSIBLE"
           title="Відповідальний"
@@ -251,12 +234,6 @@ export function TaskParticipantsSection({
           icon={<UserCheck size={18} aria-hidden />}
           required
           single
-          draft={draft}
-          users={options.users}
-          currentUser={currentUser}
-          update={update}
-        />
-        <ReporterRoleCard
           draft={draft}
           users={options.users}
           currentUser={currentUser}

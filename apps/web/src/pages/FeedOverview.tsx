@@ -24,6 +24,10 @@ export function FeedOverview() {
   const query = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api<DashboardView>('/dashboard'),
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   })
   if (query.isLoading) {
     return (
@@ -37,7 +41,8 @@ export function FeedOverview() {
   }
 
   const data = query.data
-  const firstName = user.displayName.split(' ')[0]
+  const nextEvent = data.events?.[0]
+  const firstName = user.firstName?.trim()
   return (
     <section className="feed-overview" aria-label="Робочий огляд">
       <section className={`focus-panel ${data.attentionCount ? 'focus-panel--attention' : 'focus-panel--clear'}`}>
@@ -46,7 +51,7 @@ export function FeedOverview() {
             <Sparkles size={15} /> {formatLocalDate(data.meta.localDate)}
           </span>
           <h1>
-            {firstName}, {data.attentionCount
+            {firstName ? `${firstName}, ` : ''}{data.attentionCount
               ? 'ось що зараз потребує уваги.'
               : 'термінових справ немає.'}
           </h1>
@@ -93,11 +98,14 @@ export function FeedOverview() {
             label={data.kpis.events.todayCount
               ? 'Події сьогодні'
               : 'Найближча подія'}
-            value={data.kpis.events.todayCount || '—'}
+            value={data.kpis.events.todayCount || nextEvent?.title || '—'}
+            textValue={!data.kpis.events.todayCount && Boolean(nextEvent)}
             detail={!data.kpis.events.todayCount && data.kpis.events.nextAt
               ? formatDate(data.kpis.events.nextAt)
               : undefined}
-            href={data.kpis.events.href}
+            href={!data.kpis.events.todayCount && nextEvent
+              ? `/calendar/events/${nextEvent.id}`
+              : data.kpis.events.href}
           />
         )}
         {data.kpis.unreadMessages && (
@@ -129,6 +137,7 @@ function KpiCard({
   detail,
   href,
   tone,
+  textValue,
 }: {
   icon: ReactNode
   label: string
@@ -136,13 +145,14 @@ function KpiCard({
   detail?: string
   href: string
   tone?: 'danger'
+  textValue?: boolean
 }) {
   return (
     <Link className={`dashboard-kpi ${tone ? `dashboard-kpi--${tone}` : ''}`} to={href}>
       <i>{icon}</i>
       <span>
         <small>{label}</small>
-        <strong>{value}</strong>
+        <strong className={textValue ? 'dashboard-kpi__text-value' : undefined} title={textValue ? String(value) : undefined}>{value}</strong>
         {detail && <em>{detail}</em>}
       </span>
       <ArrowRight size={15} />

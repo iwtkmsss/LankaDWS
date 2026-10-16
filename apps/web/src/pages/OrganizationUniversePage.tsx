@@ -1,15 +1,21 @@
+import { CompanyLogo, UnitIcon } from '../features/organization/OrganizationVisuals'
+import { personName } from '../shared/lib/personName'
+import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search } from 'lucide-react'
+import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
+import { OrganizationSearchEmptyState } from '../features/organization/OrganizationSearchEmptyState'
+import { UnassignedEmployees } from '../features/organization/UnassignedEmployees'
+import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { useTopbarContent } from '../layout/TopbarContent'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { Avatar, Card, EmptyState, ErrorState, Skeleton } from '../shared/ui'
 
-interface Company { id: string; name: string; description: string | null }
+interface Company { id: string; name: string; description: string | null; isActive: boolean; userCount: number }
 interface Employee {
   id: string
   displayName: string
@@ -40,24 +46,28 @@ export default function OrganizationUniversePage() {
   const managerId = params.get('manager') ?? ''
   const presence = params.get('presence') ?? ''
   const editStructureAction = useMemo(() => user?.accountType === 'ADMIN' && companyId
-    ? <Link className="button button--secondary topbar-action" to={`/admin/companies/${encodeURIComponent(companyId)}/structure?editing=1`}><PencilRuler size={16} />Редагувати структуру</Link>
-    : null, [companyId, user?.accountType])
+    ? <Link className="button button--secondary topbar-action" to={`/admin/companies/${encodeURIComponent(companyId)}/structure${selectedUnitId ? `?unit=${encodeURIComponent(selectedUnitId)}` : ''}`}><PencilRuler size={16} />Редагувати структуру</Link>
+    : null, [companyId, selectedUnitId, user?.accountType])
   useTopbarContent(editStructureAction)
 
   const companiesQuery = useQuery({ queryKey: ['companies'], queryFn: () => api<{ items: Company[] }>('/companies') })
-  const companies = companiesQuery.data?.items ?? []
+  const allCompanies = companiesQuery.data?.items ?? []
+  const companies = useMemo(() => (companiesQuery.data?.items ?? []).filter((company) => company.isActive), [companiesQuery.data])
+  const selectedCompany = companies.find((company) => company.id === companyId)
+  const companyAvailable = Boolean(selectedCompany)
   useEffect(() => {
-    if (companyId || !companies.length) return
+    if (companyAvailable || !companies.length) return
     const preferred = companies.find((company) => company.id === user?.company?.id) ?? companies[0]
     const next = new URLSearchParams(params)
     next.set('companyId', preferred!.id)
+    for (const key of ['unitId', 'orgUnit', 'manager', 'employeeId']) next.delete(key)
     setParams(next, { replace: true })
-  }, [companies, companyId, params, setParams, user?.company?.id])
+  }, [companies, companyAvailable, params, setParams, user?.company?.id])
 
   const unitsQuery = useQuery({
     queryKey: ['org-units', companyId],
     queryFn: () => api<{ company: OrgCompanyView; items: OrgUnitView[] }>(`/org/units?company=${encodeURIComponent(companyId)}`),
-    enabled: Boolean(companyId),
+    enabled: companyAvailable,
   })
   const request = new URLSearchParams({ company: companyId })
   if (search) request.set('search', search)
@@ -67,7 +77,7 @@ export default function OrganizationUniversePage() {
   const directoryQuery = useQuery({
     queryKey: ['employees', search, companyId, orgUnitId, managerId, presence],
     queryFn: () => api<EmployeeDirectory>(`/employees?${request.toString()}`),
-    enabled: Boolean(companyId && view === 'people'),
+    enabled: companyAvailable && view === 'people' && orgUnitId !== 'unassigned',
   })
   const units = unitsQuery.data?.items ?? []
   const unitById = useMemo(() => new Map(units.map((unit) => [unit.id, unit])), [units])
@@ -76,7 +86,7 @@ export default function OrganizationUniversePage() {
   const unitEmployees = useQuery({
     queryKey: ['org-unit-employees', selectedUnitId, companyId],
     queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${selectedUnitId}/employees?company=${encodeURIComponent(companyId)}`),
-    enabled: Boolean(view === 'structure' && selectedUnitId && companyId && selectedUnit),
+    enabled: Boolean(companyAvailable && view === 'structure' && selectedUnitId && selectedUnit),
   })
 
   function update(name: string, value: string, clear: string[] = []) {
@@ -98,13 +108,17 @@ export default function OrganizationUniversePage() {
 
   if (companiesQuery.isLoading) return <Skeleton rows={8} />
   if (companiesQuery.isError) return <ErrorState onRetry={() => void companiesQuery.refetch()} />
-  if (!companies.length) return <EmptyState title="Компаній ще немає" description="Структура з’явиться після створення першої компанії." />
+  if (!companies.length) return <>
+    <EmptyState title={allCompanies.length ? 'Усі компанії архівовані' : 'Немає активних компаній'} description="Працівники та структура доступні для активних компаній." />
+    {user?.accountType === 'ADMIN' && allCompanies.length > 0 && <div className="drawer-actions">{allCompanies.map((company) => <Link key={company.id} className="button button--secondary" to={`/admin/companies/${encodeURIComponent(company.id)}/structure`}>Відновити: {company.name}</Link>)}</div>}
+  </>
+  if (!selectedCompany) return <Skeleton rows={8} />
 
   return (
     <div className="organization-universe-page">
       <Card className="organization-context-bar">
         <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => update('companyId', event.target.value, ['unitId', 'orgUnit', 'manager', 'employeeId'])}>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
-        <div className="organization-heading-actions">
+        <div className="organization-heading-actions"><span className="organization-view-label">Оберіть вигляд</span>
           <div className="organization-view-switch" role="group" aria-label="Режим перегляду">
             <button type="button" className={view === 'people' ? 'is-active' : ''} onClick={() => chooseView('people')}><List size={16} />Працівники</button>
             <button type="button" className={view === 'structure' ? 'is-active' : ''} onClick={() => chooseView('structure')}><Network size={16} />Структура</button>
@@ -121,17 +135,18 @@ export default function OrganizationUniversePage() {
             onSelectAll={() => update('orgUnit', '')}
             onSelect={(id) => update('orgUnit', id)}
           />}
-          <DirectoryView
+          {orgUnitId === 'unassigned' ? <UnassignedEmployees key={companyId} companyId={companyId} onOpen={(id) => update('employeeId', id)} /> : <DirectoryView
             query={directoryQuery}
             search={search}
             orgUnitId={orgUnitId}
             scopeName={selectedDirectoryUnit?.name}
             managerId={managerId}
+            companyId={companyId}
             presence={presence}
             onUpdate={update}
             onClear={clearDirectoryFilters}
             onOpen={(id) => update('employeeId', id)}
-          />
+          />}
         </section>
       ) : unitsQuery.isLoading ? <Skeleton rows={8} /> : unitsQuery.isError || !unitsQuery.data ? <ErrorState onRetry={() => void unitsQuery.refetch()} /> : (
         <section className="organization-structure-workspace" aria-label="Структура організації">
@@ -140,19 +155,44 @@ export default function OrganizationUniversePage() {
             units={units}
             selectedId={selectedUnitId}
             onSelect={(id) => update('unitId', id)}
+            onSelectCompany={() => update('unitId', 'company')}
+            onBackgroundClick={() => update('unitId', '')}
             compactOutline="none"
             emptyState={<EmptyState title="Підрозділів ще немає" description="Структура з’явиться після створення першого відділу." />}
-            sidePanel={selectedUnit ? <>
-              <header><span className="eyebrow">Підрозділ</span><h2>{selectedUnit.name}</h2><p>{selectedUnit.manager ? `Керівник: ${selectedUnit.manager.displayName}` : 'Керівника ще не призначено'}</p></header>
+            sidePanel={selectedUnitId === 'company' ? <>
+              <div className="admin-org-panel-actions"><span className="eyebrow organization-panel-kind">Компанія</span><button type="button" aria-label="Закрити панель" onClick={() => update('unitId', '')}><X size={18} /></button></div>
+              <header className="organization-unit-header">
+                <div className="organization-panel-company-heading"><span className="organization-panel-company-logo"><CompanyLogo src={unitsQuery.data.company.logoAsset} size={28} /></span><h2 className="organization-panel-title">{unitsQuery.data.company.name}</h2>{unitsQuery.data.company.description && <p>{unitsQuery.data.company.description}</p>}</div>
+                <OrganizationStats label="Показники компанії" employeeCount={selectedCompany.userCount} childCount={units.filter((unit) => unit.parentId === null).length} />
+              </header>
+              <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>{unitsQuery.data.company.manager ? <div className="org-people org-people--manager"><button type="button" onClick={() => update('employeeId', unitsQuery.data.company.manager!.id)}><Avatar name={personName(unitsQuery.data.company.manager.displayName)} src={unitsQuery.data.company.manager.avatarAsset} /><span><strong>{personName(unitsQuery.data.company.manager.displayName)}</strong><small>{unitsQuery.data.company.manager.jobTitle || 'Без посади'}</small></span></button></div> : <p>Без керівника</p>}</section>
+              <UnassignedEmployees key={companyId} companyId={companyId} onOpen={(id) => update('employeeId', id)} />
+            </> : selectedUnit ? <>
+              <div className="admin-org-panel-actions"><span className="eyebrow organization-panel-kind">Підрозділ</span><button type="button" aria-label="Закрити панель" onClick={() => update('unitId', '')}><X size={18} /></button></div>
+              <header className="organization-unit-header">
+                <div><h2 className="organization-panel-title"><UnitIcon icon={selectedUnit.icon} size={28} /><span>{selectedUnit.name}</span></h2>{selectedUnit.description && <p>{selectedUnit.description}</p>}</div>
+                <OrganizationStats label="Показники підрозділу" employeeCount={selectedUnit.activeEmployeeCount} childCount={selectedUnit.childCount} />
+              </header>
+              <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>
+              {selectedUnit.manager ? <div className="org-people org-people--manager"><button type="button" onClick={() => update('employeeId', selectedUnit.manager!.id)}><Avatar name={personName(selectedUnit.manager.displayName)} src={selectedUnit.manager.avatarAsset} /><span><strong>{personName(selectedUnit.manager.displayName)}</strong><small>Керівник{selectedUnit.manager.jobTitle ? ` · ${selectedUnit.manager.jobTitle}` : ''}</small></span></button></div> : <p>Без керівника</p>}</section>
+              <section className="organization-unassigned organization-panel-employees"><h3>Працівники</h3>
               {unitEmployees.isLoading ? <Skeleton rows={4} /> : unitEmployees.isError ? <ErrorState onRetry={() => void unitEmployees.refetch()} /> : unitEmployees.data?.items.length ? (
-                <div className="org-people">{unitEmployees.data.items.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={employee.displayName} src={employee.avatarAsset} /><span><strong>{employee.displayName}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span><ChevronRight size={17} aria-hidden /></button>)}</div>
-              ) : <EmptyState title="У підрозділі поки нікого немає" description="Активні призначення з’являться тут автоматично." />}
+                <div className="org-people">{unitEmployees.data.items.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span></button>)}</div>
+              ) : <p>У підрозділі ще немає працівників.</p>}
+              </section>
             </> : undefined}
           />
         </section>
       )}
     </div>
   )
+}
+
+function OrganizationStats({ label, employeeCount, childCount }: { label: string; employeeCount: number; childCount: number }) {
+  return <dl className="organization-unit-stats" aria-label={label}>
+    <div><dt>Працівники</dt><dd>{employeeCount}</dd></div>
+    <div><dt>Підрозділи</dt><dd>{childCount}</dd></div>
+  </dl>
 }
 
 function OrganizationNavigator({ company, units, selectedId, allSelected, onSelectAll, onSelect }: {
@@ -182,8 +222,9 @@ function OrganizationNavigator({ company, units, selectedId, allSelected, onSele
 
   return <Card className="organization-navigator">
     <header>
-      <button type="button" className={allSelected ? 'is-selected' : ''} onClick={onSelectAll}><Building2 size={17} /><span><strong>{company.name}</strong><small>Уся компанія</small></span></button>
-      <small>{units.length} підрозділів</small>
+      <button type="button" className={allSelected ? 'is-selected' : ''} onClick={onSelectAll}><span className="organization-navigator__company-icon" aria-hidden><CompanyLogo src={company.logoAsset} size={28} /></span><span><small>Уся компанія</small><strong>{company.name}</strong></span></button>
+      <div className="organization-navigator__company-summary"><span>Структура компанії</span><small><strong>{units.length}</strong> підрозділів</small></div>
+      <button type="button" className={selectedId === 'unassigned' ? 'is-selected' : ''} onClick={() => onSelect('unassigned')}><span className="organization-navigator__company-icon" aria-hidden><List size={20} /></span><span><strong>{UNASSIGNED_DEPARTMENT_LABEL}</strong><small>{company.name}</small></span></button>
     </header>
     <div className="organization-navigator__tree" role="tree" aria-label="Компактна структура організації">
       {outline.map(({ unit, depth, hasChildren }) => {
@@ -205,7 +246,7 @@ function OrganizationNavigator({ company, units, selectedId, allSelected, onSele
             return next
           })}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button> : <span className="organization-navigator__spacer" aria-hidden />}
           <button className="organization-navigator__select" type="button" onClick={() => onSelect(unit.id)}>
-            <span><strong>{unit.name}</strong><small>{unit.manager?.displayName ?? 'Керівника не призначено'}</small></span>
+            <UnitIcon icon={unit.icon} size={18} /><span><strong>{unit.name}</strong><small>{personName(unit.manager?.displayName) ?? 'Керівника не призначено'}</small></span>
             <em>{unit.activeEmployeeCount}</em>
           </button>
         </div>
@@ -214,12 +255,13 @@ function OrganizationNavigator({ company, units, selectedId, allSelected, onSele
   </Card>
 }
 
-function DirectoryView({ query, search, orgUnitId, scopeName, managerId, presence, onUpdate, onClear, onOpen }: {
+function DirectoryView({ query, search, orgUnitId, scopeName, managerId, companyId, presence, onUpdate, onClear, onOpen }: {
   query: ReturnType<typeof useQuery<EmployeeDirectory>>
   search: string
   orgUnitId: string
   scopeName?: string
   managerId: string
+  companyId: string
   presence: string
   onUpdate: (name: string, value: string, clear?: string[]) => void
   onClear: () => void
@@ -240,18 +282,20 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, presenc
       </header>
       <div className="directory-toolbar">
         <label className="search-field"><span className="sr-only">Знайти працівника</span><Search size={17} /><input value={search} onChange={(event) => onUpdate('q', event.target.value)} placeholder="Ім’я, посада або нікнейм" type="search" /></label>
-        <label className="directory-filter"><span>Керівник</span><select value={managerId} onChange={(event) => onUpdate('manager', event.target.value)}><option value="">Усі керівники</option>{query.data?.filters.managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.displayName}</option>)}</select></label>
+        <div className="directory-filter"><UserSearchCombobox label="Керівник" value={managerId} companyId={companyId} managersOnly
+          defaultUser={query.data?.filters.managers.find((manager) => manager.id === managerId)}
+          placeholder="Усі · введіть ім’я" onChange={(id) => onUpdate('manager', id)} /></div>
         <label className="directory-filter"><span>Доступність</span><select value={presence} onChange={(event) => onUpdate('presence', event.target.value)}><option value="">Усі</option><option value="AVAILABLE">Доступні</option><option value="AWAY">Відсутні</option></select></label>
       </div>
       <div className="directory-summary">{scopeName && <span><Building2 size={13} />{scopeName}</span>}{query.data && <span>{query.data.counts.available} доступні · {query.data.counts.away} відсутні</span>}{hasFilters && <button type="button" onClick={onClear}>Очистити фільтри</button>}</div>
       {query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.data?.items.length ? (
         <div className="directory-people-list">{query.data.items.map((employee) => <article className="directory-person" key={employee.id}>
-          <button type="button" className="directory-person__profile" onClick={() => onOpen(employee.id)}><Avatar name={employee.displayName} src={employee.avatarAsset} /><span><strong>{employee.displayName}</strong><small>{employee.positionTitle || employee.jobTitle}</small></span></button>
-          <span className="directory-person__unit employee-org"><Building2 size={13} />{employee.orgUnit ? employee.orgUnit.parent ? `${employee.orgUnit.parent.name} → ${employee.orgUnit.name}` : employee.orgUnit.name : 'Підрозділ не вказано'}</span>
+          <button type="button" className="directory-person__profile" onClick={() => onOpen(employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle || employee.jobTitle}</small></span></button>
+          <span className="directory-person__unit employee-org"><Building2 size={13} />{employee.orgUnit ? employee.orgUnit.parent ? `${employee.orgUnit.parent.name} → ${employee.orgUnit.name}` : employee.orgUnit.name : UNASSIGNED_DEPARTMENT_LABEL}</span>
           <span className="directory-person__presence"><i className={`presence presence--${employee.presence.toLowerCase()}`} />{employee.presence === 'AVAILABLE' ? 'Доступний' : 'Відсутній'}</span>
-          {employee.id !== user?.id ? <Link className="directory-person__chat" aria-label={`Написати ${employee.displayName}`} to={`/messages?new=1&to=${encodeURIComponent(employee.id)}`}><MessageCircle size={17} /></Link> : <span className="directory-person__self">Ви</span>}
+          {employee.id !== user?.id ? <Link className="directory-person__chat" aria-label={`Написати ${personName(employee.displayName)}`} to={`/messages?new=1&to=${encodeURIComponent(employee.id)}`}><MessageCircle size={17} /></Link> : <span className="directory-person__self">Ви</span>}
         </article>)}</div>
-      ) : <EmptyState title="Нікого не знайдено" description="Змініть локальні фільтри або пошуковий запит." illustration="search" />}
+      ) : <OrganizationSearchEmptyState />}
     </Card>
   )
 }

@@ -2,10 +2,12 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '
 import { createCalendarEventSchema, updateCalendarEventSchema } from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
-import { principalFrom } from '../../common/request-context.js'
+import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { CalendarService } from './calendar.service.js'
+import { calendarOccurrences, readCalendarRecurrence } from './calendar-recurrence.js'
+import { readReminderMinutes } from './calendar-reminder.js'
 
 @Controller('calendar')
 export class CalendarController {
@@ -52,18 +54,53 @@ export class CalendarController {
     @Query('scope') scope = 'ALL',
   ) {
     const principal = principalFrom(request)
-    if (!['ALL', 'MINE', 'TEAM'].includes(scope)) throw badRequest('calendar_scope_invalid')
+    if (!['ALL', 'MINE', 'TEAM', 'TASKS'].includes(scope)) throw badRequest('calendar_scope_invalid')
+    const rangeFrom = from ? new Date(from) : new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    const rangeTo = to ? new Date(to) : new Date(rangeFrom.getFullYear(), rangeFrom.getMonth() + 1, 1)
+    if (!Number.isFinite(rangeFrom.getTime()) || !Number.isFinite(rangeTo.getTime())
+      || rangeTo <= rangeFrom || rangeTo.getTime() - rangeFrom.getTime() > 366 * 86_400_000) {
+      throw badRequest('calendar_range_invalid')
+    }
     const allowedCompanies = this.scope.allowedCompanies(principal, company)
-    const events = await this.prisma.event.findMany({
+    const rows = await this.prisma.event.findMany({
       where: {
         workspaceId: principal.workspaceId,
         audiences: { some: { companyId: { in: allowedCompanies } } },
         OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
-        ...(from && to ? { startAt: { lte: new Date(to) }, endAt: { gte: new Date(from) } } : {}),
+        AND: [{ OR: [
+          { startAt: { lt: rangeTo }, endAt: { gte: rangeFrom } },
+          { recurrenceJson: { not: null }, startAt: { lt: rangeTo } },
+        ] }],
       },
       include: { audiences: { select: { companyId: true } } },
       orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
     })
+    const events = rows.flatMap((event) => calendarOccurrences(event, rangeFrom, rangeTo))
+    // Use the same aggregate read boundary as TaskAccessService.
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        archivedAt: null,
+        dueAt: { gte: rangeFrom, lt: rangeTo },
+        ...(isGlobalAdmin(principal) ? {} : { OR: [
+          { createdById: principal.userId }, { reporterId: principal.userId },
+          { participants: { some: { userId: principal.userId, removedAt: null } } },
+        ] }),
+      },
+      select: { id: true, companyId: true, title: true, dueAt: true, createdById: true, reporterId: true },
+      orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
+    })
+    const taskItems = tasks.map((task) => ({
+      id: task.id, taskId: task.id, occurrenceKey: `task:${task.id}`, kind: 'TASK',
+      companyId: task.companyId, title: task.title, description: null,
+      startAt: task.dueAt!.toISOString(), endAt: task.dueAt!.toISOString(),
+      allDay: false, visibility: 'PRIVATE', ownerId: task.createdById, ownerName: '',
+      audienceCompanyIds: task.companyId ? [task.companyId] : [], audienceLabel: '',
+      sourceTimezone: 'UTC', version: 1, recurrence: null,
+    }))
+    const inMyCompany = (event: typeof events[number]) => event.visibility !== 'PRIVATE'
+      && principal.primaryCompanyId !== null
+      && event.audiences.some((audience) => audience.companyId === principal.primaryCompanyId)
     const ownerIds = [...new Set(events.map((event) => event.ownerId))]
     const owners = await this.prisma.user.findMany({
       where: { id: { in: ownerIds }, workspaceId: principal.workspaceId },
@@ -73,22 +110,29 @@ export class CalendarController {
     const companyNames = await this.companyNames(principal.workspaceId)
     const filtered = events.filter((event) =>
       scope === 'MINE' ? event.ownerId === principal.userId
-        : scope === 'TEAM' ? event.ownerId !== principal.userId
+        : scope === 'TEAM' ? inMyCompany(event)
+          : scope === 'TASKS' ? false
           : true,
     )
     return {
-      items: filtered.map(({ audiences, ...event }) => ({
+      items: [...filtered.map(({ audiences, recurrenceJson, ...event }) => ({
+        kind: 'EVENT',
+        recurrence: readCalendarRecurrence(recurrenceJson),
         ...event,
         ownerName: ownerById.get(event.ownerId) ?? 'Недоступний користувач',
         audienceCompanyIds: audiences.map((audience) => audience.companyId),
         audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
         startAt: event.startAt.toISOString(),
         endAt: event.endAt.toISOString(),
-      })),
+      })), ...taskItems.filter((task) => scope === 'ALL' || scope === 'TASKS'
+        || (scope === 'MINE' && tasks.some((row) => row.id === task.id && (row.createdById === principal.userId || row.reporterId === principal.userId)))
+        || (scope === 'TEAM' && task.companyId === principal.primaryCompanyId && principal.primaryCompanyId !== null))]
+        .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id)),
       counts: {
-        ALL: events.length,
-        MINE: events.filter((event) => event.ownerId === principal.userId).length,
-        TEAM: events.filter((event) => event.ownerId !== principal.userId).length,
+        ALL: events.length + tasks.length,
+        MINE: events.filter((event) => event.ownerId === principal.userId).length + tasks.filter((task) => task.createdById === principal.userId || task.reporterId === principal.userId).length,
+        TEAM: events.filter(inMyCompany).length + tasks.filter((task) => principal.primaryCompanyId !== null && task.companyId === principal.primaryCompanyId).length,
+        TASKS: tasks.length,
       },
     }
   }
@@ -115,9 +159,13 @@ export class CalendarController {
       select: { displayName: true },
     })
     const companyNames = await this.companyNames(principal.workspaceId)
-    const { audiences, ...rest } = event
+    const { audiences, recurrenceJson, ...rest } = event
     return {
       ...rest,
+      kind: 'EVENT',
+      recurrence: readCalendarRecurrence(recurrenceJson),
+      reminderMinutes: event.ownerId === principal.userId && event.visibility === 'PRIVATE'
+        ? await readReminderMinutes(this.prisma, event.id, event.version) : null,
       ownerName: owner?.displayName ?? 'Недоступний користувач',
       audienceCompanyIds: audiences.map((audience) => audience.companyId),
       audienceLabel: audienceLabel(event.visibility, audiences, companyNames),

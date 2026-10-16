@@ -19,11 +19,11 @@ const principal: AuthPrincipal = {
 describe('TaskHierarchyService', () => {
   it('returns the complete readable tree that contains the searched task', async () => {
     const items = [
-      { id: 'tsk_root', number: '1', title: 'Root', status: 'NEW', groupId: null, projectId: 'prj_1', parentTaskId: null },
-      { id: 'tsk_selected', number: '2', title: 'Selected', status: 'NEW', groupId: null, projectId: 'prj_1', parentTaskId: 'tsk_root' },
-      { id: 'tsk_sibling', number: '3', title: 'Sibling', status: 'NEW', groupId: null, projectId: 'prj_1', parentTaskId: 'tsk_root' },
-      { id: 'tsk_deep', number: '4', title: 'Deep', status: 'NEW', groupId: null, projectId: 'prj_1', parentTaskId: 'tsk_selected' },
-      { id: 'tsk_other', number: '5', title: 'Other root', status: 'NEW', groupId: null, projectId: 'prj_1', parentTaskId: null },
+      { id: 'tsk_root', number: '1', title: 'Root', status: 'NEW', projectId: 'prj_1', parentTaskId: null },
+      { id: 'tsk_selected', number: '2', title: 'Selected', status: 'NEW', projectId: 'prj_1', parentTaskId: 'tsk_root' },
+      { id: 'tsk_sibling', number: '3', title: 'Sibling', status: 'NEW', projectId: 'prj_1', parentTaskId: 'tsk_root' },
+      { id: 'tsk_deep', number: '4', title: 'Deep', status: 'NEW', projectId: 'prj_1', parentTaskId: 'tsk_selected' },
+      { id: 'tsk_other', number: '5', title: 'Other root', status: 'NEW', projectId: 'prj_1', parentTaskId: null },
     ]
     const prisma = {
       task: { findMany: vi.fn().mockResolvedValue(items) },
@@ -32,7 +32,6 @@ describe('TaskHierarchyService', () => {
       readableTask: vi.fn().mockResolvedValue({
         id: 'tsk_selected',
         companyId: 'cmp_1',
-        groupId: null,
         projectId: 'prj_1',
       }),
     }

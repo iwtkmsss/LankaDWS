@@ -11,6 +11,8 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
+import { writeFeedProjection } from '../feed/feed-projection.service.js'
+import { readReminderMinutes, scheduleCalendarReminder } from './calendar-reminder.js'
 
 const createOperation = 'calendar.event.create'
 
@@ -107,6 +109,9 @@ export class CalendarService {
     )
     const nextVersion = input.expectedVersion + 1
     await this.prisma.$transaction(async (tx) => {
+      if (input.reminderMinutes != null && !isPrivate) throw badRequest('calendar_reminder_private_only')
+      const reminderMinutes = !isPrivate ? null : input.reminderMinutes === undefined
+        ? await readReminderMinutes(tx, event.id, event.version) : input.reminderMinutes
       const changed = await tx.event.updateMany({
         where: {
           id: event.id,
@@ -120,6 +125,7 @@ export class CalendarService {
           endAt: new Date(input.endAt),
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
+          recurrenceJson: input.recurrence === undefined ? undefined : input.recurrence ? JSON.stringify(input.recurrence) : null,
           visibility: isPrivate ? privateVisibility : sharedVisibility,
           version: { increment: 1 },
         },
@@ -127,6 +133,15 @@ export class CalendarService {
       if (changed.count !== 1) {
         throw conflict('Подія вже змінилася. Оновіть календар.')
       }
+      await tx.backgroundJob.updateMany({
+        where: { type: 'calendar.reminder', entityId: event.id, state: 'QUEUED' },
+        data: { state: 'CANCELLED' },
+      })
+      await scheduleCalendarReminder(tx, {
+        ...event, version: nextVersion, startAt: new Date(input.startAt), endAt: new Date(input.endAt),
+        sourceTimezone: input.sourceTimezone,
+        recurrenceJson: input.recurrence === undefined ? event.recurrenceJson : input.recurrence ? JSON.stringify(input.recurrence) : null,
+      }, reminderMinutes, new Date(), true)
       await tx.eventAudience.deleteMany({ where: { eventId: event.id } })
       await tx.eventAudience.createMany({
         data: audienceCompanyIds.map((companyId) => ({
@@ -189,6 +204,7 @@ export class CalendarService {
     operation: string,
   ): Promise<{ id: string; version: number }> {
     this.assertTimezone(input.sourceTimezone)
+    if (input.reminderMinutes != null && !isPrivate) throw badRequest('calendar_reminder_private_only')
     const requestFingerprint = fingerprint(JSON.stringify({
       audienceCompanyIds: [...audienceCompanyIds].sort(),
       isPrivate,
@@ -236,9 +252,14 @@ export class CalendarService {
           endAt,
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
+          recurrenceJson: input.recurrence === undefined ? undefined : input.recurrence ? JSON.stringify(input.recurrence) : null,
           visibility: isPrivate ? privateVisibility : sharedVisibility,
         },
       })
+      await scheduleCalendarReminder(tx, {
+        id: eventId, version: event.version, startAt, endAt, sourceTimezone: input.sourceTimezone,
+        recurrenceJson: input.recurrence ? JSON.stringify(input.recurrence) : null,
+      }, input.reminderMinutes ?? null)
       await tx.eventAudience.createMany({
         data: audienceCompanyIds.map((audienceCompanyId) => ({
           id: id('evta'),
@@ -246,6 +267,20 @@ export class CalendarService {
           companyId: audienceCompanyId,
         })),
       })
+      if (!isPrivate) {
+        await writeFeedProjection(tx, {
+          workspaceId: principal.workspaceId,
+          companyId,
+          sourceType: 'EVENT',
+          sourceId: event.id,
+          sourceVersion: event.version,
+          action: 'CREATED',
+          actorId: principal.userId,
+          recipientIds: [],
+          visibility: 'COMPANY',
+          occurredAt: event.createdAt,
+        })
+      }
       await tx.idempotencyRecord.create({
         data: {
           id: id('idem'),

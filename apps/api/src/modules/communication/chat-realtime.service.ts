@@ -36,23 +36,7 @@ export class ChatRealtimeService {
         thread: { select: { entityType: true, entityId: true } },
       },
     })
-    if (!participant) return false
-    if (participant.thread.entityType !== 'GROUP') return true
-    if (!participant.thread.entityId) return false
-    const membership = await this.prisma.groupMember.findFirst({
-      where: {
-        groupId: participant.thread.entityId,
-        userId: principal.userId,
-        leftAt: null,
-        group: {
-          workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
-          status: 'ACTIVE',
-        },
-      },
-      select: { id: true },
-    })
-    return Boolean(membership)
+    return Boolean(participant)
   }
 
   stream(principal: AuthPrincipal, threadId: string): Observable<MessageEvent> {
@@ -178,20 +162,7 @@ export class ChatRealtimeService {
       },
       select: { id: true },
     })
-    let recipientIds = activeUsers.map((user) => user.id)
-    if (thread.entityType === 'GROUP') {
-      if (!thread.entityId) return
-      const memberships = await this.prisma.groupMember.findMany({
-        where: {
-          groupId: thread.entityId,
-          userId: { in: recipientIds },
-          leftAt: null,
-          group: { companyId: thread.companyId, status: 'ACTIVE' },
-        },
-        select: { userId: true },
-      })
-      recipientIds = memberships.map((membership) => membership.userId)
-    }
+    const recipientIds = activeUsers.map((user) => user.id)
     for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
   }
 

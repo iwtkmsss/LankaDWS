@@ -41,6 +41,7 @@ const thread: ChatThreadListItem = {
 
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSidebar>> = {}) {
   const props: React.ComponentProps<typeof MessagesSidebar> = {
+    drafts: {},
     threads: [thread],
     counts: { all: 8, unread: 3 },
     selectedThreadId: undefined,
@@ -71,6 +72,26 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
 }
 
 describe('MessagesSidebar', () => {
+  it('pins without opening the conversation and exposes the unpin action', () => {
+    const onPinThread = vi.fn()
+    const { props, rerender } = renderSidebar({ onPinThread })
+    fireEvent.click(screen.getByRole('button', { name: 'Закріпити чат: Марко Литвин' }))
+    expect(onPinThread).toHaveBeenCalledWith('thread-1', true)
+    expect(props.onSelectThread).not.toHaveBeenCalled()
+    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true }]} />)
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toHaveAttribute('aria-pressed', 'true')
+  })
+  it('replaces the last-message preview with the draft and restores it on clearing', () => {
+    const { props, rerender } = renderSidebar({
+      drafts: { 'thread-1': { body: 'Невідправлений текст', createdAt: 1, mentions: [] } },
+    })
+    expect(screen.getByText('Чернетка:')).toHaveClass('message-draft-label')
+    expect(screen.getByText(/Невідправлений текст/)).toBeInTheDocument()
+    expect(screen.queryByText('Останнє повідомлення')).not.toBeInTheDocument()
+    rerender(<MessagesSidebar {...props} drafts={{}} />)
+    expect(screen.queryByText('Чернетка:')).not.toBeInTheDocument()
+    expect(screen.getByText('Останнє повідомлення')).toBeInTheDocument()
+  })
   it('starts with search and renders only real tabs', () => {
     renderSidebar()
 

@@ -3,6 +3,7 @@ import { MessageCircle } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { chatDayKey, formatChatDay } from '../lib/chatDates'
 import { MessageBubble } from './MessageBubble'
+import { continuesMessageGroup } from '../../../shared/messages/messageGrouping'
 
 interface MessageStreamProps {
   threadId: string
@@ -153,13 +154,15 @@ export function MessageStream(props: MessageStreamProps) {
             const isNew = isInitiallyUnread(message, index) || liveMessageIds.has(message.id)
             const showUnreadBoundary = isNew && (index === initialReadIndex - 1 || initialReadIndex === -1 && index === props.messages.length - 1)
             return (
-              <div key={message.id}>
+              <div key={message.id} className={`message-group-item${!showUnreadBoundary && continuesMessageGroup(message, next) ? ' is-group-continuation' : ''}${!continuesMessageGroup(message, props.messages[index - 1]) ? ' is-group-end' : ''}`}>
                 {showUnreadBoundary && <div className="conversation-new-messages">Нові повідомлення</div>}
                 {showDay && <div className="message-day-separator"><span>{formatChatDay(message.createdAt)}</span></div>}
                 <MessageBubble
                   threadId={props.threadId}
                   message={message}
                   own={message.authorId === props.currentUserId}
+                  showAuthor={showUnreadBoundary || !continuesMessageGroup(message, next)}
+                  showAvatar={!continuesMessageGroup(message, props.messages[index - 1])}
                   highlighted={message.id === props.highlightedMessageId}
                   isNew={isNew}
                   onReply={props.onReply}

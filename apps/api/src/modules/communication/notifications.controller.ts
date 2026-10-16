@@ -1,17 +1,20 @@
 import { sendUserNotificationSchema } from '@lankadws/contracts'
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { z } from 'zod'
+import { Body, Controller, Get, Headers, Optional, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { fingerprint, id } from '../../common/crypto.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
+import { TasksService } from '../tasks/tasks.service.js'
 
 @Controller('notifications')
 export class NotificationsController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime?: ChatRealtimeService,
+    @Optional() private readonly tasks?: TasksService,
   ) {}
 
   private tabWhere(tab: string) {
@@ -45,6 +48,37 @@ export class NotificationsController {
     const userId = principalFrom(request).userId
     await this.reconcileChatReads(userId)
     return this.summaryCounts(userId)
+  }
+
+  @Get('tasks-summary')
+  async taskSummary(@Req() request: LankaDWSRequest, @Query() query: Record<string, string | undefined> = {}) {
+    const principal = principalFrom(request)
+    if (!this.tasks) throw new Error('TasksService is required for task notification counts')
+    const taskWhere = this.tasks.listWhere(principal, query.company, undefined, query)
+    const notifications = await this.prisma.notification.groupBy({
+      by: ['entityId'],
+      where: { recipientId: principal.userId, entityType: 'TASK', readAt: null },
+      _count: { _all: true },
+    })
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        id: { in: notifications.map((item) => item.entityId) },
+        ...taskWhere,
+      },
+      select: { id: true, reporterId: true, participants: { where: { userId: principal.userId, removedAt: null }, select: { role: true } } },
+    })
+    const counts = { RESPONSIBLE: 0, CO_EXECUTOR: 0, CREATOR: 0, OBSERVER: 0, ALL: 0 }
+    const byTask = new Map(notifications.map((item) => [item.entityId, item._count._all]))
+    for (const task of tasks) {
+      const unread = byTask.get(task.id) ?? 0
+      counts.ALL += unread
+      if (task.reporterId === principal.userId) counts.CREATOR += unread
+      for (const participant of task.participants) {
+        const role = participant.role === 'RESPONSIBLE' ? 'RESPONSIBLE' : participant.role === 'COLLABORATOR' ? 'CO_EXECUTOR' : 'OBSERVER'
+        counts[role] += unread
+      }
+    }
+    return counts
   }
 
   @Post()
@@ -130,6 +164,36 @@ export class NotificationsController {
     return { updated: result.count }
   }
 
+  @Patch('read-entity')
+  async readEntity(@Req() request: LankaDWSRequest, @Body() body: unknown) {
+    const parsed = z.object({
+      entityType: z.enum(['TASK', 'FEED_POST', 'USER', 'MESSAGE_THREAD']),
+      entityId: z.string().min(1).max(200),
+      before: z.string().datetime(),
+    }).strict().safeParse(body)
+    if (!parsed.success) throw badRequest('notification_read_invalid')
+    const principal = principalFrom(request)
+    const before = new Date(parsed.data.before)
+    const now = new Date()
+    if (before > now) throw badRequest('notification_read_invalid')
+    // Like the individual read action, this changes only the caller's inbox.
+    // The cutoff leaves notifications about later, unseen changes unread.
+    const result = await this.prisma.notification.updateMany({
+      where: {
+        recipientId: principal.userId,
+        entityType: parsed.data.entityType,
+        entityId: parsed.data.entityId,
+        readAt: null,
+        createdAt: { lte: before },
+        OR: [{ deliveredAt: null }, { deliveredAt: { lte: before } }],
+        ...(parsed.data.entityType === 'MESSAGE_THREAD' ? { dedupeKey: { startsWith: 'chat-participant-added:' } } : {}),
+      },
+      data: { readAt: now },
+    })
+    if (result.count) this.realtime?.publishSummary([principal.userId], ['notifications'])
+    return { updated: result.count }
+  }
+
   @Patch(':id')
   async read(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
     const principal = principalFrom(request)
@@ -165,7 +229,10 @@ export class NotificationsController {
     const markerByThread = new Map(participants.flatMap((participant) =>
       participant.lastReadMessageId ? [[participant.threadId, participant.lastReadMessageId] as const] : []))
     const notificationMessageById = new Map(notifications.flatMap((notification) => {
-      const messageId = notification.dedupeKey.split(':')[1]
+      const parts = notification.dedupeKey.split(':')
+      // A mention added by an edit is a new event even if the original message
+      // was read earlier. Reconcile only the original message notifications.
+      const messageId = parts.length === 3 && parts[0] === 'chat' ? parts[1] : undefined
       return messageId ? [[notification.id, messageId] as const] : []
     }))
     const messageIds = [
@@ -198,14 +265,17 @@ export class NotificationsController {
   }
 
   private async summaryCounts(userId: string) {
-    const [action, unread] = await Promise.all([
+    const [action, unread, tasks] = await Promise.all([
       this.prisma.notification.count({
         where: { recipientId: userId, requiresAction: true, readAt: null },
       }),
       this.prisma.notification.count({
         where: { recipientId: userId, readAt: null },
       }),
+      this.prisma.notification.count({
+        where: { recipientId: userId, entityType: 'TASK', readAt: null },
+      }),
     ])
-    return { action, unread }
+    return { action, unread, tasks }
   }
 }

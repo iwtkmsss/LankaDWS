@@ -2,7 +2,7 @@
 
 Generated from `artifacts/openapi.json`. Do not edit manually.
 
-Total operations: **225**
+Total operations: **212**
 
 ## Admin
 
@@ -99,7 +99,6 @@ Total operations: **225**
 | `POST` | `/api/v1/documents/{id}/archive` | `DocumentsController_archive` |  |
 | `POST` | `/api/v1/documents/{id}/publish` | `DocumentsController_publish` |  |
 | `POST` | `/api/v1/documents/{id}/restore` | `DocumentsController_restore` |  |
-| `POST` | `/api/v1/documents/{id}/versions` | `DocumentsController_addVersion` |  |
 
 ## Drive
 
@@ -158,19 +157,6 @@ Total operations: **225**
 | `GET` | `/api/v1/files/{id}/download` | `FilesController_download` |  |
 | `GET` | `/api/v1/files/{id}/status` | `FilesController_status` |  |
 
-## Groups
-
-| Method | Path | Operation | Summary |
-|---|---|---|---|
-| `GET` | `/api/v1/groups` | `GroupsController_list` |  |
-| `POST` | `/api/v1/groups` | `GroupsController_create` |  |
-| `GET` | `/api/v1/groups/{id}` | `GroupsController_detail` |  |
-| `PATCH` | `/api/v1/groups/{id}` | `GroupsController_update` |  |
-| `POST` | `/api/v1/groups/{id}/archive` | `GroupsController_archive` |  |
-| `POST` | `/api/v1/groups/{id}/join` | `GroupsController_join` |  |
-| `POST` | `/api/v1/groups/{id}/leave` | `GroupsController_leave` |  |
-| `POST` | `/api/v1/groups/{id}/requests/{requestId}` | `GroupsController_decideRequest` |  |
-
 ## Health
 
 | Method | Path | Operation | Summary |
@@ -195,6 +181,7 @@ Total operations: **225**
 | `GET` | `/api/v1/knowledge/articles/{slug}` | `KnowledgeController_detail` |  |
 | `PATCH` | `/api/v1/knowledge/articles/{slug}` | `KnowledgeController_update` |  |
 | `POST` | `/api/v1/knowledge/articles/{slug}/acknowledge` | `KnowledgeController_acknowledge` |  |
+| `GET` | `/api/v1/knowledge/articles/summary` | `KnowledgeController_summary` |  |
 
 ## Lifecycle
 
@@ -227,10 +214,10 @@ Total operations: **225**
 | `DELETE` | `/api/v1/messages/{id}` | `MessagesController_deleteMessage` |  |
 | `GET` | `/api/v1/messages/{id}` | `MessagesController_message` |  |
 | `PATCH` | `/api/v1/messages/{id}` | `MessagesController_editMessage` |  |
+| `GET` | `/api/v1/messages/{id}/attachments/archive` | `MessagesController_archiveAttachments` |  |
 | `DELETE` | `/api/v1/messages/{id}/reactions` | `MessagesController_removeReaction` |  |
 | `POST` | `/api/v1/messages/{id}/reactions` | `MessagesController_addReaction` |  |
 | `GET` | `/api/v1/messages/events` | `MessagesController_globalEvents` |  |
-| `POST` | `/api/v1/messages/groups/{groupId}/thread` | `MessagesController_groupThread` |  |
 | `GET` | `/api/v1/messages/summary` | `MessagesController_summary` |  |
 | `GET` | `/api/v1/messages/threads` | `MessagesController_threads` |  |
 | `POST` | `/api/v1/messages/threads` | `MessagesController_createThread` |  |
@@ -259,7 +246,9 @@ Total operations: **225**
 | `POST` | `/api/v1/notifications` | `NotificationsController_send` |  |
 | `PATCH` | `/api/v1/notifications/{id}` | `NotificationsController_read` |  |
 | `PATCH` | `/api/v1/notifications/read-all` | `NotificationsController_readAll` |  |
+| `PATCH` | `/api/v1/notifications/read-entity` | `NotificationsController_readEntity` |  |
 | `GET` | `/api/v1/notifications/summary` | `NotificationsController_summary` |  |
+| `GET` | `/api/v1/notifications/tasks-summary` | `NotificationsController_taskSummary` |  |
 
 ## Org
 
@@ -302,17 +291,19 @@ Total operations: **225**
 | `GET` | `/api/v1/tasks/{id}` | `TasksController_detail` |  |
 | `PATCH` | `/api/v1/tasks/{id}` | `TasksController_update` |  |
 | `GET` | `/api/v1/tasks/{id}/activity` | `TasksController_activity` |  |
-| `POST` | `/api/v1/tasks/{id}/approval-decisions` | `TasksController_decideApproval` |  |
-| `GET` | `/api/v1/tasks/{id}/approval-options` | `TasksController_approvalOptions` |  |
-| `POST` | `/api/v1/tasks/{id}/approval-requests` | `TasksController_requestApproval` |  |
 | `POST` | `/api/v1/tasks/{id}/archive` | `TasksController_archive` |  |
 | `POST` | `/api/v1/tasks/{id}/attachments` | `TasksController_uploadAttachment` |  |
 | `DELETE` | `/api/v1/tasks/{id}/attachments/{fileId}` | `TasksController_removeAttachment` |  |
+| `POST` | `/api/v1/tasks/{id}/attachments/from-drive` | `TasksController_attachDriveFile` |  |
 | `POST` | `/api/v1/tasks/{id}/checklist` | `TasksController_checklistItem` |  |
 | `PUT` | `/api/v1/tasks/{id}/checklist-order` | `TasksController_reorderChecklist` |  |
 | `DELETE` | `/api/v1/tasks/{id}/checklist/{itemId}` | `TasksController_removeChecklistItem` |  |
 | `PATCH` | `/api/v1/tasks/{id}/checklist/{itemId}` | `TasksController_checklistState` |  |
 | `POST` | `/api/v1/tasks/{id}/comments` | `TasksController_comment` |  |
+| `DELETE` | `/api/v1/tasks/{id}/comments/{commentId}` | `TasksController_deleteComment` |  |
+| `PATCH` | `/api/v1/tasks/{id}/comments/{commentId}` | `TasksController_updateComment` |  |
+| `DELETE` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_removeCommentReaction` |  |
+| `POST` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_addCommentReaction` |  |
 | `POST` | `/api/v1/tasks/{id}/followers` | `TasksController_follow` |  |
 | `DELETE` | `/api/v1/tasks/{id}/followers/{userId}` | `TasksController_unfollow` |  |
 | `GET` | `/api/v1/tasks/{id}/hierarchy` | `TasksController_hierarchyTree` |  |
@@ -325,7 +316,6 @@ Total operations: **225**
 | `DELETE` | `/api/v1/tasks/{id}/relations/{relationId}` | `TasksController_removeRelation` |  |
 | `POST` | `/api/v1/tasks/{id}/reminders` | `TasksController_createReminder` |  |
 | `DELETE` | `/api/v1/tasks/{id}/reminders/{reminderId}` | `TasksController_cancelReminder` |  |
-| `PATCH` | `/api/v1/tasks/{id}/status` | `TasksController_changeStatus` |  |
 | `POST` | `/api/v1/tasks/{id}/subtasks` | `TasksController_createSubtask` |  |
 | `GET` | `/api/v1/tasks/{id}/time-entries` | `TasksController_timeEntries` |  |
 | `POST` | `/api/v1/tasks/{id}/time-entries` | `TasksController_addTimeEntry` |  |
@@ -333,6 +323,7 @@ Total operations: **225**
 | `PATCH` | `/api/v1/tasks/{id}/time-entries/{entryId}` | `TasksController_updateTimeEntry` |  |
 | `POST` | `/api/v1/tasks/{id}/timer/start` | `TasksController_startTimer` |  |
 | `POST` | `/api/v1/tasks/{id}/timer/stop` | `TasksController_stopTimer` |  |
+| `POST` | `/api/v1/tasks/{id}/transitions` | `TasksController_transition` |  |
 | `PUT` | `/api/v1/tasks/{id}/user-state` | `TasksController_userState` |  |
 | `POST` | `/api/v1/tasks/attachments/staged` | `TasksController_stageAttachment` |  |
 | `GET` | `/api/v1/tasks/options` | `TasksController_options` |  |

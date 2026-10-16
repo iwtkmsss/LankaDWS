@@ -1,7 +1,8 @@
+import { CompanyLogo, UnitIcon } from './OrganizationVisuals'
+import { personName } from '../../shared/lib/personName'
 import type { OrgCompanyView, OrgUnitView } from '@lankadws/contracts'
 import {
   AlertTriangle,
-  Building2,
   ChevronDown,
   ChevronRight,
   LocateFixed,
@@ -10,7 +11,6 @@ import {
   PanelLeftOpen,
   Plus,
   Search,
-  UsersRound,
 } from 'lucide-react'
 import {
   useCallback,
@@ -65,6 +65,7 @@ export interface OrganizationMapProps {
   selectedId: string | null
   onSelect(unitId: string): void
   onSelectCompany?(): void
+  onBackgroundClick?(): void
   sidePanel?: ReactNode
   editing?: boolean
   onAddRoot?(): void
@@ -167,9 +168,6 @@ function branchIds(selectedId: string | null, units: OrgUnitView[]) {
   return result
 }
 
-function initials(value: string) {
-  return value.split(/\s+/u).slice(0, 2).map((part) => part[0]).join('').toLocaleUpperCase('uk')
-}
 
 export function OrganizationMap({
   company,
@@ -177,6 +175,7 @@ export function OrganizationMap({
   selectedId,
   onSelect,
   onSelectCompany,
+  onBackgroundClick,
   sidePanel,
   editing = false,
   onAddRoot,
@@ -186,6 +185,7 @@ export function OrganizationMap({
   compactOutline = 'overlay',
 }: OrganizationMapProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
   const fittedKeyRef = useRef('')
   const dragRef = useRef<{ pointerId: number; x: number; y: number; camera: Camera; moved: boolean } | null>(null)
   const focusTimerRef = useRef<number | null>(null)
@@ -203,6 +203,24 @@ export function OrganizationMap({
   const normalizedSearch = search.trim().toLocaleLowerCase('uk')
   const reservesPanelSpace = Boolean(sidePanel)
   const cameraRef = useRef(camera)
+
+  useEffect(() => {
+    if (!sidePanel || !onBackgroundClick) return
+    const closeOutside = (event: PointerEvent) => {
+      if (event.button !== 0 || !(event.target instanceof Element)) return
+      if (panelRef.current?.contains(event.target) || event.target.closest('.organization-map__node, .organization-map__add-child, [role="dialog"], [role="alertdialog"], [popover]')) return
+      onBackgroundClick()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="combobox"], [popover]'))) onBackgroundClick()
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [sidePanel, onBackgroundClick])
 
   useLayoutEffect(() => {
     cameraRef.current = camera
@@ -301,7 +319,7 @@ export function OrganizationMap({
     const viewport = viewportRef.current
     if (!viewport) return
     const handleWheel = (event: WheelEvent) => {
-      if ((event.target as HTMLElement).closest('.organization-map__outline')) return
+      if ((event.target as HTMLElement).closest('.organization-map__outline, .organization-map__panel')) return
       event.preventDefault()
       changeZoom(event.deltaY < 0 ? 1.1 : .9, event.clientX, event.clientY)
     }
@@ -328,8 +346,10 @@ export function OrganizationMap({
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId !== event.pointerId) return
+    const moved = dragRef.current.moved
     dragRef.current = null
     setDragging(false)
+    if (!moved && event.type !== 'pointercancel') onBackgroundClick?.()
   }
 
   useEffect(() => {
@@ -363,7 +383,7 @@ export function OrganizationMap({
         </div>
 
         {compactOutline === 'overlay' && outlineOpen && <aside className="organization-map__outline" aria-label="Компактна структура організації">
-          <header><span><Building2 size={15} /><strong>{company.name}</strong></span><small>{units.length} підрозділів</small></header>
+          <header><span><CompanyLogo src={company.logoAsset} size={20} /><strong>{company.name}</strong></span><small>{units.length} підрозділів</small></header>
           <div className="organization-map__outline-tree" role="tree" aria-label="Дерево підрозділів">
             {outline.map(({ unit, depth, hasChildren }) => {
               const expanded = expandedOutlineIds.has(unit.id)
@@ -389,7 +409,7 @@ export function OrganizationMap({
                   })}
                 >{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button> : <span className="organization-map__outline-spacer" aria-hidden />}
                 <button type="button" className="organization-map__outline-select" onClick={() => onSelect(unit.id)}>
-                  <span><strong>{unit.name}</strong><small title={unit.description ?? undefined}>{unit.description?.trim() || unit.manager?.displayName || `${unit.activeEmployeeCount} ос.`}</small></span>
+                  <UnitIcon icon={unit.icon} size={16} /><span><strong>{unit.name}</strong><small title={unit.description ?? undefined}>{unit.description?.trim() || personName(unit.manager?.displayName) || `${unit.activeEmployeeCount} ос.`}</small></span>
                   <em>{unit.activeEmployeeCount}</em>
                 </button>
               </div>
@@ -413,11 +433,11 @@ export function OrganizationMap({
             <button
               type="button"
               className="organization-map__node organization-map__node--company"
-              aria-label={`${company.name}. ${company.description?.trim() || (company.manager ? `Керівник ${company.manager.displayName}` : 'Керівника не призначено')}`}
+              aria-label={`${company.name}. ${company.description?.trim() || (company.manager ? `Керівник ${personName(company.manager.displayName)}` : 'Керівника не призначено')}`}
               onClick={onSelectCompany ?? fit}
             >
-              <span className="organization-map__avatar"><Building2 size={20} /></span>
-              <span><strong>{company.name}</strong><small title={company.description ?? undefined}>{company.description?.trim() || company.manager?.displayName || 'Без керівника'}</small></span>
+              <span className="organization-map__avatar"><CompanyLogo src={company.logoAsset} size={32} /></span>
+              <span><strong>{company.name}</strong><small title={company.description ?? undefined}>{company.description?.trim() || personName(company.manager?.displayName) || 'Без керівника'}</small></span>
             </button>
             {editing && onAddRoot && <button className="organization-map__add-child" type="button" aria-label={`Додати гілку до компанії ${company.name}`} onClick={onAddRoot}><Plus size={13} /></button>}
           </div>
@@ -447,21 +467,21 @@ export function OrganizationMap({
                 type="button"
                 className={`organization-map__node ${isSelected ? 'is-selected' : ''} ${isBranch ? 'is-branch' : ''} ${normalizedSearch && !matches ? 'is-search-muted' : ''}`}
                 aria-pressed={isSelected}
-                aria-label={`${unit.name}. ${unit.description?.trim() || `${unit.activeEmployeeCount} працівників. ${unit.manager ? `Керівник ${unit.manager.displayName}` : 'Керівника не призначено'}`}`}
+                aria-label={`${unit.name}. ${unit.description?.trim() || `${unit.activeEmployeeCount} працівників. ${unit.manager ? `Керівник ${personName(unit.manager.displayName)}` : 'Керівника не призначено'}`}`}
                 onClick={() => onSelect(unit.id)}
               >
                 <span className="organization-map__avatar">
-                  {unit.manager ? initials(unit.manager.displayName) : <UsersRound size={18} />}
+                  <UnitIcon icon={unit.icon} size={20} />
                   {!unit.manager && <i aria-label="Керівника не призначено"><AlertTriangle size={10} /></i>}
                 </span>
-                <span><strong>{unit.name}</strong><small title={unit.description ?? undefined}>{unit.description?.trim() || `${unit.activeEmployeeCount} ос. · ${unit.manager?.displayName ?? 'без керівника'}`}</small></span>
+                <span><strong>{unit.name}</strong><small title={unit.description ?? undefined}>{unit.description?.trim() || `${unit.activeEmployeeCount} ос. · ${personName(unit.manager?.displayName) ?? 'без керівника'}`}</small></span>
               </button>
               {editing && onAddChild && <button className="organization-map__add-child" type="button" aria-label={`Додати підрозділ до ${unit.name}`} onClick={() => onAddChild(unit.id)}><Plus size={13} /></button>}
             </div>
           })}
         </div>
 
-        {sidePanel && <aside className="organization-map__panel">{sidePanel}</aside>}
+        {sidePanel && <aside ref={panelRef} className="organization-map__panel">{sidePanel}</aside>}
       </div>
     </section>
   )

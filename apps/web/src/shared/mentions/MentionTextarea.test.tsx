@@ -1,8 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StructuredMentionInput } from '@lankadws/contracts'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '../api/client'
@@ -11,6 +11,12 @@ import { MentionTextarea } from './MentionTextarea'
 import { reconcileMentionChange } from './mentionText'
 
 vi.mock('../api/client', () => ({ api: vi.fn() }))
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
+  Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: function (this: HTMLElement) { this.removeAttribute('popover') } })
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); Reflect.deleteProperty(HTMLElement.prototype, 'showPopover') })
 
 function Harness() {
   const [value, setValue] = useState('')
@@ -34,11 +40,28 @@ function Harness() {
 }
 
 describe('MentionTextarea', () => {
+  it.each([
+    { top: 50, bottom: 100, placement: 'bottom' },
+    { top: 650, bottom: 700, placement: 'top' },
+  ])('opens toward the available space at $top', async ({ top, bottom, placement }) => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this.classList.contains('mention-field__input')
+        ? { top, bottom, left: 20, right: 420, width: 400, height: bottom - top }
+        : { top: 0, bottom: 106, left: 0, right: 400, width: 400, height: 106 }) as DOMRect
+    })
+    vi.mocked(api).mockResolvedValue({ items: [] })
+    render(<QueryClientProvider client={new QueryClient()}><Harness /></QueryClientProvider>)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '@м', selectionStart: 2 } })
+    const list = screen.getByRole('listbox')
+    expect(list).toHaveAttribute('data-placement', placement)
+    expect(list).toHaveStyle({ top: `${placement === 'top' ? top - 111 : bottom + 5}px`, maxHeight: '260px' })
+  })
+
   it('creates a structured mention only after selecting a candidate', async () => {
     vi.mocked(api).mockResolvedValue({
       items: [{
         id: 'usr_maria',
-        displayName: 'Марія Іваненко',
+        displayName: 'Марія Іваненко Петрівна',
         username: 'maria',
         jobTitle: 'Дизайнерка',
         avatarAsset: null,
@@ -55,6 +78,9 @@ describe('MentionTextarea', () => {
 
     expect(textbox).toHaveValue('@Марія Іваненко')
     await waitFor(() => expect(screen.getByText(/"userId":"usr_maria"/)).toBeVisible())
+    expect(JSON.parse(screen.getByRole('status').textContent ?? '[]')).toEqual([
+      { userId: 'usr_maria', start: 0, end: '@Марія Іваненко'.length, label: 'Марія Іваненко' },
+    ])
   })
 
   it('shifts mentions for edits before them and removes an edited mention', () => {
@@ -80,5 +106,16 @@ describe('MentionTextarea', () => {
     expect(screen.queryByRole('link', { name: '@Марія' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: '@Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
     expect(screen.getByText('@Андрій')).toHaveClass('is-inactive')
+  })
+
+  it('shortens stored mention names while retaining their original offsets and surrounding text', () => {
+    const name = '@Петренко Олена Іванівна'
+    const prefix = 'Привіт, '
+    render(<MemoryRouter><div data-testid="stored-mention"><MentionText
+      body={`${prefix}${name}, дякую!`}
+      mentions={[{ userId: 'usr_olena', start: prefix.length, end: prefix.length + name.length, active: true }]}
+    /></div></MemoryRouter>)
+    expect(screen.getByRole('link', { name: '@Петренко Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
+    expect(screen.getByTestId('stored-mention')).toHaveTextContent('Привіт, @Петренко Олена, дякую!')
   })
 })

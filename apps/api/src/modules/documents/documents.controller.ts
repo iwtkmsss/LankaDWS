@@ -25,22 +25,13 @@ export class DocumentsController {
   }
 
   @Post()
-  create(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; name: string; fileId: string; changeSummary?: string }) {
+  create(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; name: string; fileId: string }) {
     return this.documents.create(principalFrom(request), body)
   }
 
   @Post(':id/publish')
   publish(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
     return this.documents.publish(principalFrom(request), id, body.expectedVersion)
-  }
-
-  @Post(':id/versions')
-  addVersion(
-    @Req() request: LankaDWSRequest,
-    @Param('id') id: string,
-    @Body() body: { fileId: string; changeSummary?: string; expectedVersion: number },
-  ) {
-    return this.documents.addVersion(principalFrom(request), id, body)
   }
 
   @Post(':id/archive')

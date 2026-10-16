@@ -1,11 +1,9 @@
+import { useUserSearch } from '../../../shared/lib/useUserSearch'
+import { personName } from '../../../shared/lib/personName'
 import type { ChatContactUser } from '@lankadws/contracts'
-import { useQuery } from '@tanstack/react-query'
-import { LoaderCircle, Search, UsersRound, X } from 'lucide-react'
+import { ChevronRight, LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { useDebouncedSearchValue } from '../../../shared/lib/useDebouncedSearchValue'
 import { Avatar, Button, Drawer, Skeleton } from '../../../shared/ui'
-import { searchChatUsers } from '../api/messageApi'
-import { messageKeys } from '../api/messageKeys'
 import { normalizedCodePointLength } from '../lib/messageText'
 
 export function NewChatDrawer({
@@ -30,21 +28,14 @@ export function NewChatDrawer({
   const [searchFocused, setSearchFocused] = useState(false)
   const attemptedTargetRef = useRef<string | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const {
-    debouncedValue: debouncedQuery,
-    isComposing,
-    onCompositionStart,
-    onCompositionEnd,
-  } = useDebouncedSearchValue(query)
-  const normalizedLength = normalizedCodePointLength(debouncedQuery)
-  const searching = !isComposing && normalizedLength >= 1
-  const users = useQuery({
-    queryKey: messageKeys.users(companyId, debouncedQuery),
-    queryFn: ({ signal }) => searchChatUsers(companyId, debouncedQuery, signal),
-    enabled: searching,
+  const { users, searching, items: searchItems, waitingForDebounce,
+    debouncedValue: debouncedQuery, isComposing, onCompositionStart, onCompositionEnd,
+  } = useUserSearch<ChatContactUser>(query, {
+    endpoint: '/messages/users/search', params: { company: companyId }, enabled: true,
   })
-  const results = users.data?.items ?? []
-  const waitingForDebounce = !isComposing && Boolean(query) && query !== debouncedQuery
+  const normalizedLength = normalizedCodePointLength(debouncedQuery)
+
+  const results = searchItems
 
   useEffect(() => setActiveIndex(0), [debouncedQuery])
 
@@ -94,8 +85,10 @@ export function NewChatDrawer({
       )}
     >
       <div className="new-chat">
-        <Button type="button" variant="secondary" onClick={onOpenGroup}>
-          <UsersRound size={16} /> Створити групу
+        <Button type="button" variant="secondary" className="new-chat__group-action" onClick={onOpenGroup}>
+          <span className="new-chat__group-icon" aria-hidden="true"><UsersRound size={20} /></span>
+          <span>Створити групу</span>
+          <ChevronRight size={18} aria-hidden="true" />
         </Button>
         <div
           className="new-chat__search-area"
@@ -113,6 +106,7 @@ export function NewChatDrawer({
               role="combobox"
               aria-label="Пошук користувачів для нового чату"
               aria-autocomplete="list"
+              aria-describedby={!query.trim() ? 'new-chat-search-hint' : undefined}
               aria-expanded={searching}
               aria-controls={searching ? 'new-chat-user-results' : undefined}
               aria-activedescendant={
@@ -121,7 +115,7 @@ export function NewChatDrawer({
                   : undefined
               }
               value={query}
-              placeholder="Ім’я або нікнейм"
+              placeholder="Введіть ім’я або нікнейм"
               onChange={(event) => setQuery(event.target.value)}
               onCompositionStart={onCompositionStart}
               onCompositionEnd={onCompositionEnd}
@@ -134,6 +128,7 @@ export function NewChatDrawer({
             )}
           </div>
         </label>
+        {!query.trim() && <p id="new-chat-search-hint" className="new-chat__hint">Почніть вводити, щоб знайти людину.</p>}
         {targetUserId && startingUserId === targetUserId && (
           <p className="new-chat__status" role="status"><LoaderCircle className="is-spinning" size={16} /> Відкриваємо діалог…</p>
         )}
@@ -155,10 +150,10 @@ export function NewChatDrawer({
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => select(contact)}
               >
-                <Avatar name={contact.displayName} src={contact.avatarAsset} />
+                <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
                 <span>
-                  <strong>{contact.displayName}</strong>
-                  <small>@{contact.username}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}</small>
+                  <strong>{personName(contact.displayName)}</strong>
+                  <small>{contact.jobTitle || `@${contact.username}`}</small>
                 </span>
                 {startingUserId === contact.id
                   ? <LoaderCircle className="is-spinning" size={18} aria-label="Відкриваємо діалог" />
@@ -169,6 +164,12 @@ export function NewChatDrawer({
           </div>
         ) : null)}
         </div>
+        {!query.trim() && !startingUserId && (
+          <div className="new-chat__empty">
+            <span className="new-chat__empty-icon" aria-hidden="true"><MessageCircle size={26} /></span>
+            <p>Знайдіть людину, щоб почати розмову</p>
+          </div>
+        )}
       </div>
     </Drawer>
   )

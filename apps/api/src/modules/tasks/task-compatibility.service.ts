@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Optional } from '@nestjs/common'
+import { taskListSortExpressions, taskListSortQuery } from './task-list-sort.js'
 import {
   type StructuredMentionInput,
   type StructuredMentionView,
@@ -31,6 +32,7 @@ import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 
 const taskStatuses = [
   'NEW',
@@ -80,12 +82,6 @@ type TaskRow = Prisma.TaskGetPayload<{
         id: true
         displayName: true
         avatarAsset: true
-      }
-    }
-    group: {
-      select: {
-        id: true
-        name: true
       }
     }
   }
@@ -140,6 +136,7 @@ export class TaskCompatibilityService {
     private readonly commands: TaskCommandService,
     private readonly feedProjection: FeedProjectionService,
     private readonly participants: TaskParticipantsService,
+    @Optional() private readonly realtime?: ChatRealtimeService,
   ) {}
 
   async list(
@@ -158,18 +155,59 @@ export class TaskCompatibilityService {
       preset?: string
       dueFrom?: string
       dueTo?: string
-      groupId?: string
       assigneeId?: string
       creatorId?: string
       coExecutorId?: string
       observerId?: string
+      sort?: string
+      direction?: string
     } = {},
   ): Promise<PageResult<TaskListItem>> {
     if (!Number.isInteger(page) || page < 1 || page > 100_000) throw badRequest('task_page')
-    if (!legacyViewRoles.includes(role as LegacyViewRole)) throw badRequest('task_role')
-    const viewRole = role as LegacyViewRole
-    if (viewRole === 'ALL' && !isGlobalAdmin(principal)) throw forbidden()
-    if (filters.status && !taskStatuses.includes(filters.status as TaskStatusValue)) {
+    const where = this.listWhere(principal, company, role, filters)
+    if (filters.sort) {
+      if (!Object.hasOwn(taskListSortExpressions, filters.sort)) throw badRequest('task_sort')
+      if (filters.direction && !['asc', 'desc'].includes(filters.direction)) throw badRequest('task_sort_direction')
+      const result = await this.prisma.$transaction(async (tx) => {
+        // Resolve the existing authorization/filter predicate before sorting any IDs.
+        const allowed = await tx.task.findMany({ where, select: { id: true } })
+        const ordered = await tx.$queryRaw<Array<{ id: string }>>(taskListSortQuery(
+          allowed.map((task) => task.id), filters.sort as keyof typeof taskListSortExpressions,
+          filters.direction === 'desc' ? 'desc' : 'asc', page, pageSize,
+        ))
+        const rows = await tx.task.findMany({
+          where: { AND: [where, { id: { in: ordered.map((task) => task.id) } }] },
+          include: this.listInclude(),
+        })
+        const byId = new Map(rows.map((row) => [row.id, row]))
+        return { rows: ordered.flatMap(({ id }) => byId.has(id) ? [byId.get(id)!] : []), total: allowed.length }
+      })
+      return { items: await this.mapRows(result.rows, principal.userId), page, pageSize, total: result.total }
+    }
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.task.findMany({
+        where,
+        include: this.listInclude(),
+        orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.task.count({ where }),
+    ])
+    return { items: await this.mapRows(rows, principal.userId), page, pageSize, total }
+  }
+
+  listWhere(
+    principal: AuthPrincipal,
+    company: string | undefined,
+    role: string | undefined,
+    filters: NonNullable<Parameters<TaskCompatibilityService['list']>[5]> = {},
+  ): Prisma.TaskWhereInput {
+    const viewRoles = role === undefined ? [] : [...new Set(role.split(','))] as LegacyViewRole[]
+    if (viewRoles.some((viewRole) => !legacyViewRoles.includes(viewRole))) throw badRequest('task_role')
+    if (viewRoles.includes('ALL') && !isGlobalAdmin(principal)) throw forbidden()
+    const selectedStatuses = filters.status ? [...new Set(filters.status.split(','))] : []
+    if (selectedStatuses.some((status) => !taskStatuses.includes(status as TaskStatusValue))) {
       throw badRequest('task_status')
     }
     const normalizedPriority = this.normalizePriority(filters.priority)
@@ -181,7 +219,10 @@ export class TaskCompatibilityService {
       throw badRequest('task_important')
     }
     if (filters.overdue && filters.overdue !== 'true') throw badRequest('task_overdue')
-    if (filters.preset && !['ACTIVE', 'DEFERRED', 'OVERDUE', 'DUE_SOON'].includes(filters.preset)) {
+    const presetFilter = filters.preset || (filters.overdue === 'true' ? 'OVERDUE' : '')
+    const presets = presetFilter ? [...new Set(presetFilter.split(','))] : []
+    if (presets.some((preset) => !['DEFERRED', 'OVERDUE', 'DUE_SOON', 'OTHER_ACTIVE', ...taskStatuses, 'NONE'].includes(preset))
+      || presets.includes('NONE') && presets.length > 1) {
       throw badRequest('task_preset')
     }
     if (
@@ -196,20 +237,29 @@ export class TaskCompatibilityService {
     const now = new Date()
     const dueFrom = filters.dueFrom ? new Date(`${filters.dueFrom}T00:00:00.000Z`) : null
     const dueTo = filters.dueTo ? new Date(`${filters.dueTo}T23:59:59.999Z`) : null
-    const preset = filters.preset ?? (filters.overdue === 'true' ? 'OVERDUE' : undefined)
-    const presetWhere: Prisma.TaskWhereInput | null = preset === 'ACTIVE'
-      ? { status: { in: [...activeTaskStatuses] } }
-      : preset === 'DEFERRED'
+    const soonEndsAt = new Date(now.getTime() + 72 * 60 * 60 * 1_000)
+    const presetConditions: Prisma.TaskWhereInput[] = presets.map((preset) => preset === 'NONE'
+        ? { id: { in: [] } }
+        : taskStatuses.includes(preset as TaskStatusValue)
+          ? { status: preset as TaskStatusValue }
+        : preset === 'OTHER_ACTIVE'
+          ? { status: { in: ['IN_PROGRESS', 'IN_REVIEW'] }, OR: [{ dueAt: null }, { dueAt: { gt: soonEndsAt } }] }
+        : preset === 'DEFERRED'
         ? { status: 'NEW' }
         : preset === 'OVERDUE'
           ? { dueAt: { lt: now }, status: { notIn: [...terminalTaskStatuses] } }
-          : preset === 'DUE_SOON'
-            ? {
-                dueAt: { gte: now, lte: new Date(now.getTime() + 72 * 60 * 60 * 1_000) },
+          : {
+                dueAt: { gte: now, lte: soonEndsAt },
                 status: { notIn: [...terminalTaskStatuses] },
-              }
-            : null
-    const roleWhere = this.roleWhere(principal.userId, viewRole)
+              })
+    const presetWhere = presetConditions.length > 1 ? { OR: presetConditions } : presetConditions[0]
+    const roleWhere = role !== undefined ? viewRoles.includes('ALL') ? {} : viewRoles.length === 1
+      ? this.roleWhere(principal.userId, viewRoles[0])
+      : { OR: viewRoles.map((viewRole) => this.roleWhere(principal.userId, viewRole)) }
+      : isGlobalAdmin(principal) ? {} : { OR: [
+        { createdById: principal.userId }, { reporterId: principal.userId },
+        { participants: { some: { userId: principal.userId, removedAt: null } } },
+      ] }
     const search = filters.search?.trim().slice(0, 100)
     const where: Prisma.TaskWhereInput = {
       workspaceId: principal.workspaceId,
@@ -262,9 +312,8 @@ export class TaskCompatibilityService {
           { legacyNumbers: { some: { legacyNumber: { contains: search } } } },
         ],
       } : {}),
-      ...(filters.status ? { status: filters.status as TaskStatusValue } : {}),
+      ...(selectedStatuses.length ? { status: selectedStatuses.length === 1 ? selectedStatuses[0] as TaskStatusValue : { in: selectedStatuses as TaskStatusValue[] } } : {}),
       ...(normalizedPriority ? { priority: normalizedPriority } : {}),
-      ...(filters.groupId ? { groupId: filters.groupId } : {}),
       ...(filters.creatorId ? { reporterId: filters.creatorId } : {}),
       ...(filters.favorite
         ? {
@@ -281,22 +330,7 @@ export class TaskCompatibilityService {
           }
         : {}),
     }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.task.findMany({
-        where,
-        include: this.listInclude(),
-        orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.task.count({ where }),
-    ])
-    return {
-      items: await this.mapRows(rows, principal.userId),
-      page,
-      pageSize,
-      total,
-    }
+    return where
   }
 
   async dashboardSummary(
@@ -528,7 +562,6 @@ export class TaskCompatibilityService {
       assignee: primaryResponsible,
       responsibles,
       reporter: task.reporter,
-      group: task.group,
       status: task.status,
       priority: this.legacyPriority(task.priority),
       deadline: task.dueAt?.toISOString() ?? null,
@@ -769,7 +802,6 @@ export class TaskCompatibilityService {
     const result = await this.commands.create(principal, {
       title: input.title,
       description: input.description ?? '',
-      groupId: parent.groupId,
       projectId: parent.projectId,
       parentTaskId: parent.id,
       reporterId: principal.userId,
@@ -798,6 +830,7 @@ export class TaskCompatibilityService {
     principal: AuthPrincipal,
     taskId: string,
     file: UploadedBinary,
+    draft = false,
   ): Promise<TaskAttachmentView> {
     const task = await this.access.readableTask(principal, taskId)
     const attachmentCount = await this.prisma.fileLink.count({
@@ -808,6 +841,10 @@ export class TaskCompatibilityService {
       },
     })
     if (attachmentCount >= 20) throw badRequest('task_attachment_limit')
+    if (draft) {
+      const staged = await this.files.stageTaskUpload(principal, file, task.companyId)
+      return { ...staged, createdAt: new Date().toISOString(), canRemove: true }
+    }
     const uploaded = await this.files.upload(principal, task.companyId, file)
     const createdAt = new Date()
     await this.prisma.$transaction(async (tx) => {
@@ -845,17 +882,31 @@ export class TaskCompatibilityService {
     principal: AuthPrincipal,
     taskId: string,
     fileId: string,
+    draft = false,
   ): Promise<TaskAttachmentView> {
     const task = await this.access.readableTask(principal, taskId)
-    const file = await this.prisma.fileObject.findFirst({
+    let file = await this.prisma.fileObject.findFirst({
       where: {
         id: fileId,
         workspaceId: principal.workspaceId,
-        companyId: task.companyId,
+        companyId: { in: principal.allowedCompanyIds },
         ownerId: principal.userId,
       },
     })
     if (!file) throw notFound()
+    if (file.companyId !== task.companyId) {
+      // The Drive picker stages a copy under the document's company. Tasks may
+      // retain a different persistence key, so prepare their own staged copy.
+      await this.files.assertTaskStagedAttachments(principal, file.companyId!, [fileId])
+      const copy = await this.files.copyForPrincipal(principal, fileId, task.companyId)
+      const sourceFileId = fileId
+      fileId = copy.id
+      file = await this.prisma.fileObject.findFirst({
+        where: { id: fileId, workspaceId: principal.workspaceId, companyId: task.companyId, ownerId: principal.userId },
+      })
+      if (!file) throw notFound()
+      await this.files.discardStagedAttachment(principal, sourceFileId)
+    }
     const existing = await this.prisma.fileLink.findUnique({
       where: {
         fileId_entityType_entityId_purpose: {
@@ -866,7 +917,10 @@ export class TaskCompatibilityService {
         },
       },
     })
-    if (existing) {
+    if (existing || draft) {
+      if (draft && !existing) {
+        await this.files.assertTaskStagedAttachments(principal, task.companyId, [fileId])
+      }
       return {
         id: file.id,
         fileName: file.safeFilename,
@@ -1004,8 +1058,11 @@ export class TaskCompatibilityService {
     const page = rows.slice(0, 20)
     const referencedUserIds = page.flatMap((event) => {
       try {
-        const diff = JSON.parse(event.safeDiffJson) as { userId?: unknown }
-        return typeof diff.userId === 'string' ? [diff.userId] : []
+        const diff = JSON.parse(event.safeDiffJson) as { userId?: unknown; userIds?: unknown }
+        return [
+          ...(typeof diff.userId === 'string' ? [diff.userId] : []),
+          ...(Array.isArray(diff.userIds) ? diff.userIds.filter((userId): userId is string => typeof userId === 'string') : []),
+        ]
       } catch {
         return []
       }
@@ -1155,7 +1212,7 @@ export class TaskCompatibilityService {
       (input.action === 'START' && task.status === 'NEW' && isResponsible)
       || (input.action === 'COMPLETE' && task.status === 'IN_PROGRESS' && isResponsible)
       || (input.action === 'APPROVE' && task.status === 'IN_REVIEW' && isOwner)
-      || (input.action === 'RETURN_TO_WORK' && task.status === 'IN_REVIEW' && isOwner)
+      || (input.action === 'RETURN_TO_WORK' && ((task.status === 'IN_REVIEW' && isOwner) || (task.status === 'DONE' && (isOwner || isResponsible))))
     )
     if (!valid) throw forbidden()
     if (input.action === 'COMPLETE') {
@@ -1221,6 +1278,7 @@ export class TaskCompatibilityService {
       const updated = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
       const participants = await tx.taskParticipant.findMany({ where: { taskId, removedAt: null }, select: { userId: true } })
       await this.feedProjection.projectTask(tx, updated, {
+        taskDetails: { status: nextStatus },
         action: 'STATUS_CHANGED', actorId: principal.userId, recipientIds: participants.map(({ userId }) => userId),
       })
       await this.recordEvent(tx, principal, task, 'task.status_changed', updated.version, {
@@ -1238,7 +1296,6 @@ export class TaskCompatibilityService {
   ) {
     const task = await this.access.readableTask(principal, taskId)
     const body = typeof input.body === 'string' ? input.body.trim() : ''
-    if (!body || body.length > 4_000) throw badRequest('comment_body')
     const mentions = input.mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
     const mentionedUserIds = this.validateStructuredMentions(body, mentions)
     const replyToCommentId = typeof input.replyToCommentId === 'string'
@@ -1247,6 +1304,7 @@ export class TaskCompatibilityService {
     const attachmentIds = Array.isArray(input.attachmentIds)
       ? [...new Set(input.attachmentIds.map((fileId) => fileId.trim()).filter(Boolean))]
       : []
+    if ((!body && !attachmentIds.length) || body.length > 4_000) throw badRequest('comment_body')
     if (attachmentIds.length > 5) throw badRequest('task_comment_attachments')
     const operation = `task.comment.create:${task.id}`
     const requestFingerprint = sha256(JSON.stringify({
@@ -1296,9 +1354,29 @@ export class TaskCompatibilityService {
         : [],
     ])
     if (replyToCommentId && !replyTarget) throw badRequest('task_comment_reply')
-    if (links.length !== attachmentIds.length) throw badRequest('task_comment_attachments')
+    const linkedIds = new Set(links.map((link) => link.fileId))
+    const stagedIds = attachmentIds.filter((fileId) => !linkedIds.has(fileId))
+    if (stagedIds.length) {
+      await this.files.assertTaskStagedAttachments(principal, task.companyId, stagedIds, 'task_comment_attachments')
+    }
     const commentId = id('cmt')
+    let notificationRecipients: string[] = []
     const createComment = () => this.prisma.$transaction(async (tx) => {
+      if (stagedIds.length) {
+        const [attachmentCount, alreadyLinked] = await Promise.all([
+          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT' } }),
+          tx.fileLink.findFirst({ where: { fileId: { in: stagedIds } }, select: { id: true } }),
+        ])
+        if (alreadyLinked) throw badRequest('task_comment_attachments')
+        if (attachmentCount + stagedIds.length > 20) throw badRequest('task_attachment_limit')
+        await this.files.retainStagedAttachments(tx, principal, stagedIds)
+        await tx.fileLink.createMany({
+          data: stagedIds.map((fileId) => ({
+            id: id('fln'), fileId, entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', aclMode: 'ENTITY',
+          })),
+        })
+      }
+      await this.files.markAttachmentsRetained(tx, [...linkedIds])
       const addedWatcherIds = await this.participants.ensureMentionWatchers(
         tx,
         principal,
@@ -1366,6 +1444,7 @@ export class TaskCompatibilityService {
         ...(replyTarget?.authorId ? [replyTarget.authorId] : []),
       ])].filter((userId) => userId !== principal.userId)
       const mentionedRecipients = new Set(mentionedUserIds)
+      notificationRecipients = recipients
       for (const recipientId of recipients) {
         const isMention = mentionedRecipients.has(recipientId)
         await tx.notification.upsert({
@@ -1384,14 +1463,14 @@ export class TaskCompatibilityService {
           update: {},
         })
       }
-      let feedItemId: string | null = null
+      const versionedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
+      const feedItemId = await this.feedProjection.projectTask(tx, versionedTask, {
+        action: 'COMMENT_CREATED',
+        taskDetails: { watchersAdded: addedWatcherIds.length > 0 },
+        actorId: principal.userId,
+        recipientIds: activeParticipants.map((participant) => participant.userId),
+      })
       if (addedWatcherIds.length) {
-        const versionedTask = await tx.task.findUniqueOrThrow({ where: { id: task.id } })
-        feedItemId = await this.feedProjection.projectTask(tx, versionedTask, {
-          action: 'PARTICIPANT_CHANGED',
-          actorId: principal.userId,
-          recipientIds: activeParticipants.map((participant) => participant.userId),
-        })
         await this.participants.recordMentionWatchersAdded(
           tx,
           principal,
@@ -1423,7 +1502,9 @@ export class TaskCompatibilityService {
       return comment
     })
     try {
-      return await createComment()
+      const comment = await createComment()
+      this.realtime?.publishSummary(notificationRecipients, ['notifications'])
+      return comment
     } catch (error) {
       if (idempotencyKey && (error as { code?: string }).code === 'P2002') {
         const concurrentCommentId = await this.idempotentResultId(
@@ -1488,6 +1569,7 @@ export class TaskCompatibilityService {
           },
           update: { readAt: null, deliveredAt: reaction.createdAt },
         })
+        this.realtime?.publishSummary([comment.authorId], ['notifications'])
       }
     } else {
       await this.prisma.taskCommentReaction.deleteMany({
@@ -1530,7 +1612,7 @@ export class TaskCompatibilityService {
     if (!comment) throw notFound()
     const editedAt = new Date()
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const updatedComment = await tx.comment.updateMany({
         where: { id: comment.id, version: input.expectedVersion, deletedAt: null },
         data: {
@@ -1611,6 +1693,8 @@ export class TaskCompatibilityService {
         editedAt: editedAt.toISOString(),
       }
     })
+    this.realtime?.publishSummary(mentionedUserIds.filter((userId) => userId !== principal.userId), ['notifications'])
+    return result
   }
 
   async deleteComment(
@@ -1711,12 +1795,6 @@ export class TaskCompatibilityService {
           avatarAsset: true,
         },
       },
-      group: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
     } satisfies Prisma.TaskInclude
   }
 
@@ -1768,7 +1846,6 @@ export class TaskCompatibilityService {
         assignee: responsible,
         responsibles,
         reporter: row.reporter,
-        group: row.group,
         status: row.status,
         priority: this.legacyPriority(row.priority),
         deadline: row.dueAt?.toISOString() ?? null,
@@ -1856,6 +1933,7 @@ export class TaskCompatibilityService {
     if (task.status === 'NEW' && responsible) return ['START']
     if (task.status === 'IN_PROGRESS' && responsible) return ['COMPLETE']
     if (task.status === 'IN_REVIEW' && owner) return ['APPROVE', 'RETURN_TO_WORK']
+    if (task.status === 'DONE' && (owner || responsible)) return ['RETURN_TO_WORK']
     return []
   }
 
@@ -2138,6 +2216,7 @@ export class TaskCompatibilityService {
           taskId: task.id,
           companyId: task.companyId,
           actorId: principal.userId,
+          notificationDiff: safeDiff,
         }),
       },
     })
@@ -2158,7 +2237,7 @@ export class TaskCompatibilityService {
     if (action === 'task.updated') {
       const fieldLabels: Record<string, string> = {
         title: 'назву', description: 'опис', assignee: 'відповідального', creator: 'постановника',
-        reporterId: 'постановника', groupId: 'групу', projectId: 'проєкт', parentTaskId: 'батьківське завдання',
+        reporterId: 'постановника', projectId: 'проєкт', parentTaskId: 'батьківське завдання',
         deadline: 'строк', dueAt: 'строк', startsAt: 'дату початку', priority: 'пріоритет',
         estimatedMinutes: 'оцінку часу', blockReason: 'причину блокування', requiresAcceptance: 'налаштування перевірки',
       }
@@ -2200,12 +2279,16 @@ export class TaskCompatibilityService {
     }
     if (action === 'task.status_changed') {
       const status = diff.status as { from?: string; to?: string } | undefined
+      if (status?.from === 'DONE' && status.to === 'IN_PROGRESS') return 'Завдання відновлено — в роботі'
       const labels: Record<string, string> = { NEW: 'Нове', IN_PROGRESS: 'В роботі', IN_REVIEW: 'На перевірці', DONE: 'Завершене', ARCHIVED: 'Архівоване' }
       return status?.from && status.to ? `Статус: ${labels[status.from] ?? status.from} → ${labels[status.to] ?? status.to}` : 'Статус змінено'
     }
     if (['task.participant_added', 'task.participant_removed', 'task.participant_changed'].includes(action)) {
-      const userId = typeof diff.userId === 'string' ? diff.userId : ''
-      const person = (users.get(userId)?.displayName ?? userId) || 'учасника'
+      const userIds = [...new Set([
+        ...(typeof diff.userId === 'string' ? [diff.userId] : []),
+        ...(Array.isArray(diff.userIds) ? diff.userIds.filter((userId): userId is string => typeof userId === 'string') : []),
+      ])]
+      const person = userIds.map((userId) => users.get(userId)?.displayName ?? userId).join(', ') || 'учасника'
       const roleLabels: Record<string, string> = { RESPONSIBLE: 'відповідальний', COLLABORATOR: 'співвиконавець', WATCHER: 'спостерігач' }
       const role = typeof diff.role === 'string' ? roleLabels[diff.role] ?? diff.role : 'учасник'
       return action === 'task.participant_removed' ? `Вилучено ${role}: ${person}` : `Змінено ${role}: ${person}`

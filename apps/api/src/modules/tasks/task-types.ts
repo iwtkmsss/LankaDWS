@@ -10,7 +10,6 @@ export type TaskTransaction = Prisma.TransactionClient
 
 export interface ValidatedTaskContext {
   companyId: string
-  groupId: string | null
   projectId: string | null
   parentTaskId: string | null
   reporterId: string
@@ -42,12 +41,6 @@ export const taskDetailInclude = {
       id: true,
       displayName: true,
       avatarAsset: true,
-    },
-  },
-  group: {
-    select: {
-      id: true,
-      name: true,
     },
   },
   project: {

@@ -18,15 +18,16 @@ export class DriveFoldersService {
   ) {}
 
   async create(principal: AuthPrincipal, input: { name: string; parentId?: string | null }) {
-    const companyId = this.scope.assertCompany(principal, undefined)
+    let companyId: string
     if (input.parentId) {
       const parent = await this.readable(principal, input.parentId)
-      if (parent.companyId !== companyId) throw badRequest('drive_folder_company_mismatch')
+      companyId = this.scope.assertCompany(principal, parent.companyId)
+      if (!await this.sharing.canEditFolder(principal, parent.id)) throw forbidden()
       if (parent.trashedAt) throw badRequest('drive_folder_parent_trashed')
       if ((await this.breadcrumbs(principal, input.parentId)).length >= MAX_DEPTH) {
         throw badRequest('drive_folder_too_deep')
       }
-    }
+    } else companyId = this.scope.assertCompany(principal, undefined)
     const folderId = id('dfol')
     await this.prisma.driveFolder.create({
       data: {
@@ -56,7 +57,8 @@ export class DriveFoldersService {
     if (parentId) {
       if (parentId === folderId) throw badRequest('drive_folder_cycle')
       const parent = await this.readable(principal, parentId)
-      if (parent.companyId !== folder.companyId) throw badRequest('drive_folder_company_mismatch')
+      if (!await this.sharing.canEditFolder(principal, parentId)) throw forbidden()
+      if (parent.trashedAt) throw badRequest('drive_folder_parent_trashed')
       const subtree = await this.sharing.expandSubtree(principal, [folderId])
       if (subtree.has(parentId)) throw badRequest('drive_folder_cycle')
     }
@@ -91,17 +93,19 @@ export class DriveFoldersService {
     return { restored: true, folders: subtree.length }
   }
 
-  async breadcrumbs(principal: AuthPrincipal, folderId: string | null): Promise<DriveBreadcrumb[]> {
+  async breadcrumbs(principal: AuthPrincipal, folderId: string | null, includeAll = false): Promise<DriveBreadcrumb[]> {
     const trail: DriveBreadcrumb[] = []
     let cursor = folderId
     const seen = new Set<string>()
+    const grants = await this.sharing.grantsFor(principal)
     while (cursor && trail.length < MAX_DEPTH && !seen.has(cursor)) {
       seen.add(cursor)
       const folder = await this.prisma.driveFolder.findFirst({
         where: { id: cursor, companyId: { in: principal.allowedCompanyIds } },
-        select: { id: true, name: true, parentId: true },
+        select: { id: true, name: true, parentId: true, ownerId: true },
       })
       if (!folder) break
+      if (!(includeAll && isGlobalAdmin(principal)) && folder.ownerId !== principal.userId && !grants.folderIds.has(folder.id)) break
       trail.unshift({ id: folder.id, name: folder.name })
       cursor = folder.parentId
     }
@@ -110,10 +114,25 @@ export class DriveFoldersService {
 
   async detail(principal: AuthPrincipal, folderId: string) {
     const folder = await this.readable(principal, folderId)
-    const [owner, childCount, shareCount] = await Promise.all([
+    const grants = await this.sharing.grantsFor(principal)
+    const [owner, childCount, fileCount, shareCount, sizes] = await Promise.all([
       this.prisma.user.findFirst({ where: { id: folder.ownerId }, select: { displayName: true } }),
       this.prisma.driveFolder.count({ where: { parentId: folder.id, trashedAt: null } }),
+      this.prisma.document.count({
+        where: {
+          folderId: folder.id,
+          companyId: { in: principal.allowedCompanyIds },
+          archivedAt: null,
+          ...(isGlobalAdmin(principal) ? {} : {
+            OR: [
+              { ownerId: principal.userId },
+              { id: { in: [...grants.documentIds] } },
+            ],
+          }),
+        },
+      }),
       this.prisma.driveShare.count({ where: { targetType: 'FOLDER', targetId: folder.id } }),
+      this.sizes(principal, [folder.id]),
     ])
     return {
       id: folder.id,
@@ -123,11 +142,69 @@ export class DriveFoldersService {
       ownerId: folder.ownerId,
       ownerName: owner?.displayName ?? 'Недоступний користувач',
       isOwner: folder.ownerId === principal.userId,
+      accessRole: folder.ownerId === principal.userId || isGlobalAdmin(principal) || grants.roleOf?.('FOLDER', folder.id) === 'EDITOR' ? 'EDITOR' as const : 'VIEWER' as const,
+      isShared: shareCount > 0 || grants.folderIds.has(folder.id),
       sharedWithCount: shareCount,
-      childCount,
+      childCount: childCount + fileCount,
+      sizeBytes: sizes.get(folder.id) ?? null,
       updatedAt: folder.updatedAt.toISOString(),
       trashedAt: folder.trashedAt?.toISOString() ?? null,
     }
+  }
+
+  /** Counts document files through readable, active descendants, independently of UI filters. */
+  async sizes(principal: AuthPrincipal, folderIds: string[], includeAll = false): Promise<Map<string, number | null>> {
+    if (folderIds.length === 0) return new Map()
+    const grants = await this.sharing.grantsFor(principal)
+    const admin = includeAll && isGlobalAdmin(principal)
+    const folderRows = await this.prisma.driveFolder.findMany({
+      where: {
+        companyId: { in: principal.allowedCompanyIds }, trashedAt: null,
+        ...(admin ? {} : { OR: [{ ownerId: principal.userId }, { id: { in: [...grants.folderIds] } }] }),
+      },
+      select: { id: true, parentId: true },
+    })
+    const parents = new Map(folderRows.map((folder) => [folder.id, folder.parentId]))
+    const wanted = new Set(folderIds)
+    const ancestors = new Map<string, string[]>()
+    for (const folder of folderRows) {
+      const path: string[] = []
+      const seen = new Set<string>()
+      let cursor: string | null = folder.id
+      while (cursor && parents.has(cursor) && !seen.has(cursor)) {
+        seen.add(cursor)
+        if (wanted.has(cursor)) path.push(cursor)
+        cursor = parents.get(cursor) ?? null
+      }
+      if (path.length > 0) ancestors.set(folder.id, path)
+    }
+    const sizes = new Map<string, number | null>(folderIds.map((folderId) => [folderId, parents.has(folderId) ? 0 : null]))
+    if (ancestors.size === 0) return sizes
+    const documents = await this.prisma.document.findMany({
+      where: {
+        folderId: { in: [...ancestors.keys()] }, archivedAt: null,
+        companyId: { in: principal.allowedCompanyIds },
+        ...(admin ? {} : { OR: [
+          { ownerId: principal.userId },
+          { id: { in: [...grants.documentIds] } },
+        ] }),
+      },
+      select: { folderId: true, fileId: true },
+    })
+    const files = await this.prisma.fileObject.findMany({
+      where: { id: { in: documents.flatMap((document) => document.fileId ? [document.fileId] : []) } },
+      select: { id: true, bytes: true },
+    })
+    const bytes = new Map(files.map((file) => [file.id, file.bytes]))
+    for (const document of documents) {
+      const fileId = document.fileId
+      const size = fileId ? bytes.get(fileId) ?? null : 0
+      for (const folderId of ancestors.get(document.folderId!) ?? []) {
+        const total = sizes.get(folderId)
+        sizes.set(folderId, total === null || size === null ? null : (total ?? 0) + size)
+      }
+    }
+    return sizes
   }
 
   private async readable(principal: AuthPrincipal, folderId: string) {

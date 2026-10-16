@@ -4,7 +4,7 @@ These instructions extend the repository root `AGENTS.md`.
 
 ## Backend navigation
 
-- Module registry: `src/app.module.ts`. Wired modules: admin, audit, auth, authorization, calendar, communication, companies, dashboard, documents, employees, feed, files, groups, health, import-control, jobs, knowledge, lifecycle, org, preferences, retention, tasks. (`src/modules/analytics` and `src/modules/requests` are empty placeholders, not wired.)
+- Module registry: `src/app.module.ts`. Wired modules: admin, audit, auth, authorization, calendar, communication, companies, dashboard, documents, employees, feed, files, health, import-control, jobs, knowledge, lifecycle, org, preferences, retention, tasks. (`src/modules/analytics` and `src/modules/requests` are empty placeholders, not wired.)
 - Global search: `src/modules/communication/search.controller.ts`.
 - Chat API: `src/modules/communication/messages.controller.ts`.
 - Chat business logic: `src/modules/communication/messages.service.ts`.
@@ -12,7 +12,6 @@ These instructions extend the repository root `AGENTS.md`.
 - Feed: `src/modules/feed/*`. Companies admin: `src/modules/companies/*`. Overview data: `src/modules/dashboard/*`.
 - Employees directory/profile: `src/modules/employees/employees.controller.ts`.
 - Org hierarchy: `src/modules/org/org.controller.ts` and `org.service.ts`.
-- Groups: `src/modules/groups/*`.
 - Tasks: `src/modules/tasks/*`.
 - Documents: `src/modules/documents/documents.controller.ts` and `documents.service.ts`.
 - Calendar: `src/modules/calendar/calendar.controller.ts` and `calendar.service.ts`.

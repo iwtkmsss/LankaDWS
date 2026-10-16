@@ -1,3 +1,4 @@
+import { personName } from '../../../shared/lib/personName'
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import {
   Check,
@@ -5,15 +6,16 @@ import {
   Copy,
   Download,
   Eye,
-  FileText,
   Forward,
   HardDrive,
   Heart,
   Pencil,
   Reply,
   Trash2,
+  X,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Avatar, Button, CompactFileName } from '../../../shared/ui'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { MentionText } from '../../../shared/mentions/MentionRenderer'
@@ -22,18 +24,25 @@ import { editableMentions, trimMentionValue } from '../../../shared/mentions/men
 import { apiUrl } from '../../../shared/api/client'
 import { formatChatTime } from '../lib/chatDates'
 import { FilePreviewModal } from '../../../shared/files/FilePreviewModal'
+import { FileFormatIcon, FileThumbnail } from '../../../shared/files/FileThumbnail'
 import { importFileToDrive } from '../../drive/api'
+import { SaveToDriveButton } from '../../../shared/files/SaveToDriveButton'
+import { isChatPhoto } from '../lib/photoAlbums'
+import { MessageBubbleOutline } from './MessageBubbleOutline'
 
 interface MessageBubbleProps {
+  idPrefix?: string
   threadId: string
   message: ChatMessageView
   own: boolean
+  showAuthor?: boolean
+  showAvatar?: boolean
   highlighted?: boolean
   isNew?: boolean
   onReply: (message: ChatMessageView) => void
   onLike: (message: ChatMessageView) => void
   onForward: (message: ChatMessageView) => void
-  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
 }
 
@@ -55,8 +64,11 @@ function contextMenuPosition(x: number, y: number): { left: number; top: number 
 
 export function MessageBubble({
   threadId,
+  idPrefix = 'message',
   message,
   own,
+  showAuthor = true,
+  showAvatar = true,
   highlighted,
   isNew,
   onReply,
@@ -71,16 +83,30 @@ export function MessageBubble({
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
     editableMentions(message.body, message.mentions))
   const [busy, setBusy] = useState(false)
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState<string[]>([])
+  const [editError, setEditError] = useState('')
   const [driveSave, setDriveSave] = useState<'idle' | 'busy' | 'done' | 'error'>('idle')
   const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
+  const [menuPhoto, setMenuPhoto] = useState<ChatAttachmentView | null>(null)
+  const [replyHighlightVersion, setReplyHighlightVersion] = useState(0)
+  const replyHighlightCounterRef = useRef(0)
+  const messageRowRef = useRef<HTMLElement>(null)
   const menuCloseTimer = useRef<number | null>(null)
-  const savableAttachments = message.attachments.filter((attachment) => attachment.scanStatus === 'CLEAN')
-  const archivableAttachments = savableAttachments.length >= 3
-  // Editing a long message should show the whole text rather than a three-row
+  const menuRef = useRef<HTMLDivElement>(null)
+  const visibleAttachments = editing
+    ? message.attachments.filter((attachment) => !removedAttachmentIds.includes(attachment.id))
+    : message.attachments
+  const savableAttachments = visibleAttachments.filter((attachment) => attachment.scanStatus === 'CLEAN')
+  const archivableAttachments = savableAttachments.length >= 2
+  const photosOnly = message.attachments.length > 0 && message.attachments.every(isChatPhoto)
+  const previewPhotos = photosOnly ? savableAttachments : []
+  const previewPhotoIndex = previewPhotos.findIndex((attachment) => attachment.id === previewFile?.id)
+  const photoAlbum = !editing && photosOnly && visibleAttachments.length > 1
+  // Editing a long message should show the whole text rather than a two-row
   // window the author has to scroll. Browsers that support `field-sizing` size
   // the box from its content; this estimate covers the rest, counting the wraps
   // a long paragraph produces as well as its explicit line breaks.
-  const editRows = Math.min(24, Math.max(3, editBody
+  const editRows = Math.min(24, Math.max(2, editBody
     .split('\n')
     .reduce((rows, line) => rows + Math.max(1, Math.ceil(line.length / 50)), 1)))
   const deliveryLabel = message.id.startsWith('optimistic:')
@@ -88,15 +114,30 @@ export function MessageBubble({
     : message.readByCount > 0
       ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
       : 'Відправлено'
-  const singleImageAttachment = message.attachments.length === 1
-    && message.attachments[0]?.scanStatus === 'CLEAN'
-    && /^image\/(?:png|jpeg|gif|webp)$/.test(message.attachments[0].mimeType ?? '')
-    ? message.attachments[0]
+  const singleImageAttachment = visibleAttachments.length === 1
+    && photosOnly
+    && visibleAttachments[0]?.scanStatus === 'CLEAN'
+    && isChatPhoto(visibleAttachments[0])
+    ? visibleAttachments[0]
     : null
   const likeCount = message.reactions.likeCount
+  // The existing forwarding flow stores attribution as the first text line.
+  const forwardMatch = /^Переслано від ([^\r\n]+):\r?\n/.exec(message.body)
+  const forwardPrefixLength = forwardMatch?.[0].length ?? 0
+  const displayedBody = message.body.slice(forwardPrefixLength)
+  const displayedMentions = forwardMatch
+    ? message.mentions.filter((mention) => mention.start >= forwardPrefixLength)
+      .map((mention) => ({ ...mention, start: mention.start - forwardPrefixLength, end: mention.end - forwardPrefixLength }))
+    : message.mentions
   const closeMenu = () => {
     if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
     setMenuPosition(null)
+  }
+  const openMenu = (x: number, y: number, photo: ChatAttachmentView | null = null) => {
+    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
+    window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `${idPrefix}:${message.id}` }))
+    setMenuPhoto(photo)
+    setMenuPosition(contextMenuPosition(x, y))
   }
   const delayMenuClose = () => {
     menuCloseTimer.current = window.setTimeout(closeMenu, 120)
@@ -105,11 +146,19 @@ export function MessageBubble({
     if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
   }
   useEffect(() => {
+    const element = messageRowRef.current
+    if (!element) return
+    const highlightReply = () => setReplyHighlightVersion(++replyHighlightCounterRef.current)
+    element.addEventListener('lanka:highlight-message', highlightReply)
+    return () => element.removeEventListener('lanka:highlight-message', highlightReply)
+  }, [message.deletedAt])
+  useEffect(() => {
     const closeOnAnotherMenu = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== `message:${message.id}`) closeMenu()
+      if ((event as CustomEvent<string>).detail !== `${idPrefix}:${message.id}`) closeMenu()
     }
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement).closest(`#message-${message.id}`)) closeMenu()
+      if (menuRef.current?.contains(event.target as Node)) return
+      if (!(event.target as HTMLElement).closest(`#${idPrefix}-${message.id}`)) closeMenu()
     }
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
     window.addEventListener('lanka:context-menu-open', closeOnAnotherMenu)
@@ -121,47 +170,70 @@ export function MessageBubble({
       window.removeEventListener('keydown', closeOnEscape)
     }
   })
-  const messageMeta = (
-    <footer className="message-bubble__meta">
-      {likeCount > 0 && (
-        <button
-          type="button"
-          className={`message-bubble__likes${message.reactions.likedByMe ? ' is-mine' : ''}`}
-          aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
-          aria-pressed={message.reactions.likedByMe}
-          onClick={() => onLike(message)}
-        >
-          <Heart size={12} />
-          {likeCount}
-        </button>
-      )}
-      {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
-      {message.editedAt && <span>змінено</span>}
+  const attachmentActions = (attachment: ChatAttachmentView) => (
+    <span className="message-attachment__actions" role="group" aria-label={attachment.fileName}>
+      <a href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download`)} download
+        title={`Завантажити ${attachment.fileName}`} aria-label="Завантажити">
+        <Download size={11} aria-hidden />
+      </a>
+      <SaveToDriveButton fileId={attachment.id} fileName={attachment.fileName} className="message-attachment__save" iconOnly />
+    </span>
+  )
+  const messageTimestamp = (
+    <span className="message-bubble__timestamp">
+      {editing && visibleAttachments.length === 1 && savableAttachments[0] && attachmentActions(savableAttachments[0])}
+      {!editing && message.editedAt && <span className="message-bubble__edited">змінено</span>}
       <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
       {own && (
-        <span
-          className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`}
-          aria-label={deliveryLabel}
-        >
+        <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} aria-label={deliveryLabel}>
           {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
         </span>
       )}
+    </span>
+  )
+  const messageMeta = (
+    <footer className="message-bubble__meta">
+      {visibleAttachments.length === 1 && savableAttachments[0] && attachmentActions(savableAttachments[0])}
+      {archivableAttachments && !editing && (
+        <a className="message-attachments__archive"
+          href={apiUrl(`/messages/${encodeURIComponent(message.id)}/attachments/archive`)} download>
+          <Download size={11} /> Завантажити ZIP
+        </a>
+      )}
+      {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
+      <span className="message-bubble__meta-actions">
+        {likeCount > 0 && (
+          <button
+            type="button"
+            className={`message-bubble__likes${message.reactions.likedByMe ? ' is-mine' : ''}`}
+            aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+            aria-pressed={message.reactions.likedByMe}
+            onClick={() => onLike(message)}
+          >
+            <Heart size={13} fill={message.reactions.likedByMe ? 'currentColor' : 'none'} />
+            <span>·</span>
+            <span>{likeCount}</span>
+          </button>
+        )}
+        {messageTimestamp}
+      </span>
     </footer>
   )
 
   if (message.deletedAt) {
     return (
       <article
-        id={`message-${message.id}`}
+        ref={messageRowRef}
+        id={`${idPrefix}-${message.id}`}
         className={`message-row ${own ? 'is-own' : 'is-other'}`}
       >
         {!own && (
           <UserProfileLink
             className="message-author-avatar"
             userId={message.author.id}
-            aria-label={`Відкрити профіль ${message.author.displayName}`}
+            aria-label={`Відкрити профіль ${personName(message.author.displayName)}`}
           >
-            <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
+            <Avatar size="sm" name={personName(message.author.displayName)} src={message.author.avatarAsset} />
           </UserProfileLink>
         )}
         <div className="message-bubble is-deleted">
@@ -174,7 +246,8 @@ export function MessageBubble({
 
   return (
     <article
-      id={`message-${message.id}`}
+      ref={messageRowRef}
+      id={`${idPrefix}-${message.id}`}
       className={[
         'message-row',
         own ? 'is-own' : 'is-other',
@@ -188,49 +261,124 @@ export function MessageBubble({
       onContextMenu={(event) => {
         if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
         event.preventDefault()
-        window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `message:${message.id}` }))
-        setMenuPosition(contextMenuPosition(event.clientX, event.clientY))
+        openMenu(event.clientX, event.clientY)
       }}
     >
-      {!own && (
+      {!own && !showAvatar && <span className="message-author-avatar is-placeholder" aria-hidden="true" />}
+      {!own && showAvatar && (
         <UserProfileLink
           className="message-author-avatar"
           userId={message.author.id}
-          aria-label={`Відкрити профіль ${message.author.displayName}`}
+          aria-label={`Відкрити профіль ${personName(message.author.displayName)}`}
         >
-          <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
+          <Avatar size="sm" name={personName(message.author.displayName)} src={message.author.avatarAsset} />
         </UserProfileLink>
       )}
       <div className="message-bubble">
-        {!own && (
+        <MessageBubbleOutline own={own} showAuthor={showAuthor} />
+        {replyHighlightVersion > 0 && <span
+          key={replyHighlightVersion}
+          className="message-bubble__reply-highlight"
+          aria-hidden="true"
+          onAnimationEnd={() => setReplyHighlightVersion(0)}
+        />}
+        {!own && showAuthor && (
           <UserProfileLink className="message-bubble__author" userId={message.author.id}>
-            {message.author.displayName}
+            {personName(message.author.displayName)}
           </UserProfileLink>
         )}
         {message.replyPreview && (
           <button
             type="button"
             className="message-bubble__reply-preview"
-            onClick={() => document.getElementById(`message-${message.replyPreview!.id}`)?.scrollIntoView({
-              block: 'center',
-              behavior: 'smooth',
-            })}
+            onClick={() => {
+              const target = document.getElementById(`${idPrefix}-${message.replyPreview!.id}`)
+              if (!target) return
+              target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+              target.dispatchEvent(new Event('lanka:highlight-message'))
+            }}
           >
-            <strong>{message.replyPreview.authorName}</strong>
+            <strong>{personName(message.replyPreview.authorName)}</strong>
             <span>{message.replyPreview.body}</span>
           </button>
         )}
 
-        {editing ? (
+        {forwardMatch && !editing && (
+          <div className="message-bubble__forwarded" aria-label={`Переслано від ${forwardMatch[1]}`}>
+            <Forward size={16} aria-hidden="true" />
+            <span>Переслано від <strong>{forwardMatch[1]}</strong></span>
+          </div>
+        )}
+
+        {!editing && message.body ? (
+          <div className="message-bubble__content">
+            <p><MentionText body={displayedBody} mentions={displayedMentions} /></p>
+          </div>
+        ) : null}
+
+        {visibleAttachments.length > 0 && (
+          <div className={`message-attachments${photoAlbum ? ' message-attachments--album' : ''}`}
+            data-photo-count={photoAlbum ? visibleAttachments.length : undefined}>
+            {visibleAttachments.map((attachment) => (
+              <div className="message-attachment" key={attachment.id}>
+                {attachment.scanStatus === 'CLEAN' && !isChatPhoto(attachment) && (
+                  <button
+                    type="button"
+                    className="message-attachment__open"
+                    onClick={() => setPreviewFile(attachment)}
+                    aria-label={`Переглянути ${attachment.fileName}`}
+                    title="Переглянути файл"
+                  />
+                )}
+                {editing && (
+                  <button type="button" className="message-attachment__remove"
+                    aria-label={`Прибрати вкладення ${attachment.fileName}`} disabled={busy}
+                    onClick={() => setRemovedAttachmentIds((current) => [...current, attachment.id])}>
+                    <X size={15} />
+                  </button>
+                )}
+                {attachment.scanStatus === 'CLEAN' && isChatPhoto(attachment) ? (
+                  <button
+                    type="button"
+                    className="message-attachment__preview"
+                    aria-label={`Переглянути ${attachment.fileName}`}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      openMenu(event.clientX, event.clientY, attachment)
+                    }}
+                    onClick={() => setPreviewFile(attachment)}
+                  >
+                    <FileThumbnail file={attachment} />
+                  </button>
+                ) : (
+                  <span className="message-attachment__icon"><FileFormatIcon mimeType={attachment.mimeType} /></span>
+                )}
+                <span className="message-attachment__copy">
+                  {singleImageAttachment?.id !== attachment.id && <CompactFileName fileName={attachment.fileName} />}
+                  {singleImageAttachment?.id !== attachment.id && <small>
+                    {formatBytes(attachment.bytes)}
+                    {attachment.scanStatus !== 'CLEAN' ? ` · ${attachment.scanStatus === 'SCANNING' || attachment.scanStatus === 'QUARANTINED' ? 'Перевіряється' : 'Недоступний'}` : ''}
+                  </small>}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {editing && (
           <form
             className="message-bubble__edit"
             onSubmit={(event) => {
               event.preventDefault()
               const value = trimMentionValue(editBody, editMentions)
-              if (!value.body) return
+              if (!value.body && visibleAttachments.length === 0) return
               setBusy(true)
-              void onEdit(message, value.body, value.mentions)
+              setEditError('')
+              void onEdit(message, value.body, value.mentions,
+                removedAttachmentIds.length ? visibleAttachments.map((attachment) => attachment.id) : undefined)
                 .then(() => setEditing(false))
+                .catch(() => setEditError('Не вдалося зберегти повідомлення. Спробуйте ще раз.'))
                 .finally(() => setBusy(false))
             }}
           >
@@ -249,87 +397,43 @@ export function MessageBubble({
               }}
             />
             <div className="message-bubble__edit-actions">
+              <Button disabled={busy || (!editBody.trim() && visibleAttachments.length === 0)}>Зберегти</Button>
               <Button
                 type="button"
                 variant="ghost"
                 disabled={busy}
                 onClick={() => {
                   setEditing(false)
+                  setRemovedAttachmentIds([])
+                  setEditError('')
                   setEditBody(message.body)
                   setEditMentions(editableMentions(message.body, message.mentions))
                 }}
               >
                 Скасувати
               </Button>
-              <Button disabled={busy || !editBody.trim()}>Зберегти</Button>
+              {messageTimestamp}
             </div>
-          </form>
-        ) : message.body ? (
-          <div className="message-bubble__content">
-            <p><MentionText body={message.body} mentions={message.mentions} /></p>
-          </div>
-        ) : null}
-
-        {message.attachments.length > 0 && (
-          <div className="message-attachments">
-            {message.attachments.map((attachment) => (
-              <div className="message-attachment" key={attachment.id}>
-                {attachment.scanStatus === 'CLEAN' && /^image\/(?:png|jpeg|gif|webp)$/.test(attachment.mimeType ?? '') ? (
-                  <button
-                    type="button"
-                    className="message-attachment__preview"
-                    aria-label={`Переглянути ${attachment.fileName}`}
-                    onClick={() => setPreviewFile(attachment)}
-                  >
-                    <img
-                      src={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)}
-                      alt={attachment.fileName}
-                      loading="lazy"
-                    />
-                  </button>
-                ) : (
-                  <span className="message-attachment__icon"><FileText size={18} /></span>
-                )}
-                <span className="message-attachment__copy">
-                  {singleImageAttachment?.id !== attachment.id && <CompactFileName fileName={attachment.fileName} />}
-                  <small>
-                    {formatBytes(attachment.bytes)}
-                    {attachment.scanStatus !== 'CLEAN' ? ` · ${attachment.scanStatus === 'SCANNING' || attachment.scanStatus === 'QUARANTINED' ? 'Перевіряється' : 'Недоступний'}` : ''}
-                  </small>
-                  {attachment.scanStatus === 'CLEAN' && (
-                    <span className="message-attachment__actions">
-                      <button
-                        type="button"
-                        onClick={() => setPreviewFile(attachment)}
-                      >
-                        <Eye size={13} /> Переглянути
-                      </button>
-                      <a href={apiUrl(`/files/${encodeURIComponent(attachment.id)}/download`)} download>
-                        <Download size={13} /> Завантажити
-                      </a>
-                    </span>
-                  )}
-                </span>
-              </div>
-            ))}
-            {archivableAttachments && (
-              <a
-                className="message-attachments__archive"
-                href={apiUrl(`/messages/${encodeURIComponent(message.id)}/attachments/archive`)}
-                download
-              >
-                <Download size={14} /> Завантажити {savableAttachments.length} файли ZIP
-              </a>
+            {!editBody.trim() && visibleAttachments.length === 0 && removedAttachmentIds.length > 0 && (
+              <p>Щоб прибрати останній файл, додайте текст або видаліть повідомлення.</p>
             )}
-          </div>
+            {editError && <p role="alert">{editError}</p>}
+          </form>
         )}
 
-        {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+        {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} openInNewTab
+          gallery={previewPhotos.length > 1 && previewPhotoIndex >= 0 ? {
+            index: previewPhotoIndex,
+            count: previewPhotos.length,
+            onPrevious: () => setPreviewFile(previewPhotos[Math.max(0, previewPhotoIndex - 1)]!),
+            onNext: () => setPreviewFile(previewPhotos[Math.min(previewPhotos.length - 1, previewPhotoIndex + 1)]!),
+          } : undefined} />}
 
-        {messageMeta}
+        {!editing && messageMeta}
 
-        {!editing && menuPosition && (
+        {!editing && menuPosition && createPortal(
           <div
+            ref={menuRef}
             className="message-action-menu"
             role="menu"
             aria-label="Дії з повідомленням"
@@ -337,6 +441,11 @@ export function MessageBubble({
             onMouseEnter={keepMenuOpen}
             onMouseLeave={delayMenuClose}
           >
+                {menuPhoto && (
+                  <button type="button" onClick={() => { closeMenu(); setPreviewFile(menuPhoto) }}>
+                    <Eye size={15} /> Переглянути фото
+                  </button>
+                )}
                 <button
                   type="button"
                   aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
@@ -366,6 +475,8 @@ export function MessageBubble({
                       closeMenu()
                       setEditBody(message.body)
                       setEditMentions(editableMentions(message.body, message.mentions))
+                      setRemovedAttachmentIds([])
+                      setEditError('')
                       setEditing(true)
                     }}
                   >
@@ -416,7 +527,8 @@ export function MessageBubble({
                     <Trash2 size={15} /> Видалити
                   </button>
                 )}
-          </div>
+          </div>,
+          document.body,
         )}
       </div>
     </article>

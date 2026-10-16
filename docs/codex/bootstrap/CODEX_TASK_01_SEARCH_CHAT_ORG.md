@@ -39,7 +39,7 @@ apps/api/AGENTS.md
 apps/web/src/layout/AppShell.tsx
 apps/web/src/pages/CommunicationPages.tsx
 apps/web/src/pages/ContentPages.tsx
-apps/web/src/pages/OrganizationPage.tsx
+apps/web/src/pages/OrganizationUniversePage.tsx
 apps/api/src/modules/communication/search.controller.ts
 apps/api/src/modules/communication/messages.controller.ts
 apps/api/src/modules/communication/messages.service.ts

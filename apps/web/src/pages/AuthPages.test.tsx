@@ -54,6 +54,19 @@ describe('auth completion navigation', () => {
     expect(screen.queryByRole('heading', { name: 'Увійти до Lanka' })).not.toBeInTheDocument()
   })
 
+  it('accepts an eight-character password on first login', async () => {
+    renderPage(<RestrictedAccessPage mode="first-login" />)
+    for (const label of ['Новий пароль', 'Повторіть пароль']) {
+      const field = screen.getByLabelText(label)
+      expect(field).toHaveAttribute('minlength', '8')
+      fireEvent.change(field, { target: { value: 'Lake-49!' } })
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти пароль' }))
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/auth/first-login/password', {
+      method: 'POST', body: JSON.stringify({ newPassword: 'Lake-49!', confirmation: 'Lake-49!' }),
+    }))
+  })
+
   it.each([
     ['challenge', '/auth/2fa/challenge'],
     ['setup', '/auth/2fa/confirm'],

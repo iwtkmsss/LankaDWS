@@ -1,6 +1,9 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
+import { personName } from '../shared/lib/personName'
+import { FormattedTextarea } from '../shared/text/FormattedTextarea'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  GroupListResult,
   PageResult,
   StructuredMentionInput,
   TaskActivityPage,
@@ -14,6 +17,8 @@ import {
   AlertTriangle,
   Archive,
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   Bell,
   Bookmark,
   CalendarDays,
@@ -22,8 +27,13 @@ import {
   ChevronRight,
   CirclePlus,
   Copy,
+  Download,
   Eye,
+  FileArchive,
+  FileImage,
+  FileSpreadsheet,
   FileText,
+  Flag,
   HardDrive,
   Heart,
   Link2,
@@ -49,12 +59,15 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
-import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
-import { AsyncTaskCombobox } from '../features/tasks/AsyncTaskCombobox'
+import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { DrivePicker } from '../features/drive/DrivePicker'
+import { useDiscardDraftAttachment } from '../shared/files/useDiscardDraftAttachment'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { TaskListColumnsControl, useTaskListColumnsPreference } from '../features/tasks/list/TaskListColumns'
-import { MentionText } from '../shared/mentions/MentionRenderer'
+import { TaskStatusPicker } from '../features/tasks/list/TaskStatusPicker'
+import { TaskStatusFilters } from '../features/tasks/list/TaskStatusFilters'
+import { readTaskStatusFilter, writeTaskStatusFilter } from '../features/tasks/list/task-status-filters'
+import { FormattedText } from '../shared/text/FormattedText'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
 import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
@@ -62,6 +75,9 @@ import { formatChatTime } from '../features/messages/lib/chatDates'
 import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import { FileFormatIcon } from '../shared/files/FileThumbnail'
+import { officeFileFormat } from '../shared/files/filePreview'
+import { SaveToDriveButton } from '../shared/files/SaveToDriveButton'
 import {
   Avatar,
   Button,
@@ -72,7 +88,6 @@ import {
   PageHeader,
   Skeleton,
   StatusBadge,
-  Tabs,
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
@@ -88,12 +103,6 @@ function contextMenuPosition(x: number, y: number): { left: number; top: number 
   }
 }
 
-interface Employee {
-  id: string
-  displayName: string
-  jobTitle: string
-  avatarAsset?: string | null
-}
 
 export default function TasksPage() {
   const { taskId } = useParams()
@@ -101,8 +110,6 @@ export default function TasksPage() {
 }
 
 function TasksListPage() {
-  const location = useLocation()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const pendingParams = useRef(new URLSearchParams(params))
   useEffect(() => {
@@ -119,38 +126,34 @@ function TasksListPage() {
     setParams(next)
   }
   const { user } = useAuth()
-  const [filtersOpen, setFiltersOpen] = useState(
-    Boolean(
-      params.get('search')
-      || params.get('status')
-      || params.get('priority')
-      || params.get('favorite')
-      || params.get('important')
-      || params.get('overdue')
-      || params.get('preset')
-      || params.get('dueFrom')
-      || params.get('dueTo')
-      || params.get('groupId')
-      || params.get('assigneeId')
-      || params.get('creatorId')
-      || params.get('coExecutorId')
-      || params.get('observerId'),
-    ),
-  )
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const legacyTab = params.get('tab')
-  const role = (params.get('role')
-    ?? (legacyTab === 'created' ? 'CREATOR' : legacyTab === 'all' ? 'ALL' : 'RESPONSIBLE')) as TaskViewRole
+  const personalRoles: TaskViewRole[] = ['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER']
+  const requestedRoles = (params.get('role')
+    ?? (legacyTab === 'created' ? 'CREATOR' : legacyTab === 'all' ? 'ALL' : 'RESPONSIBLE'))
+    .split(',').filter((value): value is TaskViewRole => personalRoles.includes(value as TaskViewRole)
+      || value === 'ALL')
+  const selectedRoles: TaskViewRole[] = !requestedRoles.length || requestedRoles.includes('ALL') ? ['ALL'] : requestedRoles
+  const selectedRoleKey = selectedRoles.join(',')
+  const role = selectedRoleKey === 'ALL' && user?.accountType !== 'ADMIN' ? personalRoles.join(',') : selectedRoleKey
+  const roleButtons = useRef(new Map<TaskViewRole, HTMLButtonElement>())
+  const pendingRoleFocus = useRef<TaskViewRole | null>(null)
+  useEffect(() => {
+    if (pendingRoleFocus.current) roleButtons.current.get(pendingRoleFocus.current)?.focus()
+    pendingRoleFocus.current = null
+  }, [selectedRoleKey])
+  const sort = params.get('sort') ?? ''
+  const direction = params.get('direction') === 'desc' ? 'desc' : 'asc'
   const page = Number(params.get('page') ?? 1)
   const search = params.get('search') ?? ''
-  const status = params.get('status') ?? ''
+  const statusFilter = readTaskStatusFilter(params)
+  const { status, preset } = statusFilter
   const priority = params.get('priority') ?? ''
   const favorite = params.get('favorite') ?? ''
   const important = params.get('important') ?? ''
   const overdue = params.get('overdue') === 'true'
-  const preset = params.get('preset') ?? (overdue ? 'OVERDUE' : '')
   const dueFrom = params.get('dueFrom') ?? ''
   const dueTo = params.get('dueTo') ?? ''
-  const groupId = params.get('groupId') ?? ''
   const assigneeId = params.get('assigneeId') ?? ''
   const creatorId = params.get('creatorId') ?? ''
   const coExecutorId = params.get('coExecutorId') ?? ''
@@ -166,19 +169,7 @@ function TasksListPage() {
     queryFn: () => api<Array<{ id: string; module: string; name: string; queryState: string }>>('/saved-views'),
     enabled: filtersOpen,
   })
-  const filterEmployees = useQuery({
-    queryKey: ['task-filter-employees'],
-    queryFn: () => api<{ items: Employee[] }>('/employees'),
-    enabled: filtersOpen,
-  })
-  const filterGroups = useQuery({
-    queryKey: ['task-filter-groups', params.get('company')],
-    queryFn: () => api<GroupListResult>(
-      `/groups?limit=50${params.get('company') ? `&company=${encodeURIComponent(params.get('company')!)}` : ''}`,
-    ),
-    enabled: filtersOpen,
-    retry: false,
-  })
+
   const saveView = useMutation({
     mutationFn: (name: string) =>
       api('/saved-views', {
@@ -204,18 +195,22 @@ function TasksListPage() {
     favorite,
     important,
     overdue: overdue ? 'true' : '',
-    preset,
+    preset: preset === 'ALL' ? '' : preset,
     dueFrom,
     dueTo,
-    groupId,
     assigneeId,
     creatorId,
     coExecutorId,
     observerId,
+    sort,
+    direction,
   })
   const query = useQuery({
     queryKey: [
       'tasks',
+      user?.id,
+      sort,
+      direction,
       role,
       page,
       params.get('company'),
@@ -228,27 +223,100 @@ function TasksListPage() {
       preset,
       dueFrom,
       dueTo,
-      groupId,
       assigneeId,
       creatorId,
       coExecutorId,
       observerId,
     ],
     queryFn: () => api<PageResult<TaskListItem>>(`/tasks?${queryString.toString()}`),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === user?.id ? previous : undefined,
   })
-  const isCreating = location.pathname === '/tasks/new'
-  const copyFrom = params.get('copyFrom') ?? ''
-  const copySource = useQuery({
-    queryKey: ['task-copy-source', copyFrom],
-    queryFn: () => api<TaskDetailView>(`/tasks/${encodeURIComponent(copyFrom)}`),
-    enabled: isCreating && Boolean(copyFrom),
+  const countFilters = new URLSearchParams(queryString)
+  countFilters.delete('sort')
+  countFilters.delete('direction')
+  countFilters.delete('role')
+  countFilters.set('page', '1')
+  const countRoles: TaskViewRole[] = [...personalRoles, 'ALL']
+  const roleCounts = useQueries({
+    queries: countRoles.map((countRole) => ({
+      queryKey: ['tasks', 'role-count', user?.id, countRole, countFilters.toString()],
+      queryFn: () => {
+        const filters = new URLSearchParams(countFilters)
+        filters.set('role', countRole === 'ALL' && user?.accountType !== 'ADMIN' ? personalRoles.join(',') : countRole)
+        return api<PageResult<TaskListItem>>(`/tasks?${filters}`)
+      },
+      enabled: Boolean(user) && countRole !== role,
+    })),
   })
+  const liveCountForRole = (countRole: TaskViewRole) => countRole === role
+    ? query.data?.total ?? roleCounts[countRoles.indexOf(countRole)]?.data?.total
+    : roleCounts[countRoles.indexOf(countRole)]?.data?.total
+  const [lastRoleCounts, setLastRoleCounts] = useState<{
+    userId: string | undefined
+    values: Partial<Record<TaskViewRole, number>>
+  }>({ userId: user?.id, values: {} })
+  useEffect(() => {
+    setLastRoleCounts((previous) => {
+      const values = previous.userId === user?.id ? { ...previous.values } : {}
+      countRoles.forEach((countRole) => {
+        const count = liveCountForRole(countRole)
+        if (count !== undefined) values[countRole] = count
+      })
+      return previous.userId === user?.id && countRoles.every((countRole) => previous.values[countRole] === values[countRole])
+        ? previous : { userId: user?.id, values }
+    })
+  }, [roleCounts, query.data?.total, role, user?.id])
+  const countForRole = (countRole: TaskViewRole) => liveCountForRole(countRole)
+    ?? (lastRoleCounts.userId === user?.id ? lastRoleCounts.values[countRole] : undefined)
   const taskListColumns = useTaskListColumnsPreference()
+  const columnWidths = { reporter: 200, responsibles: 220, dueDate: 140, status: 150, priority: 120, subtaskProgress: 110, activity: 120 }
+  const orderedColumns = (['reporter', 'responsibles', 'dueDate', 'status', 'priority', 'subtaskProgress', 'activity'] as const)
+    .filter((column) => taskListColumns.visible.includes(column))
+  const activeFilterCount = [search.trim(), status, priority, personalFilter,
+    preset !== 'ALL' ? preset : '', dueFrom, dueTo, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length
+  const listHasFilters = activeFilterCount > 0
+  const emptyState = listHasFilters ? {
+    title: status === 'DONE' ? 'Виконаних завдань за цими фільтрами немає' : 'За вибраними фільтрами завдань немає',
+    description: 'Оберіть «Усі статуси», «Виконані» або змініть додаткові фільтри.',
+  } : taskRoleEmptyState(selectedRoles.length === 1 ? selectedRoles[0]! : 'ALL')
+  const roleItems = [
+    { value: 'RESPONSIBLE', label: 'Виконавець' },
+    { value: 'CO_EXECUTOR', label: 'Співвиконавець' },
+    { value: 'OBSERVER', label: 'Спостерігач' },
+    { value: 'CREATOR', label: 'Постановник' },
+    { value: 'ALL', label: 'Усі доступні' },
+  ] as Array<{ value: TaskViewRole; label: string }>
+  const renderRole = (item: typeof roleItems[number]) => {
+    const count = countForRole(item.value)
+    const selected = selectedRoles.includes(item.value)
+    return <button key={item.value} type="button" aria-pressed={selected}
+      ref={(node) => { if (node) roleButtons.current.set(item.value, node); else roleButtons.current.delete(item.value) }}
+      onClick={() => {
+        pendingRoleFocus.current = item.value
+        updateParams((current) => {
+          const currentRoles = (current.get('role') ?? selectedRoleKey).split(',').filter((value) => value && value !== 'ALL')
+          const nextRoles = item.value === 'ALL' ? ['ALL'] : currentRoles.includes(item.value)
+            ? currentRoles.filter((value) => value !== item.value) : [...currentRoles, item.value]
+          current.set('role', nextRoles.length ? nextRoles.join(',') : 'ALL')
+          current.delete('tab')
+          current.delete('page')
+        })
+      }}>
+      {item.label}{count !== undefined && <span className="task-role-count">{count}</span>}
+    </button>
+  }
+  const renderSortHeader = (key: string, label: string) => <th aria-sort={sort === key ? direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
+    <button type="button" onClick={() => updateParams((current) => {
+      current.set('sort', key)
+      current.set('direction', sort === key && direction === 'asc' ? 'desc' : 'asc')
+      current.delete('page')
+    })}>{label}{sort === key && (direction === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" />)}</button>
+  </th>
   return (
     <div>
       <PageHeader
         title="Завдання"
-        description="Окремі робочі списки за вашою роллю в кожному завданні"
+        description="Завдання за вибраними ролями. Найближчі строки — першими."
         action={(
           <Link className="button button--primary" to="/tasks/new">
             <Plus size={17} />
@@ -258,96 +326,149 @@ function TasksListPage() {
       />
       <Card className="list-card task-list-card">
         <div className="list-toolbar">
-          <Tabs
-            value={role}
-            onChange={(value) =>
-              updateParams((current) => {
-                current.set('role', value)
-                current.delete('tab')
-                current.delete('page')
-              })
-            }
-            items={[
-              { value: 'RESPONSIBLE', label: 'Мої', count: role === 'RESPONSIBLE' ? query.data?.total : undefined },
-              { value: 'CO_EXECUTOR', label: 'Допомагаю', count: role === 'CO_EXECUTOR' ? query.data?.total : undefined },
-              { value: 'CREATOR', label: 'Доручив', count: role === 'CREATOR' ? query.data?.total : undefined },
-              { value: 'OBSERVER', label: 'Спостерігаю', count: role === 'OBSERVER' ? query.data?.total : undefined },
-              ...(user?.accountType === 'ADMIN' ? [{ value: 'ALL', label: 'Усі доступні', count: role === 'ALL' ? query.data?.total : undefined }] : []),
-            ]}
-          />
+          <div className="task-role-filters" role="group" aria-label="Мої ролі в завданнях">
+            <span className="task-filter-selection__label">Я:</span>
+            <div className="task-filter-selection" role="group" aria-label="Вибрані ролі">
+              {roleItems.filter((item) => selectedRoles.includes(item.value)).map(renderRole)}
+            </div>
+            {roleItems.filter((item) => !selectedRoles.includes(item.value)).map(renderRole)}
+          </div>
           <div className="toolbar-actions">
-            <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
+            <button className="task-search-toggle" aria-expanded={filtersOpen} aria-label={`Пошук і фільтри${activeFilterCount ? ` · ${activeFilterCount}` : ''}`}
+              onClick={() => setFiltersOpen((value) => !value)}>
               <Search size={17} />
               Пошук і фільтри
-              {[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length
-                ? ` · ${[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length}`
-                : ''}
+              <span className="task-filter-count">{activeFilterCount ? ` · ${activeFilterCount}` : ''}</span>
             </button>
             <TaskListColumnsControl controller={taskListColumns} />
           </div>
         </div>
+        <div className="task-preset-toolbar">
+          <TaskStatusFilters group={statusFilter.group} selected={statusFilter.selected}
+            onChange={(group, selected) => updateParams((current) => writeTaskStatusFilter(current, group, selected))} />
+        </div>
         {filtersOpen && (
-          <div className="filter-panel">
-            <div className="task-presets" aria-label="Швидкі режими завдань">
-              {[
-                ['ACTIVE', 'В роботі'],
-                ['DEFERRED', 'Відкладені'],
-                ['OVERDUE', 'Прострочені'],
-                ['DUE_SOON', 'Скоро строк'],
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  className={preset === value ? 'is-active' : ''}
-                  key={value}
-                  onClick={() => updateParams((current) => {
-                    current.delete('overdue')
-                    if (preset === value) current.delete('preset')
-                    else current.set('preset', value)
-                    current.delete('page')
-                  })}
+          <div className="filter-panel task-advanced-filters">
+            <div className="task-advanced-filters__toolbar">
+              <label className="task-advanced-filters__field">
+                <span className="task-filter-field-label"><Search size={14} aria-hidden="true" />Пошук завдання</span>
+                <span className="search-field">
+                  <Search size={16} />
+                  <input
+                    aria-label="Пошук завдань"
+                    autoFocus
+                    placeholder="Назва або номер завдання"
+                    value={search}
+                    onChange={(event) =>
+                      updateParams((current) => {
+                        if (event.target.value) current.set('search', event.target.value)
+                        else current.delete('search')
+                        current.delete('page')
+                      })
+                    }
+                  />
+                </span>
+              </label>
+              <label>
+                <span className="task-filter-field-label"><Bookmark size={14} aria-hidden="true" />Збережені фільтри</span>
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    const view = savedViews.data?.find((item) => item.id === event.target.value)
+                    if (view) replaceParams(new URLSearchParams(JSON.parse(view.queryState) as Record<string, string>))
+                  }}
                 >
-                  {label}
-                </button>
-              ))}
+                  <option value="">Оберіть</option>
+                  {savedViews.data
+                    ?.filter((item) => item.module === 'TASKS')
+                    .map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="task-advanced-filters__field">
+                <span className="task-filter-field-label"><CirclePlus size={14} aria-hidden="true" />Додати фільтр</span>
+                <input
+                  aria-label="Назва фільтра"
+                  value={viewName}
+                  maxLength={80}
+                  onChange={(event) => setViewName(event.target.value)}
+                  placeholder="Назва фільтра"
+                />
+              </label>
+              <div className="task-advanced-filters__actions">
+                <Button
+                  variant="secondary"
+                  disabled={!viewName.trim() || saveView.isPending}
+                  onClick={() => saveView.mutate(viewName.trim())}
+                >
+                  <Bookmark size={15} />
+                  Зберегти
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="task-filters-clear"
+                  disabled={!listHasFilters && selectedRoleKey === 'RESPONSIBLE'}
+                  onClick={() =>
+                    updateParams((current) => {
+                      current.delete('role')
+                      current.delete('tab')
+                      current.delete('search')
+                      current.delete('status')
+                      current.delete('priority')
+                      current.delete('favorite')
+                      current.delete('important')
+                      current.delete('overdue')
+                      current.delete('preset')
+                      current.delete('statusGroup')
+                      current.delete('dueFrom')
+                      current.delete('dueTo')
+                      current.delete('assigneeId')
+                      current.delete('creatorId')
+                      current.delete('coExecutorId')
+                      current.delete('observerId')
+                      current.delete('page')
+                    })
+                  }
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  Очисти фільтри
+                </Button>
+              </div>
             </div>
-            <label className="search-field">
-              <Search size={16} />
-              <input
-                aria-label="Пошук завдань"
-                autoFocus
-                placeholder="Назва або номер"
-                value={search}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    if (event.target.value) current.set('search', event.target.value)
-                    else current.delete('search')
-                    current.delete('page')
-                  })
-                }
+            <label>
+              <span className="task-filter-field-label"><CalendarDays size={14} aria-hidden="true" />Від дати</span>
+              <DateTimePicker
+                type="date"
+                value={dueFrom}
+                onChange={(event) => updateParams((current) => {
+                  if (event.target.value) current.set('dueFrom', event.target.value)
+                  else current.delete('dueFrom')
+                  current.delete('page')
+                })}
               />
             </label>
             <label>
-              Статус
-              <select
-                value={status}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    if (event.target.value) current.set('status', event.target.value)
-                    else current.delete('status')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="NEW">Нове</option>
-                <option value="IN_PROGRESS">В роботі</option>
-                <option value="IN_REVIEW">На перевірці</option>
-                <option value="DONE">Виконано</option>
-                <option value="ARCHIVED">Архівовані</option>
-              </select>
+              <span className="task-filter-field-label"><CalendarDays size={14} aria-hidden="true" />До дати</span>
+              <DateTimePicker
+                type="date"
+                value={dueTo}
+                onChange={(event) => updateParams((current) => {
+                  if (event.target.value) current.set('dueTo', event.target.value)
+                  else current.delete('dueTo')
+                  current.delete('page')
+                })}
+              />
             </label>
+            <div className="task-status-picker">
+              <span className="task-status-picker__label task-filter-field-label"><CheckCircle2 size={14} aria-hidden="true" />Статус</span>
+              <TaskStatusPicker selected={statusFilter.selected}
+                onChange={(selected) => updateParams((current) => writeTaskStatusFilter(current, 'ALL', selected))} />
+            </div>
             <label>
-              Пріоритет
+              <span className="task-filter-field-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
               <select
                 value={priority}
                 onChange={(event) =>
@@ -365,181 +486,43 @@ function TasksListPage() {
                 <option value="CRITICAL">Терміновий</option>
               </select>
             </label>
-            <label>
-              Особисте
-              <select
-                value={personalFilter}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    current.delete('favorite')
-                    current.delete('important')
-                    if (event.target.value === 'favorite') current.set('favorite', 'true')
-                    if (event.target.value === 'important') current.set('important', 'true')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="favorite">Обрані</option>
-                <option value="important">Важливі для мене</option>
-              </select>
-            </label>
-            <label>
-              Строк
-              <select
-                value={preset}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    current.delete('overdue')
-                    if (event.target.value) current.set('preset', event.target.value)
-                    else current.delete('preset')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="ACTIVE">В роботі</option>
-                <option value="DEFERRED">Відкладені</option>
-                <option value="OVERDUE">Прострочені</option>
-                <option value="DUE_SOON">Скоро строк</option>
-              </select>
-            </label>
-            <label>
-              Від дати
-              <input
-                type="date"
-                value={dueFrom}
-                onChange={(event) => updateParams((current) => {
-                  if (event.target.value) current.set('dueFrom', event.target.value)
-                  else current.delete('dueFrom')
-                  current.delete('page')
-                })}
-              />
-            </label>
-            <label>
-              До дати
-              <input
-                type="date"
-                value={dueTo}
-                onChange={(event) => updateParams((current) => {
-                  if (event.target.value) current.set('dueTo', event.target.value)
-                  else current.delete('dueTo')
-                  current.delete('page')
-                })}
-              />
-            </label>
-            <TaskFilterSelect
-              label="Група"
-              value={groupId}
-              options={(filterGroups.data?.items ?? []).map((group) => ({ id: group.id, label: group.name }))}
-              onChange={(value) => updateParams((current) => {
-                if (value) current.set('groupId', value)
-                else current.delete('groupId')
-                current.delete('page')
-              })}
-            />
-            <TaskFilterSelect
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Відповідальний"
               value={assigneeId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('assigneeId', value)
                 else current.delete('assigneeId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Постановник"
               value={creatorId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('creatorId', value)
                 else current.delete('creatorId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Співвиконавець"
               value={coExecutorId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('coExecutorId', value)
                 else current.delete('coExecutorId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Спостерігач"
               value={observerId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('observerId', value)
                 else current.delete('observerId')
                 current.delete('page')
               })}
-            />
-            <label>
-              Збережений вигляд
-              <select
-                defaultValue=""
-                onChange={(event) => {
-                  const view = savedViews.data?.find((item) => item.id === event.target.value)
-                  if (view) replaceParams(new URLSearchParams(JSON.parse(view.queryState) as Record<string, string>))
-                }}
-              >
-                <option value="">Оберіть</option>
-                {savedViews.data
-                  ?.filter((item) => item.module === 'TASKS')
-                  .map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <div className="save-view">
-              <input
-                aria-label="Назва вигляду"
-                value={viewName}
-                maxLength={80}
-                onChange={(event) => setViewName(event.target.value)}
-                placeholder="Назва вигляду"
-              />
-              <Button
-                variant="secondary"
-                disabled={!viewName.trim() || saveView.isPending}
-                onClick={() => saveView.mutate(viewName.trim())}
-              >
-                <Bookmark size={15} />
-                Зберегти
-              </Button>
-            </div>
-            {(search || status || priority || personalFilter || preset || dueFrom || dueTo || groupId || assigneeId || creatorId || coExecutorId || observerId) && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  updateParams((current) => {
-                    current.delete('search')
-                    current.delete('status')
-                    current.delete('priority')
-                    current.delete('favorite')
-                    current.delete('important')
-                    current.delete('overdue')
-                    current.delete('preset')
-                    current.delete('dueFrom')
-                    current.delete('dueTo')
-                    current.delete('groupId')
-                    current.delete('assigneeId')
-                    current.delete('creatorId')
-                    current.delete('coExecutorId')
-                    current.delete('observerId')
-                    current.delete('page')
-                  })
-                }
-              >
-                Очистити
-              </Button>
-            )}
+            /></div>
+
           </div>
         )}
         {query.isLoading ? (
@@ -548,18 +531,22 @@ function TasksListPage() {
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
           <div className="responsive-table task-list-table-wrap">
-            <table className="task-list-table">
+            <table className="task-list-table" aria-busy={query.isFetching}
+              style={{ minWidth: 320 + orderedColumns.reduce((sum, column) => sum + columnWidths[column], 0) }}>
+              <colgroup>
+                <col />
+                {orderedColumns.map((column) => <col key={column} style={{ width: columnWidths[column] }} />)}
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Завдання</th>
-                  {taskListColumns.visible.includes('responsibles') && <th>Виконавці</th>}
-                  {taskListColumns.visible.includes('dueDate') && <th>Строк</th>}
-                  {taskListColumns.visible.includes('status') && <th>Статус</th>}
-                  {taskListColumns.visible.includes('reporter') && <th>Постановник</th>}
-                  {taskListColumns.visible.includes('group') && <th>Група</th>}
-                  {taskListColumns.visible.includes('priority') && <th>Пріоритет</th>}
-                  {taskListColumns.visible.includes('subtaskProgress') && <th>Підзадачі</th>}
-                  {taskListColumns.visible.includes('activity') && <th>Активність</th>}
+                  {renderSortHeader('title', 'Завдання')}
+                  {taskListColumns.visible.includes('reporter') && renderSortHeader('reporter', 'Постановник')}
+                  {taskListColumns.visible.includes('responsibles') && renderSortHeader('responsibles', 'Виконавці')}
+                  {taskListColumns.visible.includes('dueDate') && renderSortHeader('dueDate', 'Строк')}
+                  {taskListColumns.visible.includes('status') && renderSortHeader('status', 'Статус')}
+                  {taskListColumns.visible.includes('priority') && renderSortHeader('priority', 'Пріоритет')}
+                  {taskListColumns.visible.includes('subtaskProgress') && renderSortHeader('subtaskProgress', 'Підзадачі')}
+                  {taskListColumns.visible.includes('activity') && renderSortHeader('activity', 'Активність')}
                 </tr>
               </thead>
               <tbody>
@@ -571,12 +558,13 @@ function TasksListPage() {
                         <span>
                           <strong>{task.title}</strong>
                           <small>
-                            {task.number}
+                            № {task.number}
                             {task.parentTaskId ? ' · Підзадача' : ''}
                           </small>
                         </span>
                       </Link>
                     </td>
+                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><UserProfileLink className="person-cell" userId={task.reporter.id}><Avatar size="sm" name={personName(task.reporter.displayName)} src={task.reporter.avatarAsset} />{personName(task.reporter.displayName)}</UserProfileLink></td>}
                     {taskListColumns.visible.includes('responsibles') && <td data-label="Виконавці">
                       {task.responsibles.length ? (
                         <span className="person-cell task-responsibles">
@@ -586,8 +574,8 @@ function TasksListPage() {
                               key={responsible.id}
                               userId={responsible.id}
                             >
-                              <Avatar size="sm" name={responsible.displayName} src={responsible.avatarAsset} />
-                              {responsible.displayName}
+                              <Avatar size="sm" name={personName(responsible.displayName)} src={responsible.avatarAsset} />
+                              {personName(responsible.displayName)}
                             </UserProfileLink>
                           ))}
                         </span>
@@ -605,10 +593,8 @@ function TasksListPage() {
                       ) : '—'}
                     </td>}
                     {taskListColumns.visible.includes('status') && <td data-label="Статус"><StatusBadge status={task.status} /></td>}
-                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><UserProfileLink className="person-cell" userId={task.reporter.id}><Avatar size="sm" name={task.reporter.displayName} src={task.reporter.avatarAsset} />{task.reporter.displayName}</UserProfileLink></td>}
-                    {taskListColumns.visible.includes('group') && <td data-label="Група">{task.group?.name ?? '—'}</td>}
                     {taskListColumns.visible.includes('priority') && <td data-label="Пріоритет">{taskPriorityLabel(task.priority)}</td>}
-                    {taskListColumns.visible.includes('subtaskProgress') && <td data-label="Підзадачі">{task.subtaskProgress.total ? `${task.subtaskProgress.done}/${task.subtaskProgress.total}` : '—'}</td>}
+                    {taskListColumns.visible.includes('subtaskProgress') && <td data-label="Підзадачі">{task.subtaskProgress.total ? 'Так' : 'Ні'}</td>}
                     {taskListColumns.visible.includes('activity') && <td data-label="Активність">
                       <span className="activity-count">
                           <MessageCircle size={14} />
@@ -624,8 +610,8 @@ function TasksListPage() {
           </div>
         ) : (
           <EmptyState
-            title={taskRoleEmptyState(role).title}
-            description={taskRoleEmptyState(role).description}
+            title={emptyState.title}
+            description={emptyState.description}
           />
         )}
         {query.data && query.data.total > query.data.pageSize && (
@@ -656,16 +642,6 @@ function TasksListPage() {
           </footer>
         )}
       </Card>
-      {isCreating && (!copyFrom || copySource.isSuccess) && (
-        <TaskCreateModal
-          groupId={params.get('groupId') ?? ''}
-          initialResponsibleId={params.get('assigneeId') ?? ''}
-          copySource={copySource.data}
-          copyFrom={copyFrom}
-          onClose={() => navigate(`/tasks${location.search}`, { replace: true })}
-          onDone={(id) => navigate(`/tasks/${id}`, { replace: true })}
-        />
-      )}
     </div>
   )
 }
@@ -682,6 +658,9 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [delegateOpen, setDelegateOpen] = useState(false)
+  const [delegateId, setDelegateId] = useState('')
+  const [delegateError, setDelegateError] = useState('')
   const [comment, setComment] = useState('')
   const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
   const [editingComment, setEditingComment] = useState<{
@@ -703,8 +682,12 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     authorName: string
     body: string
   } | null>(null)
-  const [commentAttachmentIds, setCommentAttachmentIds] = useState<string[]>([])
+  const [commentAttachments, setCommentAttachments] = useState<TaskAttachmentView[]>([])
+  const commentAttachmentIds = commentAttachments.map((attachment) => attachment.id)
   const [drivePickerOpen, setDrivePickerOpen] = useState(false)
+  const commentFileRemoval = useDiscardDraftAttachment((fileId) => {
+    setCommentAttachments((current) => current.filter((item) => item.id !== fileId))
+  })
   const closeCommentMenu = () => {
     if (commentMenuCloseTimerRef.current !== null) window.clearTimeout(commentMenuCloseTimerRef.current)
     setOpenCommentMenu(null)
@@ -740,6 +723,27 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const [statusError, setStatusError] = useState('')
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
   const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsMenuRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const closeMenu = () => {
+      if (actionsMenuRef.current) actionsMenuRef.current.open = false
+      setActionsOpen(false)
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !actionsMenuRef.current?.contains(event.target)) closeMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !actionsMenuRef.current?.open) return
+      closeMenu()
+      actionsMenuRef.current?.querySelector('summary')?.focus()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
   const [linksOpen, setLinksOpen] = useState(false)
   const [dirtyForms, setDirtyForms] = useState<string[]>([])
   const markDirty = (form: string) => {
@@ -769,11 +773,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     queryKey: ['task', id],
     queryFn: () => api<TaskDetailView>(`/tasks/${id}`),
   })
-  const employees = useQuery({
-    queryKey: ['employees', 'task-form'],
-    queryFn: () => api<{ items: Employee[] }>('/employees'),
-    enabled: editOpen || subtaskFormOpen,
-  })
+  useEntityNotificationRead('TASK', query.isSuccess ? id : undefined, query.dataUpdatedAt)
+
   const activity = useInfiniteQuery({
     queryKey: ['task-activity', id],
     queryFn: ({ pageParam }) =>
@@ -814,6 +815,18 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           : 'Не вдалося зберегти зміни. Перевірте поля й доступ відповідального.',
       )
     },
+  })
+  const delegateTask = useMutation({
+    mutationFn: () => api(`/tasks/${id}/delegate`, { method: 'POST', body: jsonBody({ userId: delegateId, expectedVersion: query.data?.version }) }),
+    onSuccess: () => {
+      setDelegateOpen(false)
+      setDelegateId('')
+      setDelegateError('')
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+    },
+    onError: () => setDelegateError('Не вдалося делегувати завдання. Оновіть сторінку та перевірте доступ.'),
   })
   const reassignResponsible = useMutation({
     mutationFn: (assigneeId: string) => {
@@ -928,20 +941,21 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     mutationFn: async (input: { file: File; selectForComment: boolean }) => {
       const body = new FormData()
       body.append('file', input.file)
-      return api<TaskAttachmentView>(`/tasks/${id}/attachments`, {
+      return api<TaskAttachmentView>(`/tasks/${id}/attachments${input.selectForComment ? '?draft=true' : ''}`, {
         method: 'POST',
         body,
       })
     },
     onSuccess: (attachment, input) => {
-      setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
       if (input.selectForComment) {
-        setCommentAttachmentIds((current) => (
-          current.includes(attachment.id)
+        setCommentAttachments((current) => (
+          current.some((item) => item.id === attachment.id)
             ? current
-            : [...current, attachment.id].slice(0, 5)
+            : [...current, attachment].slice(0, 5)
         ))
+        return
       }
+      setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
@@ -955,7 +969,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       }),
     onSuccess: (_result, fileId) => {
       setContentMessage('Файл вилучено із завдання та коментарів.')
-      setCommentAttachmentIds((current) => current.filter((idValue) => idValue !== fileId))
+      setCommentAttachments((current) => current.filter((attachment) => attachment.id !== fileId))
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
@@ -984,7 +998,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         setCommentMentions([])
         commentAttemptRef.current = { signature: '', key: '' }
         setReplyTo(null)
-        setCommentAttachmentIds([])
+        setCommentAttachments([])
         window.requestAnimationFrame(() => commentTextareaRef.current?.focus())
       }
       setContentMessage('')
@@ -1075,17 +1089,14 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     },
   })
   const attachDriveFile = useMutation({
-    mutationFn: (fileId: string) => api<TaskAttachmentView>(`/tasks/${id}/attachments/from-drive`, {
+    mutationFn: (fileId: string) => api<TaskAttachmentView>(`/tasks/${id}/attachments/from-drive?draft=true`, {
       method: 'POST',
       body: jsonBody({ fileId }),
     }),
     onSuccess: (attachment) => {
-      setCommentAttachmentIds((current) => (
-        current.includes(attachment.id) ? current : [...current, attachment.id].slice(0, 5)
+      setCommentAttachments((current) => (
+        current.some((item) => item.id === attachment.id) ? current : [...current, attachment].slice(0, 5)
       ))
-      setContentMessage('Файл із Диска додано до повідомлення.')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
     },
     onError: () => setContentMessage('Не вдалося додати файл із Диска.'),
   })
@@ -1260,7 +1271,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <div>
               <span className="task-detail-number">Завдання №{query.data.number}</span>
               <h2>{query.data.title}</h2>
-              <p>{query.data.description || 'Опис не додано.'}</p>
+              <FormattedText body={query.data.description || 'Опис не додано.'} />
             </div>
             <div className="task-detail-heading-actions">
               {query.data.availableStatusActions.length > 0 && (
@@ -1268,13 +1279,14 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   {query.data.availableStatusActions.includes('START') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'START', expectedVersion: query.data.version })}><Play size={16} />Почати роботу</Button>}
                   {query.data.availableStatusActions.includes('COMPLETE') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'COMPLETE', expectedVersion: query.data.version })}><CheckCircle2 size={16} />Завершити</Button>}
                   {query.data.availableStatusActions.includes('APPROVE') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'APPROVE', expectedVersion: query.data.version })}><CheckCircle2 size={16} />Прийняти</Button>}
-                  {query.data.availableStatusActions.includes('RETURN_TO_WORK') && <Button type="button" variant="secondary" disabled={status.isPending} onClick={() => {
+                  {query.data.status !== 'DONE' && query.data.availableStatusActions.includes('RETURN_TO_WORK') && <Button type="button" variant="secondary" disabled={status.isPending} onClick={() => {
                     const note = window.prompt('Коментар для відповідального (необов’язково):')
                     if (note !== null) status.mutate({ action: 'RETURN_TO_WORK', expectedVersion: query.data.version, note })
                   }}><RotateCcw size={16} />Повернути в роботу</Button>}
                 </div>
               )}
               <details
+                ref={actionsMenuRef}
                 className="task-detail-actions-menu"
                 open={actionsOpen}
                 onToggle={(event) => setActionsOpen(event.currentTarget.open)}
@@ -1284,6 +1296,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 </summary>
                 <div role="menu">
                 <button type="button" role="menuitem" onClick={() => navigate(`/tasks/new?copyFrom=${encodeURIComponent(id)}`)}><Copy size={16} />Копіювати задачу</button>
+                {query.data.status === 'DONE' && query.data.availableStatusActions.includes('RETURN_TO_WORK') && <button type="button" role="menuitem" disabled={status.isPending} onClick={() => { setActionsOpen(false); status.mutate({ action: 'RETURN_TO_WORK', expectedVersion: query.data.version }) }}><RotateCcw size={16} />Відновити завдання</button>}
+                {(query.data.canReassign || query.data.assignee.id === user?.id) && <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setDelegateError(''); setDelegateOpen(true) }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 13h7m-3-3 3 3-3 3" /><circle cx="16" cy="6" r="3" /><path d="M11 21v-2a5 5 0 0 1 10 0v2" /></svg>Делегувати</button>}
                 {canManageTask && query.data.status !== 'IN_REVIEW' && (
                   <button
                     type="button"
@@ -1334,6 +1348,12 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               </details>
             </div>
           </div>
+          {delegateOpen && <form className="task-edit-form" onSubmit={(event) => { event.preventDefault(); delegateTask.mutate() }}>
+            <UserSearchCombobox label="Новий відповідальний" value={delegateId} onChange={setDelegateId} excludeIds={[query.data.assignee.id]} />
+            <p className="muted">Попередній відповідальний залишиться спостерігачем завдання.</p>
+            {delegateError && <p role="alert">{delegateError}</p>}
+            <div className="form-actions"><Button type="button" variant="ghost" onClick={() => setDelegateOpen(false)}>Скасувати</Button><Button disabled={!delegateId || delegateTask.isPending}>Делегувати</Button></div>
+          </form>}
           {editOpen && (
             <form
               className="task-edit-form"
@@ -1372,33 +1392,21 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   autoFocus
                 />
               </label>
-              <label className="span-2">
-                Опис
-                <textarea
+              <div className="span-2"><FormattedTextarea label="Опис"
                   name="description"
                   defaultValue={query.data.description}
                   rows={4}
                   maxLength={20000}
                   placeholder="Контекст і критерій готовності"
                 />
-              </label>
+              </div>
               <input type="hidden" name="assigneeId" value={query.data.assignee.id} />
               {query.data.canTransferCreator && (
-                <label>
-                  Постановник
-                  <select name="creatorId" defaultValue={query.data.creator.id}>
-                    <option value={query.data.creator.id}>
-                      {query.data.creator.displayName}
-                    </option>
-                    {employees.data?.items
-                      .filter((employee) => employee.id !== query.data.creator.id)
-                      .map((employee) => (
-                        <option value={employee.id} key={employee.id}>
-                          {employee.displayName}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                <UserSearchCombobox
+                  label="Постановник"
+                  name="creatorId"
+                  defaultUser={query.data.creator}
+                />
               )}
               <div className="task-edit-form__workflow span-2">
                 <label>
@@ -1412,7 +1420,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 </label>
                 <label>
                   Строк
-                  <input
+                  <DateTimePicker
                     name="deadline"
                     type="datetime-local"
                     defaultValue={toLocalDateTimeInput(query.data.deadline)}
@@ -1440,7 +1448,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 >
                   Скасувати
                 </Button>
-                <Button disabled={updateTask.isPending || employees.isLoading}>
+                <Button disabled={updateTask.isPending}>
                   Зберегти зміни
                 </Button>
               </div>
@@ -1515,11 +1523,13 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     <span>Файли</span>
                     {query.data.attachments.map((attachment) => (
                       <div className="task-attachment-row" key={attachment.id}>
-                        <TaskAttachment attachment={attachment} />
+                        <TaskAttachment attachment={attachment} actions />
                         {attachment.canRemove && (
                           <button
                             type="button"
                             aria-label={`Вилучити ${attachment.fileName}`}
+                            title="Вилучити"
+                            className="task-attachment-action task-attachment-action--remove"
                             disabled={removeAttachment.isPending}
                             onClick={() => removeAttachment.mutate(attachment.id)}
                           >
@@ -1528,6 +1538,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                         )}
                       </div>
                     ))}
+                    <TaskFilesArchive attachments={query.data.attachments} />
                   </div>
                 )}
                 {query.data.canAttachFiles && (
@@ -1548,9 +1559,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                       }}
                     />
                   </label>
-                )}
-                {!query.data.sourceLinks.length && !query.data.attachments.length && (
-                  <p className="muted">Додайте файл або створіть завдання з повідомлення чи процесу.</p>
                 )}
                 {contentMessage && (
                   <p className="task-content-message" aria-live="polite">{contentMessage}</p>
@@ -1614,12 +1622,12 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   if (entry.kind === 'activity') {
                     return (
                       <div className="task-system-event" key={entry.id}>
+                        <time dateTime={entry.item.createdAt}>{formatDateTime(entry.item.createdAt)}</time>
                         <span>
                           {entry.item.actor?.displayName
-                            ? `${entry.item.actor.displayName} · ${entry.item.label}`
+                            ? `${personName(entry.item.actor.displayName)} · ${entry.item.label}`
                             : entry.item.label}
                         </span>
-                        <time dateTime={entry.item.createdAt}>{formatDateTime(entry.item.createdAt)}</time>
                       </div>
                     )
                   }
@@ -1636,28 +1644,29 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                         setOpenCommentMenu({ id: item.id, ...contextMenuPosition(event.clientX, event.clientY) })
                       }}
                     >
-                      {!ownComment && (
-                        <UserProfileLink
-                          className="task-comment__author-avatar"
-                          userId={item.author.id}
-                          aria-label={`Відкрити профіль ${item.author.displayName}`}
-                        >
-                          <Avatar
-                            size="sm"
-                            name={item.author.displayName}
-                            src={item.author.avatarAsset}
-                          />
-                        </UserProfileLink>
-                      )}
+                      <UserProfileLink
+                        className="task-comment__author-avatar"
+                        userId={item.author.id}
+                        aria-label={`Відкрити профіль ${personName(item.author.displayName)}`}
+                      >
+                        <Avatar
+                          size="sm"
+                          name={personName(item.author.displayName)}
+                          src={item.author.avatarAsset}
+                        />
+                      </UserProfileLink>
                       <div className="task-comment__bubble">
-                        {!ownComment && (
+                        <div className="task-comment__heading">
                           <UserProfileLink className="task-comment__author" userId={item.author.id}>
-                            {item.author.displayName}
+                            {personName(item.author.displayName)}
                           </UserProfileLink>
-                        )}
+                          <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
+                            {new Date(item.createdAt).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' })} {formatChatTime(item.createdAt)}
+                          </time>
+                        </div>
                         {item.replyPreview && (
                           <blockquote>
-                            <strong>{item.replyPreview.authorName}</strong>
+                            <strong>{personName(item.replyPreview.authorName)}</strong>
                             <span>{item.replyPreview.body}</span>
                           </blockquote>
                         )}
@@ -1708,13 +1717,14 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                             </div>
                           </form>
                         ) : (
-                          <p><MentionText body={item.body} mentions={item.mentions} /></p>
+                          <FormattedText body={item.body} mentions={item.mentions} hideMentionPrefix />
                         )}
                         {editingComment?.id !== item.id && item.attachments.length > 0 && (
                           <div className="task-comment-attachments">
                             {item.attachments.map((attachment) => (
                               <TaskAttachment key={attachment.id} attachment={attachment} compact />
                             ))}
+                            <TaskFilesArchive attachments={item.attachments} />
                           </div>
                         )}
                         {editingComment?.id !== item.id && (
@@ -1731,9 +1741,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                               </button>
                             )}
                             {item.editedAt && <span>змінено</span>}
-                            <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
-                              {formatChatTime(item.createdAt)}
-                            </time>
                           </footer>
                         )}
                         {editingComment?.id !== item.id && (
@@ -1762,7 +1769,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                                     closeCommentMenu()
                                     setReplyTo({
                                       id: item.id,
-                                      authorName: item.author.displayName,
+                                      authorName: personName(item.author.displayName),
                                       body: item.body,
                                     })
                                   }}
@@ -1833,8 +1840,9 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               className="task-comment-form"
               onSubmit={(event) => {
                 event.preventDefault()
+                if (post.isPending || commentFileRemoval.isPending()) return
                 const trimmed = trimMentionValue(comment, commentMentions)
-                if (trimmed.body) {
+                if (trimmed.body || commentAttachmentIds.length > 0) {
                   const signature = JSON.stringify({
                     taskId: id,
                     body: trimmed.body,
@@ -1863,7 +1871,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 reply={replyTo && (
                   <div className="message-composer__reply">
                     <span>
-                      <strong>Відповідь: {replyTo.authorName}</strong>
+                      <strong>Відповідь: {personName(replyTo.authorName)}</strong>
                       <small>{replyTo.body.slice(0, 120)}</small>
                     </span>
                     <button type="button" aria-label="Скасувати відповідь" onClick={() => setReplyTo(null)}>
@@ -1873,19 +1881,17 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 )}
                 attachments={commentAttachmentIds.length > 0 && (
                   <div className="message-composer__attachments" aria-label="Файли коментаря">
-                    {commentAttachmentIds.map((fileId) => {
-                      const attachment = query.data.attachments.find((item) => item.id === fileId)
-                      const fileName = attachment?.fileName ?? 'Новий файл'
+                    {commentAttachments.map((attachment) => {
+                      const fileId = attachment.id
+                      const fileName = attachment.fileName
                       return (
                         <span key={fileId}>
-                          <FileText size={15} />
-                          {fileName}
+                          <TaskAttachment attachment={attachment} composer />
                           <button
                             type="button"
                             aria-label={`Прибрати ${fileName} з коментаря`}
-                            onClick={() => setCommentAttachmentIds((current) => (
-                              current.filter((idValue) => idValue !== fileId)
-                            ))}
+                            disabled={post.isPending || commentFileRemoval.pending}
+                            onClick={() => void commentFileRemoval.discard(fileId)}
                           >
                             <X size={14} />
                           </button>
@@ -1949,7 +1955,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     onKeyDown={(event) => {
                       if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
                       event.preventDefault()
-                      event.currentTarget.form?.requestSubmit()
+                      event.currentTarget.closest('form')?.requestSubmit()
                     }}
                   />
                 )}
@@ -1959,16 +1965,18 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     className="message-composer__send"
                     aria-label="Надіслати"
                     disabled={(
-                      !comment.trim()
+                      (!comment.trim() && commentAttachmentIds.length === 0)
                       || post.isPending
                       || uploadAttachment.isPending
                       || attachDriveFile.isPending
+                      || commentFileRemoval.pending
                     )}
                   >
                     <Send size={20} />
                   </button>
                 )}
               />
+              {commentFileRemoval.error && <div className="form-error" role="alert">{commentFileRemoval.error}</div>}
               {drivePickerOpen && (
                 <DrivePicker
                   onPick={(attachment) => attachDriveFile.mutate(attachment.id)}
@@ -2054,7 +2062,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 >
                   <label>
                     Дата й час
-                    <input name="remindAt" type="datetime-local" required />
+                    <DateTimePicker name="remindAt" type="datetime-local" required />
                   </label>
                   <Button variant="secondary" disabled={createReminder.isPending}>
                     Запланувати
@@ -2091,11 +2099,11 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 </label>
                 <label>
                   Перше повторення
-                  <input name="firstOccurrenceAt" type="datetime-local" required />
+                  <DateTimePicker name="firstOccurrenceAt" type="datetime-local" required />
                 </label>
                 <label>
                   До дати
-                  <input name="until" type="datetime-local" />
+                  <DateTimePicker name="until" type="datetime-local" />
                 </label>
                 <Button variant="secondary" disabled={recurrence.isPending}>
                   Запланувати
@@ -2212,7 +2220,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   to={`/tasks/${query.data.parent.id}${location.search}`}
                 >
                   <ArrowLeft size={15} />
-                  До батьківського завдання · {query.data.parent.number}
+                  До батьківського завдання · № {query.data.parent.number}
                 </Link>
               )}
               {query.data.subtaskProgress.total > 0 && (
@@ -2228,7 +2236,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     <Link key={subtask.id} to={`/tasks/${subtask.id}${location.search}`}>
                       <span>
                         <strong>{subtask.title}</strong>
-                        <small>{subtask.number}</small>
+                        <small>№ {subtask.number}</small>
                       </span>
                       <StatusBadge status={subtask.status} />
                       <ChevronRight size={16} aria-hidden="true" />
@@ -2257,7 +2265,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 >
                   <div className="task-subtask-form__intro">
                     <strong>Нова підзадача</strong>
-                    <small>Робоча група та організаційний контекст успадковуються автоматично.</small>
+                    <small>Організаційний контекст успадковується автоматично.</small>
                   </div>
                   <label className="span-2">
                     <span>
@@ -2271,27 +2279,11 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                       placeholder="Який окремий результат потрібен?"
                     />
                   </label>
-                  <label>
-                    <span>
-                      Виконавець <span aria-hidden="true">*</span>
-                    </span>
-                    <select
-                      name="assigneeId"
-                      required
-                      defaultValue={query.data.assignee.id}
-                    >
-                      <option value={query.data.assignee.id}>
-                        {query.data.assignee.displayName}
-                      </option>
-                      {employees.data?.items
-                        .filter((employee) => employee.id !== query.data.assignee.id)
-                        .map((employee) => (
-                          <option value={employee.id} key={employee.id}>
-                            {employee.displayName}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
+                  <UserSearchCombobox
+                    label="Виконавець"
+                    name="assigneeId"
+                    defaultUser={query.data.assignee}
+                  />
                   <label>
                     Пріоритет
                     <select name="priority" defaultValue={query.data.priority}>
@@ -2303,17 +2295,15 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   </label>
                   <label className="span-2">
                     Строк
-                    <input name="deadline" type="datetime-local" />
+                    <DateTimePicker name="deadline" type="datetime-local" />
                   </label>
-                  <label className="span-2">
-                    Опис
-                    <textarea
+                  <div className="span-2"><FormattedTextarea label="Опис"
                       name="description"
                       rows={3}
                       maxLength={20000}
                       placeholder="Контекст і критерій готовності"
                     />
-                  </label>
+                  </div>
                   {subtaskError && (
                     <div className="form-error span-2" role="alert">{subtaskError}</div>
                   )}
@@ -2328,7 +2318,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     >
                       Скасувати
                     </Button>
-                    <Button disabled={createSubtask.isPending || employees.isLoading}>
+                    <Button disabled={createSubtask.isPending}>
                       <CirclePlus size={16} />
                       Створити підзадачу
                     </Button>
@@ -2346,7 +2336,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <TaskSingleRoleCard
               label="Відповідальний"
               person={query.data.assignee}
-              employees={employees.data?.items ?? []}
               canChange={editOpen && query.data.canReassign && query.data.status !== 'IN_REVIEW'}
               onChange={(userId) => reassignResponsible.mutate(userId)}
             />
@@ -2356,7 +2345,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               participants={query.data.coExecutors}
               role="CO_EXECUTOR"
               canEdit={editOpen && canManageTask && query.data.canManageParticipants}
-              employees={employees.data?.items ?? []}
               excludedUserIds={[
                 query.data.assignee.id,
                 query.data.reporter.id,
@@ -2381,7 +2369,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               participants={query.data.observers}
               role="OBSERVER"
               canEdit={editOpen && canManageTask && query.data.canManageParticipants}
-              employees={employees.data?.items ?? []}
               excludedUserIds={[
                 query.data.assignee.id,
                 query.data.reporter.id,
@@ -2432,12 +2419,33 @@ function TaskDetailLayout({
   )
 }
 
+function TaskAttachmentGlyph({ attachment }: { attachment: TaskAttachmentView }) {
+  const extension = attachment.fileName.split('.').pop()?.toLowerCase() ?? ''
+  const mime = attachment.mimeType.toLowerCase()
+  if (officeFileFormat(mime)) return <FileFormatIcon mimeType={mime} size={18} className="task-attachment-glyph" />
+  const kind = mime === 'application/pdf' || extension === 'pdf' ? 'pdf'
+    : /^(docx?|odt|rtf)$/.test(extension) || /word|opendocument.text|rtf/.test(mime) ? 'word'
+    : /^(xlsx?|xlsm|ods|csv)$/.test(extension) || /spreadsheet|excel|csv/.test(mime) ? 'excel'
+    : mime.startsWith('image/') || /^(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/.test(extension) ? 'image'
+    : /^(zip|rar|7z|tar|gz|bz2|xz)$/.test(extension) || /zip|compressed|archive|tar/.test(mime) ? 'archive'
+    : 'other'
+  const Icon = kind === 'excel' ? FileSpreadsheet : kind === 'image' ? FileImage : kind === 'archive' ? FileArchive : FileText
+  return <span className={`task-attachment-glyph task-attachment-glyph--${kind}`} aria-hidden="true">
+    <Icon size={17} />
+    {['pdf', 'word', 'excel'].includes(kind) && <span>{kind === 'pdf' ? 'PDF' : kind === 'word' ? 'W' : 'X'}</span>}
+  </span>
+}
+
 function TaskAttachment({
   attachment,
   compact = false,
+  composer = false,
+  actions = false,
 }: {
   attachment: TaskAttachmentView
   compact?: boolean
+  composer?: boolean
+  actions?: boolean
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
   const status = useQuery({
@@ -2454,11 +2462,23 @@ function TaskAttachment({
     },
   })
   const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
-  const content = (
+  const extensionIndex = attachment.fileName.lastIndexOf('.')
+  const className = composer
+    ? 'task-comment-composer__attachment-name'
+    : compact ? 'task-attachment is-compact' : 'task-attachment'
+  const content = composer ? (
     <>
-      <FileText size={compact ? 15 : 17} />
+      <FileFormatIcon mimeType={attachment.mimeType} size={15} />
+      <span>{attachment.fileName}</span>
+    </>
+  ) : (
+    <>
+      <TaskAttachmentGlyph attachment={attachment} />
       <span>
-        <strong>{attachment.fileName}</strong>
+        <strong title={attachment.fileName}>
+          <span className="task-attachment__stem">{extensionIndex > 0 ? attachment.fileName.slice(0, extensionIndex) : attachment.fileName}</span>
+          {extensionIndex > 0 && <span>{attachment.fileName.slice(extensionIndex)}</span>}
+        </strong>
         <small>
           {scanStatus === 'CLEAN'
             ? formatBytes(attachment.bytes)
@@ -2473,18 +2493,26 @@ function TaskAttachment({
       <>
         <button
           type="button"
-          className={compact ? 'task-attachment is-compact' : 'task-attachment'}
+          className={className}
           aria-label={`Переглянути ${attachment.fileName}`}
           onClick={() => setPreviewOpen(true)}
         >
           {content}
         </button>
+        {actions && <>
+          <a className="task-attachment-action" href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}
+            download={attachment.fileName} title="Завантажити" aria-label={`Завантажити ${attachment.fileName}`}>
+            <Download size={15} aria-hidden="true" />
+          </a>
+          <SaveToDriveButton fileId={attachment.id} fileName={attachment.fileName}
+            className="task-attachment-action" iconOnly />
+        </>}
         {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
       </>
     )
   }
   return (
-    <span className={compact ? 'task-attachment is-compact' : 'task-attachment'}>
+    <span className={className}>
       {content}
     </span>
   )
@@ -2493,13 +2521,11 @@ function TaskAttachment({
 function TaskSingleRoleCard({
   label,
   person,
-  employees = [],
   canChange = false,
   onChange,
 }: {
   label: 'Постановник' | 'Відповідальний'
   person: TaskDetailView['reporter']
-  employees?: Employee[]
   canChange?: boolean
   onChange?: (userId: string) => void
 }) {
@@ -2511,22 +2537,16 @@ function TaskSingleRoleCard({
         <h3 id={headingId}>{label}</h3>
       </header>
       <UserProfileLink className="task-role-card__person" userId={person.id}>
-        <Avatar size="sm" name={person.displayName} src={person.avatarAsset} />
-        <strong>{person.displayName}</strong>
+        <Avatar size="sm" name={personName(person.displayName)} src={person.avatarAsset} />
+        <strong>{personName(person.displayName)}</strong>
       </UserProfileLink>
       {canChange && onChange && (
-          <AsyncTaskCombobox
+          <UserSearchCombobox
             label="Змінити відповідального"
             value=""
             clearOnSelect
             placeholder="Почніть вводити ім’я"
-            loadOptions={async (search) => {
-              const query = search.trim().toLocaleLowerCase('uk')
-              return employees
-                .filter((employee) => employee.id !== person.id)
-                .filter((employee) => `${employee.displayName} ${employee.jobTitle}`.toLocaleLowerCase('uk').startsWith(query))
-                .map((employee) => ({ id: employee.id, label: employee.displayName, detail: employee.jobTitle }))
-            }}
+            excludeIds={[person.id]}
             onChange={(userId) => { if (userId) onChange(userId) }}
           />
       )}
@@ -2540,7 +2560,6 @@ function TaskParticipantGroup({
   participants,
   role,
   canEdit,
-  employees,
   excludedUserIds,
   addPending,
   removePending,
@@ -2552,7 +2571,6 @@ function TaskParticipantGroup({
   participants: TaskDetailView['coExecutors']
   role: TaskParticipantRole
   canEdit: boolean
-  employees: Employee[]
   excludedUserIds: string[]
   addPending: boolean
   removePending: boolean
@@ -2560,7 +2578,6 @@ function TaskParticipantGroup({
   onRemove: (userId: string) => void
 }) {
   const headingId = `task-role-${role.toLowerCase()}`
-  const availableEmployees = employees.filter((employee) => !excludedUserIds.includes(employee.id))
   const [selectedUserId, setSelectedUserId] = useState('')
   return (
     <section className="task-role-card task-role-group" aria-labelledby={headingId}>
@@ -2576,16 +2593,16 @@ function TaskParticipantGroup({
               <UserProfileLink className="task-person-chip__profile" userId={participant.user.id}>
                 <Avatar
                   size="sm"
-                  name={participant.user.displayName}
+                  name={personName(participant.user.displayName)}
                   src={participant.user.avatarAsset}
                 />
-                <strong>{participant.user.displayName}</strong>
+                <strong>{personName(participant.user.displayName)}</strong>
               </UserProfileLink>
               {canEdit && (
                 <button
                   type="button"
                   className="task-participant-remove"
-                  aria-label={`Вилучити ${participant.user.displayName} з ролі «${label}»`}
+                  aria-label={`Вилучити ${personName(participant.user.displayName)} з ролі «${label}»`}
                   disabled={removePending}
                   onClick={() => onRemove(participant.user.id)}
                 >
@@ -2608,23 +2625,18 @@ function TaskParticipantGroup({
             setSelectedUserId('')
           }}
         >
-          <AsyncTaskCombobox
+          <UserSearchCombobox
             label={`Додати: ${label.toLowerCase()}`}
             value={selectedUserId}
             placeholder="Почніть вводити ім’я"
-            loadOptions={async (search) => {
-              const query = search.trim().toLocaleLowerCase('uk')
-              return availableEmployees
-                .filter((employee) => `${employee.displayName} ${employee.jobTitle}`.toLocaleLowerCase('uk').startsWith(query))
-                .map((employee) => ({ id: employee.id, label: employee.displayName, detail: employee.jobTitle }))
-            }}
+            excludeIds={excludedUserIds}
             onChange={setSelectedUserId}
           />
           <Button
             type="submit"
             variant="secondary"
             aria-label={`Додати учасника до ролі «${label}»`}
-            disabled={addPending || !availableEmployees.length || !selectedUserId}
+            disabled={addPending || !selectedUserId}
           >
             <UserPlus size={16} />
             Додати
@@ -2654,29 +2666,6 @@ function taskAttachmentStateLabel(status: TaskAttachmentView['scanStatus']): str
   if (status === 'INFECTED') return 'Заблоковано перевіркою'
   if (status === 'UNSUPPORTED') return 'Формат не підтримується'
   return 'Файл недоступний'
-}
-
-function TaskFilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<{ id: string; label: string }>
-  onChange: (value: string) => void
-}) {
-  return (
-    <label>
-      {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Усі</option>
-        {value && !options.some((option) => option.id === value) && <option value={value}>Збережене значення</option>}
-        {options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-      </select>
-    </label>
-  )
 }
 
 function taskPriorityLabel(priority: TaskListItem['priority']): string {
@@ -2725,4 +2714,15 @@ function taskRoleEmptyState(role: TaskViewRole): { title: string; description: s
     title: 'Немає завдань, за які ви відповідаєте',
     description: 'Нове призначення автоматично з’явиться у цьому списку.',
   }
+}
+
+function TaskFilesArchive({ attachments }: { attachments: TaskAttachmentView[] }) {
+  if (!attachments.length) return null
+  const ready = attachments.every((file) => file.scanStatus === 'CLEAN')
+  return ready ? (
+    <a className="task-files-archive" href={`/api/v1/files/archive?ids=${encodeURIComponent(attachments.map((file) => file.id).join(','))}`}>
+      <Download size={14} aria-hidden="true" />
+      <span>Завантажити все одним архівом</span>
+    </a>
+  ) : <span className="task-files-archive muted">Архів буде доступний після перевірки всіх файлів</span>
 }

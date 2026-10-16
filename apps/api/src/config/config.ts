@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { FILE_UPLOAD_MIME_TYPES, MAX_FILE_UPLOAD_BYTES } from '@lankadws/contracts'
 import './load-env.js'
 
 const schema = z.object({
@@ -33,8 +34,8 @@ const schema = z.object({
   REAUTH_MINUTES: z.coerce.number().int().positive().default(10),
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(8),
-  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
-  ALLOWED_UPLOAD_MIME: z.string().default('application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,text/plain'),
+  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(MAX_FILE_UPLOAD_BYTES),
+  ALLOWED_UPLOAD_MIME: z.string().default(FILE_UPLOAD_MIME_TYPES.join(',')),
   MALWARE_SCANNER: z.enum(['development-clean', 'clamav', 'unavailable']).default('development-clean'),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   JOB_POLL_MS: z.coerce.number().int().min(250).default(1000),

@@ -76,7 +76,7 @@ export class AuthService {
     if (!principal.restricted || newPassword !== confirmation) throw badRequest('password_confirmation', 'Паролі не збігаються.')
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId } })
     if (!user) throw notFound()
-    assertPasswordPolicy(newPassword, user.normalizedUsername, user.mustEnroll2FA)
+    assertPasswordPolicy(newPassword, user.normalizedUsername)
     const passwordHash = await hashPassword(newPassword)
     await this.prisma.$transaction(async (tx) => {
       await tx.passwordCredential.upsert({
@@ -145,7 +145,7 @@ export class AuthService {
     if (input.newPassword !== input.confirmation) throw badRequest('password_confirmation', 'Паролі не збігаються.')
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { passwordCredential: true } })
     if (!user?.passwordCredential || !(await verifyPassword(user.passwordCredential.passwordHash, input.currentPassword))) throw unauthorized('current_password_invalid')
-    assertPasswordPolicy(input.newPassword, user.normalizedUsername, user.mustEnroll2FA)
+    assertPasswordPolicy(input.newPassword, user.normalizedUsername)
     if (await verifyPassword(user.passwordCredential.passwordHash, input.newPassword)) throw badRequest('password_reuse', 'Новий пароль має відрізнятися від поточного.')
     const passwordHash = await hashPassword(input.newPassword)
     await this.prisma.$transaction(async (tx) => {
@@ -216,7 +216,7 @@ export class AuthService {
       include: {
         primaryCompany: true,
         orgAssignments: {
-          where: { endedAt: null },
+          where: { endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } },
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
           select: { companyId: true, orgUnitId: true, positionTitle: true },
         },
@@ -247,6 +247,7 @@ export class AuthService {
     return {
       id: user.id,
       displayName: user.displayName,
+      firstName: user.firstName,
       username: user.username,
       jobTitle: user.jobTitle,
       avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset,

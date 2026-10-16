@@ -5,10 +5,7 @@ describe('canonical route registry', () => {
   it('contains unique browser-history paths and account-type metadata for protected domains', () => {
     expect(new Set(routes.map((route) => route.path)).size).toBe(routes.length)
     expect(routes.find((route) => route.path === '/requests/:requestId')).toBeUndefined()
-    expect(routes.find((route) => route.path === '/groups')).toMatchObject({
-      capability: 'GROUPS_UI',
-      releaseState: 'released',
-    })
+    expect(routes.find((route) => route.path === '/groups')).toBeUndefined()
     expect(routes.find((route) => route.path === '/drive')).toMatchObject({ releaseState: 'released' })
     expect(routes.find((route) => route.path === '/organization')).toMatchObject({
       title: 'Організація',
@@ -66,7 +63,7 @@ describe('canonical route registry', () => {
     expect(pathsByGroup).toEqual({
       primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar'],
       communication: ['/notifications'],
-      company: ['/groups', '/organization'],
+      company: ['/organization'],
       management: ['/knowledge'],
       administration: [
         '/admin/users',
@@ -80,7 +77,7 @@ describe('canonical route registry', () => {
   it('applies account-type and capability gates to the shared sidebar configuration', () => {
     const visiblePaths = navigationRoutes(
       false,
-      (capability) => capability !== 'GROUPS_UI',
+      () => true,
     ).map((route) => route.path)
     expect(visiblePaths).not.toContain('/overview')
     expect(visiblePaths).not.toContain('/analytics')

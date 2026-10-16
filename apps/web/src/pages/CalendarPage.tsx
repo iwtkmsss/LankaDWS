@@ -1,11 +1,13 @@
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   OrganizationCapability,
   type CalendarAudienceOption,
+  type CalendarRecurrenceInput,
   type CalendarEventAudienceInput,
   type EventListItem,
 } from '@lankadws/contracts'
-import { CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
+import { CalendarDays, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, ShieldCheck, UserRound } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -26,6 +28,7 @@ import {
   Drawer,
   EmptyState,
   ErrorState,
+  Modal,
   PageDataLoader,
   Tabs,
   UnsavedChangesDialog,
@@ -34,6 +37,11 @@ import {
 } from '../shared/ui'
 
 type CalendarEvent = EventListItem & {
+  kind?: 'EVENT' | 'TASK'
+  taskId?: string
+  occurrenceKey?: string
+  recurrence?: CalendarRecurrenceInput | null
+  reminderMinutes?: number | null
   ownerId: string
   ownerName: string
   sourceTimezone: string
@@ -42,7 +50,7 @@ type CalendarEvent = EventListItem & {
   audienceLabel: string
 }
 type CalendarView = 'day' | 'week' | 'month' | 'schedule'
-type CalendarScope = 'ALL' | 'MINE' | 'TEAM'
+type CalendarScope = 'ALL' | 'MINE' | 'TEAM' | 'TASKS'
 
 export default function CalendarPage() {
   const [params, setParams] = useSearchParams()
@@ -83,9 +91,13 @@ export default function CalendarPage() {
     ? rawView === 'list' ? 'schedule' : rawView
     : 'month'
   const rawScope = params.get('scope')
-  const scope: CalendarScope = rawScope === 'MINE' || rawScope === 'TEAM' ? rawScope : 'ALL'
+  const scope: CalendarScope = rawScope === 'MINE' || rawScope === 'TEAM' || rawScope === 'TASKS' ? rawScope : 'ALL'
   const requestedCreate = params.get('new') === '1'
   const selectedDate = params.get('date') ?? localDateKey(new Date())
+  const dayEventsKey = params.get('dayEvents')
+  const dayEventsDate = dayEventsKey && /^\d{4}-\d{2}-\d{2}$/.test(dayEventsKey)
+    && Number.isFinite(Date.parse(`${dayEventsKey}T12:00:00`))
+    ? new Date(`${dayEventsKey}T12:00:00`) : null
   const date = new Date(`${selectedDate}T12:00:00`)
   const year = date.getFullYear()
   const month = date.getMonth()
@@ -98,6 +110,18 @@ export default function CalendarPage() {
     }>(
       `/calendar/events?company=all&from=${range.from.toISOString()}&to=${range.to.toISOString()}&scope=${scope}`,
     ),
+  })
+  const dayEvents = dayEventsDate
+    ? (query.data?.items ?? []).filter((event) => eventOverlapsDay(event, dayEventsDate))
+      .sort((a, b) => Number(b.allDay) - Number(a.allDay) || Date.parse(a.startAt) - Date.parse(b.startAt))
+    : []
+  const closeDayEvents = () => setParams((current) => {
+    current.delete('dayEvents')
+    return current
+  }, { replace: true })
+  const openDayEvents = (day: string) => setParams((current) => {
+    current.set('dayEvents', day)
+    return current
   })
   const detail = useQuery({
     queryKey: ['calendar-event', eventId],
@@ -114,7 +138,9 @@ export default function CalendarPage() {
       sourceTimezone: string
       allDay: boolean
       audience: CalendarEventAudienceInput
+      recurrence: CalendarRecurrenceInput | null
       expectedVersion: number
+      reminderMinutes: number | null
     }) => api<{ id: string; version: number }>(`/calendar/events/${input.id}`, {
       method: 'PATCH',
       body: jsonBody({
@@ -125,6 +151,8 @@ export default function CalendarPage() {
         sourceTimezone: input.sourceTimezone,
         allDay: input.allDay,
         audience: input.audience,
+        recurrence: input.recurrence,
+        reminderMinutes: input.reminderMinutes,
         expectedVersion: input.expectedVersion,
       }),
     }),
@@ -133,6 +161,10 @@ export default function CalendarPage() {
         setEditDirty(false)
         setEditOpen(false)
       })
+      setParams((current) => {
+        current.delete('occurrence')
+        return current
+      }, { replace: true })
       await Promise.all([
         client.invalidateQueries({ queryKey: ['calendar'] }),
         client.invalidateQueries({ queryKey: ['calendar-event', eventId] }),
@@ -164,6 +196,9 @@ export default function CalendarPage() {
     return []
   }, [view, selectedDate])
   const selected = detail.data ?? query.data?.items.find((item) => item.id === eventId)
+  const occurrenceStart = params.get('occurrence')
+  const shownStart = selected?.recurrence && occurrenceStart && Number.isFinite(Date.parse(occurrenceStart)) ? occurrenceStart : selected?.startAt
+  const shownEnd = selected && shownStart ? new Date(Date.parse(shownStart) + Date.parse(selected.endAt) - Date.parse(selected.startAt)).toISOString() : selected?.endAt
   const canCreate = canUseCapability(OrganizationCapability.CalendarWrite)
     && ownerCompanyId !== null
   useEffect(() => {
@@ -255,7 +290,8 @@ export default function CalendarPage() {
                 items={[
                   { value: 'ALL', label: 'Усі', count: query.data?.counts.ALL },
                   { value: 'MINE', label: 'Мої', count: query.data?.counts.MINE },
-                  { value: 'TEAM', label: 'Командні', count: query.data?.counts.TEAM },
+                  { value: 'TEAM', label: 'Моя компанія', count: query.data?.counts.TEAM },
+                  { value: 'TASKS', label: 'Завдання', count: query.data?.counts.TASKS },
                 ]}
               />
             </div>
@@ -263,7 +299,7 @@ export default function CalendarPage() {
               query.data?.items.length ? (
                 <div className="calendar-agenda">
                   {query.data.items.map((event) => (
-                    <Link to={`/calendar/events/${event.id}?${params.toString()}`} key={event.id}>
+                    <Link className={calendarItemClass(event)} to={calendarItemLink(event, params.toString())} key={event.occurrenceKey ?? event.id}>
                       <time dateTime={event.startAt}>
                         <strong>{new Intl.DateTimeFormat('uk-UA', { day: '2-digit' }).format(new Date(event.startAt))}</strong>
                         <span>{new Intl.DateTimeFormat('uk-UA', { month: 'short' }).format(new Date(event.startAt))}</span>
@@ -313,38 +349,36 @@ export default function CalendarPage() {
                   {days.map(({ date: day, current }) => {
                     const iso = localDateKey(day)
                     const events = query.data?.items.filter(
-                      (item) => localDateKey(new Date(item.startAt)) === iso,
+                      (item) => eventOverlapsDay(item, day),
                     ) ?? []
                     return (
                       <div
                         className={`${current ? '' : 'is-outside'} ${iso === localDateKey(new Date()) ? 'is-today' : ''}`}
                         key={iso}
                       >
-                        {canCreate ? (
                           <button
                             type="button"
                             className="calendar-day-action"
-                            aria-label={`Створити подію на ${new Intl.DateTimeFormat('uk-UA', {
+                            aria-label={`Переглянути події на ${new Intl.DateTimeFormat('uk-UA', {
                               day: 'numeric',
                               month: 'long',
                             }).format(day)}`}
-                            onClick={() => {
-                              setCreateDate(iso)
-                              setCreateTitle('')
-                              setCreateOpen(true)
-                            }}
+                            onClick={() => openDayEvents(iso)}
                           >
                             {day.getDate()}
                           </button>
-                        ) : (
-                          <span>{day.getDate()}</span>
-                        )}
                         {events.slice(0, 3).map((event) => (
-                          <Link to={`/calendar/events/${event.id}?${params.toString()}`} key={event.id}>
+                          <Link className={calendarItemClass(event)} title={event.title} to={calendarItemLink(event, params.toString())} key={event.occurrenceKey ?? event.id}>
                             {event.title}
                           </Link>
                         ))}
-                        {events.length > 3 && <small>+{events.length - 3}</small>}
+                        {events.length > 3 && (
+                          <button type="button" className="calendar-more-events"
+                            aria-label={`Переглянути всі події на ${new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long' }).format(day)}`}
+                            onClick={() => openDayEvents(iso)}>
+                            +{events.length - 3} ще
+                          </button>
+                        )}
                       </div>
                     )
                   })}
@@ -354,13 +388,50 @@ export default function CalendarPage() {
           </>
         )}
       </Card>
+      {dayEventsDate && !eventId && (
+        <Modal
+          title={new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long', year: 'numeric' }).format(dayEventsDate)}
+          description="Усі події та завдання за день"
+          size="lg"
+          onRequestClose={closeDayEvents}
+          footer={canCreate && (
+            <Button onClick={() => {
+              setCreateDate(dayEventsKey)
+              setCreateTitle('')
+              closeDayEvents()
+              setCreateOpen(true)
+            }}>
+              <CalendarPlus size={17} /> Створити подію
+            </Button>
+          )}
+        >
+          {query.isLoading ? <PageDataLoader /> : dayEvents.length ? (
+            <ul className="calendar-card calendar-day-events">
+              {dayEvents.map((event) => (
+                <li key={event.occurrenceKey ?? event.id}>
+                  <Link className={calendarItemClass(event)}
+                    to={calendarItemLink(event, new URLSearchParams([...params].filter(([key]) => key !== 'dayEvents')).toString())}
+                    onClick={closeDayEvents}>
+                    <span className="calendar-day-events__meta">
+                      {event.kind === 'TASK' ? 'Завдання' : event.visibility === 'PRIVATE' ? 'Особиста подія' : 'Робоча подія'}
+                      {' · '}{event.allDay ? 'Увесь день' : new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(event.startAt))}
+                    </span>
+                    <strong>{event.title}</strong>
+                    {event.description && <p>{event.description}</p>}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : <EmptyState title="На цей день подій немає" description="Заплановані події та завдання з’являться тут." illustration="calendar" />}
+        </Modal>
+      )}
       {eventId && (
         <Drawer
-          title={editOpen ? 'Редагувати подію' : 'Подія'}
+          title={editOpen ? 'Редагувати подію' : selected?.title ?? 'Подія'}
           onBeforeClose={closeGuard.shouldClose}
           onRequestClose={closeGuard.requestClose}
           footer={selected && !editOpen && selected.ownerId === user?.id && canCreate ? (
-            <Button variant="secondary" onClick={() => {
+            <Button variant="secondary" disabled={detail.isLoading} onClick={() => {
               setEditDirty(false)
               setEditOpen(true)
             }}>
@@ -382,9 +453,11 @@ export default function CalendarPage() {
                     description: values.description,
                     startAt: values.startAt,
                     endAt: values.endAt,
-                    sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || selected.sourceTimezone,
+                    sourceTimezone: values.sourceTimezone,
                     allDay: values.allDay,
                     audience: values.audience,
+                    recurrence: values.recurrence,
+                    reminderMinutes: values.reminderMinutes,
                     expectedVersion: selected.version,
                   })
                 }}
@@ -408,13 +481,16 @@ export default function CalendarPage() {
                 </div>
               </CalendarEventForm>
             ) : (
-              <div className="detail-stack">
-                <h3>{selected.title}</h3>
-                <p>
-                  {selected.allDay
-                    ? 'Увесь день'
-                    : `${formatDateTime(selected.startAt)} — ${formatDateTime(selected.endAt)}`}
+              <div className="detail-stack calendar-event-detail">
+                <p className="calendar-event-detail__time">
+                  <CalendarDays size={18} aria-hidden="true" />
+                  <span>
+                    {selected.allDay
+                      ? 'Увесь день'
+                      : `${formatDateTime(shownStart!)} — ${formatDateTime(shownEnd!)}`}
+                  </span>
                 </p>
+                {selected.recurrence && <p className="calendar-event-owner">Повторення: {selected.recurrence.frequency === 'DAILY' ? 'щодня' : selected.recurrence.frequency === 'WEEKLY' ? 'щотижня' : 'щомісяця'} · інтервал {selected.recurrence.interval}{selected.recurrence.until ? ` · до ${formatDateTime(selected.recurrence.until)}` : ''}</p>}
                 {selected.description && (
                   <div className="calendar-event-description">
                     {selected.description.split('\n').map((paragraph, index) => (
@@ -422,12 +498,19 @@ export default function CalendarPage() {
                     ))}
                   </div>
                 )}
-                <p className="calendar-event-owner">
-                  {selected.ownerId === user?.id ? 'Організатор: ви' : `Організатор: ${selected.ownerName}`}
-                </p>
-                <p className="calendar-event-owner">Бачать: {selected.audienceLabel}</p>
-                <p className="privacy-note">
-                  У календарі відображається лише інформація, дозволена учасникам події.
+                <div className="calendar-event-detail__people">
+                  <p className="calendar-event-detail__person">
+                    <UserRound size={16} aria-hidden="true" />
+                    <span>Організатор: <strong>{selected.ownerId === user?.id ? 'Ви' : selected.ownerName}</strong></span>
+                  </p>
+                  <p className="calendar-event-detail__person">
+                    <Eye size={16} aria-hidden="true" />
+                    <span>Бачать: <strong>{selected.visibility === 'PRIVATE' ? 'тільки я' : selected.audienceLabel}</strong></span>
+                  </p>
+                </div>
+                <p className="privacy-note calendar-event-detail__privacy">
+                  <ShieldCheck size={17} aria-hidden="true" />
+                  <span>У календарі відображається лише інформація, дозволена учасникам події.</span>
                 </p>
               </div>
             )
@@ -442,7 +525,7 @@ export default function CalendarPage() {
         </Drawer>
       )}
       {createOpen && (
-        <CalendarCreateDrawer
+        <CalendarCreateModal
           companies={writableCompanies}
           ownerCompanyId={ownerCompanyId}
           initialDate={createDate}
@@ -453,6 +536,7 @@ export default function CalendarPage() {
             setCreateDirty(false)
             setCreateOpen(false)
             void client.invalidateQueries({ queryKey: ['calendar'] })
+            void client.invalidateQueries({ queryKey: ['feed'] })
             const next = new URLSearchParams(params)
             navigate(`/calendar/events/${id}?${next.toString()}`)
           }}
@@ -503,9 +587,9 @@ function CalendarPeriodView({
             <div>
               {dayEvents.length ? dayEvents.map((event) => (
                 <Link
-                  className={event.ownerId === currentUserId ? 'is-mine' : 'is-team'}
-                  to={`/calendar/events/${event.id}${queryString ? `?${queryString}` : ''}`}
-                  key={event.id}
+                  className={calendarItemClass(event)}
+                  to={calendarItemLink(event, queryString)}
+                  key={event.occurrenceKey ?? event.id}
                 >
                   <time>
                     {event.allDay
@@ -513,7 +597,7 @@ function CalendarPeriodView({
                       : new Intl.DateTimeFormat('uk-UA', { hour: '2-digit', minute: '2-digit' }).format(new Date(event.startAt))}
                   </time>
                   <strong>{event.title}</strong>
-                  {event.ownerId !== currentUserId && <small>{event.ownerName}</small>}
+                  {event.kind !== 'TASK' && event.ownerId !== currentUserId && <small>{event.ownerName}</small>}
                 </Link>
               )) : <p>Вільно</p>}
             </div>
@@ -524,7 +608,7 @@ function CalendarPeriodView({
   )
 }
 
-function CalendarCreateDrawer({
+function CalendarCreateModal({
   companies,
   ownerCompanyId,
   initialDate,
@@ -556,6 +640,8 @@ function CalendarCreateDrawer({
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
           audience: input.audience,
+          recurrence: input.recurrence,
+          reminderMinutes: input.reminderMinutes,
         }),
       }),
     onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
@@ -572,8 +658,9 @@ function CalendarCreateDrawer({
   }
 
   return (
-    <Drawer
+    <Modal
       title="Нова подія"
+      size="xl"
       onBeforeClose={closeGuard.shouldClose}
       onRequestClose={closeGuard.requestClose}
     >
@@ -586,7 +673,7 @@ function CalendarCreateDrawer({
       >
         {create.isError && (
           <div className="form-error span-2" role="alert">
-            Не вдалося створити подію. Перевірте час початку й завершення та кому вона буде видна.
+            Не вдалося створити подію. Перевірте час початку й завершення, час нагадування та кому вона буде видна. Час нагадування має бути в майбутньому.
           </div>
         )}
         <div className="form-actions span-2">
@@ -603,11 +690,12 @@ function CalendarCreateDrawer({
           </Button>
         </div>
       </CalendarEventForm>
-    </Drawer>
+    </Modal>
   )
 }
 
 interface CalendarEventFormValues {
+  reminderMinutes: number | null
   title: string
   description: string
   startAt: string
@@ -615,6 +703,7 @@ interface CalendarEventFormValues {
   sourceTimezone: string
   allDay: boolean
   audience: CalendarEventAudienceInput
+  recurrence: CalendarRecurrenceInput | null
 }
 
 /**
@@ -643,7 +732,9 @@ function CalendarEventForm({
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>(
     event && event.visibility !== 'PRIVATE' ? event.audienceCompanyIds : [],
   )
+  const [frequency, setFrequency] = useState<CalendarRecurrenceInput['frequency'] | ''>(event?.recurrence?.frequency ?? '')
   const [audienceOpen, setAudienceOpen] = useState(false)
+  const [reminderMinutes, setReminderMinutes] = useState<string>(event?.reminderMinutes == null ? '' : String(event.reminderMinutes))
   const everyCompanyId = companies.map((company) => company.companyId)
   const audienceCompanyIds = selectedCompanyIds.filter((companyId) => everyCompanyId.includes(companyId))
   const audienceSummary = privateOnly
@@ -654,6 +745,7 @@ function CalendarEventForm({
 
   function toggleCompany(companyId: string, checked: boolean) {
     setPrivateOnly(false)
+    setReminderMinutes('')
     setSelectedCompanyIds(checked
       ? [...audienceCompanyIds, companyId]
       : audienceCompanyIds.filter((item) => item !== companyId))
@@ -664,14 +756,19 @@ function CalendarEventForm({
     const form = new FormData(formEvent.currentTarget)
     if (!privateOnly && audienceCompanyIds.length === 0) return
     onSubmit({
+      reminderMinutes: privateOnly && reminderMinutes !== '' ? Number(reminderMinutes) : null,
       title: String(form.get('title') ?? ''),
       description: String(form.get('description') ?? ''),
       startAt: new Date(String(form.get('startAt'))).toISOString(),
       endAt: new Date(String(form.get('endAt'))).toISOString(),
-      sourceTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-        || event?.sourceTimezone
+      sourceTimezone: event?.sourceTimezone
+        || Intl.DateTimeFormat().resolvedOptions().timeZone
         || 'Europe/Kyiv',
       allDay: form.get('allDay') === 'on',
+      recurrence: frequency ? {
+        frequency, interval: Number(form.get('repeatInterval') ?? 1),
+        until: form.get('repeatUntil') ? new Date(`${String(form.get('repeatUntil'))}T23:59:59`).toISOString() : null,
+      } : null,
       audience: privateOnly
         ? { type: 'PRIVATE' }
         : { type: 'COMPANIES', companyIds: audienceCompanyIds },
@@ -708,7 +805,7 @@ function CalendarEventForm({
       </label>
       <label>
         Початок
-        <input
+        <DateTimePicker
           type="datetime-local"
           name="startAt"
           required
@@ -717,7 +814,7 @@ function CalendarEventForm({
       </label>
       <label>
         Завершення
-        <input
+        <DateTimePicker
           type="datetime-local"
           name="endAt"
           required
@@ -727,6 +824,42 @@ function CalendarEventForm({
       <label className="check-label span-2">
         <input type="checkbox" name="allDay" defaultChecked={event?.allDay ?? false} />
         Подія на весь день
+      </label>
+      <label className="span-2">
+        Повторення
+        <select value={frequency} onChange={(changed) => setFrequency(changed.target.value as typeof frequency)}>
+          <option value="">Не повторюється</option>
+          <option value="DAILY">Щодня</option>
+          <option value="WEEKLY">Щотижня</option>
+          <option value="MONTHLY">Щомісяця</option>
+        </select>
+      </label>
+      {frequency && <>
+        <label>Кожні (днів / тижнів / місяців)
+          <input type="number" name="repeatInterval" min={1} max={365} required defaultValue={event?.recurrence?.interval ?? 1} />
+        </label>
+        <label>Повторювати до (необов’язково)
+          <DateTimePicker type="date" name="repeatUntil" defaultValue={event?.recurrence?.until ? localDateKey(new Date(event.recurrence.until)) : ''} />
+        </label>
+      </>}
+      {event?.recurrence && <p className="privacy-note span-2">Зміни застосовуються до всієї серії подій.</p>}
+      <label className="span-2">
+        Нагадування для себе
+        <select aria-label="Нагадування для себе" disabled={!privateOnly} value={privateOnly ? reminderMinutes : ''}
+          onChange={(changed) => setReminderMinutes(changed.target.value)}>
+          <option value="">Не нагадувати</option>
+          <option value="0">У момент початку</option>
+          <option value="5">За 5 хвилин</option>
+          <option value="10">За 10 хвилин</option>
+          <option value="15">За 15 хвилин</option>
+          <option value="30">За 30 хвилин</option>
+          <option value="60">За 1 годину</option>
+          <option value="120">За 2 години</option>
+          <option value="1440">За 1 день</option>
+        </select>
+        <span className="privacy-note">{privateOnly
+          ? 'Надійде тільки вам у сповіщення.'
+          : 'Нагадування доступне лише для подій «Тільки я».'}</span>
       </label>
       <div className={`calendar-audience-select span-2${audienceOpen ? ' is-open' : ''}`}>
         <button
@@ -841,7 +974,7 @@ function eventOverlapsDay(event: CalendarEvent, day: Date): boolean {
   from.setHours(0, 0, 0, 0)
   const to = new Date(from)
   to.setDate(to.getDate() + 1)
-  return new Date(event.startAt) < to && new Date(event.endAt) > from
+  return new Date(event.startAt) < to && (event.kind === 'TASK' ? new Date(event.startAt) >= from : new Date(event.endAt) > from)
 }
 
 function localDateKey(value: Date): string {
@@ -852,4 +985,17 @@ function localDateKey(value: Date): string {
 function localDateTime(value: Date): string {
   const part = (number: number) => String(number).padStart(2, '0')
   return `${value.getFullYear()}-${part(value.getMonth() + 1)}-${part(value.getDate())}T${part(value.getHours())}:${part(value.getMinutes())}`
+}
+
+function calendarItemClass(event: CalendarEvent): string {
+  return event.kind === 'TASK' ? 'calendar-item-task'
+    : event.visibility === 'PRIVATE' ? 'calendar-item-private' : 'calendar-item-work'
+}
+
+function calendarItemLink(event: CalendarEvent, queryString: string): string {
+  if (event.kind === 'TASK') return `/tasks/${event.taskId ?? event.id}`
+  const search = new URLSearchParams(queryString)
+  search.delete('occurrence')
+  if (event.recurrence) search.set('occurrence', event.startAt)
+  return `/calendar/events/${event.id}?${search.toString()}`
 }

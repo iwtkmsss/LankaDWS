@@ -513,53 +513,6 @@ describe('LankaDWS API workflows', () => {
   it('publishes a private-safe feed with explicit acknowledgement and a monotonic read cursor', async () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
-    await prisma.group.upsert({
-      where: { id: 'grp_product_design' },
-      create: {
-        id: 'grp_product_design',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        key: 'product-design',
-        name: 'Продукт і дизайн',
-        description: 'Рішення та оновлення продуктової команди',
-        discoverability: 'LISTED',
-        joinPolicy: 'OPEN',
-        ownerId: 'usr_maria',
-      },
-      update: { status: 'ACTIVE', archivedAt: null },
-    });
-    for (const [userId, role] of [['usr_maria', 'OWNER'], ['usr_andrii', 'MEMBER']] as const) {
-      await prisma.groupMember.upsert({
-        where: { groupId_userId: { groupId: 'grp_product_design', userId } },
-        create: { id: `gm_feed_${userId}`, groupId: 'grp_product_design', userId, role },
-        update: { role, leftAt: null },
-      });
-    }
-    await prisma.group.upsert({
-      where: { id: 'grp_people_private' },
-      create: {
-        id: 'grp_people_private',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        key: 'people-private',
-        name: 'Люди · приватна група',
-        description: 'Конфіденційний робочий контекст HR',
-        discoverability: 'HIDDEN',
-        joinPolicy: 'INVITE_ONLY',
-        ownerId: 'usr_olena',
-      },
-      update: { status: 'ACTIVE', archivedAt: null },
-    });
-    await prisma.groupMember.upsert({
-      where: { groupId_userId: { groupId: 'grp_people_private', userId: 'usr_olena' } },
-      create: {
-        id: 'gm_feed_private_olena',
-        groupId: 'grp_people_private',
-        userId: 'usr_olena',
-        role: 'OWNER',
-      },
-      update: { role: 'OWNER', leftAt: null },
-    });
     const firstKey = `feed-e2e-first-${Date.now()}`;
     const first = await maria.agent
       .post('/api/v1/feed')
@@ -598,19 +551,6 @@ describe('LankaDWS API workflows', () => {
       })
       .expect(201);
     const secondBody = second.body as { id: string };
-    const groupPost = await maria.agent
-      .post('/api/v1/feed')
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', `feed-e2e-group-${Date.now()}`)
-      .send({
-        companyId: 'cmp_lankadws_ua',
-        body: 'Оновлення лише для робочої групи продукту й дизайну.',
-        audience: { type: 'GROUP', groupId: 'grp_product_design' },
-        requiresAcknowledgement: false,
-      })
-      .expect(201);
-    const groupPostBody = groupPost.body as { id: string };
-
     const andrii = await login('andrii');
     const listed = await andrii.agent
       .get('/api/v1/feed?company=cmp_lankadws_ua')
@@ -704,11 +644,7 @@ describe('LankaDWS API workflows', () => {
     expect((audienceFacetOptions.body as { items: Array<{ type: string; id: string; queryKey: string }> }).items)
       .toEqual(expect.arrayContaining([
         expect.objectContaining({ type: 'COMPANY', id: 'cmp_lankadws_ua', queryKey: 'audienceId' }),
-        expect.objectContaining({ type: 'GROUP', id: 'grp_product_design', queryKey: 'groupId' }),
       ]));
-    expect((audienceFacetOptions.body as { items: Array<{ id: string }> }).items).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'grp_people_private' })]),
-    );
     const companyAudience = await andrii.agent
       .get('/api/v1/feed?company=cmp_lankadws_ua&type=POST&audienceId=cmp_lankadws_ua')
       .expect(200);
@@ -717,25 +653,7 @@ describe('LankaDWS API workflows', () => {
       expect.objectContaining({ kind: 'POST', id: secondBody.id }),
     ]));
     expect((companyAudience.body as FeedListResult).items.every((item) => item.kind === 'POST')).toBe(true);
-    const groupContext = await andrii.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&groupId=grp_product_design')
-      .expect(200);
-    const groupItems = (groupContext.body as FeedListResult).items;
-    const groupItem = groupItems.find((item) => item.id === groupPostBody.id);
-    if (groupItem?.kind !== 'POST') throw new Error('Group Feed item is missing from the exact context facet');
-    expect(groupItem.group?.id).toBe('grp_product_design');
-    expect(groupItems.every((item) =>
-      item.kind === 'POST' && item.group?.id === 'grp_product_design')).toBe(true);
-    const hiddenGroupContext = await andrii.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&groupId=grp_people_private')
-      .expect(200);
-    expect((hiddenGroupContext.body as FeedListResult).items).toEqual([]);
-    const kyivDate = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Kyiv',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
+    const kyivDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv' }).format(new Date());
     const mentionedByMaria = await andrii.agent
       .get(
         `/api/v1/feed?company=cmp_lankadws_ua&type=POST&authorId=usr_maria&mentioned=true`
@@ -1101,68 +1019,6 @@ describe('LankaDWS API workflows', () => {
     expect(await prisma.outboxEvent.findFirst({
       where: { eventType: 'feed.file.revoked', aggregateId: share.id },
     })).not.toBeNull();
-  });
-
-  it('keeps groups capability-gated and never leaks hidden groups to non-members', async () => {
-    const maria = await login('maria');
-    const disabled = await maria.agent
-      .get('/api/v1/groups?company=cmp_lankadws_ua')
-      .expect(403);
-    expect(disabled.body).toMatchObject({ code: 'capability_disabled' });
-
-    const dmytro = await login('dmytro');
-    const capabilities = await dmytro.agent
-      .get('/api/v1/admin/organization/capabilities')
-      .expect(200);
-    const groupsCapability = (capabilities.body as { items: OrganizationCapabilityView[] }).items.find((item) => item.code === 'GROUPS_UI');
-    if (!groupsCapability) throw new Error('GROUPS_UI capability is missing from the organization response');
-    await dmytro.agent
-      .patch('/api/v1/admin/organization/capabilities/GROUPS_UI')
-      .set('x-csrf-token', dmytro.csrf)
-      .send({ enabled: true, expectedVersion: groupsCapability.version })
-      .expect(200);
-
-    const prisma = app.get(PrismaService);
-    await prisma.group.create({
-      data: {
-        id: 'grp_e2e_listed',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        key: 'e2e-listed',
-        name: 'Відкрита робоча група',
-        ownerId: 'usr_andrii',
-        discoverability: 'LISTED',
-        joinPolicy: 'REQUEST',
-        members: { create: [
-          { id: 'grpm_e2e_listed_owner', userId: 'usr_andrii', role: 'OWNER' },
-          { id: 'grpm_e2e_listed_maria', userId: 'usr_maria', role: 'MEMBER' },
-        ] },
-      },
-    });
-    await prisma.group.create({
-      data: {
-        id: 'grp_e2e_hidden',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        key: 'e2e-hidden',
-        name: 'Прихована робоча група',
-        ownerId: 'usr_dmytro',
-        discoverability: 'HIDDEN',
-        joinPolicy: 'INVITE_ONLY',
-        members: { create: { id: 'grpm_e2e_hidden_owner', userId: 'usr_dmytro', role: 'OWNER' } },
-      },
-    });
-
-    const listed = await maria.agent
-      .get('/api/v1/groups?company=cmp_lankadws_ua')
-      .expect(200);
-    expect(listed.body.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'grp_e2e_listed', currentUserRole: 'MEMBER', memberCount: 2 }),
-    ]));
-    expect(listed.body.items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'grp_e2e_hidden' }),
-    ]));
-    await maria.agent.get('/api/v1/groups/grp_e2e_hidden').expect(404);
   });
 
   it('returns a company-scoped org tree with safe employee projections', async () => {
@@ -1960,7 +1816,6 @@ describe('LankaDWS API workflows', () => {
 
     const recommendationQuerySpies = [
       vi.spyOn(prisma.messageThread, 'findMany'),
-      vi.spyOn(prisma.groupMember, 'findMany'),
       vi.spyOn(prisma.task, 'findMany'),
       vi.spyOn(prisma.userOrgAssignment, 'findMany'),
       vi.spyOn(prisma.user, 'findMany'),
@@ -2387,37 +2242,6 @@ describe('LankaDWS API workflows', () => {
       .send({ body: `${body} Змінено.`, mentions })
       .expect(409);
 
-    const grouped = await maria.agent
-      .post('/api/v1/tasks')
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', `task-mention-group-${suffix}`)
-      .send({
-        title: `Grouped task mention ${suffix}`,
-        groupId: 'grp_product_design',
-        participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }],
-      })
-      .expect(201);
-    const groupedTaskId = (grouped.body as { id: string }).id;
-    const groupedCandidates = await maria.agent
-      .get(`/api/v1/tasks/${groupedTaskId}/mention-candidates?q=олена`)
-      .expect(200);
-    expect((groupedCandidates.body as { items: unknown[] }).items).toEqual([]);
-    const outsideGroup = await maria.agent
-      .post(`/api/v1/tasks/${groupedTaskId}/comments`)
-      .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', `task-comment-outside-${suffix}`)
-      .send({
-        body: `${olenaToken}, ця групова задача недоступна.`,
-        mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
-      })
-      .expect(400);
-    expect((outsideGroup.body as { code: string }).code).toBe('task_mention_outside_scope');
-    expect(await prisma.comment.count({ where: { entityType: 'TASK', entityId: groupedTaskId } })).toBe(0);
-    expect(await prisma.taskParticipant.findUnique({
-      where: { taskId_userId: { taskId: groupedTaskId, userId: 'usr_olena' } },
-    })).toBeNull();
-    expect(await prisma.task.findUniqueOrThrow({ where: { id: groupedTaskId }, select: { version: true } }))
-      .toEqual({ version: 1 });
   });
 
   it('keeps structured chat mentions scoped to active chat participants', async () => {
@@ -2827,6 +2651,55 @@ describe('LankaDWS API workflows', () => {
     })).toBeGreaterThanOrEqual(5);
   });
 
+  it('publishes task comment draft attachments only when the comment is sent', async () => {
+    const maria = await login('maria');
+    const andrii = await login('andrii');
+    const prisma = app.get(PrismaService);
+    const key = `task-comment-draft-${Date.now()}`;
+    const created = await maria.agent.post('/api/v1/tasks')
+      .set('x-csrf-token', maria.csrf).set('idempotency-key', key)
+      .send({ title: 'Чернетка з вкладенням', participants: [{ userId: 'usr_andrii', role: 'RESPONSIBLE' }] })
+      .expect(201);
+    const taskId = (created.body as { id: string }).id;
+    const before = await andrii.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    const auditCount = await prisma.auditEvent.count({ where: { entityType: 'TASK', entityId: taskId } });
+    const eventCount = await prisma.outboxEvent.count({ where: { aggregateType: 'TASK', aggregateId: taskId } });
+    const uploaded = await maria.agent.post(`/api/v1/tasks/${taskId}/attachments?draft=true`)
+      .set('x-csrf-token', maria.csrf)
+      .attach('file', Buffer.from('Private comment draft\n'), { filename: 'draft-note.txt', contentType: 'text/plain' })
+      .expect(201);
+    const fileId = (uploaded.body as { id: string }).id;
+    await maria.agent.post(`/api/v1/tasks/${taskId}/attachments/from-drive?draft=true`)
+      .set('x-csrf-token', maria.csrf).send({ fileId }).expect(201);
+    const unsent = await andrii.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    expect(unsent.body).toMatchObject({ version: (before.body as TaskDetailView).version, attachments: [], comments: [] });
+    expect(await prisma.fileLink.count({ where: { fileId } })).toBe(0);
+    expect(await prisma.auditEvent.count({ where: { entityType: 'TASK', entityId: taskId } })).toBe(auditCount);
+    expect(await prisma.outboxEvent.count({ where: { aggregateType: 'TASK', aggregateId: taskId } })).toBe(eventCount);
+    await andrii.agent.get(`/api/v1/files/${fileId}/status`).expect(404);
+    await andrii.agent.post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', andrii.csrf).send({ body: '', attachmentIds: [fileId] }).expect(400);
+    await maria.agent.post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf).send({ body: '', attachmentIds: [fileId, 'missing-file'] }).expect(400);
+    expect(await prisma.fileLink.count({ where: { fileId } })).toBe(0);
+    const sent = await maria.agent.post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf).set('idempotency-key', `${key}-send`)
+      .send({ body: '', attachmentIds: [fileId] }).expect(201);
+    const replay = await maria.agent.post(`/api/v1/tasks/${taskId}/comments`)
+      .set('x-csrf-token', maria.csrf).set('idempotency-key', `${key}-send`)
+      .send({ body: '', attachmentIds: [fileId] }).expect(201);
+    expect((replay.body as { id: string }).id).toBe((sent.body as { id: string }).id);
+    const published = await andrii.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    expect(published.body).toMatchObject({
+      version: (before.body as TaskDetailView).version + 1,
+      attachments: [expect.objectContaining({ id: fileId })],
+      comments: [expect.objectContaining({ body: '', attachments: [expect.objectContaining({ id: fileId })] })],
+    });
+    expect(await prisma.auditEvent.count({ where: { entityType: 'TASK', entityId: taskId } })).toBe(auditCount + 1);
+    expect(await prisma.auditEvent.count({ where: { entityId: taskId, action: 'task.attachment_added' } })).toBe(0);
+    expect(await prisma.outboxEvent.count({ where: { aggregateType: 'TASK', aggregateId: taskId } })).toBe(eventCount + 1);
+  });
+
   it('keeps task sources, attachments, replies, scanner state, and direct-role ACL aligned', async () => {
     const maria = await login('maria');
     const andrii = await login('andrii');
@@ -3061,45 +2934,14 @@ describe('LankaDWS API workflows', () => {
       where: { action: 'task.attachment_removed', entityId: taskId },
     })).not.toBeNull();
 
-    const groupId = `grp_task_acl_${suffix}`;
-    await prisma.group.create({
-      data: {
-        id: groupId,
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        key: `task-acl-${suffix}`,
-        name: 'Перевірка доступу задачі',
-        ownerId: 'usr_maria',
-        members: {
-          create: [
-            {
-              id: `gm_task_maria_${suffix}`,
-              userId: 'usr_maria',
-              role: 'OWNER',
-            },
-            {
-              id: `gm_task_andrii_${suffix}`,
-              userId: 'usr_andrii',
-              role: 'MEMBER',
-            },
-            {
-              id: `gm_task_marko_${suffix}`,
-              userId: 'usr_marko',
-              role: 'MEMBER',
-            },
-          ],
-        },
-      },
-    });
     const groupTaskId = `tsk_group_acl_${suffix}`;
     await prisma.task.create({
       data: {
         id: groupTaskId,
         workspaceId: 'ws_lankadws',
         companyId: 'cmp_lankadws_ua',
-        groupId,
         number: suffix.toString(),
-        title: 'Групова задача з прямими ролями',
+        title: 'Задача з прямими ролями',
         createdById: 'usr_maria',
         reporterId: 'usr_maria',
         participants: {
@@ -3302,14 +3144,6 @@ describe('LankaDWS API workflows', () => {
     const olena = await login('olena');
     const suffix = Date.now().toString(36);
 
-    const groupCandidates = await maria.agent
-      .get('/api/v1/feed/mention-candidates?company=cmp_lankadws_ua&audienceType=GROUP&audienceId=grp_product_design&q=')
-      .expect(200);
-    const groupCandidateIds = (groupCandidates.body as { items: Array<{ id: string }> }).items
-      .map((item) => item.id);
-    expect(groupCandidateIds).toEqual(expect.arrayContaining(['usr_maria', 'usr_andrii']));
-    expect(groupCandidateIds).not.toContain('usr_olena');
-
     const olenaToken = '@Олена Бондар';
     const outsideAudience = await maria.agent
       .post('/api/v1/feed')
@@ -3318,7 +3152,7 @@ describe('LankaDWS API workflows', () => {
       .send({
         companyId: 'cmp_lankadws_ua',
         body: `${olenaToken}, переглянь`,
-        audience: { type: 'GROUP', groupId: 'grp_product_design' },
+        audience: { type: 'USERS', userIds: ['usr_andrii'] },
         mentions: [{ userId: 'usr_olena', start: 0, end: olenaToken.length, label: 'Олена Бондар' }],
       })
       .expect(400);
@@ -3330,8 +3164,8 @@ describe('LankaDWS API workflows', () => {
       .set('idempotency-key', `feed-mention-group-${suffix}`)
       .send({
         companyId: 'cmp_lankadws_ua',
-        body: 'Видиме лише продуктовій групі.',
-        audience: { type: 'GROUP', groupId: 'grp_product_design' },
+        body: 'Видиме лише обраному одержувачу.',
+        audience: { type: 'USERS', userIds: ['usr_andrii'] },
       })
       .expect(201);
     await olena.agent

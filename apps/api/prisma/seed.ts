@@ -19,7 +19,9 @@ const users = [
   {
     id: 'usr_maria',
     username: 'maria',
-    displayName: 'Марія Іваненко',
+    firstName: 'Марія',
+    lastName: 'Іваненко',
+    displayName: 'Іваненко Марія',
     jobTitle: 'Продуктова дизайнерка',
     gender: 'FEMALE',
     birthDate: new Date('1994-05-12T00:00:00.000Z'),
@@ -31,7 +33,9 @@ const users = [
   {
     id: 'usr_andrii',
     username: 'andrii',
-    displayName: 'Андрій Коваль',
+    firstName: 'Андрій',
+    lastName: 'Коваль',
+    displayName: 'Коваль Андрій',
     jobTitle: 'Операційний керівник',
     gender: 'MALE',
     birthDate: new Date('1989-11-03T00:00:00.000Z'),
@@ -43,7 +47,9 @@ const users = [
   {
     id: 'usr_olena',
     username: 'olena',
-    displayName: 'Олена Бондар',
+    firstName: 'Олена',
+    lastName: 'Бондар',
+    displayName: 'Бондар Олена',
     jobTitle: 'HR-фахівчиня',
     gender: 'FEMALE',
     birthDate: new Date('1991-02-18T00:00:00.000Z'),
@@ -55,7 +61,9 @@ const users = [
   {
     id: 'usr_dmytro',
     username: 'dmytro',
-    displayName: 'Дмитро Савчук',
+    firstName: 'Дмитро',
+    lastName: 'Савчук',
+    displayName: 'Савчук Дмитро',
     jobTitle: 'Системний адміністратор',
     gender: 'MALE',
     birthDate: new Date('1987-08-21T00:00:00.000Z'),
@@ -67,7 +75,9 @@ const users = [
   {
     id: 'usr_marko',
     username: 'marko',
-    displayName: 'Марко Литвин',
+    firstName: 'Марко',
+    lastName: 'Литвин',
+    displayName: 'Литвин Марко',
     jobTitle: 'Дизайнер',
     gender: 'MALE',
     birthDate: new Date('1996-06-30T00:00:00.000Z'),
@@ -126,8 +136,8 @@ async function seed(): Promise<void> {
         workspaceId: 'ws_lankadws',
         primaryCompanyId: user.companyId,
         accountType: user.accountType,
-        firstName: user.displayName.split(' ')[1] ?? user.displayName,
-        lastName: user.displayName.split(' ')[0] ?? '',
+        firstName: user.firstName,
+        lastName: user.lastName,
         displayName: user.displayName,
         normalizedDisplayName: normalizeUserSearchValue(user.displayName),
         username: user.username,
@@ -141,6 +151,8 @@ async function seed(): Promise<void> {
       update: {
         primaryCompanyId: user.companyId,
         accountType: user.accountType,
+        firstName: user.firstName,
+        lastName: user.lastName,
         displayName: user.displayName,
         normalizedDisplayName: normalizeUserSearchValue(user.displayName),
         avatarAsset: user.avatar,
@@ -195,69 +207,6 @@ async function seed(): Promise<void> {
       version: { increment: 1 },
     },
   });
-
-  const seedGroups = [
-    {
-      id: 'grp_product_design',
-      companyId: 'cmp_lankadws_ua',
-      key: 'product-design',
-      name: 'Продукт і дизайн',
-      description: 'Рішення та оновлення продуктової команди',
-      discoverability: 'LISTED' as const,
-      joinPolicy: 'OPEN' as const,
-      ownerId: 'usr_maria',
-      members: [
-        ['usr_maria', 'OWNER'],
-        ['usr_andrii', 'MEMBER'],
-        ['usr_dmytro', 'MEMBER'],
-      ] as const,
-    },
-    {
-      id: 'grp_people_private',
-      companyId: 'cmp_lankadws_ua',
-      key: 'people-private',
-      name: 'Люди · приватна група',
-      description: 'Конфіденційний робочий контекст HR',
-      discoverability: 'HIDDEN' as const,
-      joinPolicy: 'INVITE_ONLY' as const,
-      ownerId: 'usr_olena',
-      members: [['usr_olena', 'OWNER']] as const,
-    },
-  ];
-  for (const group of seedGroups) {
-    await prisma.group.upsert({
-      where: { id: group.id },
-      create: {
-        id: group.id,
-        workspaceId: 'ws_lankadws',
-        companyId: group.companyId,
-        key: group.key,
-        name: group.name,
-        description: group.description,
-        discoverability: group.discoverability,
-        joinPolicy: group.joinPolicy,
-        ownerId: group.ownerId,
-      },
-      update: {
-        name: group.name,
-        description: group.description,
-        status: 'ACTIVE',
-        archivedAt: null,
-      },
-    });
-    for (const [userId, role] of group.members) {
-      await prisma.groupMember.upsert({
-        where: { groupId_userId: { groupId: group.id, userId } },
-        create: {
-          id: `gm_${group.id}_${userId}`,
-          groupId: group.id,
-          userId,
-          role,
-        },
-        update: { role, leftAt: null },
-      });
-    }
-  }
 
   if (
     !(await prisma.feedPost.findUnique({ where: { id: 'feed_release_notes' } }))
@@ -316,69 +265,6 @@ async function seed(): Promise<void> {
           snippet: 'Оновили робочий простір Lanka',
         }),
         occurredAt: new Date('2026-07-23T08:30:00.000Z'),
-      },
-    });
-  }
-
-  if (
-    !(await prisma.feedPost.findUnique({ where: { id: 'feed_design_review' } }))
-  ) {
-    await prisma.feedPost.create({
-      data: {
-        id: 'feed_design_review',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        groupId: 'grp_product_design',
-        authorId: 'usr_maria',
-        body: 'Підготувала компактніший варіант екрану огляду: головна дія тепер одна, фільтри залишаються в URL, а мобільна версія не має горизонтального прокручування.',
-        publishedAt: new Date('2026-07-22T14:10:00.000Z'),
-        recipients: {
-          create: {
-            id: 'frcp_design_group',
-            type: 'GROUP',
-            recipientId: 'grp_product_design',
-          },
-        },
-        subscriptions: {
-          create: {
-            id: 'fsub_design_maria',
-            userId: 'usr_maria',
-            mode: 'ALL',
-          },
-        },
-      },
-    });
-    await prisma.feedItem.create({
-      data: {
-        id: 'fitem_design_review',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        postId: 'feed_design_review',
-        sourceType: 'POST',
-        sourceId: 'feed_design_review',
-        sourceVersion: 1,
-        action: 'PUBLISHED',
-        eventKey: 'feed:post:feed_design_review:v1:published',
-        actorId: 'usr_maria',
-        visibility: 'GROUP',
-        safePayload: JSON.stringify({
-          postId: 'feed_design_review',
-          action: 'PUBLISHED',
-          snippet: 'Компактніший варіант екрану огляду',
-        }),
-        occurredAt: new Date('2026-07-22T14:10:00.000Z'),
-      },
-    });
-    await prisma.comment.create({
-      data: {
-        id: 'cmt_feed_design',
-        workspaceId: 'ws_lankadws',
-        companyId: 'cmp_lankadws_ua',
-        entityType: 'FEED_POST',
-        entityId: 'feed_design_review',
-        authorId: 'usr_andrii',
-        body: 'Фокус став значно яснішим. Перевірмо ще клавіатурну навігацію перед релізом.',
-        visibility: 'FEED_AUDIENCE',
       },
     });
   }

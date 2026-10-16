@@ -27,7 +27,7 @@ import {
   isGlobalAdmin,
   type AuthPrincipal,
 } from '../../common/request-context.js';
-import { normalizeUserSearchValue } from '../../common/user-search.js';
+import { searchUsers } from '../../common/search-users.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { ScopeService } from '../authorization/scope.service.js';
 import { FilesService, type UploadedBinary } from '../files/files.service.js';
@@ -47,9 +47,8 @@ interface FeedCursor {
 }
 
 interface ResolvedAudience {
-  groupId: string | null;
   recipients: Array<{
-    type: 'COMPANY' | 'GROUP' | 'USER';
+    type: 'COMPANY' | 'USER';
     recipientId: string;
   }>;
   userIds: string[];
@@ -61,7 +60,6 @@ type ListedFeedItem = Prisma.FeedItemGetPayload<{
     post: {
       include: {
         author: { select: { id: true; displayName: true; avatarAsset: true } };
-        group: { select: { id: true; name: true } };
         recipients: true;
         acknowledgementRecipients: true;
         acknowledgements: true;
@@ -162,7 +160,6 @@ export class FeedService {
                   ? 'COMPANY'
                   : input.audience.type,
             audienceKey,
-            groupId: audience.groupId,
           },
         });
         const directUserIds = audience.recipients
@@ -325,47 +322,19 @@ export class FeedService {
   ): Promise<{ items: FeedAudienceOption[] }> {
     const companyIds = this.scope.allowedCompanies(principal, company);
     if (companyIds.length === 0) return { items: [] };
-    const [companies, groups] = await Promise.all([
-      this.prisma.company.findMany({
-        where: {
-          id: { in: companyIds },
-          workspaceId: principal.workspaceId,
-          isActive: true,
-        },
-        select: { id: true, displayName: true },
-        orderBy: { displayName: 'asc' },
-      }),
-      this.prisma.group.findMany({
-        where: {
-          companyId: { in: companyIds },
-          workspaceId: principal.workspaceId,
-          status: 'ACTIVE',
-          OR: [
-            { ownerId: principal.userId },
-            { members: { some: { userId: principal.userId, leftAt: null } } },
-          ],
-        },
-        select: { id: true, companyId: true, name: true, description: true },
-        orderBy: [{ companyId: 'asc' }, { name: 'asc' }],
-      }),
-    ]);
+    const companies = await this.prisma.company.findMany({
+      where: { id: { in: companyIds }, workspaceId: principal.workspaceId, isActive: true },
+      select: { id: true, displayName: true },
+      orderBy: { displayName: 'asc' },
+    });
     return {
-      items: [
-        ...companies.map((item) => ({
-          type: 'COMPANY' as const,
-          id: item.id,
-          companyId: item.id,
-          label: item.displayName,
-          detail: 'Усі активні працівники організації',
-        })),
-        ...groups.map((item) => ({
-          type: 'GROUP' as const,
-          id: item.id,
-          companyId: item.companyId,
-          label: item.name,
-          detail: item.description?.trim() || 'Учасники робочої групи',
-        })),
-      ],
+      items: companies.map((item) => ({
+        type: 'COMPANY' as const,
+        id: item.id,
+        companyId: item.id,
+        label: item.displayName,
+        detail: 'Усі активні працівники організації',
+      })),
     };
   }
 
@@ -375,18 +344,11 @@ export class FeedService {
   ): Promise<{ items: MentionCandidateView[] }> {
     if (query.company === 'all') throw badRequest('company_required');
     this.scope.assertCompany(principal, query.company);
-    const audience = await this.resolveAudience(
-      principal,
-      query.company,
-      query.audienceType === 'GROUP'
-        ? { type: 'GROUP', groupId: query.audienceId! }
-        : { type: 'COMPANY' },
-    );
     return {
       items: await this.findMentionCandidates(
         principal,
         query.company,
-        [...new Set([...audience.userIds, principal.userId])],
+        { OR: [{ primaryCompanyId: query.company }, { id: principal.userId }] },
         query.q,
         query.limit,
       ),
@@ -399,15 +361,14 @@ export class FeedService {
     query: MentionSearchQuery,
   ): Promise<{ items: MentionCandidateView[] }> {
     const post = await this.accessiblePost(principal, postId);
-    const audienceUserIds = await this.expandStoredAudience(
-      post.companyId,
-      post.recipients,
-    );
     return {
       items: await this.findMentionCandidates(
         principal,
         post.companyId,
-        [...new Set([...audienceUserIds, post.authorId])],
+        { OR: [
+          { primaryCompanyId: { in: post.recipients.filter((recipient) => recipient.type === 'COMPANY').map((recipient) => recipient.recipientId) } },
+          { id: { in: [post.authorId, ...post.recipients.filter((recipient) => recipient.type === 'USER').map((recipient) => recipient.recipientId)] } },
+        ] },
         query.q,
         query.limit,
       ),
@@ -417,40 +378,13 @@ export class FeedService {
   private async findMentionCandidates(
     principal: AuthPrincipal,
     companyId: string,
-    allowedUserIds: string[],
+    audienceWhere: Prisma.UserWhereInput,
     search: string,
     limit: number,
   ): Promise<MentionCandidateView[]> {
-    if (allowedUserIds.length === 0) return [];
-    const normalized = normalizeUserSearchValue(search);
-    return this.prisma.user.findMany({
-      where: {
-        id: { in: allowedUserIds },
-        workspaceId: principal.workspaceId,
-        isActive: true,
-        OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }],
-        ...(normalized
-          ? {
-              AND: [
-                {
-                  OR: [
-                    { normalizedDisplayName: { contains: normalized } },
-                    { normalizedUsername: { contains: normalized } },
-                  ],
-                },
-              ],
-            }
-          : {}),
-      },
-      select: {
-        id: true,
-        displayName: true,
-        username: true,
-        jobTitle: true,
-        avatarAsset: true,
-      },
-      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
-      take: limit,
+    return searchUsers(this.prisma, principal, search, {
+      where: { AND: [audienceWhere, { OR: [{ primaryCompanyId: companyId }, { accountType: 'ADMIN' }] }] },
+      limit,
     });
   }
 
@@ -460,16 +394,14 @@ export class FeedService {
   ): Promise<{ items: FeedAudienceFacetOption[] }> {
     const companyIds = this.scope.allowedCompanies(principal, company);
     if (companyIds.length === 0) return { items: [] };
-    const access = await this.accessiblePostWhere(principal, companyIds);
+    const access = this.accessiblePostWhere(principal, companyIds);
     const fileShareAccess = this.accessibleFileShareWhere(
       principal,
       companyIds,
     );
     const [
       companies,
-      groupRecipients,
       userRecipients,
-      fileGroupShares,
       fileUserRecipients,
     ] = await Promise.all([
       this.prisma.company.findMany({
@@ -484,58 +416,22 @@ export class FeedService {
       this.prisma.feedPostRecipient.groupBy({
         by: ['recipientId'],
         where: {
-          type: 'GROUP',
-          post: { is: { ...access, status: 'PUBLISHED' } },
-        },
-      }),
-      this.prisma.feedPostRecipient.groupBy({
-        by: ['recipientId'],
-        where: {
           type: 'USER',
           post: { is: { ...access, status: 'PUBLISHED' } },
         },
-      }),
-      this.prisma.feedFileShare.findMany({
-        where: {
-          ...fileShareAccess,
-          audienceType: 'GROUP',
-          groupId: { not: null },
-        },
-        distinct: ['groupId'],
-        select: { groupId: true },
       }),
       this.prisma.feedFileShareRecipient.groupBy({
         by: ['userId'],
         where: { share: { is: fileShareAccess } },
       }),
     ]);
-    const groupRecipientIds = [
-      ...new Set([
-        ...groupRecipients.map((item) => item.recipientId),
-        ...fileGroupShares.flatMap((item) =>
-          item.groupId ? [item.groupId] : [],
-        ),
-      ]),
-    ];
     const userRecipientIds = [
       ...new Set([
         ...userRecipients.map((item) => item.recipientId),
         ...fileUserRecipients.map((item) => item.userId),
       ]),
     ];
-    const [groups, users] = await Promise.all([
-      groupRecipientIds.length > 0
-        ? this.prisma.group.findMany({
-            where: {
-              id: { in: groupRecipientIds },
-              workspaceId: principal.workspaceId,
-              companyId: { in: companyIds },
-              status: 'ACTIVE',
-            },
-            select: { id: true, name: true },
-            orderBy: { name: 'asc' },
-          })
-        : Promise.resolve([]),
+    const [users] = await Promise.all([
       userRecipientIds.length > 0
         ? this.prisma.user.findMany({
             where: {
@@ -556,13 +452,6 @@ export class FeedService {
           label: item.displayName,
           detail: 'Події стрічки для всієї організації',
           queryKey: 'audienceId' as const,
-        })),
-        ...groups.map((item) => ({
-          type: 'GROUP' as const,
-          id: item.id,
-          label: item.name,
-          detail: 'Події стрічки в контексті робочої групи',
-          queryKey: 'groupId' as const,
         })),
         ...users.map((item) => ({
           type: 'USER' as const,
@@ -585,7 +474,7 @@ export class FeedService {
   ): Promise<{ items: FeedAuthorOption[] }> {
     const companyIds = this.scope.allowedCompanies(principal, company);
     if (companyIds.length === 0) return { items: [] };
-    const access = await this.accessiblePostWhere(principal, companyIds);
+    const access = this.accessiblePostWhere(principal, companyIds);
     const [posts, sourceItems] = await Promise.all([
       this.prisma.feedPost.findMany({
         where: { ...access, status: 'PUBLISHED' },
@@ -618,7 +507,6 @@ export class FeedService {
                   author: {
                     select: { id: true, displayName: true, avatarAsset: true },
                   },
-                  group: { select: { id: true, name: true } },
                   recipients: true,
                   acknowledgementRecipients: true,
                   acknowledgements: true,
@@ -664,7 +552,7 @@ export class FeedService {
       };
     }
     const cursor = query.cursor ? this.decodeCursor(query.cursor) : null;
-    const access = await this.accessiblePostWhere(principal, companyIds);
+    const access = this.accessiblePostWhere(principal, companyIds);
     const dateAccess = await this.dateAccessWhere(
       companyIds,
       query.dateFrom,
@@ -675,7 +563,6 @@ export class FeedService {
       status: 'PUBLISHED',
       ...(query.filter === 'MINE' ? { authorId: principal.userId } : {}),
       ...(query.authorId ? { authorId: query.authorId } : {}),
-      ...(query.groupId ? { groupId: query.groupId } : {}),
       ...(query.audienceId
         ? { recipients: { some: { recipientId: query.audienceId } } }
         : {}),
@@ -724,7 +611,6 @@ export class FeedService {
                 author: {
                   select: { id: true, displayName: true, avatarAsset: true },
                 },
-                group: { select: { id: true, name: true } },
                 recipients: true,
                 acknowledgementRecipients: true,
                 acknowledgements: true,
@@ -779,19 +665,6 @@ export class FeedService {
                 removedAt: null,
               },
             },
-            OR: [
-              { groupId: null },
-              {
-                group: {
-                  members: {
-                    some: {
-                      userId: principal.userId,
-                      leftAt: null,
-                    },
-                  },
-                },
-              },
-            ],
             archivedAt: null,
             dueAt: { lt: new Date() },
             status: { notIn: ['DONE', 'ARCHIVED'] },
@@ -848,7 +721,7 @@ export class FeedService {
   ): Promise<{ unreadCount: number }> {
     const companyIds = this.scope.allowedCompanies(principal, company);
     if (companyIds.length === 0) return { unreadCount: 0 };
-    const access = await this.accessiblePostWhere(principal, companyIds);
+    const access = this.accessiblePostWhere(principal, companyIds);
     return {
       unreadCount: await this.unreadCount(principal, companyIds, access),
     };
@@ -867,7 +740,6 @@ export class FeedService {
             author: {
               select: { id: true, displayName: true, avatarAsset: true },
             },
-            group: { select: { id: true, name: true } },
             recipients: true,
             acknowledgementRecipients: true,
             acknowledgements: true,
@@ -940,7 +812,6 @@ export class FeedService {
           id: postId,
           workspaceId: principal.workspaceId,
           companyId: input.companyId,
-          groupId: audience.groupId,
           authorId: principal.userId,
           body: input.body,
           requiresAcknowledgement: input.requiresAcknowledgement,
@@ -1646,7 +1517,7 @@ export class FeedService {
     }> = [];
     for (const marker of input.markers) {
       this.scope.assertCompany(principal, marker.companyId);
-      const access = await this.accessiblePostWhere(principal, [
+      const access = this.accessiblePostWhere(principal, [
         marker.companyId,
       ]);
       const item = await this.prisma.feedItem.findFirst({
@@ -1736,7 +1607,7 @@ export class FeedService {
       select: { companyId: true },
     });
     if (!candidate) throw notFound();
-    const access = await this.accessiblePostWhere(principal, companyIds);
+    const access = this.accessiblePostWhere(principal, companyIds);
     const post = await this.prisma.feedPost.findFirst({
       where: { id: postId, status: 'PUBLISHED', ...access },
       include: { recipients: true },
@@ -1752,19 +1623,10 @@ export class FeedService {
     return post;
   }
 
-  private async accessiblePostWhere(
+  private accessiblePostWhere(
     principal: AuthPrincipal,
     companyIds: string[],
-  ): Promise<Prisma.FeedPostWhereInput> {
-    const memberships = await this.prisma.groupMember.findMany({
-      where: {
-        userId: principal.userId,
-        leftAt: null,
-        group: { companyId: { in: companyIds }, status: 'ACTIVE' },
-      },
-      select: { groupId: true },
-    });
-    const groupIds = memberships.map((item) => item.groupId);
+  ): Prisma.FeedPostWhereInput {
     return {
       workspaceId: principal.workspaceId,
       OR: [
@@ -1775,9 +1637,6 @@ export class FeedService {
               OR: [
                 { type: 'COMPANY', recipientId: { in: companyIds } },
                 { type: 'USER', recipientId: principal.userId },
-                ...(groupIds.length > 0
-                  ? [{ type: 'GROUP' as const, recipientId: { in: groupIds } }]
-                  : []),
               ],
             },
           },
@@ -1794,7 +1653,6 @@ export class FeedService {
       | 'filter'
       | 'type'
       | 'authorId'
-      | 'groupId'
       | 'audienceId'
       | 'mentioned'
       | 'important'
@@ -1814,7 +1672,7 @@ export class FeedService {
     ) {
       const actorFilter =
         query.authorId ?? (query.filter === 'MINE' ? principal.userId : null);
-      if (!query.groupId && !query.audienceId && allows('TASK')) {
+      if (!query.audienceId && allows('TASK')) {
         branches.push({
           postId: null,
           sourceType: 'TASK',
@@ -1826,7 +1684,7 @@ export class FeedService {
           ],
         });
       }
-      if (!query.groupId && !query.audienceId && allows('EVENT')) {
+      if (!query.audienceId && allows('EVENT')) {
         branches.push({
           postId: null,
           sourceType: 'EVENT',
@@ -1855,14 +1713,6 @@ export class FeedService {
                       principal,
                       principal.allowedCompanyIds,
                     ),
-                    ...(query.groupId
-                      ? [
-                          {
-                            audienceType: 'GROUP' as const,
-                            groupId: query.groupId,
-                          },
-                        ]
-                      : []),
                     ...(query.audienceId
                       ? [
                           {
@@ -1904,15 +1754,6 @@ export class FeedService {
         { ownerId: principal.userId },
         { audienceType: 'COMPANY' },
         {
-          audienceType: 'GROUP',
-          group: {
-            is: {
-              status: 'ACTIVE',
-              members: { some: { userId: principal.userId, leftAt: null } },
-            },
-          },
-        },
-        {
           audienceType: 'USER',
           directRecipients: { some: { userId: principal.userId } },
         },
@@ -1928,42 +1769,8 @@ export class FeedService {
     if (audience.type === 'COMPANY') {
       const users = await this.activeCompanyUserIds(companyId);
       return {
-        groupId: null,
         recipients: [{ type: 'COMPANY', recipientId: companyId }],
         userIds: users,
-        companyIds: [companyId],
-      };
-    }
-    if (audience.type === 'GROUP') {
-      const group = await this.prisma.group.findFirst({
-        where: {
-          id: audience.groupId,
-          workspaceId: principal.workspaceId,
-          companyId,
-          status: 'ACTIVE',
-          ...(isGlobalAdmin(principal)
-            ? {}
-            : {
-                OR: [
-                  { ownerId: principal.userId },
-                  {
-                    members: {
-                      some: { userId: principal.userId, leftAt: null },
-                    },
-                  },
-                ],
-              }),
-        },
-        select: {
-          id: true,
-          members: { where: { leftAt: null }, select: { userId: true } },
-        },
-      });
-      if (!group) throw badRequest('feed_group_audience');
-      return {
-        groupId: group.id,
-        recipients: [{ type: 'GROUP', recipientId: group.id }],
-        userIds: [...new Set(group.members.map((member) => member.userId))],
         companyIds: [companyId],
       };
     }
@@ -1978,7 +1785,6 @@ export class FeedService {
         await Promise.all(companyIds.map((id) => this.activeCompanyUserIds(id)))
       ).flat();
       return {
-        groupId: null,
         recipients: companyIds.map((id) => ({
           type: 'COMPANY' as const,
           recipientId: id,
@@ -1999,7 +1805,6 @@ export class FeedService {
     if (users.length !== audience.userIds.length)
       throw badRequest('feed_user_audience');
     return {
-      groupId: null,
       recipients: users.map((user) => ({ type: 'USER', recipientId: user.id })),
       userIds: users.map((user) => user.id),
       companyIds: [companyId],
@@ -2009,14 +1814,11 @@ export class FeedService {
   private async expandStoredAudience(
     companyId: string,
     recipients: Array<{
-      type: 'COMPANY' | 'GROUP' | 'USER';
+      type: 'COMPANY' | 'USER';
       recipientId: string;
     }>,
   ): Promise<string[]> {
     const userIds = new Set<string>();
-    const groupIds = recipients
-      .filter((entry) => entry.type === 'GROUP')
-      .map((entry) => entry.recipientId);
     for (const recipient of recipients) {
       if (recipient.type === 'USER') userIds.add(recipient.recipientId);
       if (recipient.type === 'COMPANY') {
@@ -2025,13 +1827,6 @@ export class FeedService {
         ))
           userIds.add(userId);
       }
-    }
-    if (groupIds.length > 0) {
-      const members = await this.prisma.groupMember.findMany({
-        where: { groupId: { in: groupIds }, leftAt: null },
-        select: { userId: true },
-      });
-      for (const member of members) userIds.add(member.userId);
     }
     return [...userIds];
   }
@@ -2119,18 +1914,6 @@ export class FeedService {
               workspaceId: principal.workspaceId,
               companyId: { in: principal.allowedCompanyIds },
               AND: [
-                {
-                  OR: [
-                    { groupId: null },
-                    {
-                      group: {
-                        members: {
-                          some: { userId: principal.userId, leftAt: null },
-                        },
-                      },
-                    },
-                  ],
-                },
                 ...(isGlobalAdmin(principal)
                   ? []
                   : [
@@ -2177,6 +1960,7 @@ export class FeedService {
               id: { in: eventIds },
               workspaceId: principal.workspaceId,
               companyId: { in: principal.allowedCompanyIds },
+              audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
               OR: [
                 { ownerId: principal.userId },
                 { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } },
@@ -2195,7 +1979,6 @@ export class FeedService {
             },
             include: {
               file: true,
-              group: { select: { id: true, name: true } },
               directRecipients: { select: { userId: true } },
             },
           })
@@ -2229,6 +2012,7 @@ export class FeedService {
         const task = taskById.get(item.sourceId);
         if (!task) return [];
         const assignee = task.participants[0]?.user;
+        const taskReporter = userById.get(task.reporterId) ?? null;
         return [
           {
             kind: 'SOURCE',
@@ -2236,16 +2020,18 @@ export class FeedService {
             itemId: item.id,
             companyId: task.companyId,
             sourceType: 'TASK',
+            taskReporter,
+            taskAssignee: assignee ?? null,
             action: item.action,
             actor,
-            label: this.taskProjectionLabel(item.action, historical),
+            label: this.taskProjectionLabel(item.action, historical, item.safePayload),
             title: task.title,
             summary: task.description.trim(),
             metadata: [
-              task.number,
-              this.taskStatusLabel(task.status),
+              `Завдання: ${task.number}`,
+              ...(taskReporter ? [`Постановник: ${taskReporter.displayName}`] : []),
               ...(assignee
-                ? [`Відповідальна людина: ${assignee.displayName}`]
+                ? [`Виконавець: ${assignee.displayName}`]
                 : []),
               ...(task.dueAt
                 ? [`Строк: ${this.formatFeedDate(task.dueAt)}`]
@@ -2273,7 +2059,7 @@ export class FeedService {
             sourceType: 'EVENT',
             action: item.action,
             actor,
-            label: historical ? 'Історична подія' : 'Подія календаря',
+            label: historical ? 'Історична подія' : item.action === 'CREATED' ? 'Створено подію календаря' : 'Подія календаря',
             title: event.title,
             summary: event.allDay
               ? 'Подія на весь день'
@@ -2488,7 +2274,6 @@ export class FeedService {
           id: post.id,
           itemId: item.id,
           companyId: post.companyId,
-          group: post.group,
           author: post.author,
           audienceLabel: this.audienceLabel(
             post,
@@ -2559,9 +2344,8 @@ export class FeedService {
 
   private audienceLabel(
     post: {
-      group: { name: string } | null;
       recipients: Array<{
-        type: 'COMPANY' | 'GROUP' | 'USER';
+        type: 'COMPANY' | 'USER';
         recipientId: string;
       }>;
     },
@@ -2580,7 +2364,6 @@ export class FeedService {
             .join(', ');
     }
     if (companyRecipientIds.length === 1) return 'Вся організація';
-    if (post.group) return post.group.name;
     return post.recipients
       .filter((entry) => entry.type === 'USER')
       .map((entry) => directNameById.get(entry.recipientId) ?? 'Працівник')
@@ -2596,11 +2379,44 @@ export class FeedService {
     }
   }
 
-  private taskProjectionLabel(action: string, historical: boolean): string {
+  private taskProjectionLabel(action: string, historical: boolean, safePayload = '{}'): string {
     if (historical) return 'Історичне завдання';
-    if (action === 'STATUS_CHANGED') return 'Статус завдання змінено';
-    if (action === 'PARTICIPANT_CHANGED') return 'Учасників завдання оновлено';
-    return 'Нове призначення';
+    let details: Record<string, unknown> = {};
+    try {
+      const payload = JSON.parse(safePayload) as { taskDetails?: unknown };
+      if (payload?.taskDetails && typeof payload.taskDetails === 'object')
+        details = payload.taskDetails as Record<string, unknown>;
+    } catch { /* Older projections may not contain change details. */ }
+    if (action === 'STATUS_CHANGED')
+      return typeof details.status === 'string'
+        ? `Статус змінено: ${this.taskStatusLabel(details.status)}`
+        : 'Статус завдання змінено';
+    if (action === 'COMMENT_CREATED')
+      return details.watchersAdded ? 'Нове повідомлення · Додано спостерігачів' : 'Нове повідомлення';
+    if (action === 'PARTICIPANT_CHANGED') {
+      const role = typeof details.role === 'string' ? details.role : '';
+      if (details.change === 'REMOVED')
+        return ({ RESPONSIBLE: 'Відповідального вилучено', COLLABORATOR: 'Співвиконавця вилучено', WATCHER: 'Спостерігача вилучено' } as Record<string, string>)[role] ?? 'Учасника вилучено';
+      return ({ RESPONSIBLE: 'Новий відповідальний', COLLABORATOR: 'Новий співвиконавець', WATCHER: 'Новий спостерігач' } as Record<string, string>)[role] ?? 'Учасників завдання оновлено';
+    }
+    if (action === 'UPDATED' && Array.isArray(details.changedFields)) {
+      const fields: Record<string, string> = {
+        title: 'назву', description: 'опис', reporterId: 'постановника',
+        projectId: 'проєкт', parentTaskId: 'батьківське завдання', priority: 'пріоритет',
+        startsAt: 'дату початку', dueAt: 'строк', estimatedMinutes: 'оцінку часу',
+        requiresAcceptance: 'перевірку результату',
+      };
+      const changed = details.changedFields.flatMap((field: unknown) =>
+        typeof field === 'string' && fields[field] ? [fields[field]] : []);
+      if (changed.length) return `Змінено ${changed.join(', ')}`;
+    }
+    return ({
+      ASSIGNED: 'Нове призначення', CREATED: 'Нове завдання', UPDATED: 'Завдання оновлено',
+      ARCHIVED: 'Завдання архівовано', RECURRENCE_CREATED: 'Нове повторюване завдання',
+      SUBTASK_CREATED: 'Нове підзавдання', APPROVAL_REQUESTED: 'Завдання передано на перевірку',
+      APPROVAL_APPROVED: 'Результат завдання прийнято', APPROVAL_NEEDS_CHANGES: 'Завдання повернуто на доопрацювання',
+      ATTACHMENT_ADDED: 'Нове вкладення', ATTACHMENT_REMOVED: 'Вкладення вилучено',
+    } as Record<string, string>)[action] ?? 'Завдання оновлено';
   }
 
   private fileActionState(scanStatus: string): FeedSourceView['actionState'] {
@@ -2620,12 +2436,9 @@ export class FeedService {
 
   private fileAudienceLabel(share: {
     audienceType: string;
-    group: { name: string } | null;
     directRecipients: Array<{ userId: string }>;
   }): string {
     if (share.audienceType === 'COMPANY') return 'Вся організація';
-    if (share.audienceType === 'GROUP')
-      return share.group?.name ?? 'Робоча група';
     return share.directRecipients.length === 1
       ? 'Особистий доступ'
       : `Обрані працівники: ${share.directRecipients.length}`;
@@ -2815,7 +2628,6 @@ export class FeedService {
       query.filter === 'ALL' &&
       query.type === 'ALL' &&
       !query.authorId &&
-      !query.groupId &&
       !query.audienceId &&
       !query.dateFrom &&
       !query.dateTo &&

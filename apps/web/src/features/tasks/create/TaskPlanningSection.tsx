@@ -1,3 +1,5 @@
+import { DateTimePicker } from '../../../shared/ui/DateTimePicker'
+import { personName } from '../../../shared/lib/personName'
 import type { TaskRecurrenceFrequency } from '@lankadws/contracts'
 import { AlarmClockPlus, Plus, Repeat2, Trash2 } from 'lucide-react'
 import { Button } from '../../../shared/ui'
@@ -129,7 +131,7 @@ export function TaskPlanningSection({
                           || draft.participants.some((item) => item.userId === user.id)
                         ))
                         .map((user) => (
-                          <option key={user.id} value={user.id}>{user.displayName}</option>
+                          <option key={user.id} value={user.id}>{personName(user.displayName)}</option>
                         ))}
                     </select>
                   </label>
@@ -150,7 +152,7 @@ export function TaskPlanningSection({
                 {reminder.triggerType === 'AT' ? (
                   <label>
                     Дата і час
-                    <input
+                    <DateTimePicker
                       type="datetime-local"
                       value={reminder.at}
                       onChange={(event) => updateReminder(update, reminder.clientId, {
@@ -245,7 +247,7 @@ export function TaskPlanningSection({
             </label>
             <label>
               Перше повторення
-              <input
+              <DateTimePicker
                 type="datetime-local"
                 value={draft.recurrence.startsAt}
                 onChange={(event) => updateRecurrence(update, {
@@ -255,7 +257,7 @@ export function TaskPlanningSection({
             </label>
             <label>
               Завершити після дати
-              <input
+              <DateTimePicker
                 type="datetime-local"
                 value={draft.recurrence.endsAt}
                 min={draft.recurrence.startsAt}

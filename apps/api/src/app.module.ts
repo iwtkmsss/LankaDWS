@@ -15,7 +15,6 @@ import { EmployeesModule } from './modules/employees/employees.module.js';
 import { FilesModule } from './modules/files/files.module.js';
 import { FeedModule } from './modules/feed/feed.module.js';
 import { HealthModule } from './modules/health/health.module.js';
-import { GroupsModule } from './modules/groups/groups.module.js';
 import { JobsModule } from './modules/jobs/jobs.module.js';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module.js';
 import { ImportControlModule } from './modules/import-control/import-control.module.js';
@@ -43,7 +42,6 @@ import { UiPreferencesModule } from './modules/preferences/ui-preferences.module
     ImportControlModule,
     EmployeesModule,
     OrgModule,
-    GroupsModule,
     LifecycleModule,
     CommunicationModule,
     DashboardModule,

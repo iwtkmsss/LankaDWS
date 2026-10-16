@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { id, sha256 } from '../../common/crypto.js'
@@ -76,7 +77,6 @@ export class TaskCommandService {
           id: taskId,
           workspaceId: principal.workspaceId,
           companyId: context.companyId,
-          groupId: context.groupId,
           projectId: context.projectId,
           parentTaskId: context.parentTaskId,
           number: allocatedNumber,
@@ -126,6 +126,7 @@ export class TaskCommandService {
         )
       }
       await this.attachments.linkMany(tx, taskId, attachmentIds)
+      await notifyTaskParticipants(tx, taskId, principal.userId, task.version, 'task.created')
       const feedItemId = await this.feedProjection.projectTask(tx, task, {
         action: 'ASSIGNED',
         actorId: principal.userId,
@@ -257,7 +258,6 @@ export class TaskCommandService {
     const changedFields = [
       ...(input.title !== undefined && input.title !== task.title ? ['title'] : []),
       ...(input.description !== undefined && input.description !== task.description ? ['description'] : []),
-      ...(input.groupId !== undefined && input.groupId !== task.groupId ? ['groupId'] : []),
       ...(input.projectId !== undefined && input.projectId !== task.projectId ? ['projectId'] : []),
       ...(input.parentTaskId !== undefined && input.parentTaskId !== task.parentTaskId ? ['parentTaskId'] : []),
       ...(input.reporterId !== undefined && scope.reporterId !== task.reporterId ? ['reporterId'] : []),
@@ -272,11 +272,10 @@ export class TaskCommandService {
         : []),
     ]
 
-    if (input.groupId !== undefined || input.projectId !== undefined || input.parentTaskId !== undefined) {
+    if (input.projectId !== undefined || input.parentTaskId !== undefined) {
       await this.hierarchy.assertValidParent(principal, {
         id: task.id,
         companyId: task.companyId,
-        groupId: scope.groupId,
         projectId: scope.projectId,
       }, nextParentTaskId)
     }
@@ -287,7 +286,6 @@ export class TaskCommandService {
         data: {
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.description === undefined ? {} : { description: input.description }),
-          ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
           ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
           ...(input.parentTaskId === undefined ? {} : { parentTaskId: input.parentTaskId }),
           ...(input.reporterId === undefined ? {} : { reporterId: input.reporterId }),
@@ -321,6 +319,9 @@ export class TaskCommandService {
             changes: {
               ...(input.title !== undefined && input.title !== task.title ? { title: input.title } : {}),
               ...(input.description !== undefined && input.description !== task.description ? { description: true } : {}),
+              ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+              ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+              ...(input.priority !== undefined ? { priority: input.priority } : {}),
             },
           }),
           correlationId: id('corr'),
@@ -333,7 +334,10 @@ export class TaskCommandService {
           aggregateId: taskId,
           aggregateVersion: input.expectedVersion + 1,
           eventType: 'task.updated',
-          safePayload: JSON.stringify({ taskId, actorId: principal.userId }),
+          safePayload: JSON.stringify({ taskId, actorId: principal.userId, notificationDiff: {
+            changedFields,
+            changes: { title: input.title, dueAt: input.dueAt, startsAt: input.startsAt, priority: input.priority },
+          } }),
         },
       })
       return { id: taskId, version: input.expectedVersion + 1 }

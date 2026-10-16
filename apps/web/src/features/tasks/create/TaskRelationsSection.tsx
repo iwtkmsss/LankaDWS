@@ -68,14 +68,14 @@ export function TaskRelationsSection({
   const [hierarchyTaskId, setHierarchyTaskId] = useState(draft.parentTaskId)
   const searchTasks = useRef(new Map<string, TaskOption>())
   const loadTasks = useCallback(async (search: string, signal: AbortSignal) => {
-    const result = await loadTaskCreateOptions(draft.groupId, '', search, signal)
+    const result = await loadTaskCreateOptions('', search, signal)
     const tasks = search ? result.tasks : result.tasks.slice(0, 5)
     for (const task of tasks) searchTasks.current.set(task.id, task)
     return tasks.map((task) => ({
       id: task.id,
       label: `${task.number} · ${task.title}`,
     }))
-  }, [draft.groupId])
+  }, [])
   const hierarchy = useQuery({
     queryKey: ['task-create-hierarchy', hierarchyTaskId],
     queryFn: ({ signal }) => loadTaskHierarchy(hierarchyTaskId, signal),

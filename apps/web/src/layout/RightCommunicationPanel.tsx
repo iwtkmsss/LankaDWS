@@ -1,3 +1,10 @@
+import { conversationName, personName, personPatronymic, personNamesInLabel } from '../shared/lib/personName'
+import { useDocumentVisible } from '../shared/lib/useDocumentVisible'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { useReadingMessageThread } from '../features/messages/lib/messageSound'
+import { sortThreadsWithDrafts, useMessageDrafts } from '../features/messages/lib/messageDrafts'
+import { useChatPin } from '../features/messages/hooks/useChatPin'
+import { ChatPinButton } from '../features/messages/components/ChatPinButton'
 import type {
   ChatAttachmentView,
   ChatContactUser,
@@ -13,20 +20,15 @@ import {
 } from '@tanstack/react-query'
 import {
   ArrowLeft,
-  ArrowDown,
   Bell,
   BellRing,
   BriefcaseBusiness,
   Building2,
-  Check,
-  CheckCheck,
   CheckCircle2,
   CircleAlert,
   ChevronDown,
   ChevronRight,
-  Copy,
   FileText,
-  Forward,
   ListTodo,
   LoaderCircle,
   Mail,
@@ -35,44 +37,45 @@ import {
   Network,
   PanelRightClose,
   Paperclip,
-  Pin,
   Phone,
-  Reply,
   Search,
   Send,
   ShieldCheck,
-  Trash2,
   UsersRound,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   getMessagePage,
+  getMessage,
+  setMessageReaction,
   getChatUser,
   getThreadDetail,
   getThreadPage,
-  searchChatUsers,
   createThread,
   sendMessage,
   uploadMessageAttachments,
 } from '../features/messages/api/messageApi'
 import { messageKeys } from '../features/messages/api/messageKeys'
+import { MessageBubble } from '../features/messages/components/MessageBubble'
+import { continuesMessageGroup } from '../shared/messages/messageGrouping'
+import { ForwardMessageDrawer } from '../features/messages/components/ForwardMessageDrawer'
+import { upsertMessageCache } from '../features/messages/lib/messageCache'
 import { formatChatTime } from '../features/messages/lib/chatDates'
 import { MessageComposer } from '../features/messages/components/MessageComposer'
-import { UserProfileLink } from '../features/employees/UserProfileDrawer'
-import { MentionText } from '../shared/mentions/MentionRenderer'
 import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
-import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
+import { useUserSearch } from '../shared/lib/useUserSearch'
 import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
 import { normalizedCodePointLength } from '../features/messages/lib/messageText'
 import '../features/messages/messages.css'
-import { api, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
+import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { Avatar, CompactFileName, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { Avatar, ErrorState, IconButton, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import { FileThumbnail } from '../shared/files/FileThumbnail'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
@@ -123,6 +126,7 @@ const notificationLabels: Record<string, string> = {
   MENTION: 'Згадка',
   SECURITY: 'Безпека',
   TASKS: 'Завдання',
+  CALENDAR: 'Календар',
 }
 
 function notificationIcon(category: string) {
@@ -135,31 +139,18 @@ function notificationIcon(category: string) {
   return <Bell size={18} />
 }
 
-function formatPanelFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
-}
-
-function isPreviewableImage(attachment: ChatAttachmentView): boolean {
-  return attachment.scanStatus === 'CLEAN' && /^image\/(?:png|jpeg|gif|webp)$/.test(attachment.mimeType ?? '')
-}
-
-function panelAttachmentUrl(attachment: ChatAttachmentView): string {
-  return apiUrl(`/files/${encodeURIComponent(attachment.id)}/download?inline=true`)
-}
-
 function notificationRoute(item: NotificationItem) {
   if (!item.entityId) return null
   if (item.entityType === 'TASK') return `/tasks/${item.entityId}`
+  if (item.entityType === 'EVENT') return `/calendar/events/${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'MESSAGE_THREAD') return `/messages/${item.entityId}`
-  if (item.entityType === 'FEED_POST') return item.requiresAction ? '/feed?filter=ACK_REQUIRED' : '/feed'
+  if (item.entityType === 'FEED_POST') return `/feed?post=${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'USER') return '/settings/security'
   return null
 }
 
 function ThreadAvatar({ thread }: { thread: ChatThreadListItem }) {
-  if (thread.kind === 'DIRECT') return <Avatar name={thread.title} src={thread.avatarAsset} />
+  if (thread.kind === 'DIRECT') return <Avatar name={conversationName(thread)} src={thread.avatarAsset} />
   return (
     <span className="right-panel__group-avatar" aria-hidden="true">
       <UsersRound size={19} />
@@ -190,7 +181,7 @@ function RightPanelTabs({
           className={tab === 'chat' ? 'is-active' : ''}
           onClick={() => onChange('chat')}
         >
-          Чат
+          <MessageCircle size={16} aria-hidden />Чат
           {chatUnread > 0 && <b>{Math.min(chatUnread, 99)}</b>}
         </button>
         <button
@@ -200,7 +191,7 @@ function RightPanelTabs({
           className={tab === 'notifications' ? 'is-active' : ''}
           onClick={() => onChange('notifications')}
         >
-          Сповіщення
+          <Bell size={16} aria-hidden />Сповіщення
           {notificationUnread > 0 && <b>{Math.min(notificationUnread, 99)}</b>}
         </button>
       </div>
@@ -213,6 +204,8 @@ function RightPanelTabs({
 
 export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const { user } = useAuth()
+  const drafts = useMessageDrafts(user?.id ?? '')
+  const chatPin = useChatPin()
   const navigate = useNavigate()
   const client = useQueryClient()
   const [tab, setTab] = useState<PanelTab>(() => {
@@ -230,15 +223,25 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const [chatUserQuery, setChatUserQuery] = useState('')
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
+  const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null)
+  const [forwarding, setForwarding] = useState<ChatMessageView | null>(null)
+  const [messageActionError, setMessageActionError] = useState('')
   const [profileSummaryOpen, setProfileSummaryOpen] = useState(false)
   const [chatFilesOpen, setChatFilesOpen] = useState(false)
+  const [bottomThreadId, setBottomThreadId] = useState<string | null>(null)
+  const [sentMessageVersion, setSentMessageVersion] = useState(0)
+  const onBottomChange = useCallback((threadId: string, atBottom: boolean) => {
+    setBottomThreadId(atBottom ? threadId : null)
+  }, [])
   const markedReadRef = useRef('')
+  const sendAttemptRef = useRef({ signature: '', key: '' })
+  const documentVisible = useDocumentVisible()
   const draftSendAttemptRef = useRef({
     signature: '',
     threadId: '',
     threadKey: '',
     messageKey: '',
-    attachmentIds: [] as string[],
+    attachments: [] as ChatAttachmentView[],
   })
 
   useEffect(() => {
@@ -256,26 +259,21 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: tab === 'chat',
   })
-  const threads = useMemo(() => [
+  const threads = useMemo(() => sortThreadsWithDrafts([
     ...new Map(
       (threadPages.data?.pages.flatMap((page) => page.items) ?? [])
         .map((thread) => [thread.id, thread]),
     ).values(),
-  ], [threadPages.data])
+  ], drafts), [threadPages.data, drafts])
   const selectedPreview = threads.find((thread) => thread.id === selectedThreadId)
   const {
+    users: chatUserSearch,
+    items: chatSearchItems,
     debouncedValue: debouncedChatUserQuery,
-    isComposing: isChatSearchComposing,
     onCompositionStart: onChatSearchCompositionStart,
     onCompositionEnd: onChatSearchCompositionEnd,
-  } = useDebouncedSearchValue(chatUserQuery)
-  const chatUserSearch = useQuery({
-    queryKey: messageKeys.users('all', debouncedChatUserQuery),
-    queryFn: ({ signal }) => searchChatUsers('all', debouncedChatUserQuery, signal),
-    enabled: tab === 'chat'
-      && chatSearchOpen
-      && !isChatSearchComposing
-      && normalizedCodePointLength(debouncedChatUserQuery) >= 1,
+  } = useUserSearch<ChatContactUser>(chatUserQuery, {
+    endpoint: '/messages/users/search', params: { company: 'all' }, enabled: tab === 'chat' && chatSearchOpen,
   })
 
   const detail = useQuery({
@@ -298,6 +296,10 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     () => messagePages.data?.pages.slice().reverse().flatMap((page) => page.items) ?? [],
     [messagePages.data],
   )
+  useEntityNotificationRead('MESSAGE_THREAD', tab === 'chat' && chatScreen === 'conversation'
+    && detail.isSuccess && messagePages.isSuccess ? selectedThreadId ?? undefined : undefined, detail.dataUpdatedAt)
+  useReadingMessageThread(user?.id, tab === 'chat' && chatScreen === 'conversation'
+    && detail.isSuccess && messagePages.isSuccess ? selectedThreadId ?? undefined : undefined)
   const sharedAttachments = useMemo(() => [
     ...new Map(
       messages.flatMap((message) => message.attachments).map((attachment) => [attachment.id, attachment]),
@@ -339,7 +341,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       threadId: '',
       threadKey: '',
       messageKey: '',
-      attachmentIds: [],
+      attachments: [],
     }
   }, [props.targetUserId])
 
@@ -365,7 +367,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
           threadId: '',
           threadKey: idempotencyKey('right-panel-direct'),
           messageKey: idempotencyKey('right-panel-message'),
-          attachmentIds: [],
+          attachments: [],
         }
       }
       const attempt = draftSendAttemptRef.current
@@ -377,16 +379,16 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         }, attempt.threadKey)
         attempt.threadId = thread.id
       }
-      if (files.length && attempt.attachmentIds.length !== files.length) {
+      if (files.length && attempt.attachments.length !== files.length) {
         const result = await uploadMessageAttachments(attempt.threadId, files)
         if (result.failed) throw new Error('chat_attachment_upload_failed')
-        attempt.attachmentIds = result.uploaded.map((attachment) => attachment.id)
+        attempt.attachments = result.uploaded
       }
       await sendMessage(attempt.threadId, {
         body,
         mentions: [],
-        attachmentIds: attempt.attachmentIds,
-      }, attempt.messageKey)
+        attachmentIds: attempt.attachments.map((attachment) => attachment.id),
+      }, attempt.messageKey, attempt.attachments)
       return { threadId: attempt.threadId }
     },
     onSuccess: async ({ threadId }) => {
@@ -396,7 +398,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         threadId: '',
         threadKey: '',
         messageKey: '',
-        attachmentIds: [],
+        attachments: [],
       }
       await Promise.all([
         client.invalidateQueries({ queryKey: messageKeys.pages(threadId) }),
@@ -407,17 +409,57 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     },
   })
 
+  useEffect(() => {
+    setReplyTo(null)
+    setForwarding(null)
+    setMessageActionError('')
+  }, [selectedThreadId, props.targetUserId])
+
+  async function likeMessage(message: ChatMessageView) {
+    const threadId = selectedThreadId
+    if (!threadId) return
+    setMessageActionError('')
+    try {
+      upsertMessageCache(client, threadId, await setMessageReaction(message.id, !message.reactions.likedByMe))
+    } catch {
+      setMessageActionError('Не вдалося змінити вподобання. Спробуйте ще раз.')
+    }
+  }
+
+  async function updateMessage(message: ChatMessageView, body?: string, mentions?: StructuredMentionInput[], attachmentIds?: string[]) {
+    const threadId = selectedThreadId
+    if (!threadId) return
+    setMessageActionError('')
+    try {
+      await api(`/messages/${encodeURIComponent(message.id)}`, {
+        method: body === undefined ? 'DELETE' : 'PATCH',
+        body: jsonBody({ body, mentions, attachmentIds, expectedVersion: message.version }),
+      })
+      upsertMessageCache(client, threadId, await getMessage(message.id))
+    } catch {
+      setMessageActionError('Не вдалося змінити повідомлення. Спробуйте ще раз.')
+      if (body !== undefined) throw new Error('message_edit_failed')
+    }
+  }
+
   const send = useMutation({
-    mutationFn: (input: { body: string; mentions: StructuredMentionInput[] }) => sendMessage(
-      selectedThreadId!,
-      {
+    mutationFn: (input: { body: string; mentions: StructuredMentionInput[] }) => {
+      const payload = {
         body: input.body,
         mentions: input.mentions,
+        replyToId: replyTo?.id ?? null,
         attachmentIds: attachments.map((attachment) => attachment.id),
-      },
-      idempotencyKey('right-panel-message'),
-    ),
+      }
+      const signature = JSON.stringify({ threadId: selectedThreadId, ...payload })
+      if (sendAttemptRef.current.signature !== signature) {
+        sendAttemptRef.current = { signature, key: idempotencyKey('right-panel-message') }
+      }
+      return sendMessage(selectedThreadId!, payload, sendAttemptRef.current.key, attachments)
+    },
     onSuccess: async () => {
+      sendAttemptRef.current = { signature: '', key: '' }
+      setSentMessageVersion((version) => version + 1)
+      setReplyTo(null)
       setAttachments([])
       await Promise.all([
         client.invalidateQueries({ queryKey: messageKeys.pages(selectedThreadId!) }),
@@ -443,6 +485,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     onFiles: (files) => upload.mutate(files),
   })
   const markThreadRead = useMutation({
+    retry: 2,
     mutationFn: ({ threadId, messageId }: { threadId: string; messageId: string }) => api(
       `/messages/threads/${threadId}/read`,
       { method: 'POST', body: jsonBody({ lastReadMessageId: messageId }) },
@@ -457,11 +500,15 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
 
   useEffect(() => {
     const lastMessageId = detail.data?.lastMessageId
-    const marker = selectedThreadId && lastMessageId ? `${selectedThreadId}:${lastMessageId}` : ''
-    if (!marker || markedReadRef.current === marker || chatScreen !== 'conversation') return
+    const marker = selectedThreadId && lastMessageId
+      ? `${selectedThreadId}:${lastMessageId}:${messages.map((message) => `${message.id}:${message.version}:${message.reactions.likeCount}`).join('|')}`
+      : ''
+    if (!marker || markedReadRef.current === marker || chatScreen !== 'conversation' || tab !== 'chat'
+      || bottomThreadId !== selectedThreadId || chatFilesOpen
+      || !documentVisible || !messages.some((message) => message.id === lastMessageId)) return
     markedReadRef.current = marker
     markThreadRead.mutate({ threadId: selectedThreadId!, messageId: lastMessageId! })
-  }, [chatScreen, detail.data?.lastMessageId, selectedThreadId])
+  }, [chatScreen, tab, detail.data?.lastMessageId, selectedThreadId, messages, documentVisible, bottomThreadId, chatFilesOpen])
 
   const notifications = useQuery({
     queryKey: ['notifications', notificationFilter],
@@ -507,7 +554,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   }
 
   function openNotification(item: NotificationItem) {
-    if (!item.readAt) markNotification.mutate({ id: item.id, read: true })
     if (item.entityType === 'MESSAGE_THREAD' && item.entityId) {
       setTab('chat')
       selectThread(item.entityId)
@@ -515,6 +561,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     }
     const route = notificationRoute(item)
     if (route) navigate(route)
+    else if (!item.readAt) markNotification.mutate({ id: item.id, read: true })
   }
 
   return (
@@ -556,34 +603,47 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 <div className="right-panel__user-search-results" role="listbox" aria-label="Користувачі">
                   {chatUserSearch.isLoading || chatUserQuery !== debouncedChatUserQuery ? (
                     <span>Шукаємо…</span>
-                  ) : chatUserSearch.data?.items.length ? chatUserSearch.data.items.map((contact) => (
+                  ) : chatSearchItems.length ? chatSearchItems.map((contact) => (
                     <button key={contact.id} type="button" role="option" onClick={() => openUserChat(contact)}>
-                      <Avatar name={contact.displayName} src={contact.avatarAsset} />
-                      <span><strong>{contact.displayName}</strong><small>@{contact.username}</small></span>
+                      <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
+                      <span><strong>{personName(contact.displayName)}</strong><small>{personPatronymic(contact.displayName)}</small></span>
                     </button>
                   )) : <span>Користувачів не знайдено</span>}
                 </div>
               )}
             </div>
-            <Link to="/messages?new=1" onClick={props.onClose}>Новий чат</Link>
           </div>
           {threadPages.isLoading ? <Skeleton rows={7} /> : threadPages.isError ? (
             <ErrorState title="Не вдалося завантажити діалоги" onRetry={() => void threadPages.refetch()} />
           ) : threads.length ? (
             <div className="right-panel__thread-list">
+              {chatPin.error && <p role="alert">Не вдалося змінити закріплення чату. Спробуйте ще раз.</p>}
               {threads.map((thread) => (
+                <div className={`message-thread-entry${thread.unread ? ' is-unread' : ''}`} key={thread.id}>
                 <button
                   type="button"
                   key={thread.id}
-                  className={thread.unread ? 'is-unread' : ''}
+                  className={`message-thread-select${thread.unread ? ' is-unread' : ''}`}
                   onClick={() => selectThread(thread.id)}
                 >
                   <ThreadAvatar thread={thread} />
                   <span>
-                    <span><strong>{thread.title}</strong><time>{thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time></span>
-                    <span><small>{thread.lastMessage || 'Почніть розмову'}</small>{thread.unreadCount > 0 && <b>{Math.min(thread.unreadCount, 99)}</b>}</span>
+                    <span><strong>{conversationName(thread)}</strong></span>
+                    <span><small>{drafts[thread.id]?.body.trim()
+                      ? <><span className="message-draft-label">Чернетка:</span> {drafts[thread.id]!.body}</>
+                      : thread.lastMessage || 'Почніть розмову'}</small></span>
                   </span>
                 </button>
+                <div className="message-thread-meta">
+                <time>{drafts[thread.id]?.createdAt
+                  ? formatChatTime(new Date(drafts[thread.id]!.createdAt).toISOString())
+                  : thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time>
+                {thread.unreadCount > 0
+                  ? <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>
+                  : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
+                    disabled={chatPin.pending} onClick={() => chatPin.toggle(thread.id, !thread.pinned)} />}
+                </div>
+                </div>
               ))}
               {threadPages.hasNextPage && (
                 <button
@@ -606,8 +666,8 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         <section
           className="right-panel__screen right-panel__conversation is-file-drop-target"
           aria-label={targetIsCurrentUser
-            ? `Профіль: ${profile.data?.displayName ?? ''}`
-            : `Діалог: ${detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? ''}`}
+            ? `Профіль: ${personName(profile.data?.displayName) ?? ''}`
+            : `Діалог: ${detail.data ? conversationName(detail.data) : selectedPreview ? conversationName(selectedPreview) : personName(profile.data?.displayName) ?? ''}`}
           {...conversationDropTargetProps}
         >
           <FileDropOverlay active={isConversationDragging} label="Відпустіть файли, щоб прикріпити до повідомлення" />
@@ -617,12 +677,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
               <div className="right-panel__person-trigger">
                 <Avatar
                   size="lg"
-                  name={detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? ''}
+                  name={detail.data ? conversationName(detail.data) : selectedPreview ? conversationName(selectedPreview) : personName(profile.data?.displayName) ?? ''}
                   src={directParticipant?.avatarAsset ?? selectedPreview?.avatarAsset ?? profile.data?.avatarAsset}
                 />
                 <span>
-                  <strong>{detail.data?.title ?? selectedPreview?.title ?? profile.data?.displayName ?? 'Відкриваємо чат…'}</strong>
-                  <small>{directParticipant?.username ? `@${directParticipant.username}` : profile.data?.username ? `@${profile.data.username}` : ''}</small>
+                  <strong>{detail.data ? conversationName(detail.data) : selectedPreview ? conversationName(selectedPreview) : personName(profile.data?.displayName) ?? 'Відкриваємо чат…'}</strong>
+                  <small>{personPatronymic(directParticipant?.displayName ?? profile.data?.displayName ?? targetContact.data?.displayName)}</small>
                 </span>
               </div>
               {profileUserId && (
@@ -641,13 +701,22 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
               )}
             </header>
             {profileSummaryOpen && (
-              <CompactProfileSummary
-                profile={profile.data}
-                fallback={directParticipant ?? undefined}
-                loading={profile.isLoading}
-                error={profile.isError}
-                onRetry={() => void profile.refetch()}
-              />
+              <div className="right-panel__profile-details">
+                <CompactProfileSummary
+                  profile={profile.data}
+                  fallback={directParticipant ?? undefined}
+                  loading={profile.isLoading}
+                  error={profile.isError}
+                  onRetry={() => void profile.refetch()}
+                />
+                {sharedAttachments.length > 0 && (
+                  <ChatFilesDropdown
+                    files={sharedAttachments}
+                    open={chatFilesOpen}
+                    onToggle={() => setChatFilesOpen((value) => !value)}
+                  />
+                )}
+              </div>
             )}
           </div>
           {props.targetUserId && !selectedThreadId && (profile.isLoading || (!targetIsCurrentUser && targetContact.isLoading)) ? <div className="right-panel__loading"><Skeleton rows={8} /></div> : profile.isError && Boolean(props.targetUserId) || targetContact.isError ? (
@@ -667,7 +736,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
             <>
               <div className="right-panel__empty-spacer" aria-hidden="true" />
               <ConversationEmptyState
-                title={`Почніть розмову з ${targetContact.data.displayName}`}
+                title={`Почніть розмову з ${personName(targetContact.data.displayName)}`}
                 description="Чат з’явиться у списку після першого повідомлення."
               />
               <DirectDraftComposer
@@ -690,35 +759,39 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
           ) : (
             <>
               {messages.length === 0 && <ConversationEmptyState title="Почніть розмову" />}
-              {profileSummaryOpen && sharedAttachments.length > 0 && (
-                <ChatFilesDropdown
-                  files={sharedAttachments}
-                  open={chatFilesOpen}
-                  onToggle={() => setChatFilesOpen((value) => !value)}
-                />
-              )}
               {chatFilesOpen ? (
                 <ChatFilesGrid files={sharedAttachments} />
               ) : (
                 <PanelMessageStream
                   key={`stream:${selectedThreadId}`}
+                  threadId={detail.data.id}
+                  onReply={setReplyTo}
+                  onLike={(message) => { void likeMessage(message) }}
+                  onForward={setForwarding}
+                  onEdit={(message, body, mentions, attachmentIds) => updateMessage(message, body, mentions, attachmentIds)}
+                  onDelete={(message) => updateMessage(message)}
                   messages={messages}
                   currentUserId={user?.id ?? ''}
                   lastReadMessageId={detail.data.lastReadMessageId}
+                  unreadCount={selectedPreview?.unreadCount ?? 0}
+                  sentMessageVersion={sentMessageVersion}
+                  onBottomChange={onBottomChange}
                   canLoadOlder={Boolean(messagePages.hasNextPage)}
                   loadingOlder={messagePages.isFetchingNextPage}
                   onLoadOlder={() => messagePages.fetchNextPage()}
                 />
               )}
+              {messageActionError && <p className="right-panel__message-action-error" role="alert">{messageActionError}</p>}
               {detail.data.canPost && (
                 <MessageComposer
+                  currentUserId={user!.id}
                   key={`composer:${detail.data.id}`}
                   threadId={detail.data.id}
-                  replyTo={null}
+                  replyTo={replyTo}
                   attachments={attachments}
                   sending={send.isPending}
                   uploading={upload.isPending}
-                  onReplyCancel={() => {}}
+                  onReplyCancel={() => setReplyTo(null)}
                   onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
                   onFiles={(files) => upload.mutate(files)}
                   onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}
@@ -758,7 +831,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 <article className={item.readAt ? '' : 'is-unread'} key={item.id}>
                   <span className={`right-panel__notification-icon right-panel__notification-icon--${item.category.toLowerCase()}`}>{notificationIcon(item.category)}</span>
                   <button type="button" onClick={() => openNotification(item)}>
-                    <span><strong>{item.safeTitle}</strong>{item.requiresAction && <em>Потрібна дія</em>}</span>
+                    <span><strong>{personNamesInLabel(item.safeTitle)}</strong>{item.requiresAction && <em>Потрібна дія</em>}</span>
                     <p>{item.safeSnippet}</p>
                     <small>{notificationLabels[item.category] ?? 'Оновлення'} · {formatDateTime(item.createdAt)}</small>
                   </button>
@@ -779,6 +852,19 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
             <Link className="right-panel__footer-link" to="/notifications" onClick={props.onClose}>Усі сповіщення <ChevronRight size={16} /></Link>
           </footer>
         </section>
+      )}
+      {forwarding && selectedThreadId && (
+        <ForwardMessageDrawer
+          message={forwarding}
+          companyScope="all"
+          currentThreadId={selectedThreadId}
+          onClose={() => setForwarding(null)}
+          onForwarded={(threadId) => {
+            setForwarding(null)
+            void client.invalidateQueries({ queryKey: messageKeys.all })
+            selectThread(threadId)
+          }}
+        />
       )}
     </aside>
   )
@@ -857,7 +943,7 @@ function ChatFilesDropdown({
         aria-controls="right-panel-chat-files-grid"
         onClick={onToggle}
       >
-        <span>Файли в чаті</span>
+        <span><Paperclip size={16} aria-hidden />Файли в чаті</span>
         <b>{files.length}</b>
         {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </button>
@@ -872,19 +958,17 @@ function ChatFilesGrid({ files }: { files: ChatAttachmentView[] }) {
       <div className="right-panel__chat-files-grid" id="right-panel-chat-files-grid">
         {files.map((file) => file.scanStatus === 'CLEAN' ? (
           <button type="button" key={file.id} title={file.fileName} onClick={() => setPreviewFile(file)}>
-            {isPreviewableImage(file)
-              ? <img src={panelAttachmentUrl(file)} alt={file.fileName} loading="lazy" />
-              : <span><FileText size={20} /></span>}
+            <FileThumbnail file={file} />
             <small>{file.fileName}</small>
           </button>
         ) : (
           <div key={file.id} title={file.fileName}>
-            <span><FileText size={20} /></span>
+            <FileThumbnail file={file} />
             <small>{file.fileName}</small>
           </div>
         ))}
       </div>
-      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} openInNewTab />}
     </>
   )
 }
@@ -915,7 +999,9 @@ function DirectDraftComposer({
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = '0'
-    textarea.style.height = `${Math.min(144, textarea.scrollHeight)}px`
+    const style = getComputedStyle(textarea)
+    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+    textarea.style.height = `${Math.min(144, textarea.scrollHeight + borders)}px`
   }, [body])
 
   function addFiles(nextFiles: File[]) {
@@ -960,7 +1046,7 @@ function DirectDraftComposer({
           {files.map((file, index) => (
             <span key={`${file.name}:${file.size}:${file.lastModified}:${index}`}>
               <FileText size={15} />
-              {file.name}
+              <span className="message-composer__attachment-name" title={file.name}>{file.name}</span>
               <button
                 type="button"
                 aria-label={`Прибрати ${file.name}`}
@@ -1047,13 +1133,25 @@ function ConversationEmptyState({ title, description }: { title: string; descrip
   )
 }
 
+type PanelMessageActions = Pick<ComponentProps<typeof MessageBubble>,
+  'threadId' | 'onReply' | 'onLike' | 'onForward' | 'onEdit' | 'onDelete'>
+
 function PanelMessageStream({
+  threadId,
+  onReply,
+  onLike,
+  onForward,
+  onEdit,
+  onDelete,
   messages,
   currentUserId,
   lastReadMessageId,
   canLoadOlder,
   loadingOlder,
   onLoadOlder,
+  unreadCount,
+  sentMessageVersion,
+  onBottomChange,
 }: {
   messages: ChatMessageView[]
   currentUserId: string
@@ -1061,7 +1159,10 @@ function PanelMessageStream({
   canLoadOlder: boolean
   loadingOlder: boolean
   onLoadOlder: () => Promise<unknown>
-}) {
+  unreadCount: number
+  sentMessageVersion: number
+  onBottomChange: (threadId: string, atBottom: boolean) => void
+} & PanelMessageActions) {
   const [showBottom, setShowBottom] = useState(false)
   const loadingRequestedRef = useRef(false)
   const lastScrollTopRef = useRef<number | null>(null)
@@ -1070,6 +1171,26 @@ function PanelMessageStream({
   const pointerYRef = useRef<number | null>(null)
   const touchYRef = useRef<number | null>(null)
   const scroll = usePreservedChatScroll(messages.length)
+  const { containerRef, scrollToBottom } = scroll
+  const previousSentVersionRef = useRef(sentMessageVersion)
+
+  const updateBottomState = useCallback(() => {
+    const element = containerRef.current
+    if (!element) return
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight
+    setShowBottom(distance > 180)
+    onBottomChange(threadId, distance < 120)
+  }, [containerRef, onBottomChange, threadId])
+
+  useLayoutEffect(() => {
+    if (previousSentVersionRef.current !== sentMessageVersion) {
+      previousSentVersionRef.current = sentMessageVersion
+      scrollToBottom('auto')
+    }
+    updateBottomState()
+  }, [messages, sentMessageVersion, scrollToBottom, updateBottomState])
+
+  useEffect(() => () => onBottomChange(threadId, false), [threadId, onBottomChange])
   const initialReadRef = useRef(lastReadMessageId)
   const openedAtRef = useRef(Date.now())
   const [liveIds, setLiveIds] = useState<Set<string>>(() => new Set())
@@ -1106,6 +1227,8 @@ function PanelMessageStream({
       <div
         ref={scroll.containerRef}
         className="right-panel__messages"
+        tabIndex={0}
+        aria-label="Повідомлення діалогу"
         aria-live="polite"
         onKeyDown={(event) => {
           if (!['ArrowUp', 'PageUp', 'Home'].includes(event.key)) return
@@ -1134,7 +1257,7 @@ function PanelMessageStream({
           lastScrollTopRef.current = element.scrollTop
           scrollingUpRef.current = false
           scroll.onScroll()
-          setShowBottom(element.scrollHeight - element.scrollTop - element.clientHeight > 180)
+          updateBottomState()
           if (hasScrollIntentRef.current && scrolledUp && element.scrollTop <= 72) {
             hasScrollIntentRef.current = false
             loadOlder()
@@ -1169,9 +1292,22 @@ function PanelMessageStream({
               initialReadRef.current === null || initialReadIndex === -1 || index > initialReadIndex || liveIds.has(message.id)
             )
             const boundary = isNew && (index === initialReadIndex + 1 || initialReadIndex === -1 && index === 0)
-            return <div key={message.id}>
+            return <div key={message.id} className={`message-group-item${!boundary && continuesMessageGroup(message, messages[index - 1]) ? ' is-group-continuation' : ''}`}>
               {boundary && <div className="right-panel__new-messages">Нові повідомлення</div>}
-              <CompactMessage message={message} own={message.authorId === currentUserId} isNew={isNew} />
+              <MessageBubble
+                idPrefix="right-panel-message"
+                threadId={threadId}
+                message={message}
+                own={message.authorId === currentUserId}
+                showAuthor={boundary || !continuesMessageGroup(message, messages[index - 1])}
+                showAvatar={!continuesMessageGroup(message, messages[index + 1])}
+                isNew={isNew}
+                onReply={onReply}
+                onLike={onLike}
+                onForward={onForward}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
             </div>
           })}
         </div>
@@ -1179,169 +1315,13 @@ function PanelMessageStream({
       {showBottom && (
         <IconButton
           className="right-panel__messages-bottom"
-          label="До нових повідомлень"
+          label={unreadCount > 0 ? `До нових повідомлень: ${unreadCount} непрочитаних` : 'До нових повідомлень'}
           onClick={() => scroll.scrollToBottom()}
         >
-          <ArrowDown size={18} />
+          <ChevronDown size={28} />
+          {unreadCount > 0 && <span className="right-panel__messages-bottom-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
         </IconButton>
       )}
     </div>
-  )
-}
-
-function CompactMessage({ message, own, isNew = false }: { message: ChatMessageView; own: boolean; isNew?: boolean }) {
-  const [previewFile, setPreviewFile] = useState<ChatAttachmentView | null>(null)
-  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
-  const menuCloseTimer = useRef<number | null>(null)
-  const singleImageAttachment = message.attachments.length === 1 && isPreviewableImage(message.attachments[0]!)
-    ? message.attachments[0]
-    : null
-  const cleanAttachmentCount = message.attachments.filter((attachment) => attachment.scanStatus === 'CLEAN').length
-  const deliveryLabel = message.id.startsWith('optimistic:')
-    ? 'Надсилається'
-    : message.readByCount > 0
-      ? message.readByCount > 1 ? `Прочитано: ${message.readByCount}` : 'Прочитано'
-      : 'Відправлено'
-  const closeMenu = () => {
-    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
-    setMenuPosition(null)
-  }
-  const delayMenuClose = () => {
-    menuCloseTimer.current = window.setTimeout(closeMenu, 120)
-  }
-  const keepMenuOpen = () => {
-    if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
-  }
-  useEffect(() => {
-    const closeOnAnotherMenu = (event: Event) => {
-      if ((event as CustomEvent<string>).detail !== `right-panel-message:${message.id}`) closeMenu()
-    }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement).closest(`#right-panel-message-${message.id}`)) closeMenu()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
-    window.addEventListener('lanka:context-menu-open', closeOnAnotherMenu)
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    window.addEventListener('keydown', closeOnEscape)
-    return () => {
-      window.removeEventListener('lanka:context-menu-open', closeOnAnotherMenu)
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      window.removeEventListener('keydown', closeOnEscape)
-    }
-  })
-  const messageMeta = (
-    <footer className="right-panel__message-meta">
-      {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
-      <time>{formatChatTime(message.createdAt)}{message.editedAt ? ' · змінено' : ''}</time>
-      {own && (
-        <span
-          className={`right-panel__message-delivery ${message.readByCount > 0 ? 'is-read' : ''}`}
-          title={deliveryLabel}
-        >
-          {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
-        </span>
-      )}
-    </footer>
-  )
-  return (
-    <article
-      id={`right-panel-message-${message.id}`}
-      className={`right-panel__message ${own ? 'is-own' : ''}${isNew ? ' is-new' : ''}`}
-      onContextMenu={(event) => {
-        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
-        event.preventDefault()
-        window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `right-panel-message:${message.id}` }))
-        const menuWidth = 248
-        const menuHeight = 340
-        const inset = 8
-        setMenuPosition({
-          left: Math.max(inset, Math.min(event.clientX, window.innerWidth - menuWidth - inset)),
-          top: Math.max(inset, Math.min(event.clientY, window.innerHeight - menuHeight - inset)),
-        })
-      }}
-    >
-      {!own && (
-        <UserProfileLink
-          className="right-panel__message-author-avatar"
-          userId={message.author.id}
-          aria-label={`Відкрити профіль ${message.author.displayName}`}
-        >
-          <Avatar size="sm" name={message.author.displayName} src={message.author.avatarAsset} />
-        </UserProfileLink>
-      )}
-      <div>
-        {!own && <UserProfileLink className="right-panel__message-author" userId={message.author.id}>{message.author.displayName}</UserProfileLink>}
-        {message.deletedAt ? (
-          <div className="right-panel__message-content">
-            <p className="is-deleted">Повідомлення видалено</p>
-            {messageMeta}
-          </div>
-        ) : message.body ? (
-          <div className="right-panel__message-content">
-            <p><MentionText body={message.body} mentions={message.mentions} /></p>
-            {messageMeta}
-          </div>
-        ) : null}
-        {message.attachments.map((attachment) => isPreviewableImage(attachment) ? (
-          <button
-            type="button"
-            className="right-panel__message-image"
-            key={attachment.id}
-            aria-label={`Переглянути ${attachment.fileName}`}
-            onClick={() => setPreviewFile(attachment)}
-          >
-            <img src={panelAttachmentUrl(attachment)} alt={attachment.fileName} loading="lazy" />
-            {singleImageAttachment?.id !== attachment.id && (
-              <span><CompactFileName fileName={attachment.fileName} /></span>
-            )}
-          </button>
-        ) : attachment.scanStatus === 'CLEAN' ? (
-          <button type="button" className="right-panel__message-file" key={attachment.id} onClick={() => setPreviewFile(attachment)}>
-            <FileText size={15} /><span>{attachment.fileName}</span><small>{formatPanelFileSize(attachment.bytes)}</small>
-          </button>
-        ) : (
-          <span className="right-panel__message-file is-disabled" key={attachment.id}>
-            <FileText size={15} /><span>{attachment.fileName}</span><small>Перевіряється</small>
-          </span>
-        ))}
-        {cleanAttachmentCount >= 3 && (
-          <a
-            className="right-panel__message-archive"
-            href={apiUrl(`/messages/${encodeURIComponent(message.id)}/attachments/archive`)}
-            download
-          >
-            Завантажити {cleanAttachmentCount} файли ZIP
-          </a>
-        )}
-        {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
-        {!message.body && !message.deletedAt && messageMeta}
-      </div>
-      {menuPosition && (
-        <div
-          className="right-panel__message-action-menu"
-          style={menuPosition}
-          role="menu"
-          aria-label="Дії з повідомленням"
-          onMouseEnter={keepMenuOpen}
-          onMouseLeave={delayMenuClose}
-        >
-          <div className="right-panel__message-reactions" aria-hidden="true">
-            <span>❤</span><span>🔥</span><span>👍</span><span>👎</span><span>🥰</span><span>👏</span>
-          </div>
-          <button type="button" role="menuitem" onClick={closeMenu}><Reply size={17} /> Відповісти</button>
-          <button type="button" role="menuitem" onClick={closeMenu}><Pin size={17} /> Прикріпити</button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              void navigator.clipboard?.writeText(message.body)
-              closeMenu()
-            }}
-          ><Copy size={17} /> Копіювати текст</button>
-          <button type="button" role="menuitem" onClick={closeMenu}><Forward size={17} /> Переслати</button>
-          {own && <button type="button" role="menuitem" className="is-danger" onClick={closeMenu}><Trash2 size={17} /> Видалити</button>}
-        </div>
-      )}
-    </article>
   )
 }

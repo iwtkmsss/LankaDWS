@@ -5,7 +5,7 @@ import { mentionSearchQuerySchema, structuredMentionInputSchema, type Structured
 export const feedPostStatusSchema = z.enum(['PUBLISHED', 'ARCHIVED'])
 export type FeedPostStatus = z.infer<typeof feedPostStatusSchema>
 
-export const feedRecipientTypeSchema = z.enum(['COMPANY', 'GROUP', 'USER'])
+export const feedRecipientTypeSchema = z.enum(['COMPANY', 'USER'])
 export type FeedRecipientType = z.infer<typeof feedRecipientTypeSchema>
 
 export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE'])
@@ -20,7 +20,6 @@ export const feedListQuerySchema = z
     filter: feedListFilterSchema.default('ALL'),
     type: feedItemTypeSchema.default('ALL'),
     authorId: z.string().trim().min(1).max(120).optional(),
-    groupId: z.string().trim().min(1).max(120).optional(),
     audienceId: z.string().trim().min(1).max(120).optional(),
     mentioned: z
       .enum(['true', 'false'])
@@ -49,13 +48,8 @@ export type FeedListQuery = z.infer<typeof feedListQuerySchema>
 export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema
   .extend({
     company: companyScopeSchema,
-    audienceType: z.enum(['COMPANY', 'GROUP']),
+    audienceType: z.enum(['COMPANY']),
     audienceId: z.string().trim().min(1).max(120).optional(),
-  })
-  .superRefine((value, context) => {
-    if (value.audienceType === 'GROUP' && !value.audienceId) {
-      context.addIssue({ code: 'custom', path: ['audienceId'], message: 'Group audience requires audienceId.' })
-    }
   })
 export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQuerySchema>
 
@@ -69,7 +63,6 @@ export const feedAudienceInputSchema = z.discriminatedUnion('type', [
       .max(100)
       .transform((items) => [...new Set(items)]),
   }),
-  z.object({ type: z.literal('GROUP'), groupId: z.string().trim().min(1).max(120) }),
   z.object({
     type: z.literal('USERS'),
     userIds: z
@@ -165,7 +158,7 @@ export const markFeedReadSchema = z
 export type MarkFeedReadInput = z.infer<typeof markFeedReadSchema>
 
 export interface FeedAudienceOption {
-  type: 'COMPANY' | 'GROUP'
+  type: 'COMPANY'
   id: string
   companyId: string
   label: string
@@ -179,11 +172,11 @@ export interface FeedAuthorOption {
 }
 
 export interface FeedAudienceFacetOption {
-  type: 'COMPANY' | 'GROUP' | 'USER'
+  type: 'COMPANY' | 'USER'
   id: string
   label: string
   detail: string
-  queryKey: 'audienceId' | 'groupId'
+  queryKey: 'audienceId'
 }
 
 export interface FeedCommentView {
@@ -213,7 +206,6 @@ export interface FeedPostView {
   id: string
   itemId: string
   companyId: string
-  group: { id: string; name: string } | null
   author: {
     id: string
     displayName: string
@@ -253,6 +245,12 @@ export interface FeedSourceView {
     displayName: string
     avatarAsset: string | null
   } | null
+  taskReporter?: {
+    id: string
+    displayName: string
+    avatarAsset: string | null
+  } | null
+  taskAssignee?: FeedSourceView['taskReporter']
   label: string
   title: string
   summary: string

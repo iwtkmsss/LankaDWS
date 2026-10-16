@@ -6,24 +6,21 @@ import type {
 } from './types'
 
 export function taskCreateOptionsPath(
-  groupId: string,
   projectId: string,
   search = '',
 ): string {
   const query = new URLSearchParams()
-  if (groupId) query.set('groupId', groupId)
   if (projectId) query.set('projectId', projectId)
   if (search) query.set('search', search)
   return `/tasks/options?${query.toString()}`
 }
 
 export function loadTaskCreateOptions(
-  groupId: string,
   projectId: string,
   search = '',
   signal?: AbortSignal,
 ): Promise<TaskCreateOptions> {
-  return api<TaskCreateOptions>(taskCreateOptionsPath(groupId, projectId, search), { signal })
+  return api<TaskCreateOptions>(taskCreateOptionsPath( projectId, search), { signal })
 }
 
 export interface TaskHierarchyView {

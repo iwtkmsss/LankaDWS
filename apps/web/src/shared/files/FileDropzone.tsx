@@ -1,9 +1,10 @@
 import { useCallback, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { UploadCloud } from 'lucide-react'
 
-function hasFiles(transfer: DataTransfer | null): boolean {
+function hasFiles(transfer: DataTransfer | null, ignoreTypes?: readonly string[]): boolean {
   if (!transfer) return false
-  return Array.from(transfer.types ?? []).includes('Files')
+  const types = Array.from(transfer.types ?? [])
+  return types.includes('Files') && !ignoreTypes?.some((type) => types.includes(type))
 }
 
 function matchesAccept(file: File, accept: string | undefined): boolean {
@@ -36,6 +37,8 @@ function assignFiles(input: HTMLInputElement | null, files: File[]): void {
 
 export interface FileDropTargetOptions {
   disabled?: boolean
+  /** Internal drags with these types must not be treated as file uploads. */
+  ignoreTypes?: readonly string[]
   onFiles: (files: File[]) => void
   accept?: string
   multiple?: boolean
@@ -54,7 +57,7 @@ export interface FileDropTargetProps {
  * Drag-and-drop wiring for any surface that accepts files. Uses an enter/leave
  * counter so the active state does not flicker while dragging over children.
  */
-export function useFileDropTarget({ disabled = false, onFiles, accept, multiple = true, onRejected }: FileDropTargetOptions): {
+export function useFileDropTarget({ disabled = false, ignoreTypes, onFiles, accept, multiple = true, onRejected }: FileDropTargetOptions): {
   isDragging: boolean
   dropTargetProps: FileDropTargetProps
 } {
@@ -67,26 +70,26 @@ export function useFileDropTarget({ disabled = false, onFiles, accept, multiple 
   }, [])
 
   const onDragEnter = useCallback((event: DragEvent<HTMLElement>) => {
-    if (disabled || !hasFiles(event.dataTransfer)) return
+    if (disabled || !hasFiles(event.dataTransfer, ignoreTypes)) return
     event.preventDefault()
     depth.current += 1
     setIsDragging(true)
-  }, [disabled])
+  }, [disabled, ignoreTypes])
 
   const onDragOver = useCallback((event: DragEvent<HTMLElement>) => {
-    if (disabled || !hasFiles(event.dataTransfer)) return
+    if (disabled || !hasFiles(event.dataTransfer, ignoreTypes)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
-  }, [disabled])
+  }, [disabled, ignoreTypes])
 
   const onDragLeave = useCallback((event: DragEvent<HTMLElement>) => {
-    if (disabled || !hasFiles(event.dataTransfer)) return
+    if (disabled || !hasFiles(event.dataTransfer, ignoreTypes)) return
     depth.current = Math.max(0, depth.current - 1)
     if (depth.current === 0) setIsDragging(false)
-  }, [disabled])
+  }, [disabled, ignoreTypes])
 
   const onDrop = useCallback((event: DragEvent<HTMLElement>) => {
-    if (disabled || !hasFiles(event.dataTransfer)) return
+    if (disabled || !hasFiles(event.dataTransfer, ignoreTypes)) return
     event.preventDefault()
     stop()
     const dropped = Array.from(event.dataTransfer.files)
@@ -96,7 +99,7 @@ export function useFileDropTarget({ disabled = false, onFiles, accept, multiple 
       return
     }
     onFiles(multiple ? allowed : allowed.slice(0, 1))
-  }, [accept, disabled, multiple, onFiles, onRejected, stop])
+  }, [accept, disabled, ignoreTypes, multiple, onFiles, onRejected, stop])
 
   return { isDragging, dropTargetProps: { onDragEnter, onDragOver, onDragLeave, onDrop } }
 }
@@ -131,7 +134,7 @@ export interface FileDropzoneProps {
   title?: ReactNode
   /** Secondary line: accepted formats, size or count limits. */
   hint?: ReactNode
-  buttonLabel?: string
+  buttonLabel?: string | null
   className?: string
   /** Rendered under the zone, e.g. the list of picked files. */
   children?: ReactNode
@@ -194,7 +197,7 @@ export function FileDropzone({
         <UploadCloud size={26} aria-hidden="true" />
         <strong className="file-dropzone__title">{isDragging ? 'Відпустіть файли тут' : title}</strong>
         {hint && <small className="file-dropzone__hint" id={hintId}>{hint}</small>}
-        <span className="file-dropzone__button">{busy ? 'Завантаження…' : buttonLabel}</span>
+        {(busy || buttonLabel) && <span className="file-dropzone__button">{busy ? 'Завантаження…' : buttonLabel}</span>}
         {rejected && (
           <small className="file-dropzone__rejected" role="alert">
             Такий формат файлу не підтримується.

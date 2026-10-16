@@ -18,8 +18,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody, randomId } from '../../shared/api/client'
 import { useAuth } from '../../shared/auth/AuthProvider'
+import { sortThreadsWithDrafts, useMessageDrafts } from './lib/messageDrafts'
+import { useChatPin } from './hooks/useChatPin'
 import { useTopbarContent } from '../../layout/TopbarContent'
-import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
+import { useUserSearch } from '../../shared/lib/useUserSearch'
+import { useDocumentVisible } from '../../shared/lib/useDocumentVisible'
+import { useEntityNotificationRead } from '../notifications/useEntityNotificationRead'
 import { Button, EmptyState, ErrorState, Skeleton } from '../../shared/ui'
 import {
   createThread,
@@ -29,7 +33,6 @@ import {
   getRecommendedChatUsers,
   getThreadDetail,
   getThreadPage,
-  searchChatUsers,
   sendMessage,
   setMessageReaction,
   uploadMessageAttachments,
@@ -44,12 +47,12 @@ import { NewGroupDrawer } from './components/NewGroupDrawer'
 import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useUserProfile } from '../employees/UserProfileDrawer'
 import { replyPreviewText } from './lib/replyPreview'
+import { photoAttachmentBatches } from './lib/photoAlbums'
 import {
   addOptimisticMessage,
   removeMessageCache,
   upsertMessageCache,
 } from './lib/messageCache'
-import { normalizedCodePointLength } from './lib/messageText'
 import './messages.css'
 
 export function chatThreadCompanyScope(
@@ -84,11 +87,14 @@ export function chatCreationCompanyId(
 }
 
 export function MessagesPage() {
+  const documentVisible = useDocumentVisible()
   const { threadId } = useParams()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const client = useQueryClient()
   const { user } = useAuth()
+  const drafts = useMessageDrafts(user?.id ?? '')
+  const chatPin = useChatPin()
   const { openUserProfile } = useUserProfile()
   const threadCompanyScope = chatThreadCompanyScope(user)
   const adminCompanies = useQuery({
@@ -103,13 +109,15 @@ export function MessagesPage() {
   const composeOpen = params.get('new') === '1'
   const groupOpen = params.get('group') === '1'
   const targetUserId = params.get('to')
-  const [query, setQuery] = useState(params.get('q') ?? '')
+  const query = params.get('q') ?? ''
   const {
+    users,
+    items: searchResults,
     debouncedValue: debouncedQuery,
     isComposing: isSearchComposing,
     onCompositionStart: onSearchCompositionStart,
     onCompositionEnd: onSearchCompositionEnd,
-  } = useDebouncedSearchValue(query)
+  } = useUserSearch<ChatContactUser>(query, { endpoint: '/messages/users/search', params: { company: companyId }, enabled: Boolean(companyId) })
   const [startingUserId, setStartingUserId] = useState<string | null>(null)
   const [replyTo, setReplyTo] = useState<ChatMessageView | null>(null)
   const [attachments, setAttachments] = useState<ChatAttachmentView[]>([])
@@ -127,14 +135,15 @@ export function MessagesPage() {
   // The message SSE stream is opened once at the shell level (AppShell);
   // mounting it here as well would open a second EventSource per user.
 
-  useEffect(() => {
+  function setQuery(value: string) {
+    if (value === query) return
     setParams((current) => {
       const next = new URLSearchParams(current)
-      if (query) next.set('q', query)
+      if (value) next.set('q', value)
       else next.delete('q')
       return next
     }, { replace: true })
-  }, [query, setParams])
+  }
 
   const threadPages = useInfiniteQuery({
     queryKey: messageKeys.threads(threadCompanyScope, unreadOnly),
@@ -146,21 +155,16 @@ export function MessagesPage() {
   })
   const threads = useMemo(() => {
     const seen = new Set<string>()
-    return (threadPages.data?.pages.flatMap((page) => page.items) ?? []).filter((thread) => {
+    return sortThreadsWithDrafts((threadPages.data?.pages.flatMap((page) => page.items) ?? []).filter((thread) => {
       if (seen.has(thread.id)) return false
       seen.add(thread.id)
       return true
-    })
-  }, [threadPages.data])
+    }), drafts)
+  }, [threadPages.data, drafts])
   const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
 
   const canWrite = true
-  const normalizedSearchLength = normalizedCodePointLength(debouncedQuery)
-  const users = useQuery({
-    queryKey: messageKeys.users(companyId, debouncedQuery),
-    queryFn: ({ signal }) => searchChatUsers(companyId, debouncedQuery, signal),
-    enabled: Boolean(companyId && canWrite && !isSearchComposing && normalizedSearchLength >= 1),
-  })
+
   const recommendations = useQuery({
     queryKey: messageKeys.recommended(companyId),
     queryFn: ({ signal }) => getRecommendedChatUsers(companyId, signal),
@@ -194,6 +198,7 @@ export function MessagesPage() {
       return true
     })
   }, [messagePages.data])
+  useEntityNotificationRead('MESSAGE_THREAD', detail.isSuccess && messagePages.isSuccess ? threadId : undefined, detail.dataUpdatedAt)
   const selectedPreview = threads.find((thread) => thread.id === threadId)
 
   const direct = useMutation({
@@ -215,7 +220,6 @@ export function MessagesPage() {
       directStartingRef.current = ''
       directAttemptRef.current = { userId: '', key: '' }
       setStartingUserId(null)
-      setQuery('')
       const pendingFiles = pendingDraftFilesRef.current
       pendingDraftFilesRef.current = []
       let uploadedAttachments: ChatAttachmentView[] = []
@@ -235,8 +239,8 @@ export function MessagesPage() {
 
   useEffect(() => {
     const existingThreadId = targetContact.data?.directThreadId
-    if (targetUserId && existingThreadId) navigate(`/messages/${existingThreadId}`, { replace: true })
-  }, [navigate, targetContact.data?.directThreadId, targetUserId])
+    if (!threadId && targetUserId && existingThreadId) navigate(`/messages/${existingThreadId}`, { replace: true })
+  }, [navigate, targetContact.data?.directThreadId, targetUserId, threadId])
 
   useEffect(() => {
     draftBodyRef.current = ''
@@ -246,10 +250,6 @@ export function MessagesPage() {
     directStartingRef.current = ''
     direct.reset()
   }, [targetUserId])
-
-  useEffect(() => {
-    if (threadId || targetUserId) setQuery('')
-  }, [targetUserId, threadId])
 
   const send = useMutation({
     mutationFn: async (input: {
@@ -266,12 +266,13 @@ export function MessagesPage() {
         replyToId: input.reply?.id ?? null,
         attachmentIds: input.attachments.map((attachment) => attachment.id),
         mentions: input.mentions,
-      }, input.key)
+      }, input.key, input.attachments)
       return { ...result, tempId: input.tempId }
     },
     onSuccess: async (result) => {
       const serverMessage = await getMessage(result.id)
       upsertMessageCache(client, threadId!, serverMessage, result.tempId)
+      await client.invalidateQueries({ queryKey: messageKeys.pages(threadId!) })
       setReplyTo(null)
       setAttachments([])
       sendAttemptRef.current = { signature: '', key: '', tempId: '' }
@@ -291,6 +292,7 @@ export function MessagesPage() {
   })
 
   const markRead = useMutation({
+    retry: 2,
     mutationFn: (messageId: string) => api(`/messages/threads/${threadId}/read`, {
       method: 'POST',
       body: jsonBody({ lastReadMessageId: messageId }),
@@ -306,12 +308,13 @@ export function MessagesPage() {
   useEffect(() => {
     const lastMessageId = detail.data?.lastMessageId
     const marker = threadId && lastMessageId && !highlightedMessageId
-      ? `${threadId}:${lastMessageId}`
+      ? `${threadId}:${lastMessageId}:${messages.map((message) => `${message.id}:${message.version}:${message.reactions.likeCount}`).join('|')}`
       : ''
-    if (!marker || markedReadRef.current === marker) return
+    if (!marker || markedReadRef.current === marker || !documentVisible
+      || !messages.some((message) => message.id === lastMessageId)) return
     markedReadRef.current = marker
     markRead.mutate(lastMessageId!)
-  }, [detail.data?.lastMessageId, highlightedMessageId, threadId])
+  }, [detail.data?.lastMessageId, highlightedMessageId, threadId, messages, documentVisible])
 
   useEffect(() => {
     setReplyTo(null)
@@ -321,10 +324,10 @@ export function MessagesPage() {
     sendAttemptRef.current = { signature: '', key: '', tempId: '' }
   }, [threadId])
 
-  async function editMessage(message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) {
+  async function editMessage(message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) {
     await api(`/messages/${message.id}`, {
       method: 'PATCH',
-      body: jsonBody({ body, mentions, expectedVersion: message.version }),
+      body: jsonBody({ body, mentions, attachmentIds, expectedVersion: message.version }),
     })
     upsertMessageCache(client, threadId!, await getMessage(message.id))
   }
@@ -393,7 +396,7 @@ export function MessagesPage() {
         displayName: user.displayName,
         avatarAsset: user.avatarAsset,
       },
-      attachments,
+      attachments: photoAttachmentBatches(attachments)[0]!,
       readByCount: 0,
       reactions: { likeCount: 0, likedByMe: false },
       canEdit: true,
@@ -444,14 +447,33 @@ export function MessagesPage() {
     } catch {}
   }
 
-  function openDirect(contact: ChatContactUser) {
+  async function openDirect(contact: ChatContactUser) {
+    if (startingUserId) return
     if (contact.directThreadId) {
       navigate(`/messages/${contact.directThreadId}`)
       return
     }
+    // Recommendations can omit the thread ID. Resolve the contact before
+    // changing routes so an existing conversation never opens a draft first.
+    if (contact.directThreadId === undefined) {
+      setStartingUserId(contact.id)
+      try {
+        const resolved = await client.fetchQuery({
+          queryKey: [...messageKeys.users(companyId, ''), 'target', contact.id],
+          queryFn: ({ signal }) => getChatUser(companyId, contact.id, signal),
+        })
+        if (resolved.directThreadId) {
+          navigate(`/messages/${resolved.directThreadId}`)
+          return
+        }
+      } catch {
+        // The destination displays the contact error with its retry action.
+      } finally {
+        setStartingUserId(null)
+      }
+    }
     const next = new URLSearchParams()
     if (unreadOnly) next.set('unread', 'true')
-    if (!user?.company && companyId) next.set('company', companyId)
     next.set('to', contact.id)
     navigate(`/messages?${next}`)
   }
@@ -491,6 +513,10 @@ export function MessagesPage() {
   return (
     <div className={`messages-workspace ${threadId || targetUserId ? 'has-thread' : ''}`}>
       <MessagesSidebar
+        onPinThread={chatPin.toggle}
+        pinPending={chatPin.pending}
+        pinError={chatPin.error}
+        drafts={drafts}
         threads={threads}
         counts={counts}
         selectedThreadId={threadId}
@@ -498,7 +524,7 @@ export function MessagesPage() {
           query={query}
           debouncedQuery={debouncedQuery}
           isComposing={isSearchComposing}
-        searchResults={users.data?.items ?? []}
+        searchResults={searchResults}
         recommendations={recommendations.data?.items ?? []}
         loadingThreads={threadPages.isLoading}
         threadError={threadPages.isError}
@@ -571,7 +597,7 @@ export function MessagesPage() {
           }}
         />
       ) : targetUserId ? (
-        targetContact.isLoading ? (
+        targetContact.isLoading || targetContact.data?.directThreadId ? (
           <section className="conversation-pane conversation-pane--loading"><Skeleton rows={8} /></section>
         ) : targetContact.isError || !targetContact.data ? (
           <section className="conversation-pane"><ErrorState title="Не вдалося відкрити контакт" onRetry={() => void targetContact.refetch()} /></section>
@@ -618,7 +644,6 @@ export function MessagesPage() {
           onStartTarget={(id) => {
             const next = new URLSearchParams()
             if (unreadOnly) next.set('unread', 'true')
-            if (!user?.company && companyId) next.set('company', companyId)
             next.set('to', id)
             navigate(`/messages?${next}`)
           }}

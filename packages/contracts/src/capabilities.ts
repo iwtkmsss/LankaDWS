@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 export const OrganizationCapability = {
-  GroupsUi: 'GROUPS_UI',
   Drive: 'DRIVE',
   CalendarWrite: 'CALENDAR_WRITE',
   Calls: 'CALLS',

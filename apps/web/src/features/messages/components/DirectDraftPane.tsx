@@ -1,3 +1,4 @@
+import { personName } from '../../../shared/lib/personName'
 import type { ChatContactUser } from '@lankadws/contracts'
 import { ArrowLeft, LoaderCircle, Paperclip, Send } from 'lucide-react'
 import { useEffect, useRef, type ClipboardEvent } from 'react'
@@ -38,21 +39,21 @@ export function DirectDraftPane({
   }, [contact.id])
 
   return (
-    <section className="conversation-pane" aria-label={`Діалог: ${contact.displayName}`}>
+    <section className="conversation-pane" aria-label={`Діалог: ${personName(contact.displayName)}`}>
       <header className="conversation-header">
         <IconButton className="conversation-header__back" label="До списку діалогів" onClick={onBack}>
           <ArrowLeft size={21} />
         </IconButton>
-        <Avatar name={contact.displayName} src={contact.avatarAsset} />
+        <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
         <div className="conversation-header__copy">
-          <h1>{contact.displayName}</h1>
-          <span>@{contact.username}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}</span>
+          <h1>{personName(contact.displayName)}</h1>
+          <span>{contact.jobTitle}</span>
         </div>
       </header>
 
       <div className="direct-draft__empty">
-        <Avatar size="lg" name={contact.displayName} src={contact.avatarAsset} />
-        <strong>Почніть розмову з {contact.displayName}</strong>
+        <Avatar size="lg" name={personName(contact.displayName)} src={contact.avatarAsset} />
+        <strong>Почніть розмову з {personName(contact.displayName)}</strong>
         <span>Діалог з’явиться у списку після першого повідомлення.</span>
       </div>
 

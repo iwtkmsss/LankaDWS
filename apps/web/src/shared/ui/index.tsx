@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type ButtonHTMLAttributes, type PropsWithCh
 import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle } from 'lucide-react'
 import { statusLabels } from '../lib/format'
 import { useTopbarContent } from '../../layout/TopbarContent'
+export { DateTimePicker } from './DateTimePicker'
 
 export {
   ConfirmationDialog,
@@ -166,8 +167,8 @@ export function EmptyState({
 
 export function ErrorState({ title = 'Не вдалося завантажити дані', onRetry }: { title?: string; onRetry?: () => void }) { return <div className="empty-state empty-state--error"><CircleAlert size={34} aria-hidden /><h3>{title}</h3>{onRetry && <Button variant="secondary" onClick={onRetry}>Спробувати ще раз</Button>}</div> }
 
-export function Tabs({ value, items, onChange }: { value: string; items: Array<{ value: string; label: string; count?: number }>; onChange: (value: string) => void }) {
-  return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}</button>)}</div>
+export function Tabs({ value, items, onChange }: { value: string; items: Array<{ value: string; label: string; count?: number; unreadCount?: number }>; onChange: (value: string) => void }) {
+  return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}{Boolean(item.unreadCount) && <b className="task-tab-unread" title="Непрочитані сповіщення" aria-label={`${item.unreadCount} непрочитаних сповіщень`}>{item.unreadCount! > 99 ? '99+' : item.unreadCount}</b>}</button>)}</div>
 }
 
 export function PageHeader({ title, action }: { title: string; description?: string; action?: ReactNode }) {

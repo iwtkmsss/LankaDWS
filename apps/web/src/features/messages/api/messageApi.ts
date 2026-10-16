@@ -1,3 +1,5 @@
+import { searchUsers } from '../../../shared/api/user-search'
+import { USER_SEARCH_LIMIT } from '@lankadws/contracts'
 import type {
   ChatAttachmentView,
   ChatContactUser,
@@ -7,12 +9,12 @@ import type {
   ChatThreadDetail,
   ChatThreadPage,
   ChatThreadPreview,
-  ChatUserSearchPage,
   CreateChatThreadInput,
   RecommendedChatUsersPage,
   SendChatMessageInput,
 } from '@lankadws/contracts'
 import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
+import { photoAttachmentBatches } from '../lib/photoAlbums'
 
 export function getThreadPage(
   companyId: string,
@@ -69,8 +71,7 @@ export function searchChatUsers(
   queryValue: string,
   signal?: AbortSignal,
 ) {
-  const query = new URLSearchParams({ company: companyId, q: queryValue, limit: '20' })
-  return api<ChatUserSearchPage>(`/messages/users/search?${query}`, { signal })
+  return searchUsers<ChatContactUser>(queryValue, { endpoint: '/messages/users/search', params: { company: companyId }, signal })
 }
 
 export function getChatUser(companyId: string, userId: string, signal?: AbortSignal) {
@@ -79,7 +80,7 @@ export function getChatUser(companyId: string, userId: string, signal?: AbortSig
 }
 
 export function getRecommendedChatUsers(companyId: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ company: companyId, limit: '5' })
+  const query = new URLSearchParams({ company: companyId, limit: String(USER_SEARCH_LIMIT) })
   return api<RecommendedChatUsersPage>(`/messages/users/recommended?${query}`, { signal })
 }
 
@@ -91,16 +92,27 @@ export function createThread(input: CreateChatThreadInput, key = idempotencyKey(
   })
 }
 
-export function sendMessage(
+export async function sendMessage(
   threadId: string,
   input: SendChatMessageInput,
   key: string,
+  attachments?: Pick<ChatAttachmentView, 'id' | 'mimeType'>[],
 ) {
-  return api<{ id: string }>(`/messages/threads/${threadId}/messages`, {
-    method: 'POST',
-    headers: { 'idempotency-key': key },
-    body: jsonBody(input),
-  })
+  const batches = attachments ? photoAttachmentBatches(attachments) : null
+  let result!: { id: string }
+  for (let index = 0; index < (batches?.length ?? 1); index++) {
+    result = await api<{ id: string }>(`/messages/threads/${threadId}/messages`, {
+      method: 'POST',
+      // Stable keys let a retry finish a partially sent album without duplicates.
+      headers: { 'idempotency-key': index === 0 ? key : `${key}:album:${index}` },
+      body: jsonBody({
+        ...input,
+        ...(batches ? { attachmentIds: batches[index]!.map((attachment) => attachment.id) } : {}),
+        ...(index > 0 ? { body: '', mentions: [] } : {}),
+      }),
+    })
+  }
+  return result
 }
 
 export function uploadMessageAttachment(threadId: string, file: File) {

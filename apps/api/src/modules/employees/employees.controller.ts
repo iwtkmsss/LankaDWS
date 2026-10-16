@@ -1,13 +1,38 @@
-import { Controller, Get, Param, Query, Req } from '@nestjs/common'
-import type { LankaDWSRequest } from '../../common/request-context.js'
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common'
+import { userSelectorSearchSchema, type UserSelectorSearchQuery } from '@lankadws/contracts'
+import type { AuthPrincipal, LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
+import { parseUserSearchExcludedIds, searchUsers, userSearchPredicate } from '../../common/search-users.js'
 
 @Controller('employees')
 export class EmployeesController {
   constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
+
+  @Post('search')
+  @HttpCode(200)
+  async search(@Req() request: LankaDWSRequest, @Body() body: unknown) {
+    const principal = principalFrom(request)
+    const parsed = userSelectorSearchSchema.safeParse(body)
+    if (!parsed.success) throw badRequest('employee_filter_invalid')
+    return this.searchOptions(principal, this.scope.allowedCompanies(principal, parsed.data.company), parsed.data)
+  }
+
+  private async searchOptions(principal: AuthPrincipal, companyIds: string[], query: UserSelectorSearchQuery) {
+    return { items: await searchUsers(this.prisma, principal, query.q, {
+      excludeIds: query.excludeIds, limit: query.limit,
+      where: { AND: [{ OR: [
+        { accountType: 'USER', primaryCompanyId: { in: companyIds } },
+        ...(query.accountType !== 'USER' ? [{ accountType: 'ADMIN' as const }] : []),
+      ] }, ...(query.managersOnly ? [{ OR: [
+        { managedOrgUnits: { some: { companyId: { in: companyIds }, status: 'ACTIVE' as const,
+          assignments: { some: { endedAt: null, user: { isActive: true, accountType: 'USER' as const } } } } } },
+        { approverFor: { some: { isActive: true, accountType: 'USER' as const, primaryCompanyId: { in: companyIds } } } },
+      ] }] : []), ...(query.excludeOrgUnitId ? [{ orgAssignments: { none: { orgUnitId: query.excludeOrgUnitId, endedAt: null } } }] : [])] },
+    }) }
+  }
 
   @Get()
   async list(
@@ -17,6 +42,11 @@ export class EmployeesController {
     @Query('orgUnit') orgUnitId?: string,
     @Query('manager') managerId?: string,
     @Query('presence') presenceFilter?: string,
+    @Query('limit') limit?: string,
+    @Query('accountType') accountType?: string,
+    @Query('exclude') exclude?: string,
+    @Query('managersOnly') managersOnly?: string,
+    @Query('excludeOrgUnitId') excludeOrgUnitId?: string,
   ) {
     const principal = principalFrom(request)
     const includeOrg = true
@@ -25,14 +55,21 @@ export class EmployeesController {
       throw badRequest('employee_filter_invalid')
     }
     const companyIds = this.scope.allowedCompanies(principal, company)
+    // Bounded selector search; the full directory below has a separate UI contract.
+    if (limit !== undefined) {
+      if (managersOnly && managersOnly !== 'true') throw badRequest('employee_filter_invalid')
+      const parsed = userSelectorSearchSchema.safeParse({ q: search ?? '', limit, company, accountType,
+        excludeIds: parseUserSearchExcludedIds(exclude), managersOnly: managersOnly === 'true', excludeOrgUnitId })
+      if (!parsed.success) throw badRequest('employee_filter_invalid')
+      return this.searchOptions(principal, companyIds, parsed.data)
+    }
     const users = await this.prisma.user.findMany({
       where: {
+        workspaceId: principal.workspaceId,
         isActive: true,
         accountType: 'USER',
         primaryCompanyId: { in: companyIds },
-        ...(search
-          ? { OR: [{ displayName: { contains: search } }, { jobTitle: { contains: search } }, { username: { contains: search } }] }
-          : {}),
+        ...(search?.trim() ? userSearchPredicate(search, { includeJobTitle: true }) : {}),
       },
       select: {
         id: true,
@@ -46,6 +83,7 @@ export class EmployeesController {
           where: {
             companyId: { in: companyIds },
             endedAt: null,
+            isPrimary: true,
             orgUnit: { status: 'ACTIVE' },
           },
           select: {
@@ -55,6 +93,7 @@ export class EmployeesController {
               select: {
                 id: true,
                 name: true,
+                companyId: true,
                 parent: { select: { id: true, name: true } },
                 manager: { select: { id: true, displayName: true } },
               },
@@ -81,7 +120,7 @@ export class EmployeesController {
       if (!state.has(item.userId)) state.set(item.userId, item.state)
     }
     const directory = users.map(({ orgAssignments, approver, ...user }) => {
-      const assignment = includeOrg ? orgAssignments[0] : undefined
+      const assignment = includeOrg ? orgAssignments.find((item) => item.orgUnit.companyId === user.primaryCompanyId) : undefined
       const manager = assignment?.orgUnit.manager ?? approver
       return {
         ...user,
@@ -135,6 +174,7 @@ export class EmployeesController {
         id: true,
         displayName: true,
         username: true,
+        accountType: true,
         jobTitle: true,
         primaryCompanyId: true,
         primaryCompany: { select: { id: true, displayName: true } },
@@ -143,10 +183,10 @@ export class EmployeesController {
         contactEmail: true,
         phone: true,
         orgAssignments: {
-          where: { companyId: { in: companyIds }, endedAt: null, orgUnit: { status: 'ACTIVE' } },
+          where: { companyId: { in: companyIds }, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } },
           select: {
             positionTitle: true,
-            orgUnit: { select: { id: true, name: true, parent: { select: { id: true, name: true } }, manager: { select: { id: true, displayName: true } } } },
+            orgUnit: { select: { id: true, name: true, companyId: true, parent: { select: { id: true, name: true } }, manager: { select: { id: true, displayName: true } } } },
           },
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
         },
@@ -163,7 +203,7 @@ export class EmployeesController {
       }),
     ])
     const { orgAssignments, ...safeUser } = user
-    const assignment = includeOrg ? orgAssignments[0] : undefined
+    const assignment = includeOrg ? orgAssignments.find((item) => item.orgUnit.companyId === user.primaryCompanyId) : undefined
     return {
       ...safeUser,
       positionTitle: assignment?.positionTitle ?? user.jobTitle,

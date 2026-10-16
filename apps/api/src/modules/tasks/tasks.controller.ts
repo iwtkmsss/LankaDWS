@@ -71,19 +71,19 @@ export class TasksController {
   ) {}
 
   @Get()
-  list(@Req() request: LankaDWSRequest, @Query('company') company?: string, @Query('role') role?: string, @Query('segment') segment?: string, @Query('page') page?: string, @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string, @Query('favorite') favorite?: string, @Query('important') important?: string, @Query('overdue') overdue?: string, @Query('preset') preset?: string, @Query('dueFrom') dueFrom?: string, @Query('dueTo') dueTo?: string, @Query('groupId') groupId?: string, @Query('assigneeId') assigneeId?: string, @Query('creatorId') creatorId?: string, @Query('coExecutorId') coExecutorId?: string, @Query('observerId') observerId?: string) {
+  list(@Req() request: LankaDWSRequest, @Query('company') company?: string, @Query('role') role?: string, @Query('segment') segment?: string, @Query('page') page?: string, @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string, @Query('favorite') favorite?: string, @Query('important') important?: string, @Query('overdue') overdue?: string, @Query('preset') preset?: string, @Query('dueFrom') dueFrom?: string, @Query('dueTo') dueTo?: string, @Query('assigneeId') assigneeId?: string, @Query('creatorId') creatorId?: string, @Query('coExecutorId') coExecutorId?: string, @Query('observerId') observerId?: string, @Query('sort') sort?: string, @Query('direction') direction?: string) {
     const legacyRole = segment === 'created' ? 'CREATOR' : segment === 'all' ? 'ALL' : 'RESPONSIBLE'
-    return this.tasks.list(principalFrom(request), company, role ?? legacyRole, Number(page ?? 1), 25, { search, status, priority, favorite, important, overdue, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId })
+    return this.tasks.list(principalFrom(request), company, role ?? legacyRole, Number(page ?? 1), 25, { search, status, priority, favorite, important, overdue, preset, dueFrom, dueTo, assigneeId, creatorId, coExecutorId, observerId, sort, direction })
   }
 
   @Get('options')
   options(
     @Req() request: LankaDWSRequest,
-    @Query('groupId') groupId?: string,
+
     @Query('projectId') projectId?: string,
     @Query('search') search?: string,
   ) {
-    return this.catalog.options(principalFrom(request), { groupId, projectId, search })
+    return this.catalog.options(principalFrom(request), { projectId, search })
   }
 
   @Get('projects')
@@ -201,8 +201,9 @@ export class TasksController {
     @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @UploadedFile() file: UploadedBinary,
+    @Query('draft') draft?: string,
   ) {
-    return this.tasks.uploadAttachment(principalFrom(request), taskId, file)
+    return this.tasks.uploadAttachment(principalFrom(request), taskId, file, draft === 'true')
   }
 
   @Post(':id/attachments/from-drive')
@@ -210,9 +211,10 @@ export class TasksController {
     @Req() request: LankaDWSRequest,
     @Param('id') taskId: string,
     @Body() body: { fileId?: unknown },
+    @Query('draft') draft?: string,
   ) {
     if (typeof body.fileId !== 'string' || !body.fileId) throw badRequest('task_attachment')
-    return this.tasks.attachDriveFile(principalFrom(request), taskId, body.fileId)
+    return this.tasks.attachDriveFile(principalFrom(request), taskId, body.fileId, draft === 'true')
   }
 
   @Delete(':id/attachments/:fileId')
@@ -245,6 +247,12 @@ export class TasksController {
   ) {
     if (!key) throw badRequest('idempotency_key_required')
     return this.tasks.createSubtask(principalFrom(request), taskId, body, key)
+  }
+
+  @Post(':id/delegate')
+  delegate(@Req() request: LankaDWSRequest, @Param('id') taskId: string, @Body() body: { userId?: unknown; expectedVersion?: unknown }) {
+    if (typeof body.userId !== 'string' || !body.userId || typeof body.expectedVersion !== 'number') throw badRequest('task_delegate')
+    return this.participants.put(principalFrom(request), taskId, body.userId, 'RESPONSIBLE', body.expectedVersion, true)
   }
 
   @Put(':id/participants/:userId')

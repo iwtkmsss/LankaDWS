@@ -27,7 +27,6 @@ import {
   feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
   updateFeedPostSchema,
-  groupListQuerySchema,
   importDatasetKindSchema,
   importDatasetRelativePathSchema,
   importReadinessViewSchema,
@@ -167,9 +166,7 @@ describe('transport schemas', () => {
     })
   })
 
-  it('normalizes bounded group and organization queries', () => {
-    expect(groupListQuerySchema.parse({ company: 'cmp_lankadws', limit: '20', query: '  design  ' })).toMatchObject({ company: 'cmp_lankadws', limit: 20, query: 'design', status: 'ACTIVE' })
-    expect(() => groupListQuerySchema.parse({ company: 'cmp_lankadws', limit: 500 })).toThrow()
+  it('normalizes bounded organization queries', () => {
     expect(orgUnitListQuerySchema.parse({ company: 'cmp_lankadws', parentId: null })).toEqual({ company: 'cmp_lankadws', parentId: null })
     expect(createOrgUnitSchema.parse({ name: '  Дослідження\tта  розвиток 🚀  ', parentId: null })).toEqual({
       name: 'Дослідження та розвиток 🚀',
@@ -189,7 +186,6 @@ describe('transport schemas', () => {
       company: 'cmp_lankadws',
       filter: 'MINE',
       type: 'TASK',
-      groupId: 'grp_product_design',
       audienceId: 'cmp_lankadws',
       mentioned: 'true',
       important: 'false',
@@ -198,7 +194,6 @@ describe('transport schemas', () => {
       company: 'cmp_lankadws',
       filter: 'MINE',
       type: 'TASK',
-      groupId: 'grp_product_design',
       audienceId: 'cmp_lankadws',
       mentioned: true,
       important: false,
@@ -265,7 +260,7 @@ describe('transport schemas', () => {
       company: 'cmp_lankadws',
       audienceType: 'COMPANY',
       q: 'м',
-    })).toMatchObject({ q: 'м', limit: 8 })
+    })).toMatchObject({ q: 'м', limit: 5 })
     expect(() => feedMentionCandidatesQuerySchema.parse({
       company: 'cmp_lankadws',
       audienceType: 'GROUP',
@@ -301,7 +296,7 @@ describe('transport schemas', () => {
     expect(chatMessageSearchQuerySchema.parse({ q: '😀' })).toMatchObject({ q: '😀', limit: 20 })
     expect(() => chatMessageSearchQuerySchema.parse({ q: ' ' })).toThrow()
     expect(chatUserSearchQuerySchema.parse({ company: 'cmp_lankadws', q: 'ОЛЕНА' }))
-      .toEqual({ company: 'cmp_lankadws', q: 'ОЛЕНА', limit: 20 })
+      .toEqual({ company: 'cmp_lankadws', q: 'ОЛЕНА', limit: 5 })
     expect(chatThreadPageSchema.parse({
       items: [],
       counts: { all: 0, unread: 0 },
@@ -417,6 +412,17 @@ describe('transport schemas', () => {
     ])
   })
 
+  it('allows task comments with only attachments but rejects completely empty comments', () => {
+    expect(taskCommentInputSchema.parse({ body: '', attachmentIds: ['file_one'] })).toMatchObject({
+      body: '', attachmentIds: ['file_one'], mentions: [],
+    })
+    expect(taskCommentInputSchema.safeParse({ body: '   ', attachmentIds: ['file_one'] }).success).toBe(true)
+    expect(taskCommentInputSchema.safeParse({ body: '' }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '   ', attachmentIds: [] }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '', attachmentIds: ['', ' '] }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '', attachmentIds: ['1', '2', '3', '4', '5', '6'] }).success).toBe(false)
+  })
+
   it('validates a complete task create payload and participant invariants', () => {
     expect(createTaskSchema.parse({
       title: '  Підготувати запуск  ',
@@ -478,7 +484,6 @@ describe('transport schemas', () => {
       number: '2401',
       title: 'Task',
       status: 'NEW',
-      groupId: null,
       projectId: null,
       parentTaskId: null,
     }

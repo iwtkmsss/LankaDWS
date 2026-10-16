@@ -12,13 +12,18 @@ export class KnowledgeController {
     return this.knowledge.list(principalFrom(request), search)
   }
 
+  @Get('summary')
+  summary(@Req() request: LankaDWSRequest) {
+    return this.knowledge.readingSummary(principalFrom(request))
+  }
+
   @Get(':slug')
   detail(@Req() request: LankaDWSRequest, @Param('slug') slug: string) {
     return this.knowledge.detail(principalFrom(request), slug)
   }
 
   @Post()
-  create(@Req() request: LankaDWSRequest, @Body() body: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string }) {
+  create(@Req() request: LankaDWSRequest, @Body() body: { slug: string; title: string; body: string; companyIds: string[]; attachmentIds?: string[]; reviewAt?: string; requiresAcknowledgement?: boolean }) {
     return this.knowledge.create(principalFrom(request), body)
   }
 
@@ -28,7 +33,7 @@ export class KnowledgeController {
   }
 
   @Patch(':slug')
-  update(@Req() request: LankaDWSRequest, @Param('slug') slug: string, @Body() body: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; expectedVersion: number }) {
+  update(@Req() request: LankaDWSRequest, @Param('slug') slug: string, @Body() body: { title: string; body: string; changeSummary: string; companyIds?: string[]; attachmentIds?: string[]; removedAttachmentIds?: string[]; requiresAcknowledgement?: boolean; expectedVersion: number }) {
     return this.knowledge.update(principalFrom(request), slug, body)
   }
 

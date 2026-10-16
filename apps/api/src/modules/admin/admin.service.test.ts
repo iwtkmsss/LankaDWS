@@ -41,11 +41,12 @@ describe('AdminService administrator safeguards', () => {
         update: vi.fn(),
       },
     }
+    Object.assign(prisma, { $transaction: vi.fn((callback: (client: typeof prisma) => Promise<unknown>) => callback(prisma)) })
     const service = new AdminService(prisma as never, {} as never, {} as never)
 
     await expect(service.updateUser(principal, principal.userId, update)).rejects.toMatchObject({
       status: 403,
-      safeDetail: 'last_admin',
+      safeDetail: 'Не можна змінити тип або деактивувати останнього адміністратора.',
     })
     expect(prisma.user.update).not.toHaveBeenCalled()
     expect(prisma.user.count).toHaveBeenCalledWith({
@@ -61,8 +62,8 @@ describe('AdminService user creation', () => {
       return Promise.resolve(undefined)
     })
     const transaction = {
-      user: { create: createUser },
-      usernameReservation: { create: vi.fn().mockResolvedValue(undefined) },
+      user: { create: createUser, findFirst: vi.fn().mockResolvedValue(null) },
+      usernameReservation: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue(undefined) },
       passwordCredential: { create: vi.fn().mockResolvedValue(undefined) },
       userOrgAssignment: { create: vi.fn().mockResolvedValue(undefined) },
       auditEvent: { create: vi.fn().mockResolvedValue(undefined) },
@@ -97,7 +98,9 @@ describe('AdminService deactivation', () => {
   it('revokes all sessions and invalidates authorization when disabling a user', async () => {
     const user = { id: 'usr_target', accountType: 'USER', isActive: true, primaryCompanyId: 'cmp_test', jobTitle: '' }
     const tx = {
-      user: { update: vi.fn().mockResolvedValue(user) },
+      user: { update: vi.fn().mockResolvedValue(user), findFirst: vi.fn(({ where }: { where: { id: unknown } }) => Promise.resolve(where.id === user.id ? user : null)) },
+      task: { count: vi.fn().mockResolvedValue(0) }, document: { count: vi.fn().mockResolvedValue(0) },
+      usernameReservation: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
       company: { updateMany: vi.fn() }, orgUnit: { updateMany: vi.fn() },
       userSession: { updateMany: vi.fn() }, auditEvent: { create: vi.fn() },
     }

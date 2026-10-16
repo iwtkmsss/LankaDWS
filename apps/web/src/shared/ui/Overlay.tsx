@@ -6,6 +6,7 @@ import type {
   RefObject,
 } from 'react'
 import {
+  Children,
   createContext,
   forwardRef,
   useCallback,
@@ -94,6 +95,7 @@ export function OverlayProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      if (event.target instanceof Element && event.target.closest('[data-date-picker-menu]')) return
       const top = stackRef.current.at(-1)
       if (!top?.escapeAllowed()) return
       event.preventDefault()
@@ -127,7 +129,9 @@ export function OverlayProvider({ children }: PropsWithChildren) {
       overflow: body.style.overflow,
       paddingRight: body.style.paddingRight,
     }
-    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth)
+    // A stable root gutter already reserves this space, including while the body is fixed.
+    const stableGutter = window.getComputedStyle(document.documentElement).scrollbarGutter.includes('stable')
+    const scrollbarWidth = stableGutter ? 0 : Math.max(0, window.innerWidth - document.documentElement.clientWidth)
     const currentPadding = Number.parseFloat(window.getComputedStyle(body).paddingRight) || 0
     body.style.position = 'fixed'
     body.style.top = `-${scrollY}px`
@@ -257,6 +261,7 @@ export function ModalHeader({
   titleId,
   descriptionId,
   showClose = true,
+  headerActions,
   closeDisabled = false,
   closeLabel,
   onRequestClose,
@@ -268,6 +273,7 @@ export function ModalHeader({
   titleId?: string
   descriptionId?: string
   showClose?: boolean
+  headerActions?: ReactNode
   closeDisabled?: boolean
   closeLabel?: string
   onRequestClose?: (reason: ModalCloseReason) => void
@@ -281,6 +287,7 @@ export function ModalHeader({
           {description && <p id={descriptionId}>{description}</p>}
         </div>
       )}
+      {headerActions}
       {showClose && onRequestClose && (
         <ModalCloseButton
           label={closeLabel}
@@ -327,6 +334,7 @@ export interface ModalRootProps extends PropsWithChildren {
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
   header?: ReactNode
+  headerActions?: ReactNode
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
   closeDisabled?: boolean
@@ -352,6 +360,7 @@ export function ModalRoot({
   onRequestClose,
   footer,
   header,
+  headerActions,
   children,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -506,6 +515,7 @@ export function ModalRoot({
             description={description}
             titleId={titleId}
             descriptionId={descriptionId}
+            headerActions={headerActions}
             showClose={showClose}
             closeDisabled={closeDisabled}
             closeLabel={closeLabel}
@@ -526,7 +536,7 @@ export function ModalRoot({
             {header}
           </ModalHeader>
         )}
-        <ModalBody variant={variant} className={bodyClassName}>{children}</ModalBody>
+        {Children.toArray(children).length > 0 && <ModalBody variant={variant} className={bodyClassName}>{children}</ModalBody>}
         {footer && (
           <ModalFooter variant={variant} className={footerClassName}>{footer}</ModalFooter>
         )}
@@ -547,6 +557,7 @@ export function Modal({
   description,
   children,
   footer,
+  headerActions,
   onBeforeClose,
   onRequestClose,
   closeDisabled = false,
@@ -561,6 +572,7 @@ export function Modal({
 }: PropsWithChildren<{
   title: string
   description?: string
+  headerActions?: ReactNode
   footer?: ReactNode
   onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
@@ -584,6 +596,7 @@ export function Modal({
       mobileFullscreen={mobileFullscreen}
       onBeforeClose={onBeforeClose}
       onRequestClose={onRequestClose}
+      headerActions={headerActions}
       footer={footer}
       closeDisabled={closeDisabled}
       className={className}

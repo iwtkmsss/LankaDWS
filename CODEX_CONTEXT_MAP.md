@@ -21,8 +21,8 @@ The palette debounces queries from one Unicode character and returns only permis
 | Field | Current path |
 |---|---|
 | Frontend entry | `apps/web/src/layout/AppShell.tsx` |
-| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/groups?new=1`, `/drive?new=1`, `/announcements/new` |
-| API owners | Existing tasks, messages, calendar, groups, documents, and announcements controllers |
+| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/drive?new=1`, `/announcements/new` |
+| API owners | Existing tasks, messages, calendar, documents, and announcements controllers |
 | Focused test | `apps/web/e2e/app.spec.ts` where the changed canonical flow is covered |
 
 Keep permission/capability gates and reuse the destination form.
@@ -68,16 +68,6 @@ Direct threads are canonical: reuse the returned thread and navigate to `/messag
 
 Build the displayed tree from the safe flat list. Do not add another hierarchy model. Companies are organizational groups within one workspace, not authorization scopes (see `docs/decisions.md` 2026-08-31).
 
-## Groups
-
-| Field | Current path |
-|---|---|
-| Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/groups`, `/groups/:groupId`) |
-| API request | `GET/POST /api/v1/groups`, detail, membership, archive, and group-thread routes |
-| Controller / service | `modules/groups/groups.controller.ts` / `groups.service.ts` |
-| Contract / model | `packages/contracts/src/groups.ts`; `Group`, `GroupMember`, `GroupJoinRequest` |
-| Focused test | Focused web/API test for the changed membership or group flow |
-
 ## Tasks
 
 | Field | Current path |
@@ -88,7 +78,7 @@ Build the displayed tree from the safe flat list. Do not add another hierarchy m
 | Contract / model | `packages/contracts/src/tasks.ts`; `Task`, `TaskParticipant`, `TaskChecklistItem`, `TaskRelation`, `TaskReminder`, `TaskRecurrence`, `TimeEntry`, `Project`, `Tag` and shared `FileObject`/`FileLink` |
 | Focused test | `apps/api/src/modules/tasks/task-v2-services.test.ts`, `task-planning-services.test.ts`, `apps/api/test/e2e/workflows.e2e.test.ts` (complete task aggregate) and `apps/web/e2e/task-create.spec.ts` |
 
-Task creation is the canonical `/tasks/new` modal. It submits one idempotent aggregate command; staged uploads remain in the shared quarantine/file lifecycle and are linked only when that command commits. The legacy `TasksService` export is a compatibility facade for established list/detail consumers, not the owner of new task business logic.
+Task creation is the standalone `/tasks/new` page (`src/pages/TaskCreatePage.tsx`), using the canonical `TaskCreateForm`. It submits one idempotent aggregate command; staged uploads remain in the shared quarantine/file lifecycle and are linked only when that command commits. The legacy `TasksService` export is a compatibility facade for established list/detail consumers, not the owner of new task business logic.
 
 ## Documents / Drive
 
@@ -97,7 +87,7 @@ Task creation is the canonical `/tasks/new` modal. It submits one idempotent agg
 | Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/documents`, `/drive`) |
 | API request | `GET/POST /api/v1/documents`, detail, version, publish, archive, and restore routes |
 | Controller / service | `modules/documents/documents.controller.ts` / `documents.service.ts` |
-| Contract / model | `packages/contracts/src/domain.ts`; `Document`, `DocumentVersion`, `DocumentAcl` |
+| Contract / model | `packages/contracts/src/domain.ts`, `drive.ts`; `Document.fileId`, `DocumentAcl`, `DriveShare` (no document file versions) |
 | Focused test | Focused test for the changed document/ACL flow |
 
 ## Calendar

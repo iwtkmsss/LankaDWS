@@ -27,7 +27,6 @@ type ProfileName = 'smoke' | 'representative';
 
 interface Profile {
   users: number;
-  groups: number;
   posts: number;
   comments: number;
   tasks: number;
@@ -48,8 +47,6 @@ interface SeedEvidence {
   supersededItems: number;
   liveDeltaHeads: number;
   forbiddenSourceIds: Record<string, string>;
-  visibleGroupId: string;
-  visibleGroupFileShareIds: string[];
 }
 
 interface ScenarioMetric {
@@ -70,7 +67,6 @@ interface QueryPlanRow {
 const profiles: Record<ProfileName, Profile> = {
   smoke: {
     users: 40,
-    groups: 8,
     posts: 240,
     comments: 320,
     tasks: 2_500,
@@ -81,7 +77,6 @@ const profiles: Record<ProfileName, Profile> = {
   },
   representative: {
     users: 515,
-    groups: 54,
     posts: 5_573,
     comments: 7_357,
     tasks: 150_534,
@@ -95,8 +90,6 @@ const profiles: Record<ProfileName, Profile> = {
 const workspaceId = 'ws_feed_rehearsal';
 const companyId = 'cmp_feed_rehearsal';
 const principalId = 'usr_feed_0000';
-const visibleGroupId = 'grp_feed_0000';
-const hiddenGroupId = 'grp_feed_0001';
 const baseTime = Date.parse('2026-07-23T18:00:00.000Z');
 const sourceSpanMs =
   Date.parse('2026-07-23T18:00:00.000Z') -
@@ -212,23 +205,12 @@ function seedDatabase(
       id, companyId, code, enabled, enabledById, enabledAt, updatedAt
     ) VALUES (?, ?, 'FEED', true, ?, ?, ?)
   `);
-  const insertGroup = database.prepare(`
-    INSERT INTO "Group" (
-      id, workspaceId, companyId, key, name, description,
-      discoverability, joinPolicy, status, ownerId, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
-  `);
-  const insertGroupMember = database.prepare(`
-    INSERT INTO GroupMember (
-      id, groupId, userId, role, notificationMode, joinedAt
-    ) VALUES (?, ?, ?, ?, 'ALL', ?)
-  `);
   const insertPost = database.prepare(`
     INSERT INTO FeedPost (
-      id, workspaceId, companyId, groupId, authorId, body, status,
+      id, workspaceId, companyId, authorId, body, status,
       requiresAcknowledgement, acknowledgementVersion, version,
       publishedAt, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, 'PUBLISHED', ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, 'PUBLISHED', ?, ?, ?, ?, ?, ?)
   `);
   const insertPostRecipient = database.prepare(`
     INSERT INTO FeedPostRecipient (id, postId, type, recipientId, createdAt)
@@ -296,8 +278,8 @@ function seedDatabase(
   const insertFileShare = database.prepare(`
     INSERT INTO FeedFileShare (
       id, workspaceId, companyId, fileId, ownerId, audienceType, audienceKey,
-      groupId, status, version, createdAt, updatedAt, revokedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      status, version, createdAt, updatedAt, revokedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertFileRecipient = database.prepare(`
     INSERT INTO FeedFileShareRecipient (id, shareId, userId, createdAt)
@@ -324,7 +306,6 @@ function seedDatabase(
   let liveDeltaHeads = 0;
   let acknowledgementOrdinal = 0;
   const favoriteCandidates: string[] = [];
-  const visibleGroupFileShareIds: string[] = [];
   const forbiddenSourceIds: Record<string, string> = {};
   const now = new Date('2026-07-23T18:00:00.000Z').toISOString();
 
@@ -362,39 +343,6 @@ function seedDatabase(
       now,
     );
 
-    for (let index = 0; index < profile.groups; index += 1) {
-      const groupId = `grp_feed_${pad(index, 4)}`;
-      const ownerId = userId((index % (profile.users - 1)) + 1);
-      insertGroup.run(
-        groupId,
-        workspaceId,
-        companyId,
-        `synthetic-${pad(index, 4)}`,
-        `Synthetic Group ${pad(index, 4)}`,
-        'Synthetic non-PII rehearsal group.',
-        index === 1 ? 'HIDDEN' : 'LISTED',
-        index === 1 ? 'INVITE_ONLY' : 'REQUEST',
-        ownerId,
-        now,
-      );
-      insertGroupMember.run(
-        `gm_feed_${pad(index, 4)}_owner`,
-        groupId,
-        ownerId,
-        'OWNER',
-        now,
-      );
-      if (index === 0) {
-        insertGroupMember.run(
-          'gm_feed_visible_principal',
-          groupId,
-          principalId,
-          'MEMBER',
-          now,
-        );
-      }
-    }
-
     for (let index = 0; index < profile.posts; index += 1) {
       const postId = `post_feed_${pad(index)}`;
       const currentTime = sourceTime(profile, index, 0);
@@ -414,14 +362,12 @@ function seedDatabase(
       const acknowledgementVersion = requiresAcknowledgement
         ? currentVersion
         : 0;
-      let groupId: string | null = null;
       let recipientType = 'COMPANY';
       let recipientId = companyId;
       let accessible = true;
       if (audiencePattern === 0) {
-        groupId = hiddenGroupId;
-        recipientType = 'GROUP';
-        recipientId = hiddenGroupId;
+        recipientType = 'USER';
+        recipientId = userId(2);
         accessible = false;
         forbiddenSourceIds.POST ??= postId;
       } else if (audiencePattern === 1) {
@@ -430,9 +376,8 @@ function seedDatabase(
         accessible = false;
         forbiddenSourceIds.POST ??= postId;
       } else if (audiencePattern === 2) {
-        groupId = visibleGroupId;
-        recipientType = 'GROUP';
-        recipientId = visibleGroupId;
+        recipientType = 'USER';
+        recipientId = principalId;
       } else if (audiencePattern === 3) {
         recipientType = 'USER';
         recipientId = principalId;
@@ -442,7 +387,6 @@ function seedDatabase(
         postId,
         workspaceId,
         companyId,
-        groupId,
         authorId,
         `Synthetic post ${pad(index)}. Rehearsal content contains no production data.`,
         requiresAcknowledgement ? 1 : 0,
@@ -736,13 +680,12 @@ function seedDatabase(
       const liveDelta = true;
       let audienceType = 'COMPANY';
       let audienceKey = `COMPANY:${companyId}`;
-      let groupId: string | null = null;
       let directRecipient: string | null = null;
       let visible = !revoked;
       if (pattern === 1) {
-        audienceType = 'GROUP';
-        audienceKey = `GROUP:${hiddenGroupId}`;
-        groupId = hiddenGroupId;
+        audienceType = 'USER';
+        directRecipient = userId(2);
+        audienceKey = `USER:${directRecipient}`;
         visible = false;
       } else if (pattern === 2) {
         audienceType = 'USER';
@@ -750,9 +693,9 @@ function seedDatabase(
         audienceKey = `USER:${directRecipient}`;
         visible = false;
       } else if (pattern === 4) {
-        audienceType = 'GROUP';
-        audienceKey = `GROUP:${visibleGroupId}`;
-        groupId = visibleGroupId;
+        audienceType = 'USER';
+        directRecipient = principalId;
+        audienceKey = `USER:${directRecipient}`;
         visible = true;
       } else if (pattern === 5) {
         audienceType = 'USER';
@@ -780,7 +723,6 @@ function seedDatabase(
         userId(1),
         audienceType,
         audienceKey,
-        groupId,
         'ACTIVE',
         1,
         currentTime,
@@ -837,7 +779,6 @@ function seedDatabase(
       if (visible) {
         expectedVisibleHeads += 1;
         expectedUnreadHeads += 1;
-        if (groupId === visibleGroupId) visibleGroupFileShareIds.push(shareId);
       } else {
         forbiddenSourceIds.FILE ??= shareId;
       }
@@ -875,8 +816,6 @@ function seedDatabase(
     supersededItems,
     liveDeltaHeads,
     forbiddenSourceIds,
-    visibleGroupId,
-    visibleGroupFileShareIds,
   };
 }
 
@@ -1239,21 +1178,6 @@ async function main(): Promise<void> {
         ),
       'acknowledgement filter must contain only unresolved current-version actions',
     );
-    const groupResult = await feed.list(principal, {
-      ...baseQuery,
-      groupId: seedEvidence.visibleGroupId,
-    });
-    const visibleGroupFileIds = new Set(seedEvidence.visibleGroupFileShareIds);
-    assertCondition(
-      groupResult.items.length > 0 &&
-        groupResult.items.every((entry) =>
-          entry.kind === 'POST'
-            ? entry.group?.id === seedEvidence.visibleGroupId
-            : entry.sourceType === 'FILE' && visibleGroupFileIds.has(entry.id),
-        ),
-      'group facet must return only the exact visible group context',
-    );
-
     const scenarioQueries: Record<string, FeedListQuery> = {
       allFirstPage: baseQuery,
       allCursorPage: secondPageQuery,
@@ -1264,7 +1188,6 @@ async function main(): Promise<void> {
         filter: 'ACK_REQUIRED',
         type: 'POST',
       },
-      exactGroup: { ...baseQuery, groupId: seedEvidence.visibleGroupId },
       files: { ...baseQuery, type: 'FILE' },
     };
     const timings: Record<string, ScenarioMetric> = {};
@@ -1297,7 +1220,6 @@ async function main(): Promise<void> {
           calendarActivityRows: 639,
           importantActivityRows: 133,
           activeUsers: 515,
-          activeGroups: 54,
         },
         profile: profileName,
         fixture: profile,
@@ -1358,7 +1280,7 @@ async function main(): Promise<void> {
           'no adjacent-page or bounded-traversal source duplicates',
           'current-head unread count matches the deterministic live-delta ACL oracle',
           'post/task/event/file ACL canaries remain hidden',
-          'acknowledgement and exact-group facets remain relevant',
+          'acknowledgement and recipient facets remain relevant',
         ],
       },
       queryPlans: {

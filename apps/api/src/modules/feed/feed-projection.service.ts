@@ -27,10 +27,19 @@ interface EventProjectionSource {
   updatedAt: Date;
 }
 
+export interface TaskFeedDetails {
+  role?: string;
+  change?: string;
+  changedFields?: string[];
+  status?: string;
+  watchersAdded?: boolean;
+}
+
 interface ProjectionOptions {
   action: string;
   occurredAt?: Date;
   historical?: boolean;
+  taskDetails?: TaskFeedDetails;
   actorId?: string;
   recipientIds?: string[];
 }
@@ -48,6 +57,7 @@ export interface FeedProjectionWriteInput {
   visibility: 'COMPANY' | 'PARTICIPANTS';
   occurredAt: Date;
   historical?: boolean;
+  taskDetails?: TaskFeedDetails;
 }
 
 export interface HistoricalFeedMaterializationInput {
@@ -213,11 +223,6 @@ export class FeedProjectionService {
     });
     let seeded = 0;
     for (const { id: userId } of users) {
-      const memberships = await this.prisma.groupMember.findMany({
-        where: { userId, leftAt: null, group: { companyId, status: 'ACTIVE' } },
-        select: { groupId: true },
-      });
-      const groupIds = memberships.map((membership) => membership.groupId);
       const latest = await this.prisma.feedItem.findFirst({
         where: {
           companyId,
@@ -235,14 +240,6 @@ export class FeedProjectionService {
                       OR: [
                         { type: 'COMPANY', recipientId: companyId },
                         { type: 'USER', recipientId: userId },
-                        ...(groupIds.length > 0
-                          ? [
-                              {
-                                type: 'GROUP' as const,
-                                recipientId: { in: groupIds },
-                              },
-                            ]
-                          : []),
                       ],
                     },
                   },
@@ -340,6 +337,7 @@ export async function writeFeedProjection(
         sourceId: input.sourceId,
         action: input.action,
         historical: Boolean(input.historical),
+        ...(input.taskDetails ? { taskDetails: input.taskDetails } : {}),
       }),
       countsAsUnread: !input.historical,
       occurredAt: input.occurredAt,

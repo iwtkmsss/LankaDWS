@@ -53,10 +53,23 @@ Do not run repo-wide `git show`, `git diff HEAD~1`, empty-pattern `rg`, or `find
 - Authorization is server-side. Search, chat, files, groups, tasks and employee projections must preserve current permission/scope checks.
 - Direct chat threads are canonical and idempotent. Reuse `POST /messages/threads`; never create duplicate direct conversations.
 - Org hierarchy already uses recursive `OrgUnit.parentId`; do not add another hierarchy model.
-- Groups already exist and Tasks already have optional `groupId`.
+- Work groups have been removed. Group chats use `MessageThread` and `ThreadParticipant`; do not reintroduce a work-group aggregate or task group scope.
 - `Project` and `Tag` exist in `schema.prisma` as task-catalog records (`Task.projectId`, `Task.tags`). Do not build a standalone project-management aggregate, page or route, and do not treat `Project` as a company/authorization scope.
 - Reuse canonical create routes/forms. Do not duplicate entity forms inside global search.
 - Do not edit generated Prisma Client.
+
+## User search and scale
+
+- Design user selectors for thousands of accounts. Never preload the whole employee/user directory or render it as suggestions.
+- Start server-side user search from one non-whitespace Unicode character, with debounce and cancellation of stale requests. An empty input must not fetch or list users.
+- User search has one shared policy: `packages/contracts/src/user-search.ts`, one server implementation: `apps/api/src/common/search-users.ts`, and one client request builder: `apps/web/src/shared/api/user-search.ts`. Use `useUserSearch` or `UserSearchCombobox` in UI. Never add another local user-matching/ranking/request implementation; fix shared behavior centrally.
+- Return at most 5 user search results, enforced in database queries by the shared implementation. A client-side slice or scrollable dropdown is not a limit. Search the full authorized dataset, not only the first cached page, and exclude already selected users before applying the limit.
+- Include active administrators by default in user search. Apply explicit eligibility restrictions only for actions that require them (for example, company employee transfer). Preserve contextual mention/chat access checks before searching.
+- Show user avatars in search results using the existing `Avatar` component and its placeholder when no photo exists.
+- Recent-user suggestions are opt-in product behavior and must have an explicit server limit (5 for the established chat recommendations). Do not substitute all users for recent users.
+- Preserve selected people by ID independently of search results. Preserve workspace/access checks, safe projections and keyboard behavior.
+- For large memberships, pass an aggregate ID and exclude members with a SQL relationship predicate. The shared request builder uses a JSON search body for long explicit exclusion lists; never truncate exclusions or put thousands of IDs in a URL.
+- Audit both the UI and its endpoint when adding or reusing a selector. Directories and membership lists require pagination or a separate scoped design; do not silently truncate them to make a selector scalable.
 
 ## Change boundaries
 

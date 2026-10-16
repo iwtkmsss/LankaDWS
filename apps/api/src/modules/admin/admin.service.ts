@@ -1,3 +1,4 @@
+import { userSearchPredicate } from '../../common/search-users.js'
 import { Injectable } from '@nestjs/common'
 import {
   allOrganizationCapabilityCodes,
@@ -16,6 +17,8 @@ import { AuthService } from '../auth/auth.service.js'
 import { assertPasswordPolicy } from '../auth/password-policy.js'
 import { JobsService } from '../jobs/jobs.service.js'
 
+export const ADMIN_USER_PAGE_SIZE = 50
+
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly jobQueue: JobsService) {}
@@ -33,21 +36,50 @@ export class AdminService {
     return { users: { active: activeUsers, inactive: inactiveUsers }, departments, administrators: roles, twoFactorCoverage: activeUsers ? Math.round((activeUsers - without2fa) / activeUsers * 100) : 0, attention: { without2fa, failedJobs }, recentAudit }
   }
 
-  async users(principal: AuthPrincipal, search?: string, isActive?: string, companyId?: string, accountType?: string) {
-    const rows = await this.prisma.user.findMany({ where: {
+  async users(principal: AuthPrincipal, search?: string, isActive?: string, companyId?: string, accountType?: string, page = 1, sort: 'displayName' | 'accountType' | 'twoFactor' | 'isActive' = 'displayName', direction: 'asc' | 'desc' = 'asc') {
+    const pageSize = ADMIN_USER_PAGE_SIZE
+    const where: Prisma.UserWhereInput = {
       workspaceId: principal.workspaceId,
       ...(companyId ? { primaryCompanyId: companyId } : {}),
       ...(isActive === 'true' || isActive === 'false' ? { isActive: isActive === 'true' } : {}),
       ...(accountType === 'ADMIN' || accountType === 'USER' ? { accountType } : {}),
-      ...(search ? { OR: [{ displayName: { contains: search } }, { username: { contains: search } }, { jobTitle: { contains: search } }] } : {}),
-    }, include: { primaryCompany: true, totpCredential: true, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } }, orderBy: { displayName: 'asc' } })
-    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, isActive: user.isActive, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user.sessions.length, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })) }
+      ...(search?.trim() ? userSearchPredicate(search, { includeJobTitle: true }) : {}),
+    }
+    const select = { id: true, displayName: true, username: true, jobTitle: true, isActive: true, accountType: true,
+          avatarAsset: true, updatedAt: true, primaryCompany: { select: { id: true, displayName: true } },
+          totpCredential: { select: { confirmedAt: true } },
+          _count: { select: { sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } } } } } satisfies Prisma.UserSelect
+    const orderBy: Prisma.UserOrderByWithRelationInput[] = sort === 'accountType'
+      ? [{ accountType: direction }, { primaryCompany: { displayName: direction } }, { displayName: 'asc' }, { id: 'asc' }]
+      : sort === 'isActive'
+        ? [{ isActive: direction }, { displayName: 'asc' }, { id: 'asc' }]
+        : [{ displayName: sort === 'displayName' ? direction : 'asc' }, { id: 'asc' }]
+    const skip = (page - 1) * pageSize
+    const [rows, total] = sort === 'twoFactor'
+      ? await this.prisma.$transaction(async (tx) => {
+        // Sort by confirmed enrollment, preserving name order within each boolean group.
+        const enabled: Prisma.UserWhereInput = { totpCredential: { is: { confirmedAt: { not: null } } } }
+        const disabled: Prisma.UserWhereInput = { OR: [{ totpCredential: { is: null } }, { totpCredential: { is: { confirmedAt: null } } }] }
+        const firstWhere = { AND: [where, direction === 'asc' ? disabled : enabled] }
+        const secondWhere = { AND: [where, direction === 'asc' ? enabled : disabled] }
+        const total = await tx.user.count({ where })
+        const firstCount = await tx.user.count({ where: firstWhere })
+        const firstTake = Math.min(pageSize, Math.max(0, firstCount - skip))
+        const first = firstTake ? await tx.user.findMany({ where: firstWhere, select, orderBy, skip, take: firstTake }) : []
+        const second = firstTake < pageSize ? await tx.user.findMany({ where: secondWhere, select, orderBy, skip: Math.max(0, skip - firstCount), take: pageSize - firstTake }) : []
+        return [[...first, ...second], total] as const
+      })
+      : await this.prisma.$transaction([
+        this.prisma.user.findMany({ where, skip, take: pageSize, select, orderBy }),
+        this.prisma.user.count({ where }),
+      ])
+    return { items: rows.map((user) => ({ id: user.id, displayName: user.displayName, username: user.username, jobTitle: user.jobTitle, isActive: user.isActive, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessionCount: user._count.sessions, avatarAsset: user.avatarAsset, updatedAt: user.updatedAt })), page, pageSize, total }
   }
 
   async userDetail(principal: AuthPrincipal, userId: string) {
     const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, orgAssignments: { where: { endedAt: null, isPrimary: true }, include: { orgUnit: true } }, managedCompanies: { select: { id: true, displayName: true } }, managedOrgUnits: { select: { id: true, name: true, companyId: true } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
-    const assignment = user.orgAssignments[0]
+    const assignment = user.orgAssignments.find((item) => item.companyId === user.primaryCompanyId && item.orgUnit.status === 'ACTIVE')
     return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, leadership: { companies: user.managedCompanies.map((company) => ({ id: company.id, name: company.displayName })), orgUnits: user.managedOrgUnits }, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
   }
 
@@ -55,7 +87,7 @@ export class AdminService {
     const username = input.username.trim().toLowerCase()
     const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
     if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
-    assertPasswordPolicy(input.password, username, false)
+    assertPasswordPolicy(input.password, username)
     const [reservation, company, orgUnit] = await Promise.all([
       this.prisma.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } }),
       input.companyId ? this.prisma.company.findFirst({ where: { id: input.companyId, workspaceId: principal.workspaceId, isActive: true } }) : Promise.resolve(null),
@@ -67,15 +99,15 @@ export class AdminService {
     const passwordHash = await hashPassword(input.password)
     await this.prisma.$transaction(async (tx) => {
       await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company?.id ?? null, accountType: input.accountType, firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, contactEmail: input.contactEmail.trim(), phone: input.phone?.trim() || null, gender: input.gender ?? null, birthDate: input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? '', isActive: input.isActive, mustEnroll2FA: false } })
-      await tx.usernameReservation.create({ data: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' } })
+      await this.reserveUsername(tx, principal, username, userId)
       await tx.passwordCredential.create({ data: { id: id('pwd'), userId, passwordHash } })
       if (orgUnit && company) await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.created', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
-    })
+    }).catch((error: unknown) => this.usernameError(error))
     return { userId, username }
   }
 
-  async updateUser(principal: AuthPrincipal, userId: string, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean; contactEmail?: string | null; phone?: string | null; gender?: string | null; birthDate?: string | null; jobTitle?: string; password?: string }) {
+  async updateUser(principal: AuthPrincipal, userId: string, input: { firstName: string; lastName: string; middleName?: string; username: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string | null; newOwnerId?: string; isActive: boolean; contactEmail?: string | null; phone?: string | null; gender?: string | null; birthDate?: string | null; jobTitle?: string; password?: string }) {
     const username = input.username.trim().toLowerCase()
     const displayName = [input.lastName, input.firstName, input.middleName].filter(Boolean).join(' ')
     if (!usernamePattern.test(username) || !displayName || (input.accountType === 'USER' && !input.companyId) || (input.accountType === 'ADMIN' && (input.companyId || input.orgUnitId))) throw badRequest('user_fields')
@@ -87,29 +119,34 @@ export class AdminService {
     ])
     if (!user) throw notFound()
     if (conflictUser) throw conflict('username_taken')
-    if (input.accountType === 'USER' && !company) throw badRequest('user_assignment')
-    if (input.password) assertPasswordPolicy(input.password, username, false)
-    if (
-      user.accountType === 'ADMIN'
-      && user.isActive
-      && (input.accountType !== 'ADMIN' || !input.isActive)
-    ) {
-      const admins = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, accountType: 'ADMIN', isActive: true } })
-      if (admins <= 1) throw forbidden('last_admin')
-    }
+    if (input.accountType === 'USER' && (!company || (input.orgUnitId && !orgUnit))) throw badRequest('user_assignment', 'Компанія або підрозділ недоступні.')
+    if (input.password) assertPasswordPolicy(input.password, username)
     const updated = await this.prisma.$transaction(async (tx) => {
+      const current = await tx.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId } })
+      if (!current) throw notFound()
+      if (current.accountType === 'ADMIN' && current.isActive && (input.accountType !== 'ADMIN' || !input.isActive)) {
+        if (await tx.user.count({ where: { workspaceId: principal.workspaceId, accountType: 'ADMIN', isActive: true } }) <= 1) throw forbidden('Не можна змінити тип або деактивувати останнього адміністратора.')
+      }
+      if (!input.isActive && current.isActive) {
+        const impact = await this.deactivationImpact(tx, principal, userId, input.newOwnerId)
+        if (impact.tasks + impact.documents > 0 && !input.newOwnerId) throw conflict(`Перед деактивацією оберіть нового відповідального: задачі — ${impact.tasks}, документи — ${impact.documents}.`)
+        await this.transferResponsibilities(tx, principal, userId, input.newOwnerId)
+      }
+      await this.reserveUsername(tx, principal, username, userId, current.normalizedUsername)
       const value = await tx.user.update({ where: { id: userId }, data: { firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, accountType: input.accountType, primaryCompanyId: company?.id ?? null, isActive: input.isActive, contactEmail: input.contactEmail, phone: input.phone === undefined ? user.phone : input.phone?.trim() || null, gender: input.gender === undefined ? user.gender : input.gender, birthDate: input.birthDate === undefined ? user.birthDate : input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? user.jobTitle, authorizationVersion: { increment: 1 } } })
-      const clearsLeadership = !input.isActive || (input.accountType === 'USER' && user.primaryCompanyId !== company?.id)
+      const clearsLeadership = !input.isActive || input.accountType !== current.accountType || current.primaryCompanyId !== (company?.id ?? null)
       if (clearsLeadership) {
         await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })
         await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: userId }, data: { managerId: null, version: { increment: 1 } } })
       }
+      const changesAssignment = input.orgUnitId !== undefined || input.accountType !== current.accountType || current.primaryCompanyId !== (company?.id ?? null)
+      if (changesAssignment) await tx.userOrgAssignment.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), isPrimary: false } })
       if (orgUnit && company) {
-        await tx.userOrgAssignment.updateMany({ where: { userId, endedAt: null }, data: { endedAt: new Date(), isPrimary: false } })
         await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
       }
       if (input.password) {
         const passwordHash = await hashPassword(input.password)
+        await tx.credentialEvent.create({ data: { id: id('cev'), userId, actorId: principal.userId, type: 'admin_password_changed', result: 'SUCCESS', correlationId: id('corr') } })
         await tx.passwordCredential.upsert({ where: { userId }, create: { id: id('pwd'), userId, passwordHash }, update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date() } })
         await tx.temporaryCredential.updateMany({ where: { userId, consumedAt: null, invalidatedAt: null }, data: { invalidatedAt: new Date() } })
         await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'admin_password_changed' } })
@@ -117,7 +154,7 @@ export class AdminService {
       if (!input.isActive) await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
       return value
-    })
+    }).catch((error: unknown) => this.usernameError(error))
     return { id: updated.id }
   }
 
@@ -151,6 +188,8 @@ export class AdminService {
     await this.auth.assertRecentReauth(principal, reauthChallengeId)
     const approval = await this.prisma.credentialResetApproval.findFirst({ where: { id: approvalId, state: 'PENDING', expiresAt: { gt: new Date() } } })
     if (!approval) throw notFound()
+    const target = await this.prisma.user.findFirst({ where: { id: approval.targetId, workspaceId: principal.workspaceId } })
+    if (!target) throw notFound()
     if (approval.initiatorId === principal.userId || approval.targetId === principal.userId) throw forbidden('Ініціатор, погоджувач і цільова особа мають бути різними для цієї дії.')
     await this.prisma.credentialResetApproval.update({ where: { id: approval.id }, data: { approverId: principal.userId, state: 'APPROVED', approvedAt: new Date() } })
     return { state: 'APPROVED', approvalId }
@@ -181,68 +220,13 @@ export class AdminService {
       const fullAdminCount = await this.prisma.user.count({ where: { workspaceId: principal.workspaceId, isActive: true, accountType: 'ADMIN' } })
       if (fullAdminCount <= 1) throw forbidden('Не можна деактивувати останнього повного адміністратора.')
     }
-    const activeTaskWhere = {
-      status: { notIn: ['DONE', 'ARCHIVED'] },
-      OR: [
-        { reporterId: targetId },
-        {
-          participants: {
-            some: {
-              userId: targetId,
-              role: 'RESPONSIBLE' as const,
-              removedAt: null,
-            },
-          },
-        },
-      ],
-    } satisfies Prisma.TaskWhereInput
-    const [tasks, documents] = await Promise.all([
-      this.prisma.task.count({ where: activeTaskWhere }),
-      this.prisma.document.count({ where: { ownerId: targetId, archivedAt: null } }),
-    ])
+    const { tasks, documents } = await this.deactivationImpact(this.prisma, principal, targetId, input.newOwnerId)
     if ((tasks + documents) > 0 && !input.newOwnerId) return { blocked: true, impact: { tasks, documents } }
     await this.prisma.$transaction(async (tx) => {
-      if (input.newOwnerId) {
-        const affectedTasks = await tx.task.findMany({
-          where: activeTaskWhere,
-          select: { id: true, reporterId: true },
-        })
-        await tx.task.updateMany({
-          where: {
-            id: { in: affectedTasks.filter((task) => task.reporterId === targetId).map((task) => task.id) },
-          },
-          data: {
-            reporterId: input.newOwnerId,
-            version: { increment: 1 },
-          },
-        })
-        for (const task of affectedTasks) {
-          const responsible = await tx.taskParticipant.findUnique({
-            where: { taskId_userId: { taskId: task.id, userId: targetId } },
-          })
-          if (responsible?.role !== 'RESPONSIBLE' || responsible.removedAt) continue
-          await tx.taskParticipant.upsert({
-            where: { taskId_userId: { taskId: task.id, userId: input.newOwnerId } },
-            create: {
-              id: id('tpart'),
-              taskId: task.id,
-              userId: input.newOwnerId,
-              role: 'RESPONSIBLE',
-              addedById: principal.userId,
-            },
-            update: {
-              role: 'RESPONSIBLE',
-              removedAt: null,
-              addedById: principal.userId,
-            },
-          })
-          await tx.taskParticipant.update({
-            where: { id: responsible.id },
-            data: { removedAt: new Date() },
-          })
-        }
-        await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: input.newOwnerId } })
-      }
+      const impact = await this.deactivationImpact(tx, principal, targetId, input.newOwnerId)
+      if (impact.tasks + impact.documents > 0 && !input.newOwnerId) throw conflict('Перед деактивацією оберіть нового відповідального за задачі та документи.')
+      if (target.accountType === 'ADMIN' && target.isActive && await tx.user.count({ where: { workspaceId: principal.workspaceId, accountType: 'ADMIN', isActive: true } }) <= 1) throw forbidden('Не можна деактивувати останнього адміністратора.')
+      await this.transferResponsibilities(tx, principal, targetId, input.newOwnerId)
       await tx.user.update({ where: { id: targetId }, data: { isActive: false, authorizationVersion: { increment: 1 } } })
       await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
       await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
@@ -250,6 +234,96 @@ export class AdminService {
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents }), correlationId: id('corr') } })
     })
     return { deactivated: true }
+  }
+
+  private activeTaskWhere(targetId: string): Prisma.TaskWhereInput {
+    return { status: { notIn: ['DONE', 'ARCHIVED'] }, OR: [
+      { reporterId: targetId },
+      { participants: { some: { userId: targetId, role: 'RESPONSIBLE', removedAt: null } } },
+    ] }
+  }
+
+  private async deactivationImpact(tx: Prisma.TransactionClient, principal: AuthPrincipal, targetId: string, newOwnerId?: string) {
+    if (targetId === principal.userId) throw forbidden('Не можна деактивувати власний акаунт.')
+    if (newOwnerId) {
+      const owner = await tx.user.findFirst({ where: { id: newOwnerId, workspaceId: principal.workspaceId, isActive: true } })
+      if (!owner || newOwnerId === targetId) throw badRequest('invalid_new_owner', 'Оберіть іншого активного користувача організації.')
+    }
+    const [tasks, documents] = await Promise.all([
+      tx.task.count({ where: this.activeTaskWhere(targetId) }),
+      tx.document.count({ where: { ownerId: targetId, archivedAt: null } }),
+    ])
+    return { tasks, documents }
+  }
+
+  private async transferResponsibilities(tx: Prisma.TransactionClient, principal: AuthPrincipal, targetId: string, newOwnerId?: string) {
+    const activeTaskWhere = this.activeTaskWhere(targetId)
+    if (newOwnerId) {
+      const affectedTasks = await tx.task.findMany({
+        where: activeTaskWhere,
+        select: { id: true, reporterId: true },
+      })
+      await tx.task.updateMany({
+        where: {
+          id: { in: affectedTasks.filter((task) => task.reporterId === targetId).map((task) => task.id) },
+        },
+        data: {
+          reporterId: newOwnerId,
+          version: { increment: 1 },
+        },
+      })
+      for (const task of affectedTasks) {
+        const responsible = await tx.taskParticipant.findUnique({
+          where: { taskId_userId: { taskId: task.id, userId: targetId } },
+        })
+        if (responsible?.role !== 'RESPONSIBLE' || responsible.removedAt) continue
+        await tx.taskParticipant.upsert({
+          where: { taskId_userId: { taskId: task.id, userId: newOwnerId } },
+          create: {
+            id: id('tpart'),
+            taskId: task.id,
+            userId: newOwnerId,
+            role: 'RESPONSIBLE',
+            addedById: principal.userId,
+          },
+          update: {
+            role: 'RESPONSIBLE',
+            removedAt: null,
+            addedById: principal.userId,
+          },
+        })
+        await tx.taskParticipant.update({
+          where: { id: responsible.id },
+          data: { removedAt: new Date() },
+        })
+      }
+      await tx.document.updateMany({ where: { ownerId: targetId, archivedAt: null }, data: { ownerId: newOwnerId } })
+    }
+  }
+
+  private async reserveUsername(tx: Prisma.TransactionClient, principal: AuthPrincipal, username: string, userId: string, previousUsername?: string) {
+    const reservation = await tx.usernameReservation.findUnique({ where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } } })
+    const taken = await tx.user.findFirst({ where: { workspaceId: principal.workspaceId, normalizedUsername: username, id: { not: userId } } })
+    if (taken || (reservation && reservation.currentUserId !== userId && !(reservation.currentUserId === null && reservation.previousUserId === userId))) {
+      throw conflict('Нікнейм уже використаний або зарезервований.')
+    }
+    if (previousUsername && previousUsername !== username) {
+      await tx.usernameReservation.upsert({
+        where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: previousUsername } },
+        create: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: previousUsername, previousUserId: userId, state: 'RESERVED' },
+        update: { currentUserId: null, previousUserId: userId, state: 'RESERVED' },
+      })
+    }
+    await tx.usernameReservation.upsert({
+      where: { workspaceId_normalizedUsername: { workspaceId: principal.workspaceId, normalizedUsername: username } },
+      create: { id: id('unr'), workspaceId: principal.workspaceId, normalizedUsername: username, currentUserId: userId, state: 'ACTIVE' },
+      update: { currentUserId: userId, state: 'ACTIVE' },
+    })
+  }
+
+  private usernameError(error: unknown): never {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') throw conflict('Нікнейм уже використаний або зарезервований.')
+    throw error
   }
 
   async organizationCapabilities(principal: AuthPrincipal) {

@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FILE_UPLOAD_FORMATS_MESSAGE, FILE_UPLOAD_SIZE_MESSAGE, MAX_FILE_UPLOAD_BYTES } from '@lankadws/contracts'
 import type {
   DriveFileItem, DriveModifiedFilter, DriveFileType, DrivePeopleFilter,
   DriveSort, DriveSortDirection, DriveView,
 } from '@lankadws/contracts'
 import {
-  Clock, FolderPlus, Grid2x2, HardDrive, List, Plus, Search, Trash2, Upload, Users, X,
+  Clock, FolderPlus, Grid2x2, HardDrive, List, Search, Trash2, Upload, Users, X,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { apiUrl } from '../../shared/api/client'
+import { useAuth } from '../../shared/auth/AuthProvider'
+import { formatDateTime } from '../../shared/lib/format'
+import { ApiProblem, apiUrl } from '../../shared/api/client'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { FileDropOverlay, useFileDropTarget } from '../../shared/files/FileDropzone'
 import { FilePreviewModal } from '../../shared/files/FilePreviewModal'
@@ -17,16 +20,20 @@ import {
   createFolder, fetchDrive, moveDocument, moveFolder, renameDocument, renameFolder,
   restoreDocument, restoreFolder, trashDocument, trashFolder, uploadToDrive,
 } from './api'
-import { DriveItems, type DriveAction, type DriveTarget } from './DriveItems'
+import { DRIVE_DRAG_TYPE, DriveItems, type DriveAction, type DriveTarget } from './DriveItems'
 import { DriveDetailsDrawer } from './DriveDetailsDrawer'
-import { NameDialog, ShareDialog } from './DriveDialogs'
+import { DriveOwners } from './DriveOwners'
+import { MoveDialog, NameDialog, ShareDialog } from './DriveDialogs'
 import './drive.css'
+
+const INTERNAL_DRAG_TYPES = [DRIVE_DRAG_TYPE]
 
 const VIEWS: Array<{ id: DriveView; label: string; icon: typeof HardDrive }> = [
   { id: 'MY_DRIVE', label: 'Мій диск', icon: HardDrive },
   { id: 'SHARED', label: 'Спільні зі мною', icon: Users },
   { id: 'RECENT', label: 'Нещодавні', icon: Clock },
   { id: 'TRASH', label: 'Кошик', icon: Trash2 },
+  { id: 'USERS', label: 'Файли користувачів', icon: Users },
 ]
 
 const TYPES: Array<{ value: DriveFileType; label: string }> = [
@@ -76,6 +83,7 @@ function FilterChip<T extends string>({
 }
 
 export default function DrivePage() {
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { documentId } = useParams()
@@ -87,13 +95,19 @@ export default function DrivePage() {
   const { debouncedValue, onCompositionStart, onCompositionEnd } = useDebouncedSearchValue(searchInput)
   const [preview, setPreview] = useState<DriveFileItem | null>(null)
   const [shareTarget, setShareTarget] = useState<DriveTarget | null>(null)
+  const [moveTarget, setMoveTarget] = useState<DriveTarget | null>(null)
   const [renameTarget, setRenameTarget] = useState<DriveTarget | null>(null)
   const [creatingFolder, setCreatingFolder] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [banner, setBanner] = useState('')
   const fileInput = useRef<HTMLInputElement | null>(null)
 
-  const view = (params.get('view') ?? 'MY_DRIVE') as DriveView
+  const requestedView = (params.get('view') ?? 'MY_DRIVE') as DriveView
+  const isAdmin = user?.accountType === 'ADMIN'
+  const view = requestedView === 'USERS' && !isAdmin ? 'MY_DRIVE' : requestedView
+  const isUsersView = isAdmin && view === 'USERS'
+  const ownerId = isUsersView ? params.get('owner') ?? undefined : undefined
+  const ownersRoot = isUsersView && !ownerId
   const folderId = params.get('folder') ?? undefined
   const type = (params.get('type') ?? 'ALL') as DriveFileType
   const people = (params.get('people') ?? 'ANYONE') as DrivePeopleFilter
@@ -110,12 +124,13 @@ export default function DrivePage() {
   }
 
   const queryInput = {
-    view, folderId, type, people, modified, sort, direction,
+    view, folderId, ownerId, type, people, modified, sort, direction,
     ...(debouncedValue ? { search: debouncedValue } : {}),
   }
   const query = useQuery({
     queryKey: ['drive', queryInput],
     queryFn: () => fetchDrive(queryInput),
+    enabled: !ownersRoot,
   })
 
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ['drive'] }) }
@@ -123,11 +138,19 @@ export default function DrivePage() {
 
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
+      if (files.some((file) => file.size > MAX_FILE_UPLOAD_BYTES)) throw new Error('drive_file_size')
+      if (files.some((file) => file.size === 0)) throw new Error('drive_file_empty')
       setUploading(true)
       for (const file of files) await uploadToDrive(file, folderId ?? null)
     },
     onSuccess: () => { setBanner(''); refresh() },
-    onError: fail('Не вдалося завантажити файл. Перевірте формат і розмір.'),
+    onError: (error) => {
+      const code = error instanceof ApiProblem ? error.problem.code : error.message
+      if (code === 'file_type') setBanner(FILE_UPLOAD_FORMATS_MESSAGE)
+      else if (code === 'file_size' || code === 'drive_file_size' || (error instanceof ApiProblem && error.problem.status === 413)) setBanner(FILE_UPLOAD_SIZE_MESSAGE)
+      else if (code === 'file_empty' || code === 'drive_file_empty') setBanner('Файл порожній. Оберіть файл із вмістом.')
+      else setBanner('Не вдалося завантажити файл. Спробуйте ще раз.')
+    },
     onSettled: () => setUploading(false),
   })
   const move = useMutation({
@@ -150,7 +173,11 @@ export default function DrivePage() {
       if (target.kind === 'FOLDER') await trashFolder(target.folder.id)
       else await trashDocument(target.file.id, target.file.version)
     },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: (_, target) => {
+      setBanner('')
+      if (target.kind === 'FILE') setPreview((current) => current?.id === target.file.id ? null : current)
+      refresh()
+    },
     onError: fail('Не вдалося перемістити в кошик.'),
   })
   const restore = useMutation({
@@ -167,13 +194,14 @@ export default function DrivePage() {
   })
 
   const dropTarget = useFileDropTarget({
-    disabled: uploading || view === 'TRASH',
+    disabled: uploading || view === 'TRASH' || isUsersView,
+    ignoreTypes: INTERNAL_DRAG_TYPES,
     onFiles: (files) => upload.mutate(files),
   })
 
   const handleAction = (action: DriveAction, target: DriveTarget) => {
     if (action === 'open') {
-      if (target.kind === 'FOLDER') update({ folder: target.folder.id, view: 'MY_DRIVE' })
+      if (target.kind === 'FOLDER') update({ folder: target.folder.id, view: isUsersView ? 'USERS' : 'MY_DRIVE' })
       else setPreview(target.file)
       return
     }
@@ -181,9 +209,9 @@ export default function DrivePage() {
       window.location.href = apiUrl(`/files/${encodeURIComponent(target.file.fileId)}/download`)
       return
     }
-    if (action === 'details' && target.kind === 'FILE') navigate(`/drive/${target.file.id}${location.search}`)
     if (action === 'rename') setRenameTarget(target)
     if (action === 'share') setShareTarget(target)
+    if (action === 'move') setMoveTarget(target)
     if (action === 'move-root') move.mutate({ target, destination: null })
     if (action === 'trash') trash.mutate(target)
     if (action === 'restore') restore.mutate(target)
@@ -207,10 +235,10 @@ export default function DrivePage() {
     >
       <PageHeader
         title="Диск"
-        action={(
+        action={!isUsersView && (
           <div className="drive-create">
             <Button onClick={() => fileInput.current?.click()} disabled={uploading}>
-              <Plus size={17} aria-hidden />{uploading ? 'Завантажуємо…' : 'Завантажити'}
+              <Upload size={17} aria-hidden />{uploading ? 'Завантажуємо…' : 'Завантажити'}
             </Button>
             <Button variant="secondary" onClick={() => setCreatingFolder(true)}>
               <FolderPlus size={17} aria-hidden />Нова папка
@@ -232,9 +260,9 @@ export default function DrivePage() {
         }}
       />
 
-      <div className="drive-layout">
+      <div className="card drive-layout">
         <nav className="drive-views" aria-label="Розділи диска">
-          {VIEWS.map((entry) => {
+          {VIEWS.filter((entry) => entry.id !== 'USERS' || isAdmin).map((entry) => {
             const Icon = entry.icon
             return (
               <button
@@ -242,11 +270,11 @@ export default function DrivePage() {
                 type="button"
                 className={view === entry.id ? 'is-active' : ''}
                 aria-current={view === entry.id ? 'page' : undefined}
-                onClick={() => update({ view: entry.id === 'MY_DRIVE' ? undefined : entry.id, folder: undefined })}
+                onClick={() => update({ view: entry.id === 'MY_DRIVE' ? undefined : entry.id, folder: undefined, owner: undefined, ownerCursor: undefined })}
               >
                 <Icon size={17} aria-hidden />
                 <span>{entry.label}</span>
-                {counts && counts[entry.id] > 0 && <em>{counts[entry.id]}</em>}
+                {entry.id !== 'USERS' && counts && counts[entry.id] > 0 && <em>{counts[entry.id]}</em>}
               </button>
             )
           })}
@@ -258,18 +286,18 @@ export default function DrivePage() {
               <Search size={16} aria-hidden />
               <input
                 type="search"
-                placeholder="Пошук на диску"
+                placeholder={ownersRoot ? 'Пошук користувача за іменем або тегом' : 'Пошук на диску'}
                 aria-label="Пошук на диску"
                 value={searchInput}
                 onCompositionStart={onCompositionStart}
                 onCompositionEnd={onCompositionEnd}
-                onChange={(event) => { setSearchInput(event.target.value); update({ q: event.target.value || undefined }) }}
+                onChange={(event) => { setSearchInput(event.target.value); update({ q: event.target.value || undefined, ownerCursor: undefined }) }}
               />
             </label>
-            <FilterChip label="Тип" options={TYPES} value={type} onChange={(value) => update({ type: value === 'ALL' ? undefined : value })} />
-            <FilterChip label="Люди" options={PEOPLE} value={people} onChange={(value) => update({ people: value === 'ANYONE' ? undefined : value })} />
-            <FilterChip label="Змінено" options={MODIFIED} value={modified} onChange={(value) => update({ modified: value === 'ANY' ? undefined : value })} />
-            <div className="drive-layout-toggle" role="group" aria-label="Вигляд">
+            {!ownersRoot && <FilterChip label="Тип" options={TYPES} value={type} onChange={(value) => update({ type: value === 'ALL' ? undefined : value })} />}
+            {!isUsersView && <FilterChip label="Люди" options={PEOPLE} value={people} onChange={(value) => update({ people: value === 'ANYONE' ? undefined : value })} />}
+            {!ownersRoot && <FilterChip label="Змінено" options={MODIFIED} value={modified} onChange={(value) => update({ modified: value === 'ANY' ? undefined : value })} />}
+            {!ownersRoot && <div className="drive-layout-toggle" role="group" aria-label="Вигляд">
               <button
                 type="button" aria-pressed={layout === 'GRID'} aria-label="Сітка"
                 className={layout === 'GRID' ? 'is-active' : ''}
@@ -280,12 +308,13 @@ export default function DrivePage() {
                 className={layout === 'LIST' ? 'is-active' : ''}
                 onClick={() => { setLayout('LIST'); localStorage.setItem('drive:layout', 'LIST') }}
               ><List size={16} /></button>
-            </div>
+            </div>}
           </div>
 
-          {view === 'MY_DRIVE' && (
+          {(view === 'MY_DRIVE' || isUsersView) && (
             <nav className="drive-breadcrumbs" aria-label="Шлях">
-              <button type="button" onClick={() => update({ folder: undefined })}>Мій диск</button>
+              <button type="button" onClick={() => update({ folder: undefined, ...(isUsersView ? { owner: undefined, ownerCursor: undefined } : {}) })}>{isUsersView ? 'Файли користувачів' : 'Мій диск'}</button>
+              {isUsersView && query.data?.owner && <span><span aria-hidden>/</span><button type="button" onClick={() => update({ folder: undefined })}>{query.data.owner.displayName} <span className="drive-owner-tag">@{query.data.owner.username}</span></button></span>}
               {breadcrumbs.map((crumb, index) => (
                 <span key={crumb.id}>
                   <span aria-hidden>/</span>
@@ -301,13 +330,15 @@ export default function DrivePage() {
 
           {banner && <div className="form-error drive-banner" role="alert">{banner}</div>}
 
-          {query.isPending ? <PageDataLoader /> : query.isError ? (
+          {ownersRoot ? <DriveOwners search={debouncedValue} cursor={params.get('ownerCursor') ?? undefined}
+            onOpen={(id) => { setSearchInput(''); update({ owner: id, folder: undefined, q: undefined, ownerCursor: undefined, type: undefined, people: undefined, modified: undefined }) }}
+            onPage={(cursor) => update({ ownerCursor: cursor })} /> : query.isPending ? <PageDataLoader /> : query.isError ? (
             <ErrorState onRetry={() => void query.refetch()} />
           ) : (query.data && query.data.folders.length + query.data.files.length === 0) ? (
             <EmptyState
               title={emptyCopy.title}
               description={emptyCopy.description}
-              action={!isTrash && !debouncedValue && (
+              action={!isTrash && !isUsersView && !debouncedValue && (
                 <Button onClick={() => fileInput.current?.click()}>
                   <Upload size={17} aria-hidden />Завантажити файл
                 </Button>
@@ -326,10 +357,11 @@ export default function DrivePage() {
                 sort: next === 'MODIFIED' ? undefined : next,
                 dir: sort === next && direction === 'DESC' ? 'ASC' : undefined,
               })}
-              onOpenFolder={(folder) => update({ folder: folder.id, view: undefined })}
+              onOpenFolder={(folder) => update({ folder: folder.id, view: isUsersView ? 'USERS' : undefined })}
               onPreview={(file) => setPreview(file)}
               onAction={handleAction}
               onMoveInto={(target, destination) => move.mutate({ target, destination })}
+              onMove={(target, destination) => move.mutateAsync({ target, destination }).then(() => undefined)}
             />
           ) : null}
         </section>
@@ -340,6 +372,10 @@ export default function DrivePage() {
       {preview && preview.fileId && (
         <FilePreviewModal
           file={{ id: preview.fileId, fileName: preview.name, mimeType: preview.mimeType, bytes: preview.sizeBytes }}
+          openInNewTab
+          saveToDrive={false}
+          metadata={<><span>Номер: {preview.number}</span><span>Оновлено: {formatDateTime(preview.updatedAt)}</span><span>Власник: {preview.ownerName}</span>{trash.isError && <span role="alert">{banner}</span>}</>}
+          footerActions={(preview.isOwner || user?.accountType === 'ADMIN') && <Button variant="danger" disabled={trash.isPending} onClick={() => trash.mutate({ kind: 'FILE', file: preview })}><Trash2 size={17} aria-hidden />{trash.isPending ? 'Видаляємо…' : 'Видалити'}</Button>}
           onClose={() => setPreview(null)}
         />
       )}
@@ -355,6 +391,7 @@ export default function DrivePage() {
           onClose={() => setCreatingFolder(false)}
         />
       )}
+      {moveTarget && <MoveDialog target={moveTarget} onClose={() => setMoveTarget(null)} onMove={(destination) => move.mutateAsync({ target: moveTarget, destination }).then(() => undefined)} />}
       {renameTarget && (
         <NameDialog
           title="Перейменувати"
@@ -370,7 +407,7 @@ export default function DrivePage() {
           targetType={shareTarget.kind === 'FOLDER' ? 'FOLDER' : 'DOCUMENT'}
           targetId={shareTarget.kind === 'FOLDER' ? shareTarget.folder.id : shareTarget.file.id}
           targetName={shareTarget.kind === 'FOLDER' ? shareTarget.folder.name : shareTarget.file.name}
-          canManage={shareTarget.kind === 'FOLDER' ? shareTarget.folder.isOwner : shareTarget.file.isOwner}
+          canManage={user?.accountType === 'ADMIN' || (shareTarget.kind === 'FOLDER' ? shareTarget.folder.isOwner : shareTarget.file.isOwner)}
           onClose={() => setShareTarget(null)}
         />
       )}

@@ -4,8 +4,9 @@ import { adminUserInputSchema, adminUserUpdateInputSchema, organizationCapabilit
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { AdminOnly } from '../auth/auth.decorators.js'
-import { badRequest } from '../../common/errors.js'
-import { AdminService } from './admin.service.js'
+import { badRequest, DomainError } from '../../common/errors.js'
+import { z } from 'zod'
+import { ADMIN_USER_PAGE_SIZE, AdminService } from './admin.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { getConfig } from '../../config/config.js'
 
@@ -18,7 +19,12 @@ export class AdminController {
   overview(@Req() request: LankaDWSRequest) { return this.admin.overview(principalFrom(request)) }
 
   @Get('users')
-  users(@Req() request: LankaDWSRequest, @Query('search') search?: string, @Query('isActive') isActive?: string, @Query('companyId') companyId?: string, @Query('accountType') accountType?: string) { return this.admin.users(principalFrom(request), search, isActive, companyId, accountType) }
+  users(@Req() request: LankaDWSRequest, @Query('search') search?: string, @Query('isActive') isActive?: string, @Query('companyId') companyId?: string, @Query('accountType') accountType?: string, @Query('page') page?: string, @Query('sort') sort = 'displayName', @Query('direction') direction = 'asc') {
+    const pageNumber = Number(page ?? 1)
+    if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || (pageNumber - 1) * ADMIN_USER_PAGE_SIZE > 2_147_483_647) throw badRequest('validation_failed')
+    if (!['displayName', 'accountType', 'twoFactor', 'isActive'].includes(sort) || !['asc', 'desc'].includes(direction)) throw badRequest('validation_failed')
+    return this.admin.users(principalFrom(request), search, isActive, companyId, accountType, pageNumber, sort as 'displayName' | 'accountType' | 'twoFactor' | 'isActive', direction as 'asc' | 'desc')
+  }
 
   @Get('users/:id')
   user(@Req() request: LankaDWSRequest, @Param('id') id: string) { return this.admin.userDetail(principalFrom(request), id) }
@@ -26,7 +32,7 @@ export class AdminController {
   @Post('users')
   createUser(@Req() request: LankaDWSRequest, @Body() body: unknown) {
     const parsed = adminUserInputSchema.safeParse(body)
-    if (!parsed.success) throw badRequest('validation_failed')
+    if (!parsed.success) throw new DomainError(400, 'validation_failed', 'Перевірте виділені поля.', z.flattenError(parsed.error).fieldErrors)
     return this.admin.createUser(principalFrom(request), parsed.data)
   }
 
@@ -42,7 +48,7 @@ export class AdminController {
   @Patch('users/:id')
   updateUser(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown) {
     const parsed = adminUserUpdateInputSchema.safeParse(body)
-    if (!parsed.success) throw badRequest('validation_failed')
+    if (!parsed.success) throw new DomainError(400, 'validation_failed', 'Перевірте виділені поля.', z.flattenError(parsed.error).fieldErrors)
     return this.admin.updateUser(principalFrom(request), id, parsed.data)
   }
 

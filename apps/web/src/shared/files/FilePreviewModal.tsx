@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, FileText, ZoomIn, ZoomOut } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronLeft, ChevronRight, Download, ExternalLink, FileArchive, FileText, ZoomIn, ZoomOut } from 'lucide-react'
 import { apiUrl } from '../api/client'
 import { IconButton, Modal } from '../ui'
+import { SaveToDriveButton } from './SaveToDriveButton'
+import { FileDocumentPreview } from './FileDocumentPreview'
+import { isPreviewableImage, isTextPreview, MAX_TEXT_PREVIEW_BYTES } from './filePreview'
 
 export interface PreviewFile {
   id: string
@@ -14,6 +17,15 @@ const MIN_ZOOM = 1
 const MAX_ZOOM = 8
 const ZOOM_STEP = 0.25
 const KEY_PAN_STEP = 48
+const FILE_TYPE_NAMES: Record<string, string> = {
+  'application/pdf': 'PDF', 'text/plain': 'TXT', 'text/csv': 'CSV',
+  'application/json': 'JSON', 'application/xml': 'XML', 'text/xml': 'XML',
+  'application/msword': 'Word', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word',
+  'application/vnd.ms-excel': 'Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel',
+  'application/vnd.ms-powerpoint': 'PowerPoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint',
+  'application/vnd.oasis.opendocument.text': 'ODT', 'application/vnd.oasis.opendocument.spreadsheet': 'ODS',
+  'application/vnd.oasis.opendocument.presentation': 'ODP', 'application/rtf': 'RTF', 'text/rtf': 'RTF',
+}
 
 interface Offset {
   x: number
@@ -33,18 +45,34 @@ function formatFileSize(bytes: number | null | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
-export function FilePreviewModal({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
+export function FilePreviewModal({ file, onClose, metadata, footerActions, openInNewTab = true, saveToDrive = true, gallery }: {
+  file: PreviewFile
+  onClose: () => void
+  metadata?: ReactNode
+  footerActions?: ReactNode
+  openInNewTab?: boolean
+  saveToDrive?: boolean
+  gallery?: { index: number; count: number; onPrevious: () => void; onNext: () => void }
+}) {
   const [zoom, setZoom] = useState(MIN_ZOOM)
   const [offset, setOffset] = useState<Offset>(CENTERED)
   const [dragging, setDragging] = useState(false)
+  const [headerActionsTarget, setHeaderActionsTarget] = useState<HTMLSpanElement | null>(null)
   const stageRef = useRef<HTMLDivElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
   const dragOrigin = useRef<{ pointerId: number; x: number; y: number; from: Offset } | null>(null)
 
   const inlineUrl = apiUrl(`/files/${encodeURIComponent(file.id)}/download?inline=true`)
   const downloadUrl = apiUrl(`/files/${encodeURIComponent(file.id)}/download`)
-  const isImage = file.mimeType?.startsWith('image/') ?? false
-  const isPdf = file.mimeType === 'application/pdf'
+  const mimeType = file.mimeType?.split(';')[0].trim().toLowerCase() ?? ''
+  const isImage = isPreviewableImage(mimeType)
+  const isPdf = mimeType === 'application/pdf'
+  const isText = isTextPreview(file.mimeType)
+  const textTooLarge = isText && file.bytes != null && file.bytes > MAX_TEXT_PREVIEW_BYTES
+  const compact = !isImage && !isPdf && (!isText || textTooLarge)
+  const isArchive = /zip|rar|tar|gzip|bzip|xz|7z/.test(mimeType)
+  const fileType = FILE_TYPE_NAMES[mimeType] || file.fileName.match(/\.([a-z\d]{1,12})$/i)?.[1].toUpperCase()
+    || (isArchive ? 'Архів' : isImage ? mimeType.slice(6).toUpperCase() : 'Файл')
   const size = formatFileSize(file.bytes)
   const pannable = zoom > MIN_ZOOM
 
@@ -79,6 +107,8 @@ export function FilePreviewModal({ file, onClose }: { file: PreviewFile; onClose
   useEffect(() => {
     setZoom(MIN_ZOOM)
     setOffset(CENTERED)
+    setDragging(false)
+    dragOrigin.current = null
   }, [file.id])
 
   // React routes onWheel through a passive root listener, so preventDefault needs a native one.
@@ -157,21 +187,42 @@ export function FilePreviewModal({ file, onClose }: { file: PreviewFile; onClose
   return (
     <Modal
       title={file.fileName}
-      size="xl"
-      className="file-preview-modal"
+      size={compact ? 'md' : 'xl'}
+      mobileFullscreen={!compact}
+      className={`file-preview-modal${compact ? ' file-preview-modal--compact' : ''}${!isImage ? ' file-preview-modal--document' : ''}`}
       bodyClassName="file-preview-modal__body"
       onRequestClose={onClose}
+      headerActions={isText && !textTooLarge ? (
+        <span className="file-preview-modal__header-actions" ref={setHeaderActionsTarget} />
+      ) : openInNewTab && (isImage || isPdf) ? (
+        <a className="icon-button file-preview-modal__open" href={inlineUrl} target="_blank" rel="noopener noreferrer" aria-label="Відкрити файл у новій вкладці" title="Відкрити файл у новій вкладці">
+          <ExternalLink size={18} aria-hidden />
+        </a>
+      ) : undefined}
       footer={(
         <div className="file-preview-modal__footer">
-          <span>{size}</span>
+          <div className="file-preview-modal__metadata"><span>{fileType}{size ? ` · ${size}` : ''}</span>{metadata}</div>
+          <div className="file-preview-modal__actions">
+          {footerActions}
+          {saveToDrive && <SaveToDriveButton key={file.id} fileId={file.id} fileName={file.fileName} />}
           <a className="button button--primary" href={downloadUrl}>
             <Download size={17} />Завантажити
           </a>
+          </div>
         </div>
       )}
     >
       {isImage ? (
-        <div className="file-preview-modal__image-layout">
+        <div className="file-preview-modal__image-layout" onKeyDown={(event) => {
+          if (!gallery || pannable || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault()
+            if (gallery.index > 0) gallery.onPrevious()
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            if (gallery.index < gallery.count - 1) gallery.onNext()
+          }
+        }}>
           <div className="file-preview-modal__toolbar" aria-label="Масштаб зображення">
             <IconButton
               label="Зменшити"
@@ -212,17 +263,31 @@ export function FilePreviewModal({ file, onClose }: { file: PreviewFile; onClose
               style={{ transform: `translate3d(${offset.x}px, ${offset.y}px, 0) scale(${zoom})` }}
             />
           </div>
+          {gallery && gallery.count > 1 && <>
+            <IconButton className="file-preview-modal__previous" label="Попереднє фото"
+              disabled={gallery.index === 0} onClick={gallery.onPrevious}>
+              <ChevronLeft size={24} />
+            </IconButton>
+            <IconButton className="file-preview-modal__next" label="Наступне фото"
+              disabled={gallery.index === gallery.count - 1} onClick={gallery.onNext}>
+              <ChevronRight size={24} />
+            </IconButton>
+            <span className="file-preview-modal__position" role="status" aria-live="polite">
+              {gallery.index + 1} / {gallery.count}
+            </span>
+          </>}
         </div>
-      ) : isPdf ? (
-        <iframe title={`Перегляд ${file.fileName}`} src={inlineUrl} />
+      ) : isPdf || (isText && !textTooLarge) ? (
+        <FileDocumentPreview key={`${file.id}:${mimeType}`} kind={isPdf ? 'pdf' : 'text'} fileName={file.fileName}
+          downloadUrl={downloadUrl} headerActionsTarget={headerActionsTarget} />
       ) : (
         <div className="file-preview-modal__unsupported">
-          <FileText size={42} />
-          <strong>Передперегляд цього формату недоступний</strong>
-          <span>Файл можна завантажити та відкрити у відповідній програмі.</span>
-          <a className="button button--secondary" href={downloadUrl}>
-            <Download size={17} />Завантажити файл
-          </a>
+          {isArchive ? <FileArchive size={42} aria-hidden /> : <FileText size={42} aria-hidden />}
+          <strong>{file.fileName}</strong>
+          <span>{fileType}{size ? ` · ${size}` : ''}</span>
+          <p>{textTooLarge
+            ? 'Перегляд тексту доступний для файлів до 1 МБ. Завантажте файл, щоб прочитати його повністю.'
+            : 'Завантажте файл, щоб відкрити його у відповідній програмі.'}</p>
         </div>
       )}
     </Modal>

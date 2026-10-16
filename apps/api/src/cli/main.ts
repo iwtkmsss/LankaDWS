@@ -306,7 +306,7 @@ export async function createAdmin(prisma: PrismaService): Promise<void> {
   const password = await promptHidden('Пароль')
   const confirmation = await promptHidden('Повторіть пароль')
   if (password !== confirmation) throw new Error('Passwords do not match')
-  assertPasswordPolicy(password, username, true)
+  assertPasswordPolicy(password, username)
   if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('Invalid canonical username')
   const passwordHash = await hashPassword(password)
   const workspaceId = id('ws')

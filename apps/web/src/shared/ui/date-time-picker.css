@@ -1,0 +1,41 @@
+.date-time-field { display: flex; align-items: center; width: 100%; min-width: 0; min-height: 42px; padding: 0; gap: 4px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.date-time-field:focus-within { border-color: var(--cobalt-500); box-shadow: var(--focus); }
+.date-time-field[data-disabled] { opacity: .55; cursor: default; }
+.date-time-field .date-time-field-trigger { display: flex; width: 100%; min-width: 0; min-height: 40px; justify-content: space-between; gap: 8px; align-items: center; padding: 9px 11px; border: 0; background: transparent; color: var(--cobalt-500); cursor: pointer; font-weight: inherit; }
+.date-time-field-value { min-width: 0; color: var(--ink-900); font-variant-numeric: tabular-nums; text-align: left; }
+.date-time-field-trigger:focus-visible { outline: 0; }
+.date-time-menu { position: fixed; inset: auto; margin: 0; padding: 16px; max-height: calc(100dvh - 24px); overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--ink-900); box-shadow: var(--shadow-lg); font: 14px/1.4 var(--font); z-index: 2000; text-transform: none; letter-spacing: normal; }
+.date-time-menu button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-700); cursor: pointer; }
+.date-time-menu button:hover { background: var(--surface-hover); }
+.date-time-menu button:focus-visible, .date-time-menu select:focus-visible, .date-time-wheel:focus-visible { outline: 2px solid var(--cobalt-500); outline-offset: 2px; }
+.date-time-menu button:disabled { opacity: .3; cursor: default; }
+.date-time-menu-heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-weight: 600; }
+.date-time-menu-body--combined { display: grid; grid-template-columns: minmax(0, 1fr) 144px; gap: 20px; }
+.date-time-month { display: flex; align-items: center; gap: 3px; margin-bottom: 14px; }
+.date-time-menu .date-time-month select { width: auto; min-width: 0; min-height: 32px; border: 0; padding: 4px 2px; background: transparent; color: var(--ink-900); font-size: 14px; font-weight: 600; text-transform: capitalize; }
+.date-time-month select:first-of-type { flex: 1; }
+.date-time-month button { padding: 4px; }
+.date-time-weekdays, .date-time-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.date-time-week { display: contents; }
+.date-time-weekdays { margin-bottom: 8px; color: var(--ink-500); text-align: center; font-size: 11px; }
+.date-time-days button { min-height: 34px; padding: 4px 0; font-variant-numeric: tabular-nums; }
+.date-time-days button[data-outside] { color: var(--ink-400); opacity: .5; }
+.date-time-days button[aria-current='date'] { box-shadow: inset 0 0 0 1px var(--cobalt-500); color: var(--cobalt-500); }
+.date-time-days button[aria-selected='true'] { background: var(--accent-solid); color: #fff; opacity: 1; box-shadow: none; }
+.date-time-clock { min-width: 0; text-align: center; }
+.date-time-clock-title { display: block; margin: 8px 0; color: var(--ink-500); font-size: 12px; }
+.date-time-wheels { position: relative; display: flex; justify-content: center; align-items: center; border-radius: 12px; background: var(--surface-soft); padding: 10px 4px; }
+.date-time-wheels::before { content: ''; position: absolute; inset: calc(50% - 4px) 6px auto; height: 36px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-radius: 6px; background: color-mix(in srgb, var(--cobalt-500) 9%, transparent); pointer-events: none; }
+.date-time-wheel-group { flex: 1; min-width: 0; }
+.date-time-wheel-label { display: block; height: 28px; color: var(--ink-500); font-size: 10px; }
+.date-time-wheel { position: relative; height: 216px; overflow: hidden; perspective: 460px; touch-action: none; cursor: grab; user-select: none; mask-image: linear-gradient(transparent, #000 24%, #000 76%, transparent); }
+.date-time-wheel:active { cursor: grabbing; }
+.date-time-wheel-cylinder { position: absolute; inset: 50% 0 auto; height: 0; transform-style: preserve-3d; transform: translateZ(-92px); }
+.date-time-wheel-number { position: absolute; inset: -18px 0 auto; height: 36px; line-height: 36px; font-size: 25px; font-weight: 500; font-variant-numeric: tabular-nums; backface-visibility: hidden; transition: transform 110ms ease-out, opacity 110ms ease-out; }
+.date-time-colon { position: relative; margin-top: 28px; font-size: 22px; color: var(--cobalt-500); }
+.date-time-menu-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
+.date-time-menu .date-time-apply { background: var(--accent-solid); color: #fff; padding: 8px 15px; }
+.date-time-menu .date-time-apply:hover { background: var(--accent-solid-hover); }
+.date-time-error { color: var(--danger); font-size: 12px; margin: 10px 0 0; }
+@media (max-width: 480px) { .date-time-menu-body--combined { grid-template-columns: minmax(0, 1fr); gap: 8px; } .date-time-menu-body--combined .date-time-wheel { height: 144px; } .date-time-clock-title { display: none; } }
+@media (prefers-reduced-motion: reduce) { .date-time-wheel-number { transition: none; } }

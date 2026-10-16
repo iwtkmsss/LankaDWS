@@ -48,6 +48,7 @@ export interface UserSummary {
 }
 
 export interface PrincipalView extends UserSummary {
+  firstName?: string
   accountType: AccountType
   company: CompanyView | null
   positionTitle: string
@@ -79,7 +80,6 @@ export interface TaskListItem {
   assignee: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
   responsibles: Array<Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>>
   reporter: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
-  group: { id: string; name: string } | null
   status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   deadline: string | null

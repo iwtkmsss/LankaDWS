@@ -3,6 +3,9 @@ import {
   createDriveFolderSchema,
   createDriveShareSchema,
   driveListQuerySchema,
+  driveOwnersQuerySchema,
+  driveDestinationsQuerySchema,
+  drivePickerQuerySchema,
   driveShareTargetTypeSchema,
   importDriveFileSchema,
   moveDriveDocumentSchema,
@@ -30,6 +33,27 @@ export class DriveController {
     const parsed = driveListQuerySchema.safeParse(rawQuery)
     if (!parsed.success) throw badRequest('drive_query_invalid')
     return this.drive.list(principalFrom(request), parsed.data)
+  }
+
+  @Get('owners')
+  owners(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = driveOwnersQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('drive_query_invalid')
+    return this.drive.owners(principalFrom(request), parsed.data)
+  }
+
+  @Get('destinations')
+  destinations(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = driveDestinationsQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('drive_query_invalid')
+    return this.drive.destinations(principalFrom(request), parsed.data)
+  }
+
+  @Get('picker')
+  picker(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = drivePickerQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('drive_query_invalid')
+    return this.drive.picker(principalFrom(request), parsed.data)
   }
 
   @Post('documents/:id/move')

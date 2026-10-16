@@ -1,20 +1,14 @@
-import { Suspense, useEffect } from 'react'
+import { Suspense } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { AppShell } from '../layout/AppShell'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { resolveHomePath } from '../shared/auth/home'
 import { OverlayProvider, PageDataLoader, Skeleton } from '../shared/ui'
-import { routes, routeTitle, type RouteMeta } from './routes'
+import { routes, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
 import { ModuleUnavailablePage } from '../pages/ModuleUnavailablePage'
 import { UserProfileProvider } from '../features/employees/UserProfileDrawer'
-
-function DocumentTitle() {
-  const location = useLocation()
-  useEffect(() => { document.title = `${routeTitle(location.pathname)} — Lanka` }, [location.pathname])
-  return null
-}
 
 function ProtectedRoot() {
   const auth = useAuth()
@@ -30,7 +24,6 @@ function ProtectedRoot() {
   }
   return (
     <>
-      <DocumentTitle />
       <OverlayProvider>
         <UserProfileProvider>
           <AppShell><Outlet /></AppShell>

@@ -1,16 +1,19 @@
 import type { DriveFileItem, DriveFolderItem, DriveSort, DriveSortDirection } from '@lankadws/contracts'
 import {
-  ArrowUpFromLine, ChevronDown, ChevronUp, Download, Eye, File as FileIcon, FileImage, FileText,
-  Folder, History, MoreVertical, Pencil, RotateCcw, Share2, Trash2, Users,
+  ArrowUpFromLine, ChevronDown, ChevronUp, Download, Eye,
+  Folder, MoreVertical, Pencil, RotateCcw, Share2, Trash2, Users,
 } from 'lucide-react'
-import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { apiUrl } from '../../shared/api/client'
 import { formatDateTime, formatFileSize } from '../../shared/lib/format'
 import { IconButton } from '../../shared/ui'
+import { FileFormatIcon } from '../../shared/files/FileThumbnail'
+import { useAuth } from '../../shared/auth/AuthProvider'
+import { DriveMoveMenu } from './DriveMoveMenu'
 
 export const DRIVE_DRAG_TYPE = 'application/x-lankadws-drive-item'
 
-export type DriveAction = 'open' | 'details' | 'download' | 'rename' | 'share' | 'move-root' | 'trash' | 'restore'
+export type DriveAction = 'open' | 'download' | 'rename' | 'share' | 'move' | 'move-root' | 'trash' | 'restore'
 export type DriveTarget =
   | { kind: 'FOLDER'; folder: DriveFolderItem }
   | { kind: 'FILE'; file: DriveFileItem }
@@ -18,31 +21,54 @@ export type DriveTarget =
 const targetId = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.id : target.file.id
 const targetName = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.name : target.file.name
 const targetIsOwner = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.isOwner : target.file.isOwner
+const targetCanEdit = (target: DriveTarget) => targetIsOwner(target) || (target.kind === 'FOLDER' ? target.folder.accessRole : target.file.accessRole) === 'EDITOR'
 const targetShared = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.sharedWithCount : target.file.sharedWithCount
 const targetUpdated = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.updatedAt : target.file.updatedAt
 const targetOwnerName = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.ownerName : target.file.ownerName
 
 function FileGlyph({ file, size = 20 }: { file: DriveFileItem; size?: number }) {
-  if (file.fileType === 'IMAGE') return <FileImage size={size} aria-hidden />
-  if (file.fileType === 'PDF' || file.fileType === 'DOCUMENT') return <FileText size={size} aria-hidden />
-  return <FileIcon size={size} aria-hidden />
+  return <FileFormatIcon mimeType={file.mimeType} size={size} />
+}
+
+function FileName({ file }: { file: DriveFileItem }) {
+  const extension = file.extension && !file.name.toLowerCase().endsWith(file.extension.toLowerCase()) ? file.extension : ''
+  return (
+    <span className="drive-tile__name" title={`${file.name}${extension}`}>
+      {file.name}<span aria-hidden>{extension}</span>
+    </span>
+  )
+}
+
+function AccessIndicators({ item }: { item: DriveFileItem | DriveFolderItem }) {
+  const editable = item.isOwner || item.accessRole === 'EDITOR'
+  return (
+    <span className="drive-item__indicators">
+      <span role="img" aria-label={editable ? 'Доступно для редагування' : 'Доступно для перегляду'} title={editable ? 'Доступно для редагування' : 'Доступно для перегляду'}>
+        {editable ? <Pencil size={13} aria-hidden /> : <Eye size={13} aria-hidden />}
+      </span>
+      {(item.isShared || item.sharedWithCount > 0) && <span role="img" aria-label="Спільний доступ" title="Спільний доступ"><Users size={13} aria-hidden /></span>}
+    </span>
+  )
 }
 
 function ItemMenu({
-  target, isTrash, canMoveToRoot, onAction,
+  target, isTrash, canMoveToRoot, onAction, onMove,
 }: {
   target: DriveTarget
   isTrash: boolean
   canMoveToRoot: boolean
   onAction: (action: DriveAction, target: DriveTarget) => void
+  onMove: (folderId: string | null) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
+  const menuId = useId()
+  const { user } = useAuth()
   const wrapper = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!open) return
     const onPointer = (event: PointerEvent) => {
-      if (!wrapper.current?.contains(event.target as Node)) setOpen(false)
+      if (!wrapper.current?.contains(event.target as Node) && !(event.target instanceof Element && event.target.closest('[data-drive-move-menu]')?.getAttribute('data-drive-move-menu') === menuId)) setOpen(false)
     }
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
     document.addEventListener('pointerdown', onPointer)
@@ -51,7 +77,7 @@ function ItemMenu({
       document.removeEventListener('pointerdown', onPointer)
       document.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, menuId])
 
   const run = (action: DriveAction) => { setOpen(false); onAction(action, target) }
   const item = (action: DriveAction, icon: ReactNode, label: string, danger = false) => (
@@ -76,12 +102,12 @@ function ItemMenu({
           ) : (
             <>
               {item('open', target.kind === 'FOLDER' ? <Folder size={15} aria-hidden /> : <Eye size={15} aria-hidden />, 'Відкрити')}
-              {target.kind === 'FILE' && item('details', <History size={15} aria-hidden />, 'Деталі та версії')}
               {target.kind === 'FILE' && item('download', <Download size={15} aria-hidden />, 'Завантажити')}
-              {targetIsOwner(target) && item('rename', <Pencil size={15} aria-hidden />, 'Перейменувати')}
+              {targetCanEdit(target) && item('rename', <Pencil size={15} aria-hidden />, 'Перейменувати')}
               {item('share', <Share2 size={15} aria-hidden />, 'Доступ')}
-              {canMoveToRoot && targetIsOwner(target) && item('move-root', <ArrowUpFromLine size={15} aria-hidden />, 'Перемістити в корінь')}
-              {targetIsOwner(target) && item('trash', <Trash2 size={15} aria-hidden />, 'У кошик', true)}
+              {targetCanEdit(target) && <DriveMoveMenu target={target} menuId={menuId} onMove={onMove} onDone={() => setOpen(false)} />}
+              {canMoveToRoot && targetCanEdit(target) && item('move-root', <ArrowUpFromLine size={15} aria-hidden />, 'Перемістити в корінь')}
+              {(targetIsOwner(target) || user?.accountType === 'ADMIN') && item('trash', <Trash2 size={15} aria-hidden />, 'Видалити', true)}
             </>
           )}
         </div>
@@ -103,6 +129,7 @@ interface ItemsProps {
   onPreview: (file: DriveFileItem) => void
   onAction: (action: DriveAction, target: DriveTarget) => void
   onMoveInto: (target: DriveTarget, folderId: string) => void
+  onMove: (target: DriveTarget, folderId: string | null) => Promise<void>
 }
 
 export function DriveItems(props: ItemsProps) {
@@ -110,6 +137,12 @@ export function DriveItems(props: ItemsProps) {
   const [dropFolderId, setDropFolderId] = useState<string | null>(null)
 
   const startDrag = (event: DragEvent, target: DriveTarget) => {
+    if (isTrash || !targetCanEdit(target)) {
+      event.preventDefault()
+      return
+    }
+    // Replace native image/link drag data with the canonical Drive payload.
+    event.dataTransfer.clearData()
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData(DRIVE_DRAG_TYPE, JSON.stringify({
       kind: target.kind,
@@ -120,6 +153,7 @@ export function DriveItems(props: ItemsProps) {
 
   const folderDropProps = (folder: DriveFolderItem) => ({
     onDragOver: (event: DragEvent) => {
+      if (!targetCanEdit({ kind: 'FOLDER', folder })) return
       if (!event.dataTransfer.types.includes(DRIVE_DRAG_TYPE)) return
       event.preventDefault()
       event.dataTransfer.dropEffect = 'move'
@@ -127,6 +161,7 @@ export function DriveItems(props: ItemsProps) {
     },
     onDragLeave: () => setDropFolderId((current) => current === folder.id ? null : current),
     onDrop: (event: DragEvent) => {
+      if (!targetCanEdit({ kind: 'FOLDER', folder })) return
       const raw = event.dataTransfer.getData(DRIVE_DRAG_TYPE)
       setDropFolderId(null)
       if (!raw) return
@@ -148,7 +183,7 @@ export function DriveItems(props: ItemsProps) {
   })
 
   const menuFor = (target: DriveTarget) => (
-    <ItemMenu target={target} isTrash={isTrash} canMoveToRoot={insideFolder} onAction={onAction} />
+    <ItemMenu target={target} isTrash={isTrash} canMoveToRoot={insideFolder} onAction={onAction} onMove={(destination) => props.onMove(target, destination)} />
   )
 
   if (layout === 'LIST') {
@@ -176,36 +211,36 @@ export function DriveItems(props: ItemsProps) {
             <tr
               key={folder.id}
               className={dropFolderId === folder.id ? 'is-drop-target' : ''}
-              draggable={folder.isOwner && !isTrash}
+              draggable={targetCanEdit({ kind: 'FOLDER', folder }) && !isTrash}
               onDragStart={(event) => startDrag(event, { kind: 'FOLDER', folder })}
               {...(isTrash ? {} : folderDropProps(folder))}
               onDoubleClick={() => !isTrash && onOpenFolder(folder)}
             >
               <td>
-                <button type="button" className="drive-list__name" onClick={() => !isTrash && onOpenFolder(folder)}>
+                <button type="button" className="drive-list__name" aria-label={folder.name} onClick={() => !isTrash && onOpenFolder(folder)}>
                   <Folder size={18} aria-hidden />
                   <span>{folder.name}</span>
-                  {folder.sharedWithCount > 0 && <Users size={13} aria-hidden className="drive-item__shared" />}
                 </button>
               </td>
               <td>{folder.ownerName}</td>
               <td>{formatDateTime(folder.updatedAt)}</td>
-              <td>—</td>
+              <td><button type="button" className="drive-folder-size" aria-label={`Відкрити папку ${folder.name}`} disabled={isTrash} onClick={() => onOpenFolder(folder)}>{formatFileSize(folder.sizeBytes) || '—'}</button></td>
               <td>{menuFor({ kind: 'FOLDER', folder })}</td>
             </tr>
           ))}
           {files.map((file) => (
             <tr
               key={file.id}
-              draggable={file.isOwner && !isTrash}
+              draggable={targetCanEdit({ kind: 'FILE', file }) && !isTrash}
               onDragStart={(event) => startDrag(event, { kind: 'FILE', file })}
               onDoubleClick={() => !isTrash && onPreview(file)}
+              onContextMenu={(event) => { if (!isTrash) { event.preventDefault(); onPreview(file) } }}
             >
               <td>
-                <button type="button" className="drive-list__name" onClick={() => !isTrash && onPreview(file)}>
+                <button type="button" className="drive-list__name" aria-label={file.name} onClick={() => !isTrash && onPreview(file)}>
                   <FileGlyph file={file} size={18} />
-                  <span>{file.name}</span>
-                  {file.sharedWithCount > 0 && <Users size={13} aria-hidden className="drive-item__shared" />}
+                  <FileName file={file} />
+                  <AccessIndicators item={file} />
                 </button>
               </td>
               <td>{file.ownerName}</td>
@@ -220,48 +255,62 @@ export function DriveItems(props: ItemsProps) {
   }
 
   return (
-    <div className="drive-grid">
-      {folders.map((folder) => (
+    <div className="drive-grids">
+      {folders.length > 0 && <div className="drive-grid drive-grid--folders">
+        {folders.map((folder) => (
         <article
           key={folder.id}
           className={`drive-tile drive-tile--folder ${dropFolderId === folder.id ? 'is-drop-target' : ''}`}
-          draggable={folder.isOwner && !isTrash}
+          title={folder.childCount > 0 ? `${folder.childCount} вкладених` : 'Порожня'}
+          onClick={(event) => {
+            if (isTrash || (event.target as Element).closest('button, .drive-item__menu')) return
+            onOpenFolder(folder)
+          }}
+          draggable={targetCanEdit({ kind: 'FOLDER', folder }) && !isTrash}
           onDragStart={(event) => startDrag(event, { kind: 'FOLDER', folder })}
           {...(isTrash ? {} : folderDropProps(folder))}
         >
-          <button type="button" className="drive-tile__open" onClick={() => !isTrash && onOpenFolder(folder)}>
-            <Folder size={22} aria-hidden />
-            <span className="drive-tile__name">{folder.name}</span>
-          </button>
-          <div className="drive-tile__meta">
-            <span>{folder.childCount > 0 ? `${folder.childCount} вкладених` : 'Порожня'}</span>
-            {folder.sharedWithCount > 0 && <Users size={13} aria-hidden />}
+          <div className="drive-tile__header">
+            <button type="button" className="drive-tile__open" aria-label={folder.name} onClick={() => !isTrash && onOpenFolder(folder)}>
+              <Folder size={22} aria-hidden />
+              <span className="drive-tile__name" title={folder.name}>{folder.name}</span>
+            </button>
+            <button type="button" className="drive-folder-size drive-tile__folder-size" title="Відкрити папку" aria-label={`Відкрити папку ${folder.name}`} disabled={isTrash} onClick={() => onOpenFolder(folder)}>{formatFileSize(folder.sizeBytes) || '—'}</button>
+            {menuFor({ kind: 'FOLDER', folder })}
           </div>
-          {menuFor({ kind: 'FOLDER', folder })}
         </article>
-      ))}
-      {files.map((file) => (
+        ))}
+      </div>}
+      {files.length > 0 && <div className="drive-grid drive-grid--files">
+        {files.map((file) => (
         <article
           key={file.id}
           className="drive-tile drive-tile--file"
-          draggable={file.isOwner && !isTrash}
+          draggable={targetCanEdit({ kind: 'FILE', file }) && !isTrash}
           onDragStart={(event) => startDrag(event, { kind: 'FILE', file })}
+          onContextMenu={(event) => { if (!isTrash) { event.preventDefault(); onPreview(file) } }}
         >
-          <button type="button" className="drive-tile__open" onClick={() => !isTrash && onPreview(file)}>
+          <div className="drive-tile__header">
+            <button type="button" className="drive-tile__open" onClick={() => !isTrash && onPreview(file)}>
+              <FileGlyph file={file} size={18} />
+              <FileName file={file} />
+            </button>
+            {menuFor({ kind: 'FILE', file })}
+          </div>
+          <button type="button" className="drive-tile__open" aria-label={`Переглянути: ${file.name}`} onClick={() => !isTrash && onPreview(file)}>
             <span className="drive-tile__thumb">
               {file.fileType === 'IMAGE'
-                ? <img src={apiUrl(`/files/${encodeURIComponent(file.fileId ?? "")}/download?inline=true`)} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = 'none' }} />
+                ? <img src={apiUrl(`/files/${encodeURIComponent(file.fileId ?? "")}/download?inline=true`)} alt="" draggable={false} loading="lazy" onError={(event) => { event.currentTarget.style.display = 'none' }} />
                 : <FileGlyph file={file} size={26} />}
             </span>
-            <span className="drive-tile__name">{file.name}</span>
           </button>
           <div className="drive-tile__meta">
             <span>{formatFileSize(file.sizeBytes)}</span>
-            {file.sharedWithCount > 0 && <Users size={13} aria-hidden />}
+            <AccessIndicators item={file} />
           </div>
-          {menuFor({ kind: 'FILE', file })}
         </article>
-      ))}
+        ))}
+      </div>}
     </div>
   )
 }

@@ -21,4 +21,10 @@ export class OrgController {
   listEmployees(@Req() request: LankaDWSRequest, @Param('id') unitId: string, @Query('company') company?: string) {
     return this.org.listEmployees(principalFrom(request), unitId, company)
   }
+
+  @Get('companies/:id/unassigned-employees')
+  listUnassignedEmployees(@Req() request: LankaDWSRequest, @Param('id') companyId: string, @Query('cursor') cursor?: string) {
+    if (cursor && cursor.length > 120) throw badRequest('org_query_invalid')
+    return this.org.listUnassignedEmployees(principalFrom(request), companyId, cursor)
+  }
 }

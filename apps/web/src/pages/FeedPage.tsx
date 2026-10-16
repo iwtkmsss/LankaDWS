@@ -1,3 +1,4 @@
+import { personName, personNamesInLabel } from '../shared/lib/personName'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
@@ -35,7 +36,7 @@ import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { organizationQueryScope } from '../shared/lib/navigation'
-import { MentionText } from '../shared/mentions/MentionRenderer'
+import { FormattedText } from '../shared/text/FormattedText'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../shared/mentions/mentionText'
 import {
@@ -56,6 +57,7 @@ import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FeedComposerForm, formatBytes } from './FeedComposerForm'
 import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
 import { FeedOverview } from './FeedOverview'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 
 export function FeedPage() {
   const { user } = useAuth()
@@ -75,10 +77,15 @@ export function FeedPage() {
   const initialFeedItemIdsRef = useRef<Set<string> | null>(null)
   const [newFeedItemIds, setNewFeedItemIds] = useState<Set<string>>(() => new Set())
   const company = organizationQueryScope(user?.company?.id)
+  const targetPostId = params.get('post')
+  const targetPost = useQuery({
+    queryKey: ['feed', 'post', targetPostId],
+    queryFn: () => api<FeedPostView>(`/feed/${encodeURIComponent(targetPostId!)}`),
+    enabled: Boolean(targetPostId),
+  })
   const filter = parseFilter(params.get('filter'))
   const itemType = parseItemType(params.get('type'))
   const authorId = parseIdParam(params.get('authorId'))
-  const groupId = parseIdParam(params.get('groupId'))
   const audienceId = parseIdParam(params.get('audienceId'))
   const dateFrom = parseDateParam(params.get('dateFrom'))
   const dateTo = parseDateParam(params.get('dateTo'))
@@ -89,7 +96,6 @@ export function FeedPage() {
     filter,
     itemType,
     authorId,
-    groupId,
     audienceId,
     dateFrom,
     dateTo,
@@ -103,7 +109,6 @@ export function FeedPage() {
       filter,
       itemType,
       authorId,
-      groupId,
       audienceId,
       dateFrom,
       dateTo,
@@ -119,7 +124,6 @@ export function FeedPage() {
         limit: '20',
       })
       if (authorId) query.set('authorId', authorId)
-      if (groupId) query.set('groupId', groupId)
       if (audienceId) query.set('audienceId', audienceId)
       if (dateFrom) query.set('dateFrom', dateFrom)
       if (dateTo) query.set('dateTo', dateTo)
@@ -159,10 +163,6 @@ export function FeedPage() {
   const items = pages.data?.pages.flatMap((page) => page.items) ?? []
 
   useEffect(() => {
-    document.title = 'Жива стрічка — Lanka'
-  }, [])
-
-  useEffect(() => {
     initialFeedItemIdsRef.current = null
     setNewFeedItemIds(new Set())
   }, [feedSessionKey])
@@ -186,7 +186,6 @@ export function FeedPage() {
       filter !== 'ALL' ||
       itemType !== 'ALL' ||
       authorId ||
-      groupId ||
       audienceId ||
       dateFrom ||
       dateTo ||
@@ -207,7 +206,6 @@ export function FeedPage() {
     dateTo,
     filter,
     firstPage?.readMarkers,
-    groupId,
     important,
     itemType,
     markRead,
@@ -232,7 +230,6 @@ export function FeedPage() {
     filter !== 'ALL' ||
     itemType !== 'ALL' ||
     authorId ||
-    groupId ||
     audienceId ||
     dateFrom ||
     dateTo ||
@@ -256,7 +253,7 @@ export function FeedPage() {
           </Button>
         }
       />
-      {!hasLegacyFilter && <FeedOverview />}
+      <FeedOverview />
       <div className="feed-layout">
         <div className="feed-main">
           {hasLegacyFilter && (
@@ -268,12 +265,17 @@ export function FeedPage() {
           )}
 
           <section className="feed-list" aria-label="Оновлення стрічки">
+            {targetPostId && (targetPost.isLoading ? <PageDataLoader /> : targetPost.isError ? <ErrorState /> : targetPost.data ? (
+              <FeedCard item={targetPost.data} loadedAt={targetPost.dataUpdatedAt} isNew={false}
+                onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })} />
+            ) : null)}
             {items.length > 0 ? (
-              items.map((item) =>
+              items.filter((item) => item.kind !== 'POST' || item.id !== targetPost.data?.id).map((item) =>
                 item.kind === 'POST' ? (
                   <FeedCard
                     key={item.itemId}
                     item={item}
+                    loadedAt={pages.dataUpdatedAt}
                     isNew={newFeedItemIds.has(item.itemId)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
                   />
@@ -343,6 +345,7 @@ export function FeedPage() {
       {composerOpen && (
         <Modal
           title="Створити публікацію"
+          size="xl"
           description="Поділіться важливим оновленням із потрібною аудиторією."
           closeDisabled={composerBusy}
           onBeforeClose={composerCloseGuard.shouldClose}
@@ -374,7 +377,7 @@ export function FeedPage() {
   )
 }
 
-function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNew: boolean; onChanged: () => void }) {
+export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNew: boolean; onChanged: () => void }) {
   const [confirmRevoke, setConfirmRevoke] = useState(false)
   const [filePreviewOpen, setFilePreviewOpen] = useState(false)
   const revoke = useMutation({
@@ -408,18 +411,29 @@ function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNe
       </div>
       <div className="feed-source-card__content">
         <header>
-          <span>{item.label}</span>
           <time dateTime={item.occurredAt}>{formatDateTime(item.occurredAt)}</time>
+          <span aria-hidden="true">·</span>
+          <span>{item.label}</span>
         </header>
         <h2>{item.title}</h2>
         {item.summary && <p>{item.summary}</p>}
         <div className="feed-source-card__meta">
           {item.metadata.map((entry) => (
-            <span key={entry}>{entry}</span>
+            <span key={entry}>
+              {item.sourceType === 'TASK' && item.taskReporter && entry === `Постановник: ${item.taskReporter.displayName}` ? (
+                <UserProfileLink className="feed-source-card__reporter" userId={item.taskReporter.id}>
+                  {personNamesInLabel(entry)}
+                </UserProfileLink>
+              ) : item.sourceType === 'TASK' && item.taskAssignee && entry === `Виконавець: ${item.taskAssignee.displayName}` ? (
+                <UserProfileLink className="feed-source-card__assignee" userId={item.taskAssignee.id}>
+                  {personNamesInLabel(entry)}
+                </UserProfileLink>
+              ) : personNamesInLabel(entry)}
+            </span>
           ))}
-          {item.actor && (
+          {item.sourceType !== 'TASK' && item.actor && (
             <UserProfileLink className="feed-source-card__actor" userId={item.actor.id}>
-              {item.actor.displayName}
+              {personName(item.actor.displayName)}
             </UserProfileLink>
           )}
         </div>
@@ -463,7 +477,7 @@ function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNe
             id: fileIdFromDownloadHref(item.href),
             fileName: item.title,
             mimeType:
-              item.metadata.find((entry) => entry === 'application/pdf' || entry.startsWith('image/')) ??
+              item.metadata.find((entry) => /^(application|image|text)\/[\w.+-]+(?:;.*)?$/.test(entry)) ??
               mimeTypeFromFileName(item.title),
           }}
           onClose={() => setFilePreviewOpen(false)}
@@ -494,10 +508,15 @@ function mimeTypeFromFileName(fileName: string): string | null {
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
   if (extension === 'gif') return 'image/gif'
   if (extension === 'webp') return 'image/webp'
+  if (extension === 'txt') return 'text/plain'
+  if (extension === 'csv') return 'text/csv'
+  if (extension === 'json') return 'application/json'
+  if (extension === 'xml') return 'application/xml'
   return null
 }
 
-function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boolean; onChanged: () => void }) {
+function FeedCard({ item, isNew, onChanged, loadedAt }: { item: FeedPostView; isNew: boolean; onChanged: () => void; loadedAt: number }) {
+  const notificationReadRef = useEntityNotificationRead('FEED_POST', item.id, loadedAt, true)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [comment, setComment] = useState('')
   const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
@@ -579,17 +598,17 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
 
   return (
     <Card className={`feed-card${isNew ? ' is-new' : ''}`}>
-      <header className="feed-card__header">
+      <header ref={notificationReadRef} className="feed-card__header">
         <UserProfileLink
           className="feed-card__author"
           userId={item.author.id}
-          aria-label={`Відкрити профіль ${item.author.displayName}`}
+          aria-label={`Відкрити профіль ${personName(item.author.displayName)}`}
         >
-          <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
+          <Avatar name={personName(item.author.displayName)} src={item.author.avatarAsset} />
           <span>
-            <strong>{item.author.displayName}</strong>
+            <strong>{personName(item.author.displayName)}</strong>
             <small>
-              <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time> · {item.audienceLabel}
+              <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time> · {personNamesInLabel(item.audienceLabel)}
             </small>
           </span>
         </UserProfileLink>
@@ -633,6 +652,7 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
           }}
         >
           <MentionTextarea
+            formatting
             label="Текст публікації"
             value={editBody}
             mentions={editMentions}
@@ -653,7 +673,7 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
         </form>
       ) : (
         <div className="feed-card__body">
-          <MentionText body={item.body} mentions={item.mentions} />
+          <FormattedText body={item.body} mentions={item.mentions} />
         </div>
       )}
 
@@ -721,18 +741,16 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
                   <UserProfileLink
                     className="feed-comment__author-avatar"
                     userId={entry.author.id}
-                    aria-label={`Відкрити профіль ${entry.author.displayName}`}
+                    aria-label={`Відкрити профіль ${personName(entry.author.displayName)}`}
                   >
-                    <Avatar name={entry.author.displayName} src={entry.author.avatarAsset} size="sm" />
+                    <Avatar name={personName(entry.author.displayName)} src={entry.author.avatarAsset} size="sm" />
                   </UserProfileLink>
                   <div>
                     <header>
-                      <UserProfileLink userId={entry.author.id}>{entry.author.displayName}</UserProfileLink>
+                      <UserProfileLink userId={entry.author.id}>{personName(entry.author.displayName)}</UserProfileLink>
                       <time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time>
                     </header>
-                    <p>
-                      <MentionText body={entry.body} mentions={entry.mentions} />
-                    </p>
+                    <FormattedText body={entry.body} mentions={entry.mentions} />
                     {!entry.replyToCommentId && (
                       <button
                         onClick={() => {
@@ -751,6 +769,7 @@ function FeedCard({ item, isNew, onChanged }: { item: FeedPostView; isNew: boole
           )}
           <form onSubmit={submitComment}>
             <MentionTextarea
+              formatting
               label={replyTo ? 'Відповідь на коментар' : 'Новий коментар'}
               value={comment}
               mentions={commentMentions}

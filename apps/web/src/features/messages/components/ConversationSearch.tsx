@@ -1,3 +1,4 @@
+import { personName } from '../../../shared/lib/personName'
 import type { ChatMessageSearchPage } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { LoaderCircle, Search, X } from 'lucide-react'
@@ -66,7 +67,7 @@ export function ConversationSearch({
               onClick={() => onOpenResult(message.id)}
             >
               <span>
-                <strong>{message.author.displayName}</strong>
+                <strong>{personName(message.author.displayName)}</strong>
                 <time>{formatChatDay(message.createdAt)}</time>
               </span>
               <span>{message.body}</span>

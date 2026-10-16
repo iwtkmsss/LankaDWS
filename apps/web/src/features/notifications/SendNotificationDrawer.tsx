@@ -1,13 +1,11 @@
+import { useUserSearch } from '../../shared/lib/useUserSearch'
+import { personName } from '../../shared/lib/personName'
 import type { ChatContactUser } from '@lankadws/contracts'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { BellRing, Search, X } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { api, idempotencyKey, jsonBody } from '../../shared/api/client'
-import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { Avatar, Button, Drawer, Skeleton } from '../../shared/ui'
-import { searchChatUsers } from '../messages/api/messageApi'
-import { messageKeys } from '../messages/api/messageKeys'
-import { normalizedCodePointLength } from '../messages/lib/messageText'
 
 export function SendNotificationDrawer({
   companyId,
@@ -21,18 +19,12 @@ export function SendNotificationDrawer({
   const [query, setQuery] = useState('')
   const [recipient, setRecipient] = useState<ChatContactUser | null>(null)
   const [error, setError] = useState('')
-  const {
-    debouncedValue,
-    isComposing,
-    onCompositionStart,
-    onCompositionEnd,
-  } = useDebouncedSearchValue(query)
-  const searching = !recipient && !isComposing && normalizedCodePointLength(debouncedValue) >= 1
-  const users = useQuery({
-    queryKey: messageKeys.users(companyId, debouncedValue),
-    queryFn: ({ signal }) => searchChatUsers(companyId, debouncedValue, signal),
-    enabled: searching,
+  const { users, searching, items: searchItems,
+    onCompositionStart, onCompositionEnd,
+  } = useUserSearch<ChatContactUser>(query, {
+    endpoint: '/messages/users/search', params: { company: companyId }, enabled: !recipient,
   })
+
   const send = useMutation({
     mutationFn: (input: { title: string; body: string }) => api('/notifications', {
       method: 'POST',
@@ -56,6 +48,7 @@ export function SendNotificationDrawer({
   return (
     <Drawer
       title="Нове сповіщення"
+      className="notification-compose-drawer"
       onRequestClose={onClose}
       footer={<Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>}
     >
@@ -64,8 +57,8 @@ export function SendNotificationDrawer({
           Одержувач
           {recipient ? (
             <span className="notification-compose__recipient">
-              <Avatar name={recipient.displayName} src={recipient.avatarAsset} />
-              <span><strong>{recipient.displayName}</strong><small>@{recipient.username}</small></span>
+              <Avatar name={personName(recipient.displayName)} src={recipient.avatarAsset} />
+              <span><strong>{personName(recipient.displayName)}</strong><small>@{recipient.username}</small></span>
               <button
                 type="button"
                 aria-label="Змінити одержувача"
@@ -84,7 +77,7 @@ export function SendNotificationDrawer({
                 aria-expanded={searching}
                 aria-controls={searching ? 'notification-recipient-results' : undefined}
                 value={query}
-                placeholder="Ім’я або нікнейм"
+                placeholder="Введіть ім’я або нікнейм"
                 onChange={(event) => setQuery(event.target.value)}
                 onCompositionStart={onCompositionStart}
                 onCompositionEnd={onCompositionEnd}
@@ -94,7 +87,7 @@ export function SendNotificationDrawer({
         </label>
         {!recipient && searching && (
           <div id="notification-recipient-results" className="notification-compose__results" role="listbox">
-            {users.isLoading ? <Skeleton rows={4} /> : users.data?.items.length ? users.data.items.map((contact) => (
+            {users.isLoading ? <Skeleton rows={4} /> : searchItems.length ? searchItems.map((contact) => (
               <button
                 type="button"
                 role="option"
@@ -105,8 +98,8 @@ export function SendNotificationDrawer({
                   setQuery('')
                 }}
               >
-                <Avatar name={contact.displayName} src={contact.avatarAsset} />
-                <span><strong>{contact.displayName}</strong><small>@{contact.username}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}</small></span>
+                <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
+                <span><strong>{personName(contact.displayName)}</strong><small>@{contact.username}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}</small></span>
               </button>
             )) : <p>Користувачів не знайдено.</p>}
           </div>

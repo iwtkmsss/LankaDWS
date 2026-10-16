@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const PASSWORD_MIN_LENGTH = 8
+
 export const usernamePattern = /^[a-z0-9._-]{3,32}$/
 const withoutWhitespace = (value: unknown) => typeof value === 'string' ? value.replace(/\s+/gu, '') : value
 

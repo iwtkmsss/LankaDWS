@@ -1,3 +1,5 @@
+.message-draft-label { color: var(--danger); font-weight: 400; }
+
 .message-composer {
   position: relative;
   z-index: 8;
@@ -8,11 +10,17 @@
   padding: 10px 12px max(10px, env(safe-area-inset-bottom));
 }
 
+.message-composer__row,
+.message-composer__attachments {
+  --composer-action-size: 42px;
+  --composer-action-gap: 8px;
+}
+
 .message-composer__row {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 8px;
+  gap: var(--composer-action-gap);
 }
 
 .message-composer__row > .message-composer__input {
@@ -26,27 +34,38 @@
 
 .message-composer__row > button {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: var(--composer-action-size);
+  height: var(--composer-action-size);
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-raised);
   color: var(--cobalt-600);
+  transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
 }
 
 .message-composer__input textarea,
 .message-composer__row > textarea.message-composer__input {
+  display: block;
   min-height: 42px;
   max-height: 144px;
   width: 100%;
   resize: none;
+  overflow-y: auto;
   border-color: var(--line-strong);
   background: var(--surface-soft);
   padding: 11px 13px;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 400;
   line-height: 1.5;
+}
+
+.message-composer__input textarea::placeholder,
+.message-composer__row > textarea.message-composer__input::placeholder {
+  color: color-mix(in srgb, var(--ink-400) 65%, var(--surface-soft));
+  font-weight: 400;
+  opacity: 1;
 }
 
 .message-composer__input textarea:focus,
@@ -75,6 +94,18 @@
   box-shadow: none;
 }
 
+.message-composer .message-composer__row .message-composer__send:hover,
+.message-composer .message-composer__row .message-composer__send:focus-visible {
+  border-color: var(--cobalt-500);
+  background: var(--cobalt-500);
+  color: #fff;
+  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-composer__row > button { transition: none; }
+}
+
 .message-composer__reply {
   display: flex;
   align-items: center;
@@ -93,13 +124,13 @@
 
 .message-composer__reply strong {
   color: var(--cobalt-700);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .message-composer__reply small {
   overflow: hidden;
   color: var(--ink-400);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -117,13 +148,14 @@
   flex-wrap: wrap;
   overflow-y: auto;
   gap: 6px;
-  margin: 0 50px 8px;
+  margin: 0 calc(var(--composer-action-size) + var(--composer-action-gap)) 8px;
+  margin-left: 0;
 }
 
 .message-composer__attachment-count {
   width: 100%;
   color: var(--ink-400);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .message-composer__attachments > span {
@@ -135,7 +167,7 @@
   background: var(--cobalt-50);
   color: var(--ink-600);
   padding: 5px 7px;
-  font-size: 9px;
+  font-size: 12px;
 }
 
 @container (max-width: 380px) {
@@ -143,13 +175,10 @@
     padding-inline: 8px;
   }
 
-  .message-composer__row {
-    gap: 5px;
-  }
-
-  .message-composer__row > button {
-    width: 38px;
-    height: 38px;
+  .message-composer__row,
+  .message-composer__attachments {
+    --composer-action-size: 38px;
+    --composer-action-gap: 5px;
   }
 
   .message-composer__input textarea,
@@ -158,8 +187,7 @@
     padding: 9px 10px;
   }
 
-  .message-composer__reply,
-  .message-composer__attachments {
+  .message-composer__reply {
     margin-right: 38px;
     margin-left: 38px;
   }

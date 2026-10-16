@@ -22,7 +22,6 @@ interface DocumentListQuery {
 export interface DriveDocumentListItem extends DocumentListItem {
   ownerId: string
   isOwner: boolean
-  versionCount: number
   sizeBytes: number | null
   fileType: Exclude<DocumentFileType, 'ALL'>
   archivedAt: string | null
@@ -60,10 +59,6 @@ export class DocumentsService {
           { id: { in: allowedIds } },
         ],
       },
-      include: {
-        versions: { orderBy: { version: 'desc' }, take: 1 },
-        _count: { select: { versions: true } },
-      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     })
     const owners = await this.prisma.user.findMany({
@@ -72,12 +67,12 @@ export class DocumentsService {
     })
     const ownerById = new Map(owners.map((owner) => [owner.id, owner.displayName]))
     const files = await this.prisma.fileObject.findMany({
-      where: { id: { in: rows.flatMap((row) => row.versions.map((version) => version.fileId)) } },
+      where: { id: { in: rows.flatMap((row) => row.fileId ? [row.fileId] : []) } },
       select: { id: true, detectedMime: true, declaredMime: true, bytes: true },
     })
     const fileById = new Map(files.map((file) => [file.id, file]))
     const documents: DriveDocumentListItem[] = rows.map((row) => {
-      const file = row.versions[0] ? fileById.get(row.versions[0].fileId) : undefined
+      const file = row.fileId ? fileById.get(row.fileId) : undefined
       const mimeType = file?.detectedMime ?? file?.declaredMime ?? null
       return {
         id: row.id,
@@ -91,7 +86,6 @@ export class DocumentsService {
         status: row.archivedAt ? 'ARCHIVED' : row.status,
         updatedAt: row.updatedAt.toISOString(),
         version: row.version,
-        versionCount: row._count.versions,
         sizeBytes: file?.bytes ?? null,
         fileType: this.fileType(mimeType),
         archivedAt: row.archivedAt?.toISOString() ?? null,
@@ -124,117 +118,40 @@ export class DocumentsService {
   }
 
   async detail(principal: AuthPrincipal, documentId: string) {
-    const document = await this.prisma.document.findFirst({ where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, OR: [{ ownerId: principal.userId }, { confidentiality: { in: ['GENERAL', 'INTERNAL'] } }, { id: { in: await this.allowedDocumentIds(principal) } }] }, include: { versions: { orderBy: { version: 'desc' } } } })
+    const document = await this.prisma.document.findFirst({ where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, OR: [{ ownerId: principal.userId }, { confidentiality: { in: ['GENERAL', 'INTERNAL'] } }, { id: { in: await this.allowedDocumentIds(principal) } }] } })
     if (!document) throw notFound()
-    const files = await this.prisma.fileObject.findMany({
-      where: { id: { in: document.versions.map((version) => version.fileId) } },
-      select: { id: true, safeFilename: true, bytes: true, declaredMime: true, detectedMime: true, scanStatus: true },
-    })
-    const fileById = new Map(files.map((file) => [file.id, file]))
+    const file = document.fileId ? await this.prisma.fileObject.findUnique({
+      where: { id: document.fileId },
+      select: { safeFilename: true, bytes: true, declaredMime: true, detectedMime: true, scanStatus: true },
+    }) : null
     return {
       ...document,
-      versions: document.versions.map((version) => {
-        const file = fileById.get(version.fileId)
-        return {
-          ...version,
-          file: file ? {
-            name: file.safeFilename,
-            mimeType: file.detectedMime ?? file.declaredMime,
-            bytes: file.bytes,
-            scanStatus: file.scanStatus,
-          } : null,
-        }
-      }),
+      file: file ? { name: file.safeFilename, mimeType: file.detectedMime ?? file.declaredMime, bytes: file.bytes, scanStatus: file.scanStatus } : null,
     }
   }
 
-  async create(principal: AuthPrincipal, input: { companyId?: string; name: string; fileId: string; changeSummary?: string }) {
+  async create(principal: AuthPrincipal, input: { companyId?: string; name: string; fileId: string }) {
     const companyId = this.scope.assertCompany(principal, input.companyId)
     const file = await this.prisma.fileObject.findFirst({ where: { id: input.fileId, companyId, ownerId: principal.userId } })
     if (!file) throw badRequest('file_invalid')
     const documentId = id('doc')
-    const versionId = id('docv')
     await this.prisma.$transaction(async (tx) => {
-      await tx.document.create({ data: { id: documentId, workspaceId: principal.workspaceId, companyId, number: `DOC-${Date.now().toString().slice(-7)}`, name: input.name.trim(), ownerId: principal.userId, status: 'DRAFT', currentVersionId: versionId } })
-      await tx.documentVersion.create({ data: { id: versionId, documentId, version: 1, fileId: file.id, createdBy: principal.userId, changeSummary: input.changeSummary?.trim() ?? 'Перша версія', status: 'DRAFT' } })
-      await tx.fileLink.create({ data: { id: id('fln'), fileId: file.id, entityType: 'DOCUMENT', entityId: documentId, purpose: 'VERSION', aclMode: 'INHERIT' } })
+      await tx.document.create({ data: { id: documentId, workspaceId: principal.workspaceId, companyId, number: `DOC-${Date.now().toString().slice(-7)}`, name: input.name.trim(), ownerId: principal.userId, status: 'DRAFT', fileId: file.id } })
+      await tx.fileLink.create({ data: { id: id('fln'), fileId: file.id, entityType: 'DOCUMENT', entityId: documentId, purpose: 'CONTENT', aclMode: 'INHERIT' } })
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId, action: 'document.created', entityType: 'DOCUMENT', entityId: documentId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     })
     return this.detail(principal, documentId)
   }
 
   async publish(principal: AuthPrincipal, documentId: string, expectedVersion: number) {
-    const document = await this.prisma.document.findFirst({ where: { id: documentId, ownerId: principal.userId, companyId: { in: principal.allowedCompanyIds }, archivedAt: null }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } })
+    const document = await this.prisma.document.findFirst({ where: { id: documentId, ownerId: principal.userId, companyId: { in: principal.allowedCompanyIds }, archivedAt: null } })
     if (!document) throw notFound()
-    if (document.version !== expectedVersion || !document.versions[0]) throw conflict()
-    const version = document.versions[0]
+    if (document.version !== expectedVersion || !document.fileId) throw conflict()
     await this.prisma.$transaction(async (tx) => {
-      await tx.document.update({ where: { id: document.id }, data: { status: 'PUBLISHED', version: { increment: 1 }, currentVersionId: version.id } })
-      await tx.documentVersion.update({ where: { id: version.id }, data: { status: 'PUBLISHED' } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: document.companyId, actorType: 'USER', actorId: principal.userId, action: 'document.published', entityType: 'DOCUMENT', entityId: document.id, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ version: version.version }), correlationId: id('corr') } })
+      await tx.document.update({ where: { id: document.id }, data: { status: 'PUBLISHED', version: { increment: 1 } } })
+      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: document.companyId, actorType: 'USER', actorId: principal.userId, action: 'document.published', entityType: 'DOCUMENT', entityId: document.id, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
     })
     return { published: true, version: expectedVersion + 1 }
-  }
-
-  async addVersion(
-    principal: AuthPrincipal,
-    documentId: string,
-    input: { fileId: string; changeSummary?: string; expectedVersion: number },
-  ) {
-    const document = await this.prisma.document.findFirst({
-      where: {
-        id: documentId,
-        companyId: { in: principal.allowedCompanyIds },
-        archivedAt: null,
-        ...(isGlobalAdmin(principal) ? {} : { ownerId: principal.userId }),
-      },
-      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
-    })
-    if (!document) throw notFound()
-    if (document.version !== input.expectedVersion) throw conflict()
-    const file = await this.prisma.fileObject.findFirst({
-      where: {
-        id: input.fileId,
-        companyId: document.companyId,
-        ownerId: principal.userId,
-        scanStatus: 'CLEAN',
-      },
-    })
-    if (!file) throw badRequest('file_invalid')
-    const nextVersion = (document.versions[0]?.version ?? 0) + 1
-    const versionId = id('docv')
-    await this.prisma.$transaction(async (tx) => {
-      await tx.documentVersion.create({
-        data: {
-          id: versionId,
-          documentId,
-          version: nextVersion,
-          fileId: file.id,
-          createdBy: principal.userId,
-          changeSummary: input.changeSummary?.trim() || `Версія ${nextVersion}`,
-          status: 'DRAFT',
-        },
-      })
-      await tx.document.update({
-        where: { id: documentId },
-        data: {
-          currentVersionId: versionId,
-          status: 'DRAFT',
-          version: { increment: 1 },
-        },
-      })
-      await tx.fileLink.create({
-        data: {
-          id: id('fln'),
-          fileId: file.id,
-          entityType: 'DOCUMENT',
-          entityId: documentId,
-          purpose: `VERSION_${nextVersion}`,
-          aclMode: 'INHERIT',
-        },
-      })
-    })
-    return { id: versionId, version: nextVersion, documentVersion: input.expectedVersion + 1 }
   }
 
   async archive(principal: AuthPrincipal, documentId: string, expectedVersion: number) {

@@ -99,7 +99,6 @@ export class TaskRelationsService {
     task: {
       id: string
       companyId: string
-      groupId: string | null
       projectId: string | null
     },
     targetTaskId: string,
@@ -109,7 +108,6 @@ export class TaskRelationsService {
         id: targetTaskId,
         workspaceId: principal.workspaceId,
         companyId: task.companyId,
-        groupId: task.groupId,
         projectId: task.projectId,
         archivedAt: null,
       },

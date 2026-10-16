@@ -71,7 +71,6 @@ export const TASK_LIST_COLUMN_IDS = [
   'dueDate',
   'status',
   'reporter',
-  'group',
   'priority',
   'subtaskProgress',
   'activity',

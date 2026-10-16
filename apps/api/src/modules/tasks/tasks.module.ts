@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { FeedModule } from '../feed/feed.module.js'
 import { FilesModule } from '../files/files.module.js'
+import { RealtimeModule } from '../realtime/realtime.module.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
@@ -34,7 +35,7 @@ const taskServices = [
 ]
 
 @Module({
-  imports: [FeedModule, FilesModule],
+  imports: [FeedModule, FilesModule, RealtimeModule],
   controllers: [TasksController],
   providers: [TasksService, ...taskServices],
   exports: [TasksService, TaskCommandService, TaskQueryService],

@@ -1,12 +1,12 @@
+import { UserSearchCombobox } from '../employees/UserSearchCombobox'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DriveShareRole, DriveShareTargetType, GroupListResult } from '@lankadws/contracts'
-import { Check, Trash2, UserPlus, UsersRound } from 'lucide-react'
+import type { DriveShareRole, DriveShareTargetType } from '@lankadws/contracts'
+import { Check, Folder, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { api } from '../../shared/api/client'
-import { Avatar, Button, IconButton, Modal, Skeleton } from '../../shared/ui'
-import { createShare, listShares, revokeShare } from './api'
-
-interface EmployeeOption { id: string; displayName: string; avatarAsset: string | null }
+import { Avatar, Button, ErrorState, IconButton, Modal, Skeleton } from '../../shared/ui'
+import { createShare, fetchDrive, listShares, revokeShare } from './api'
+import { useAuth } from '../../shared/auth/AuthProvider'
+import { personName } from '../../shared/lib/personName'
 
 export function NameDialog({
   title,
@@ -79,7 +79,8 @@ export function ShareDialog({
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
-  const [principalType, setPrincipalType] = useState<'USER' | 'GROUP'>('USER')
+  const { user } = useAuth()
+  const principalType = 'USER' as const
   const [principalId, setPrincipalId] = useState('')
   const [role, setRole] = useState<DriveShareRole>('VIEWER')
   const [error, setError] = useState('')
@@ -88,17 +89,6 @@ export function ShareDialog({
     queryKey: ['drive-shares', targetType, targetId],
     queryFn: () => listShares(targetType, targetId),
   })
-  const people = useQuery({
-    queryKey: ['employees'],
-    queryFn: () => api<{ items: EmployeeOption[] }>('/employees'),
-    enabled: principalType === 'USER',
-  })
-  const groups = useQuery({
-    queryKey: ['groups', 'share-picker'],
-    queryFn: () => api<GroupListResult>('/groups?status=ACTIVE&limit=50'),
-    enabled: principalType === 'GROUP',
-  })
-
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['drive-shares', targetType, targetId] })
     void queryClient.invalidateQueries({ queryKey: ['drive'] })
@@ -110,15 +100,15 @@ export function ShareDialog({
   })
   const revoke = useMutation({
     mutationFn: (shareId: string) => revokeShare(shareId),
-    onSuccess: invalidate,
+    onSuccess: () => { setError(''); invalidate() },
     onError: () => setError('Не вдалося відкликати доступ.'),
   })
+  const changeRole = useMutation({
+    mutationFn: (input: { principalId: string; role: DriveShareRole }) => createShare({ targetType, targetId, principalType, ...input }),
+    onSuccess: () => { setError(''); invalidate() },
+    onError: () => setError('Не вдалося змінити рівень доступу.'),
+  })
 
-  const options = principalType === 'USER'
-    ? (people.data?.items ?? []).map((person) => ({ id: person.id, label: person.displayName }))
-    : (groups.data?.items ?? []).map((group) => ({ id: group.id, label: group.name }))
-  const alreadyShared = new Set((shares.data ?? []).map((share) => share.principalId))
-  const available = options.filter((option) => !alreadyShared.has(option.id))
 
   return (
     <Modal title={`Доступ до «${targetName}»`} size="md" onRequestClose={onClose}>
@@ -128,31 +118,15 @@ export function ShareDialog({
             className="drive-share__grant"
             onSubmit={(event) => { event.preventDefault(); if (principalId) grant.mutate() }}
           >
-            <div className="drive-share__kind" role="group" aria-label="Кому надати доступ">
-              <button
-                type="button"
-                className={principalType === 'USER' ? 'is-active' : ''}
-                onClick={() => { setPrincipalType('USER'); setPrincipalId('') }}
-              >
-                <UserPlus size={15} aria-hidden />Людині
-              </button>
-              <button
-                type="button"
-                className={principalType === 'GROUP' ? 'is-active' : ''}
-                onClick={() => { setPrincipalType('GROUP'); setPrincipalId('') }}
-              >
-                <UsersRound size={15} aria-hidden />Групі
-              </button>
-            </div>
-            <label className="drive-share__pick">
-              <span className="visually-hidden">{principalType === 'USER' ? 'Людина' : 'Група'}</span>
-              <select value={principalId} onChange={(event) => setPrincipalId(event.target.value)}>
-                <option value="">{principalType === 'USER' ? 'Оберіть людину…' : 'Оберіть групу…'}</option>
-                {available.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-              </select>
-            </label>
+            <UserSearchCombobox
+              label="Людина"
+              value={principalId}
+              onChange={setPrincipalId}
+              excludeIds={[...(user ? [user.id] : []), ...(shares.data ?? []).map((share) => share.principalId)]}
+              disabled={grant.isPending}
+            />
             <label className="drive-share__role">
-              <span className="visually-hidden">Рівень доступу</span>
+              <span>Рівень доступу</span>
               <select value={role} onChange={(event) => setRole(event.target.value as DriveShareRole)}>
                 <option value="VIEWER">Перегляд</option>
                 <option value="EDITOR">Редагування</option>
@@ -162,23 +136,35 @@ export function ShareDialog({
           </form>
         )}
         {error && <div className="form-error">{error}</div>}
-        {shares.isPending ? <Skeleton rows={2} /> : (
+        {shares.isError && <div className="form-error" role="alert">Не вдалося завантажити список доступу. <Button variant="ghost" onClick={() => void shares.refetch()}>Повторити</Button></div>}
+        {shares.isPending ? <Skeleton rows={2} /> : shares.isError ? null : (
           <ul className="drive-share__list">
             {(shares.data ?? []).length === 0 && (
               <li className="drive-share__empty">Доступ поки ні в кого немає.</li>
             )}
             {(shares.data ?? []).map((share) => (
               <li key={share.id}>
-                {share.principalType === 'USER'
-                  ? <Avatar name={share.principalName} size="sm" />
-                  : <span className="drive-share__group-icon"><UsersRound size={16} aria-hidden /></span>}
-                <span className="drive-share__name">{share.principalName}</span>
-                <span className="drive-share__badge">{share.role === 'EDITOR' ? 'Редагування' : 'Перегляд'}</span>
+                <div className="drive-share__person">
+                  <Avatar name={share.principalName} src={share.avatarAsset} size="sm" />
+                  <span className="drive-share__name" title={personName(share.principalName)}>{personName(share.principalName)}</span>
+                </div>
+                {canManage ? (
+                  <select
+                    className="drive-share__member-role"
+                    aria-label={`Рівень доступу: ${share.principalName}`}
+                    value={share.role}
+                    disabled={changeRole.isPending || revoke.isPending}
+                    onChange={(event) => changeRole.mutate({ principalId: share.principalId, role: event.target.value as DriveShareRole })}
+                  >
+                    <option value="VIEWER">Перегляд</option>
+                    <option value="EDITOR">Редагування</option>
+                  </select>
+                ) : <span className="drive-share__badge">{share.role === 'EDITOR' ? 'Редагування' : 'Перегляд'}</span>}
                 {canManage && (
                   <IconButton
                     label={`Відкликати доступ: ${share.principalName}`}
                     onClick={() => revoke.mutate(share.id)}
-                    disabled={revoke.isPending}
+                    disabled={revoke.isPending || changeRole.isPending}
                   >
                     <Trash2 size={16} />
                   </IconButton>
@@ -196,4 +182,32 @@ export function ShareDialog({
       </div>
     </Modal>
   )
+}
+
+
+export function MoveDialog({ target, onClose, onMove }: {
+  target: import('./DriveItems').DriveTarget
+  onClose: () => void
+  onMove: (folderId: string | null) => Promise<void>
+}) {
+  const [folderId, setFolderId] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const query = useQuery({
+    queryKey: ['drive', 'move-destination', folderId],
+    queryFn: () => fetchDrive({ view: 'MY_DRIVE', type: 'FOLDER', ...(folderId ? { folderId } : {}) }),
+  })
+  const currentFolderId = target.kind === 'FILE' ? target.file.folderId : target.folder.parentId
+  async function submit() {
+    setBusy(true)
+    setError('')
+    try { await onMove(folderId); onClose() }
+    catch { setError('Не вдалося перемістити. Перевірте доступ і повторіть спробу.'); setBusy(false) }
+  }
+  return <Modal title="Перемістити" description={target.kind === 'FILE' ? target.file.name : target.folder.name} size="sm" onRequestClose={() => { if (!busy) onClose() }}
+    footer={<><Button variant="secondary" disabled={busy} onClick={onClose}>Скасувати</Button><Button disabled={busy || !query.data || query.isError || currentFolderId === folderId} onClick={() => void submit()}>Перемістити сюди</Button></>}>
+    <nav className="drive-move-path" aria-label="Папка призначення"><Button variant="secondary" disabled={busy} onClick={() => setFolderId(null)}>Мій диск</Button>{query.data?.breadcrumbs.map((crumb) => <Button key={crumb.id} variant="secondary" disabled={busy} onClick={() => setFolderId(crumb.id)}>{crumb.name}</Button>)}</nav>
+    {query.isLoading ? <Skeleton rows={3} /> : query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : <div className="drive-move-folders">{query.data?.folders.filter((folder) => folder.isOwner && (target.kind !== 'FOLDER' || folder.id !== target.folder.id)).map((folder) => <Button key={folder.id} variant="secondary" disabled={busy} onClick={() => setFolderId(folder.id)}><Folder size={18} aria-hidden />{folder.name}</Button>)}</div>}
+    {error && <p role="alert">{error}</p>}
+  </Modal>
 }

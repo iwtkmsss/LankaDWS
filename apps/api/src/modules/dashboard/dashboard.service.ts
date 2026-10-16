@@ -13,6 +13,7 @@ import {
 } from '../../common/request-context.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MessagesService } from '../communication/messages.service.js';
+import { KnowledgeService } from '../knowledge/knowledge.service.js';
 import { FeedService } from '../feed/feed.service.js';
 import {
   TasksService,
@@ -26,6 +27,7 @@ export class DashboardService {
     private readonly tasks: TasksService,
     private readonly messages: MessagesService,
     private readonly feed: FeedService,
+    private readonly knowledge: KnowledgeService,
   ) {}
 
   async get(principal: AuthPrincipal): Promise<DashboardView> {
@@ -68,6 +70,7 @@ export class DashboardService {
       notificationSummary,
       feedData,
       lifecycle,
+      knowledgeSummary,
     ] = await Promise.all([
       availability.tasks
         ? this.tasks.dashboardSummary(principal, undefined, completedSince)
@@ -95,6 +98,7 @@ export class DashboardService {
       availability.lifecycle
         ? this.lifecycle(principal)
         : Promise.resolve<DashboardLifecycleItem[]>([]),
+      this.knowledge.pendingAcknowledgements(principal),
     ]);
 
     const activity =
@@ -103,8 +107,14 @@ export class DashboardService {
       (taskSummary?.attention ?? 0) +
       (messageSummary?.unread ?? 0) +
       (notificationSummary?.action ?? 0) +
-      (feedData?.attention.pendingAcknowledgements ?? 0);
-    const nextStep = this.nextStep({
+      (feedData?.attention.pendingAcknowledgements ?? 0) +
+      knowledgeSummary.pendingCount;
+    const nextStep: DashboardNextStep | null = knowledgeSummary.nextArticle ? {
+      kind: 'KNOWLEDGE',
+      title: `Ознайомтеся з матеріалом «${knowledgeSummary.nextArticle.title}»`,
+      detail: 'Обов’язкове ознайомлення. Відкрийте запис і натисніть «Ознайомився»',
+      href: `/knowledge/${knowledgeSummary.nextArticle.slug}`,
+    } : this.nextStep({
       taskSummary,
       eventData,
       notificationActions: notificationSummary?.action ?? 0,
@@ -132,7 +142,7 @@ export class DashboardService {
       },
       kpis: {
         activeTasks: taskSummary
-          ? { value: taskSummary.active, href: '/tasks?preset=ACTIVE' }
+          ? { value: taskSummary.active, href: '/tasks' }
           : null,
         overdueTasks: taskSummary
           ? { value: taskSummary.overdue, href: '/tasks?preset=OVERDUE' }
@@ -173,8 +183,11 @@ export class DashboardService {
   ): Promise<{ items: EventListItem[]; todayCount: number }> {
     const where = {
       workspaceId: principal.workspaceId,
-      companyId: { in: principal.allowedCompanyIds },
-      ownerId: principal.userId,
+      audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
+      OR: [
+        { ownerId: principal.userId },
+        { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } },
+      ],
     };
     const [rows, todayCount] = await Promise.all([
       this.prisma.event.findMany({
@@ -304,7 +317,7 @@ export class DashboardService {
       return {
         kind: 'ACKNOWLEDGEMENT',
         title: `${input.pendingAcknowledgements} публікацій очікують підтвердження`,
-        detail: 'Підтвердьте ознайомлення у живій стрічці.',
+        detail: 'Підтвердьте ознайомлення з матеріалом.',
         href: '/feed?filter=ACK_REQUIRED',
       };
     }

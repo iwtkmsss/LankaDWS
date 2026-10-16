@@ -4,6 +4,9 @@ import type {
   DriveFolderItem,
   DriveListQuery,
   DriveListResult,
+  DriveOwnersResult,
+  DriveDestinationsResult,
+  DrivePickerResult,
   DriveShareRole,
   DriveShareTargetType,
   DriveShareView,
@@ -30,6 +33,28 @@ export function driveQueryString(query: DriveQueryInput): string {
 export function fetchDrive(query: DriveQueryInput): Promise<DriveListResult> {
   const qs = driveQueryString(query)
   return api<DriveListResult>(`/drive${qs ? `?${qs}` : ''}`)
+}
+
+export function fetchDriveOwners(search: string, cursor?: string, signal?: AbortSignal): Promise<DriveOwnersResult> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (cursor) params.set('cursor', cursor)
+  return api<DriveOwnersResult>(`/drive/owners?${params}`, { signal })
+}
+
+export function fetchMoveDestinations(targetType: 'DOCUMENT' | 'FOLDER', targetId: string, folderId?: string, cursor?: string, signal?: AbortSignal): Promise<DriveDestinationsResult> {
+  const params = new URLSearchParams({ targetType, targetId })
+  if (folderId) params.set('folderId', folderId)
+  if (cursor) params.set('cursor', cursor)
+  return api<DriveDestinationsResult>(`/drive/destinations?${params}`, { signal })
+}
+
+export function fetchDrivePicker(search: string, cursor?: string, signal?: AbortSignal, folderId?: string): Promise<DrivePickerResult> {
+  const params = new URLSearchParams()
+  if (search) params.set('search', search)
+  if (cursor) params.set('cursor', cursor)
+  if (folderId) params.set('folderId', folderId)
+  return api<DrivePickerResult>(`/drive/picker?${params}`, { signal })
 }
 
 export function createFolder(input: { name: string; parentId?: string | null }) {

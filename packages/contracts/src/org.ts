@@ -7,6 +7,8 @@ const normalizeOrgUnitName = (value: unknown) => typeof value === 'string'
 
 export const orgUnitNameSchema = z.preprocess(normalizeOrgUnitName, z.string().min(1).max(120))
 export const orgManagerIdSchema = z.string().min(1).max(120).nullable()
+export const orgUnitIconSchema = z.enum(['building', 'scales', 'settings', 'document', 'computer', 'people', 'briefcase', 'tools'])
+export type OrgUnitIcon = z.infer<typeof orgUnitIconSchema>
 
 export const orgUnitListQuerySchema = z.object({
   company: companyScopeSchema.optional(),
@@ -21,6 +23,7 @@ export const adminOrgUnitListQuerySchema = z.object({
 export type AdminOrgUnitListQuery = z.infer<typeof adminOrgUnitListQuerySchema>
 
 export const createOrgUnitSchema = z.object({
+  icon: orgUnitIconSchema.nullable().optional(),
   name: orgUnitNameSchema,
   description: z.string().trim().max(320).optional(),
   parentId: z.string().min(1).max(120).nullable().optional(),
@@ -29,12 +32,13 @@ export const createOrgUnitSchema = z.object({
 export type CreateOrgUnitInput = z.infer<typeof createOrgUnitSchema>
 
 export const updateOrgUnitSchema = z.object({
+  icon: orgUnitIconSchema.nullable().optional(),
   name: orgUnitNameSchema.optional(),
   description: z.string().trim().max(320).optional(),
   parentId: z.string().min(1).max(120).nullable().optional(),
   managerId: orgManagerIdSchema.optional(),
   expectedVersion: z.number().int().positive(),
-}).refine((value) => value.name !== undefined || value.description !== undefined || value.parentId !== undefined || value.managerId !== undefined, {
+}).refine((value) => value.icon !== undefined || value.name !== undefined || value.description !== undefined || value.parentId !== undefined || value.managerId !== undefined, {
   message: 'org_unit_update_empty',
 })
 export type UpdateOrgUnitInput = z.infer<typeof updateOrgUnitSchema>
@@ -47,8 +51,9 @@ export type AssignOrgUnitEmployeesInput = z.infer<typeof assignOrgUnitEmployeesS
 
 export const archiveOrgUnitSchema = z.object({
   expectedVersion: z.number().int().positive(),
+  archiveBranch: z.boolean().optional(),
   targetUnitId: z.string().min(1).max(120).optional(),
-})
+}).refine((value) => !value.archiveBranch || value.targetUnitId === undefined, { message: 'archive_branch_target_not_allowed' })
 export type ArchiveOrgUnitInput = z.infer<typeof archiveOrgUnitSchema>
 
 export const restoreOrgUnitSchema = z.object({
@@ -62,9 +67,11 @@ export interface OrgManagerView {
   id: string
   displayName: string
   jobTitle: string
+  avatarAsset?: string | null
 }
 
 export interface OrgCompanyView {
+  logoAsset?: string | null
   id: string
   name: string
   description: string | null
@@ -73,12 +80,13 @@ export interface OrgCompanyView {
 }
 
 export interface OrgUnitView {
+  icon?: OrgUnitIcon | null
   id: string
   companyId: string
   parentId: string | null
   name: string
   description: string | null
-  manager: { id: string; displayName: string; jobTitle: string } | null
+  manager: OrgManagerView | null
   activeEmployeeCount: number
   childCount: number
   sortOrder: number

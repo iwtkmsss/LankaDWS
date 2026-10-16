@@ -21,7 +21,6 @@ export class TaskHierarchyService {
       where: {
         workspaceId: principal.workspaceId,
         companyId: selectedTask.companyId,
-        groupId: selectedTask.groupId,
         projectId: selectedTask.projectId,
         archivedAt: null,
         ...(isGlobalAdmin(principal)
@@ -43,7 +42,6 @@ export class TaskHierarchyService {
         number: true,
         title: true,
         status: true,
-        groupId: true,
         projectId: true,
         parentTaskId: true,
       },
@@ -86,7 +84,6 @@ export class TaskHierarchyService {
     task: {
       id: string
       companyId: string
-      groupId: string | null
       projectId: string | null
     },
     parentTaskId: string | null,
@@ -98,12 +95,11 @@ export class TaskHierarchyService {
       },
       select: {
         id: true,
-        groupId: true,
         projectId: true,
       },
     })
     if (children.some((child) => (
-      child.groupId !== task.groupId || child.projectId !== task.projectId
+      child.projectId !== task.projectId
     ))) {
       throw badRequest('task_subtask_scope')
     }
@@ -118,7 +114,6 @@ export class TaskHierarchyService {
       const parent: {
         id: string
         parentTaskId: string | null
-        groupId: string | null
         projectId: string | null
       } | null = await this.prisma.task.findFirst({
         where: {
@@ -130,12 +125,11 @@ export class TaskHierarchyService {
         select: {
           id: true,
           parentTaskId: true,
-          groupId: true,
           projectId: true,
         },
       })
       if (!parent) throw badRequest('task_parent')
-      if (parent.groupId !== task.groupId || parent.projectId !== task.projectId) {
+      if (parent.projectId !== task.projectId) {
         throw badRequest('task_parent_scope')
       }
       cursor = parent.parentTaskId

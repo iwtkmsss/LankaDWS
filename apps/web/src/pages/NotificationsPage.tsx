@@ -1,3 +1,4 @@
+import { personNamesInLabel } from '../shared/lib/personName'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -5,14 +6,13 @@ import {
   BellRing,
   Check,
   CheckCircle2,
+  HardDrive,
   ListTodo,
   Megaphone,
   MessageCircle,
   ShieldCheck,
 } from 'lucide-react'
-import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { SendNotificationDrawer } from '../features/notifications/SendNotificationDrawer'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
@@ -33,12 +33,15 @@ const labels: Record<string, string> = {
   APPROVALS: 'Погодження',
   CHAT: 'Чат',
   DIRECT: 'Особисте',
+  DRIVE: 'Диск',
   FEED: 'Стрічка',
   MENTION: 'Згадка',
   SECURITY: 'Безпека',
   TASKS: 'Завдання',
+  CALENDAR: 'Календар',
 }
 function icon(category: string) {
+  if (category === 'DRIVE') return <HardDrive size={19} />
   if (category === 'TASKS') return <ListTodo size={19} />
   if (category === 'CHAT') return <MessageCircle size={19} />
   if (category === 'APPROVALS') return <CheckCircle2 size={19} />
@@ -52,24 +55,26 @@ function route(item: Notification, company: string | null) {
   if (company) params.set('company', company)
   const suffix = params.size ? `?${params}` : ''
   if (!item.entityId) return null
+  if (item.entityType === 'DOCUMENT') return `/drive/${encodeURIComponent(item.entityId)}`
+  if (item.entityType === 'DRIVE_FOLDER') return `/drive?folder=${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'TASK') return `/tasks/${item.entityId}${suffix}`
+  if (item.entityType === 'EVENT') return `/calendar/events/${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'MESSAGE_THREAD') return `/messages/${item.entityId}${suffix}`
-  if (item.entityType === 'FEED_POST') return item.requiresAction ? '/feed?filter=ACK_REQUIRED' : '/feed'
+  if (item.entityType === 'FEED_POST') return `/feed?post=${encodeURIComponent(item.entityId)}`
   return item.entityType === 'USER' ? `/settings/security${suffix}` : null
 }
 
 export function NotificationsPage() {
   const { user } = useAuth()
   const [params, setParams] = useSearchParams()
-  const [sendOpen, setSendOpen] = useState(false)
-  const [sentMessage, setSentMessage] = useState('')
   const tab = params.get('tab') ?? 'action'
   const company = params.get('company')
   const client = useQueryClient()
   const query = useQuery({
-    queryKey: ['notifications', tab],
+    queryKey: ['notifications', user?.id, tab],
     queryFn: () =>
       api<{ items: Notification[]; counts: { action: number; unread: number } }>(`/notifications?tab=${tab}`),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === user?.id ? previous : undefined,
   })
   const read = useMutation({
     mutationFn: ({ id, value }: { id: string; value: boolean }) =>
@@ -86,30 +91,7 @@ export function NotificationsPage() {
       <PageHeader
         title="Сповіщення"
         description="Одна черга важливих дій і робочих оновлень"
-        action={
-          <div className="notification-header-actions">
-            <Button
-              onClick={() => {
-                setSentMessage('')
-                setSendOpen(true)
-              }}
-            >
-              <BellRing size={17} />
-              Надіслати сповіщення
-            </Button>
-            {query.data?.counts.unread ? (
-              <span className="notification-summary" aria-live="polite">
-                <strong>{query.data.counts.unread}</strong> непрочитаних
-              </span>
-            ) : null}
-          </div>
-        }
       />
-      {sentMessage && (
-        <p className="notification-send-status" role="status">
-          {sentMessage}
-        </p>
-      )}
       <Card className="list-card notification-center">
         <div className="list-toolbar">
           <Tabs
@@ -121,25 +103,23 @@ export function NotificationsPage() {
               })
             }
             items={[
-              { value: 'action', label: 'Потребує дії', count: query.data?.counts.action },
-              { value: 'unread', label: 'Непрочитані', count: query.data?.counts.unread },
+              { value: 'action', label: 'Потребує дії', count: query.data?.counts.action ?? 0 },
+              { value: 'unread', label: 'Непрочитані', count: query.data?.counts.unread ?? 0 },
               { value: 'mentions', label: 'Згадки' },
               { value: 'all', label: 'Усі' },
             ]}
           />
-          {unreadVisible && (
-            <Button variant="ghost" disabled={readAll.isPending} onClick={() => readAll.mutate()}>
-              <CheckCircle2 size={16} />
-              Позначити все прочитаним
-            </Button>
-          )}
+          <Button variant="ghost" disabled={!unreadVisible || query.isFetching || readAll.isPending} onClick={() => readAll.mutate()}>
+            <CheckCircle2 size={16} />
+            Позначити все прочитаним
+          </Button>
         </div>
         {query.isLoading ? (
           <Skeleton rows={6} />
         ) : query.isError ? (
           <ErrorState />
         ) : query.data?.items.length ? (
-          <div className="notification-list">
+          <div className="notification-list" aria-busy={query.isFetching}>
             {query.data.items.map((item) => {
               const target = route(item, company)
               return (
@@ -149,7 +129,7 @@ export function NotificationsPage() {
                   </span>
                   <div className="notification-copy">
                     <div>
-                      <strong>{item.safeTitle}</strong>
+                      <strong>{personNamesInLabel(item.safeTitle)}</strong>
                       {item.requiresAction && <em>Потрібна дія</em>}
                     </div>
                     <p>{item.safeSnippet}</p>
@@ -162,9 +142,6 @@ export function NotificationsPage() {
                       <Link
                         className="button button--secondary"
                         to={target}
-                        onClick={() => {
-                          if (!item.readAt) read.mutate({ id: item.id, value: true })
-                        }}
                       >
                         Відкрити
                         <ArrowLeft className="notification-open-arrow" size={15} />
@@ -172,7 +149,7 @@ export function NotificationsPage() {
                     )}
                     <Button
                       variant="ghost"
-                      disabled={read.isPending && read.variables?.id === item.id}
+                      disabled={query.isPlaceholderData || (read.isPending && read.variables?.id === item.id)}
                       onClick={() => read.mutate({ id: item.id, value: !item.readAt })}
                     >
                       {item.readAt ? (
@@ -193,17 +170,6 @@ export function NotificationsPage() {
           <EmptyState title="Черга порожня" description="Тут немає сповіщень для вибраної вкладки." />
         )}
       </Card>
-      {sendOpen && (
-        <SendNotificationDrawer
-          companyId={user?.company?.id ?? 'all'}
-          onClose={() => setSendOpen(false)}
-          onSent={(contact) => {
-            setSendOpen(false)
-            setSentMessage(`Сповіщення для ${contact.displayName} надіслано.`)
-            void client.invalidateQueries({ queryKey: ['notifications'] })
-          }}
-        />
-      )}
     </div>
   )
 }

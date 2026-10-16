@@ -1,7 +1,7 @@
 import { Controller, Get, Query, Req } from '@nestjs/common'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
-import { normalizeUserSearchValue } from '../../common/user-search.js'
+import { searchUsers } from '../../common/search-users.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
@@ -16,7 +16,6 @@ export class SearchController {
     if (!q) return { items: [] }
 
     const companyIds = this.scope.allowedCompanies(principal, company)
-    const normalizedUserQuery = normalizeUserSearchValue(q)
     const [tasks, users] = await Promise.all([
       this.prisma.task.findMany({
         where: {
@@ -42,36 +41,9 @@ export class SearchController {
         orderBy: { updatedAt: 'desc' },
         take: 8,
       }),
-      this.prisma.user.findMany({
-        where: {
-          workspaceId: principal.workspaceId,
-          id: { not: principal.userId },
-          isActive: true,
-          AND: [
-            {
-              OR: [
-                { accountType: 'ADMIN' },
-                { primaryCompanyId: { in: companyIds } },
-              ],
-            },
-            {
-              OR: [
-                { normalizedDisplayName: { contains: normalizedUserQuery } },
-                { normalizedUsername: { contains: normalizedUserQuery } },
-              ],
-            },
-          ],
-        },
-        select: {
-          id: true,
-          displayName: true,
-          username: true,
-          accountType: true,
-          primaryCompanyId: true,
-          jobTitle: true,
-        },
-        orderBy: { displayName: 'asc' },
-        take: 8,
+      searchUsers(this.prisma, principal, q, {
+        excludeIds: [principal.userId],
+        where: { OR: [{ accountType: 'ADMIN' }, { primaryCompanyId: { in: companyIds } }] },
       }),
     ])
 
@@ -89,6 +61,7 @@ export class SearchController {
           type: 'EMPLOYEE',
           id: item.id,
           title: item.displayName,
+          avatarAsset: item.avatarAsset,
           safeSnippet: [
             `@${item.username}`,
             item.accountType === 'ADMIN' ? 'Адміністратор' : item.jobTitle,

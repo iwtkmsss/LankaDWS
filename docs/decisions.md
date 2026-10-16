@@ -2,6 +2,18 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-10-15 — Company membership is the holding area for employees without a department
+
+A company user's department is optional. The selected company remains their primary company when no department is selected, and the company's paginated “Без підрозділу” list lets administrators distribute these employees later. Archiving a department or branch ends its primary employee assignments without moving employees to another company. Restoring structure never recreates employee assignments.
+
+Department archival records the original parent links and sibling order in the existing atomic archive audit event. Restoration returns the saved branch and reattaches children promoted by a single-department archive. A conflicting name or a saved node changed since archival blocks the whole restoration instead of overwriting subsequent administrator changes. Older archives retain any hierarchy still present in `OrgUnit.parentId`; relationships already lost before snapshots existed cannot be inferred safely.
+
+## 2026-10-07 — Mandatory knowledge reading stays actionable until explicit confirmation
+
+Administrators choose optional or mandatory reading when creating or editing a knowledge article. Existing articles default to optional. Active mandatory articles in the caller's existing company/user audience contribute to the knowledge navigation counter until the caller explicitly confirms the current article version. Opening an article does not confirm it. Editing advances the existing article version and requires a new confirmation; disabling mandatory reading or archiving removes the reminder.
+
+The oldest pending mandatory article takes priority over all existing dashboard next-step rules and links directly to its reading page. Once no mandatory articles remain pending, the existing next-step logic resumes. Knowledge cards and reading pages show the original creation date, without update summaries or visible version numbers; mandatory cards carry a warning marker.
+
 ## 2026-09-10 — A calendar event names its own audience; a chat like is a reaction, not a message
 
 A calendar event no longer reaches people through the single company that owns its row. `EventAudience` names every company whose members may see it; its owning `companyId` is a persistence and capability-check key, not an implicit audience member. Existing events were backfilled with exactly the reach they already had. Visibility `PRIVATE` is the new "тільки мені": the row keeps one owner-company audience row for scoping, and only the owner matches the read filter.
@@ -249,3 +261,29 @@ This decision supersedes the multiple-`RESPONSIBLE` rule from 2026-07-29 and the
 Only the current reporter and a global administrator may change task content, status, checklist, relations, recurrence or participant composition. Only a global administrator may transfer `reporterId` or edit/delete discussion messages; every authorized reader may still view and comment. Comment edits preserve optimistic version checks, structured mentions and an `editedAt` marker, while deletion is soft and removes comment-scoped links and mentions.
 
 Task approval routes, public contracts, response payloads and active service dependencies are removed. `IN_REVIEW` remains readable only as a legacy persisted status and cannot be selected or entered through the current task API. Historical approval tables and implementation code remain inert for migration/audit compatibility and are not registered in the application module.
+
+## 2026-10-08 — Remove legacy work groups; preserve independent group chats
+
+The work-group aggregate (`Group`, membership and join requests), its capability, UI, routes and API are removed. Tasks have no group context, participant eligibility is based on active workspace users, and task reads still require creator/reporter/active participant/admin access. Feed audiences are company or explicit users; Drive grants are user-only.
+
+The forward migration deletes work groups, their memberships/requests and group-addressed Feed posts, file shares and derived content. It removes group grants without broadening the audience. Files and tasks themselves are retained. Existing contextual group threads are detached and become independent `GROUP` chats, preserving their messages and thread participants. New group chats continue to use the canonical thread-create command and have no work-group dependency. Earlier work-group invariants in this chronological record are superseded by this decision.
+
+## 2026-10-12 — Remove Drive document file versions
+
+Drive documents hold one file directly through `Document.fileId`. File version history, version creation, version counts, `DocumentVersion`, and its unused import-transfer reference are removed. The forward migration retains the latest file that Drive previously displayed and turns its document file link into `CONTENT`; historical document links are removed without deleting files or their independent chat/task/knowledge links. Documents without a file remain valid.
+
+The document's technical `version` counter remains for optimistic concurrency during rename, move, publish, archive and restore. It is not file history and is not displayed to users. Knowledge article versions and acknowledgements remain independent. Drive's preview shows file metadata and provides an authenticated file-only link in a new tab; access can be granted, changed or revoked by the owner or global administrator under the existing server checks.
+
+## 2026-10-16 — Shared file preview follows the file format
+
+All file surfaces reuse the shared file preview: supported images retain zoom and gallery controls; PDFs use the browser reader with a separate-tab link; UTF-8 TXT, CSV, JSON and XML are selectable plain text with copying, limited to 1 MiB. Larger text files, Office/ODF/RTF documents, archives and unknown formats use a compact file card with metadata and download. No external viewer receives file contents. Preview reads use the existing authenticated, scan-gated download endpoint; PDF blob URLs allow local viewing without weakening the API's frame restrictions and are revoked on close or file change. File access, Drive actions and persistence are unchanged.
+
+## 2026-10-16 — Personal Drive contains owned and explicitly shared items
+
+Personal Drive listings, search, recent/shared views, counts and file pickers include owned items and current user-addressed Drive shares, including descendants of shared folders. GENERAL/INTERNAL confidentiality and administrator status alone do not add unrelated documents to personal lists. Accessible items whose parent is not accessible appear at the root without revealing that parent's name. Administrators retain the separate “Файли користувачів” view. This changes Drive discovery; existing authorization for documents linked from other product contexts remains unchanged.
+
+## 2026-10-16 — Unassigned employees remain within their company
+
+«Підрозділ не обраний» is a company-specific category for users without an active primary department assignment. It is not a persisted OrgUnit, a separate company, or a node counted in the department hierarchy. Creating or editing a company user without a department places them in this category within their selected company.
+
+Archiving a department or branch ends assignments only to the archived departments, including secondary assignments so they cannot reappear after restoration. Users retain their company, job title, active status and other stored user fields. Restoring the department hierarchy does not reopen assignments: affected users remain in «Підрозділ не обраний» until explicitly assigned again. Company archival and authorization remain unchanged.

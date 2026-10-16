@@ -1,5 +1,9 @@
 :root {
   color-scheme: light;
+  --text-caption: 12px;
+  --text-small: 14px;
+  --text-body: 16px;
+  --text-heading: 20px;
   --font: 'Roboto Variable', 'Roboto', system-ui, sans-serif;
   --cobalt-700: #1746c9;
   --cobalt-600: #1f5eff;

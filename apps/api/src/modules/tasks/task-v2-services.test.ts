@@ -26,7 +26,6 @@ function createInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput 
   return {
     title: 'Prepare launch',
     description: 'Coordinate the release',
-    groupId: null,
     projectId: 'prj_1',
     parentTaskId: null,
     reporterId: 'usr_actor',
@@ -55,6 +54,7 @@ describe('TaskCommandService', () => {
     const tx = {
       task: {
         create: vi.fn().mockResolvedValue({ version: 1 }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'tsk_1', number: '1', title: 'Prepare launch', workspaceId: 'wrk_1', createdById: 'usr_actor', reporterId: 'usr_reporter', participants: [{ userId: 'usr_owner', role: 'RESPONSIBLE' }, { userId: 'usr_actor', role: 'COLLABORATOR' }, { userId: 'usr_watcher', role: 'WATCHER' }] }),
       },
       taskTag: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -69,6 +69,7 @@ describe('TaskCommandService', () => {
         create: vi.fn().mockResolvedValue({}),
       },
     }
+    Object.assign(tx, { user: { findMany: vi.fn().mockResolvedValue([{ id: 'usr_owner' }, { id: 'usr_reporter' }, { id: 'usr_watcher' }]) }, notification: { upsert: vi.fn().mockResolvedValue({}) } })
     const prisma = {
       idempotencyRecord: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -78,7 +79,6 @@ describe('TaskCommandService', () => {
     const validation = {
       validateCreate: vi.fn().mockResolvedValue({
         companyId: 'cmp_1',
-        groupId: null,
         projectId: 'prj_1',
         parentTaskId: null,
         reporterId: 'usr_actor',
@@ -177,7 +177,6 @@ describe('TaskAccessService', () => {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
-      groupId: null,
       createdById: 'usr_creator',
       reporterId: 'usr_actor',
     }
@@ -204,7 +203,6 @@ describe('TaskAccessService', () => {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
-      groupId: null,
       createdById: 'usr_creator',
       reporterId: 'usr_reporter',
     }
@@ -232,7 +230,6 @@ describe('TaskResponseMapper', () => {
       status: 'IN_PROGRESS',
       priority: 'HIGH',
       version: 3,
-      groupId: null,
       projectId: null,
       parentTaskId: null,
       startsAt: date,
@@ -246,7 +243,6 @@ describe('TaskResponseMapper', () => {
       reporterId: 'usr_actor',
       createdBy: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
       reporter: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
-      group: null,
       project: null,
       parent: null,
       subtasks: [],

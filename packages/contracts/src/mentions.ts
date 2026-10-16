@@ -1,3 +1,4 @@
+import { USER_SEARCH_MAX_QUERY_LENGTH, userSearchLimitSchema } from './user-search.js'
 import { z } from 'zod'
 
 export const structuredMentionInputSchema = z.object({
@@ -27,7 +28,7 @@ export interface MentionCandidateView {
 }
 
 export const mentionSearchQuerySchema = z.object({
-  q: z.string().trim().max(80).default(''),
-  limit: z.coerce.number().int().min(1).max(20).default(8),
+  q: z.string().trim().max(USER_SEARCH_MAX_QUERY_LENGTH).default(''),
+  limit: userSearchLimitSchema,
 })
 export type MentionSearchQuery = z.infer<typeof mentionSearchQuerySchema>

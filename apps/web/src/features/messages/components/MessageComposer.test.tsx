@@ -13,16 +13,18 @@ function renderComposer(
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onFiles = vi.fn()
+  const onRemoveAttachment = vi.fn()
   const rendered = render(
     <QueryClientProvider client={client}>
       <MessageComposer
+        currentUserId="me"
         threadId="thread-1"
         replyTo={null}
         attachments={attachments}
         sending={false}
         uploading={false}
         onReplyCancel={vi.fn()}
-        onRemoveAttachment={vi.fn()}
+        onRemoveAttachment={onRemoveAttachment}
         onFiles={onFiles}
         onSend={onSend}
       />
@@ -32,12 +34,39 @@ function renderComposer(
     input: screen.getByRole('textbox', { name: 'Повідомлення' }),
     onSend,
     onFiles,
+    onRemoveAttachment,
     unmount: rendered.unmount,
   }
 }
 
 describe('MessageComposer', () => {
   beforeEach(() => window.sessionStorage.clear())
+
+  it('deletes a draft attachment on the server and blocks sending until deletion finishes', async () => {
+    let finish: (() => void) | undefined
+    vi.mocked(api).mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve({ discarded: true }) }))
+    const { onSend, onRemoveAttachment, input } = renderComposer(vi.fn(async () => true), [{
+      id: 'draft-file', fileName: 'report.txt', bytes: 8, mimeType: 'text/plain', scanStatus: 'CLEAN',
+    }])
+    fireEvent.click(screen.getByRole('button', { name: 'Прибрати report.txt' }))
+    expect(api).toHaveBeenCalledWith('/files/draft-file/draft', { method: 'DELETE' })
+    expect(onRemoveAttachment).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Надіслати' })).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSend).not.toHaveBeenCalled()
+    finish?.()
+    await waitFor(() => expect(onRemoveAttachment).toHaveBeenCalledWith('draft-file'))
+  })
+
+  it('keeps an attachment selected when server deletion fails', async () => {
+    vi.mocked(api).mockRejectedValueOnce(new Error('offline'))
+    const { onRemoveAttachment } = renderComposer(undefined, [{
+      id: 'draft-file', fileName: 'report.txt', bytes: 8, mimeType: 'text/plain', scanStatus: 'CLEAN',
+    }])
+    fireEvent.click(screen.getByRole('button', { name: 'Прибрати report.txt' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не вдалося прибрати файл')
+    expect(onRemoveAttachment).not.toHaveBeenCalled()
+  })
 
   it('focuses the message field when the conversation opens', async () => {
     const { input } = renderComposer()
@@ -131,6 +160,13 @@ describe('MessageComposer', () => {
 
     const second = renderComposer()
     expect(second.input).toHaveValue('Не втрачати цей текст')
+  })
+
+  it('preserves a draft written before the shared draft store was introduced', () => {
+    window.sessionStorage.setItem('lankadws:message-draft:thread-1', 'Попередня чернетка')
+    const { input } = renderComposer()
+    expect(input).toHaveValue('Попередня чернетка')
+    expect(window.sessionStorage.getItem('lankadws:message-draft:thread-1')).toBeNull()
   })
 
   it('sends raw @text without a mention and stores a mention only after candidate selection', async () => {

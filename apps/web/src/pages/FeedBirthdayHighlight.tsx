@@ -1,3 +1,4 @@
+import { personName } from '../shared/lib/personName'
 import type { FeedBirthdayView } from '@lankadws/contracts'
 import { CakeSlice, ChevronRight } from 'lucide-react'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
@@ -20,9 +21,9 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
             className={birthday.isToday ? 'is-today' : undefined}
             userId={birthday.id}
           >
-            <Avatar name={birthday.displayName} src={birthday.avatarAsset} />
+            <Avatar name={personName(birthday.displayName)} src={birthday.avatarAsset} />
             <span>
-              <strong>{birthday.displayName}</strong>
+              <strong>{personName(birthday.displayName)}</strong>
               <small>День народження · {formatBirthdayDate(birthday.birthdayDate)}</small>
             </span>
             <ChevronRight size={17} aria-hidden />

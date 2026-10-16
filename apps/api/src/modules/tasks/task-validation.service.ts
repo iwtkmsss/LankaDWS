@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, forbidden } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -18,7 +18,6 @@ export class TaskValidationService {
     input: CreateTaskInput,
   ): Promise<ValidatedTaskContext> {
     const companyId = this.scope.assertCompany(principal, undefined)
-    const groupId = input.groupId ?? null
     const projectId = input.projectId ?? null
     const parentTaskId = input.parentTaskId ?? null
     const reporterId = input.reporterId ?? principal.userId
@@ -45,19 +44,7 @@ export class TaskValidationService {
     ))) {
       throw badRequest('task_reminder_target')
     }
-    const [group, project, parent, users, tags, relatedTasks] = await Promise.all([
-      groupId
-        ? this.prisma.group.findFirst({
-            where: {
-              id: groupId,
-              workspaceId: principal.workspaceId,
-              companyId,
-              status: 'ACTIVE',
-              members: { some: { userId: principal.userId, leftAt: null } },
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
+    const [project, parent, users, tags, relatedTasks] = await Promise.all([
       projectId
         ? this.prisma.project.findFirst({
             where: {
@@ -79,7 +66,6 @@ export class TaskValidationService {
             },
             select: {
               id: true,
-              groupId: true,
               projectId: true,
             },
           })
@@ -108,7 +94,6 @@ export class TaskValidationService {
               id: { in: [...new Set(input.relations.map((relation) => relation.targetTaskId))] },
               workspaceId: principal.workspaceId,
               companyId,
-              groupId,
               projectId,
               archivedAt: null,
             },
@@ -117,10 +102,9 @@ export class TaskValidationService {
         : Promise.resolve([]),
     ])
 
-    if (groupId && !group) throw notFound()
     if (projectId && !project) throw badRequest('task_project')
     if (parentTaskId && !parent) throw badRequest('task_parent')
-    if (parent && (parent.groupId !== groupId || parent.projectId !== projectId)) {
+    if (parent && (parent.projectId !== projectId)) {
       throw badRequest('task_parent_scope')
     }
     if (users.length !== userIds.length) throw badRequest('task_participant')
@@ -131,7 +115,6 @@ export class TaskValidationService {
 
     return {
       companyId,
-      groupId,
       projectId,
       parentTaskId,
       reporterId,
@@ -162,13 +145,11 @@ export class TaskValidationService {
     task: {
       id: string
       companyId: string
-      groupId: string | null
       projectId: string | null
       reporterId: string
     },
     input: UpdateTaskInput,
-  ): Promise<{ groupId: string | null; projectId: string | null; reporterId: string }> {
-    const groupId = input.groupId === undefined ? task.groupId : input.groupId
+  ): Promise<{ projectId: string | null; reporterId: string }> {
     const projectId = input.projectId === undefined ? task.projectId : input.projectId
     const reporterId = input.reporterId ?? task.reporterId
     if (reporterId !== task.reporterId && !isGlobalAdmin(principal)) throw forbidden()
@@ -180,19 +161,7 @@ export class TaskValidationService {
       select: { userId: true },
     })
     const userIds = [...new Set([reporterId, ...participants.map((participant) => participant.userId)])]
-    const [group, project, users] = await Promise.all([
-      groupId
-        ? this.prisma.group.findFirst({
-            where: {
-              id: groupId,
-              workspaceId: principal.workspaceId,
-              companyId: task.companyId,
-              status: 'ACTIVE',
-              members: { some: { userId: principal.userId, leftAt: null } },
-            },
-            select: { id: true },
-          })
-        : Promise.resolve(null),
+    const [project, users] = await Promise.all([
       projectId
         ? this.prisma.project.findFirst({
             where: {
@@ -213,10 +182,9 @@ export class TaskValidationService {
         select: { id: true },
       }),
     ])
-    if (groupId && !group) throw notFound()
     if (projectId && !project) throw badRequest('task_project')
     if (users.length !== userIds.length) throw badRequest('task_participant_scope')
-    return { groupId, projectId, reporterId }
+    return { projectId, reporterId }
   }
 
   private assertDates(startsAt: Date | null, dueAt: Date | null): void {

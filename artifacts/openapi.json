@@ -1401,20 +1401,6 @@
         ]
       }
     },
-    "/api/v1/documents/{id}/versions": {
-      "post": {
-        "operationId": "DocumentsController_addVersion",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Documents"
-        ]
-      }
-    },
     "/api/v1/documents/{id}/archive": {
       "post": {
         "operationId": "DocumentsController_archive",
@@ -1661,6 +1647,20 @@
         ]
       }
     },
+    "/api/v1/knowledge/articles/summary": {
+      "get": {
+        "operationId": "KnowledgeController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Knowledge"
+        ]
+      }
+    },
     "/api/v1/knowledge/articles/{slug}": {
       "get": {
         "operationId": "KnowledgeController_detail",
@@ -1724,6 +1724,20 @@
         },
         "tags": [
           "ImportControl"
+        ]
+      }
+    },
+    "/api/v1/employees/search": {
+      "post": {
+        "operationId": "EmployeesController_search",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Employees"
         ]
       }
     },
@@ -1865,114 +1879,6 @@
         ]
       }
     },
-    "/api/v1/groups": {
-      "get": {
-        "operationId": "GroupsController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      },
-      "post": {
-        "operationId": "GroupsController_create",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
-    "/api/v1/groups/{id}": {
-      "get": {
-        "operationId": "GroupsController_detail",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      },
-      "patch": {
-        "operationId": "GroupsController_update",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
-    "/api/v1/groups/{id}/archive": {
-      "post": {
-        "operationId": "GroupsController_archive",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
-    "/api/v1/groups/{id}/join": {
-      "post": {
-        "operationId": "GroupsController_join",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
-    "/api/v1/groups/{id}/leave": {
-      "post": {
-        "operationId": "GroupsController_leave",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
-    "/api/v1/groups/{id}/requests/{requestId}": {
-      "post": {
-        "operationId": "GroupsController_decideRequest",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Groups"
-        ]
-      }
-    },
     "/api/v1/lifecycle/processes": {
       "get": {
         "operationId": "LifecycleController_list",
@@ -2059,20 +1965,6 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
-    "/api/v1/messages/groups/{groupId}/thread": {
-      "post": {
-        "operationId": "MessagesController_groupThread",
-        "parameters": [],
-        "responses": {
-          "201": {
             "description": ""
           }
         },
@@ -2452,9 +2344,37 @@
         ]
       }
     },
+    "/api/v1/notifications/tasks-summary": {
+      "get": {
+        "operationId": "NotificationsController_taskSummary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/api/v1/notifications/read-all": {
       "patch": {
         "operationId": "NotificationsController_readAll",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read-entity": {
+      "patch": {
+        "operationId": "NotificationsController_readEntity",
         "parameters": [],
         "responses": {
           "200": {

@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { LoaderCircle, Search } from 'lucide-react'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
+import { Avatar } from '../../shared/ui'
 
-export interface AsyncTaskOption { id: string; label: string; detail?: string }
+export interface AsyncTaskOption { id: string; label: string; detail?: string; avatar?: { name: string; src?: string | null } }
 
 export function AsyncTaskCombobox({
   label, value, selectedOption, onChange, loadOptions, placeholder, disabled = false, clearOnSelect = false, emptyLabel = 'Нічого не знайдено', loadOnOpen = false, initialEmptyLabel = 'Немає нещодавніх варіантів.',
@@ -29,16 +30,25 @@ export function AsyncTaskCombobox({
   const root = useRef<HTMLDivElement>(null)
   const { debouncedValue, isComposing, onCompositionStart, onCompositionEnd } = useDebouncedSearchValue(text)
 
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: PointerEvent) => {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOutside, true)
+    return () => document.removeEventListener('pointerdown', closeOutside, true)
+  }, [open])
+
   useEffect(() => { if (!open) setText(selectedOption?.label ?? '') }, [open, selectedOption?.label, value])
   useEffect(() => {
-    if (!open || isComposing || (!loadOnOpen && Array.from(debouncedValue).length < 1)) { setItems([]); setState('idle'); return }
+    if (!open || isComposing || text.trim() !== debouncedValue || (!loadOnOpen && Array.from(debouncedValue.trim()).length < 1)) { setItems([]); setActive(-1); setState('idle'); return }
     const controller = new AbortController()
     setState('loading')
     void loadOptions(debouncedValue, controller.signal).then((next) => {
       if (!controller.signal.aborted) { setItems(next); setActive(next.length ? 0 : -1); setState('idle') }
     }).catch(() => { if (!controller.signal.aborted) setState('error') })
     return () => controller.abort()
-  }, [debouncedValue, isComposing, loadOnOpen, loadOptions, open])
+  }, [debouncedValue, isComposing, loadOnOpen, loadOptions, open, text])
 
   const choose = (option: AsyncTaskOption) => { onChange(option.id); setText(clearOnSelect ? '' : option.label); setOpen(false); setActive(-1) }
   return <div className="async-task-combobox" ref={root} onBlur={(event) => {
@@ -51,8 +61,8 @@ export function AsyncTaskCombobox({
     <div className="search-field async-task-combobox__control">
       <Search size={16} aria-hidden />
       <input id={inputId} role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list" value={text} disabled={disabled}
-        placeholder={placeholder} onFocus={() => setOpen(true)} onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}
-        onChange={(event) => { setText(event.target.value); setOpen(true); if (!event.target.value) onChange('') }}
+        placeholder={placeholder} onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}
+        onChange={(event) => { setText(event.target.value); setItems([]); setActive(-1); setOpen(true); if (!event.target.value.trim()) onChange('') }}
         onKeyDown={(event) => {
           const activeOption = items[active]
           if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true); setActive((i) => Math.min(i + 1, items.length - 1)) }
@@ -63,9 +73,13 @@ export function AsyncTaskCombobox({
       {state === 'loading' && <LoaderCircle className="is-spinning" size={16} aria-label="Завантаження" />}
       {open && <ul id={listId} role="listbox" aria-label={label}>
         {state === 'error' ? <li role="status">Не вдалося завантажити варіанти.</li>
-          : items.length ? items.map((item, index) => <li key={item.id} role="option" aria-selected={index === active} className={index === active ? 'is-active' : ''} onMouseDown={(event) => { event.preventDefault(); choose(item) }}><strong>{item.label}</strong>{item.detail && <small>{item.detail}</small>}</li>)
+          : items.length ? items.map((item, index) => <li key={item.id} role="option" aria-selected={index === active} className={`${index === active ? 'is-active' : ''}${item.avatar ? ' has-avatar' : ''}`} onMouseDown={(event) => { event.preventDefault(); choose(item) }}>
+            {item.avatar && <Avatar size="sm" name={item.avatar.name} src={item.avatar.src} />}
+            <span className="async-task-combobox__option-label"><strong>{item.label}</strong>{item.detail && <small>{item.detail}</small>}</span>
+          </li>)
           : state === 'loading' ? <li role="status">Завантажуємо…</li>
-          : debouncedValue && !isComposing ? <li role="status">{emptyLabel}</li>
+          : text.trim() !== debouncedValue && text.trim() ? <li role="status">Пошук…</li>
+          : debouncedValue.trim() && !isComposing ? <li role="status">{emptyLabel}</li>
           : loadOnOpen ? <li role="status">{initialEmptyLabel}</li> : <li role="status">Введіть щонайменше 1 символ.</li>}
       </ul>}
     </div>

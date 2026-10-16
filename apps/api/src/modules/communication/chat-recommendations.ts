@@ -4,7 +4,6 @@ export interface ChatRecommendationSignals {
   lastInteractionAt: Date | null
   sentCount: number
   receivedCount: number
-  sharedGroup: boolean
   activeTaskRelationship: boolean
   sharedOrgUnit: boolean
   fallbackTeam?: boolean
@@ -37,8 +36,7 @@ export function scoreChatRecommendation(
     ? Math.log1p(total) / Math.log1p(frequencyCap) * (0.5 + 0.5 * reciprocity)
     : 0
   const context = (
-    (signals.sharedGroup ? 0.45 : 0)
-    + (signals.activeTaskRelationship ? 0.35 : 0)
+    (signals.activeTaskRelationship ? 0.35 : 0)
     + (signals.sharedOrgUnit ? 0.2 : 0)
   )
   const contributions = {

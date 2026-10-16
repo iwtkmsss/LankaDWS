@@ -1,3 +1,5 @@
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
+import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { SessionView } from '@lankadws/contracts'
 import { AtSign, BadgeCheck, BellRing, BriefcaseBusiness, Building2, CalendarDays, Check, Clock3, KeyRound, Laptop, Languages, LogOut, Mail, Network, PersonStanding, Phone, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
@@ -8,11 +10,13 @@ import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { previewMessageSound, useMessageSoundPreference } from '../features/messages/lib/messageSound'
 
 export default function SettingsPages() {
   const path = useLocation().pathname
   return (
-    <div>
+    <div className={path.endsWith('/profile') ? 'settings-page--profile' : undefined}>
       <PageHeader title="Особисті налаштування" description="Профіль, сповіщення та захист вашого облікового запису" />
       <div className="settings-layout">
         <nav aria-label="Налаштування">
@@ -129,13 +133,12 @@ function ProfileSettings() {
   })
 
   return (
-    <Card className="settings-card">
+    <Card className="settings-card settings-card--profile">
       <header className="is-file-drop-target" {...avatarDrop.dropTargetProps}>
         <FileDropOverlay active={avatarDrop.isDragging} label="Відпустіть зображення, щоб змінити фото" />
         <Avatar size="lg" name={user.displayName} src={user.avatarAsset} />
         <div>
           <h2>Профіль</h2>
-          <p>Дані, які колеги бачать у робочих процесах.</p>
           <span className="avatar-actions">
             {avatarBusy && <span className="avatar-progress" role="status">Обробляємо фото…</span>}
             <label
@@ -183,7 +186,7 @@ function ProfileSettings() {
           <div className="profile-org-branch">
             <span><Network size={15} aria-hidden="true" />Підрозділ</span>
             <p className={user.orgUnitPath.length ? 'profile-org-branch__value' : undefined}>
-              {user.orgUnitPath[user.orgUnitPath.length - 1]?.name ?? 'Не призначено'}
+              {user.orgUnitPath[user.orgUnitPath.length - 1]?.name ?? (user.company ? UNASSIGNED_DEPARTMENT_LABEL : 'Не призначено')}
             </p>
           </div>
         </div>
@@ -199,7 +202,7 @@ function ProfileSettings() {
           </label>
           <label>
             <span className="profile-field-label"><CalendarDays size={15} aria-hidden="true" />День народження</span>
-            <input name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
+            <DateTimePicker name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
           </label>
           <label>
             <span className="profile-field-label"><Phone size={15} aria-hidden="true" />Телефон</span>
@@ -251,6 +254,9 @@ interface Preference {
   quietEnd: string
 }
 function NotificationSettings() {
+  const { user } = useAuth()
+  const [soundEnabled, setSoundEnabled] = useMessageSoundPreference(user?.id ?? '')
+  const [soundError, setSoundError] = useState(false)
   const query = useQuery({
     queryKey: ['notification-preferences'],
     queryFn: () => api<Preference>('/me/notification-preferences'),
@@ -294,6 +300,17 @@ function NotificationSettings() {
       >
         <label>
           <span>
+            <strong>Звук повідомлень</strong>
+            <small>Нові вхідні повідомлення. Налаштування зберігається в цьому браузері одразу.</small>
+          </span>
+          <input type="checkbox" checked={soundEnabled} onChange={(event) => setSoundEnabled(event.target.checked)} />
+        </label>
+        <Button type="button" variant="secondary" onClick={() => {
+          void previewMessageSound().then((played) => setSoundError(!played))
+        }}>Прослухати звук</Button>
+        {soundError && <p role="status">Не вдалося відтворити звук. Перевірте дозвіл на звук для цього сайту.</p>}
+        <label>
+          <span>
             <strong>У застосунку</strong>
             <small>Задачі, погодження, згадки й безпека</small>
           </span>
@@ -319,11 +336,11 @@ function NotificationSettings() {
         <div className="quiet-hours">
           <label>
             Тихий режим від
-            <input type="time" name="quietStart" defaultValue={query.data.quietStart} />
+            <DateTimePicker type="time" name="quietStart" defaultValue={query.data.quietStart} />
           </label>
           <label>
             до
-            <input type="time" name="quietEnd" defaultValue={query.data.quietEnd} />
+            <DateTimePicker type="time" name="quietEnd" defaultValue={query.data.quietEnd} />
           </label>
         </div>
         <Button disabled={save.isPending}>
@@ -342,6 +359,9 @@ function NotificationSettings() {
 }
 
 function SecuritySettings() {
+  const { user } = useAuth()
+  const [openedAt] = useState(Date.now)
+  useEntityNotificationRead('USER', user?.id, openedAt)
   return (
     <div className="settings-stack">
       <Card className="settings-card">

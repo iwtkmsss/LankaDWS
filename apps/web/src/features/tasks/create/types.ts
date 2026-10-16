@@ -78,7 +78,6 @@ export interface TaskRecurrenceDraft {
 export interface TaskCreateDraft {
   title: string
   description: string
-  groupId: string
   projectId: string
   parentTaskId: string
   reporterId: string
@@ -117,7 +116,6 @@ export function mapTaskCreatePayload(draft: TaskCreateDraft): CreateTaskInput {
   return {
     title: draft.title.trim(),
     description: draft.description.trim(),
-    groupId: draft.groupId || null,
     projectId: draft.projectId || null,
     parentTaskId: draft.parentTaskId || null,
     reporterId: draft.reporterId,

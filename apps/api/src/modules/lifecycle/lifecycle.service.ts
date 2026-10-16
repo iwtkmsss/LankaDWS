@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from '../tasks/task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
@@ -69,6 +70,7 @@ export class LifecycleService {
           },
         })
         await tx.lifecycleStep.create({ data: { id: id('step'), processId, sourceKey: key, linkedTaskId: taskId, ownerId, status: 'PLANNED', dueAt: new Date(startAt.getTime() + offset * 86_400_000) } })
+        await notifyTaskParticipants(tx, taskId, principal.userId, 1, 'task.created')
         await tx.entityLink.create({ data: { id: id('lnk'), sourceType: 'LIFECYCLE', sourceId: processId, targetType: 'TASK', targetId: taskId, relation: 'STEP', createdBy: principal.userId } })
       }
       await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId, action: 'lifecycle.offboarding.started', entityType: 'LIFECYCLE', entityId: processId, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
