@@ -33,17 +33,17 @@
   min-height: 24px;
   align-items: center;
   gap: var(--space-2);
-  color: var(--ink-400);
-  font-size: 11px;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .task-create-save-status--saving {
-  color: var(--ink-500);
+  color: var(--fg-muted);
 }
 
 .task-create-save-status--error {
   color: var(--danger);
-  font-weight: 650;
+  font-weight: var(--weight-medium);
 }
 
 .task-create-save-status button,
@@ -51,9 +51,9 @@
 .task-create-local-error button {
   border: 0;
   background: transparent;
-  color: var(--cobalt-700);
+  color: var(--fg-link);
   padding: var(--space-0_5) var(--space-1);
-  font-weight: 750;
+  font-weight: var(--weight-medium);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -66,9 +66,9 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
-  color: var(--ink-600);
+  color: var(--fg-muted);
   padding: var(--space-2) var(--space-2) var(--space-1);
-  font-size: var(--text-min);
+  font-size: var(--text-meta);
   margin-top: var(--space-6);
 }
 
@@ -106,15 +106,16 @@
 .task-create-core__header h3,
 .task-create-details__intro h3 {
   margin: var(--space-0_5) 0 0;
-  color: var(--ink-900);
-  font-size: 20px;
+  color: var(--fg-strong);
+  font-size: var(--text-title);
   letter-spacing: -.018em;
+  font-weight: var(--weight-bold);
 }
 
 .task-create-core__header p {
   max-width: 350px;
   margin: var(--space-1) 0 0;
-  font-size: 12px;
+  font-size: var(--text-meta);
   text-align: right;
 }
 
@@ -127,9 +128,9 @@
 }
 
 .task-create-kicker {
-  color: var(--cobalt-600);
-  font-size: var(--text-min);
-  font-weight: 800;
+  color: var(--fg-link);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -159,7 +160,7 @@
   gap: var(--space-4);
 }
 .task-create-meta-label { display: inline-flex; align-items: center; gap: var(--space-2); }
-.task-create-meta-label > svg { flex-shrink: 0; color: var(--ink-500); }
+.task-create-meta-label > svg { flex-shrink: 0; color: var(--fg-muted); }
 
 .task-create-attachments-layout {
   display: grid;
@@ -205,7 +206,6 @@
 }
 
 .task-create-core__meta .task-create-acceptance small {
-  font-weight: 400;
   line-height: 1.25;
 }
 
@@ -223,7 +223,7 @@
   justify-self: start;
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid var(--cobalt-200);
+  border: 1px solid var(--cobalt-300);
   border-radius: 9px;
   background: var(--cobalt-50);
   padding: var(--space-2);
@@ -241,8 +241,8 @@
   cursor: pointer;
 }
 .task-create-acceptance span { display: grid; min-width: 0; gap: 1px; }
-.task-create-acceptance strong { color: var(--ink-900); font-size: 12px; font-weight: 400; }
-.task-create-acceptance small { color: var(--ink-600); font-size: 11px; line-height: 1.35; }
+.task-create-acceptance strong { color: var(--fg-strong); font-size: var(--text-ui); font-weight: var(--weight-regular); }
+.task-create-acceptance small { color: var(--fg-muted); font-size: var(--text-meta); line-height: 1.35; }
 
 .task-create-details {
   display: grid;
@@ -262,7 +262,7 @@
 .task-create-details__intro p {
   max-width: 330px;
   margin: var(--space-1) 0 0;
-  font-size: 12px;
+  font-size: var(--text-meta);
   text-align: right;
 }
 
@@ -287,7 +287,7 @@
   gap: var(--space-3);
   border: 0;
   background: var(--surface);
-  color: var(--ink-700);
+  color: var(--fg-body);
   padding: var(--space-3) var(--space-4);
   text-align: left;
 }
@@ -303,7 +303,7 @@
   place-items: center;
   border-radius: 10px;
   background: var(--cobalt-50);
-  color: var(--cobalt-700);
+  color: var(--fg-link);
 }
 
 .task-create-disclosure__copy {
@@ -312,14 +312,15 @@
 }
 
 .task-create-disclosure__copy strong {
-  color: var(--ink-800);
-  font-size: 13px;
+  color: var(--fg-strong);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-bold);
 }
 
 .task-create-disclosure__copy small,
 .task-create-disclosure__summary {
-  color: var(--ink-400);
-  font-size: var(--text-min);
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .task-create-disclosure__summary {
@@ -330,7 +331,7 @@
 }
 
 .task-create-disclosure__chevron {
-  color: var(--ink-400);
+  color: var(--fg-muted);
   transition: transform .16s ease;
 }
 
@@ -384,23 +385,22 @@
 
 .task-create-subgroup__heading h4 {
   margin: 0;
-  color: var(--ink-800);
-  font-size: 14px;
+  color: var(--fg-strong);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-bold);
 }
 
 .task-create-subgroup__heading p {
   margin: var(--space-0_5) 0 0;
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .task-create-subgroup__heading .button {
   min-height: 34px;
   padding: var(--space-2);
-  font-size: 12px;
 }
 
 .task-create-attachments-section .task-create-subgroup__heading p {
-  font-size: var(--text-min);
 }
 
 .task-create-attachments-section .task-create-subgroup__heading .button {
@@ -452,9 +452,10 @@
   border: 1px solid color-mix(in srgb, var(--tag-color, var(--cobalt-500)) 35%, var(--line));
   border-radius: 999px;
   background: color-mix(in srgb, var(--tag-color, var(--cobalt-500)) 10%, var(--surface));
-  color: var(--ink-700);
+  color: var(--fg-body);
   padding: var(--space-1) var(--space-2);
-  font-size: 11px;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
 }
 
 .task-create-chips input:checked + span,
@@ -521,8 +522,8 @@
 .task-create-attachments small,
 .task-create-help,
 .task-create-hierarchy-note small {
-  color: var(--ink-500);
-  font-size: 11px;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .task-create-local-state,
@@ -533,9 +534,9 @@
 .task-create-local-state {
   border-radius: 9px;
   background: var(--surface-soft);
-  color: var(--ink-500);
+  color: var(--fg-muted);
   padding: var(--space-2) var(--space-3);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .task-create-local-error {
@@ -547,7 +548,7 @@
   background: var(--danger-bg);
   color: var(--danger);
   padding: var(--space-2) var(--space-3);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .task-create-local-error button {
@@ -573,7 +574,7 @@
   border: 1px dashed var(--line-strong);
   border-radius: 11px;
   background: var(--surface-soft);
-  color: var(--ink-400);
+  color: var(--fg-muted);
   padding: var(--space-4);
   text-align: center;
 }
@@ -581,7 +582,7 @@
 .task-parent-tree-empty p,
 .task-parent-tree-state span {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .task-parent-tree-shell {
@@ -642,7 +643,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
-  color: var(--ink-700);
+  color: var(--fg-body);
   padding: var(--space-2) var(--space-3);
   box-shadow: 0 3px 12px rgba(18, 35, 70, .04);
 }
@@ -661,12 +662,14 @@
 }
 
 .task-parent-tree__task strong {
-  font-size: 12px;
+  font-size: var(--text-ui);
+  color: var(--fg-strong);
+  font-weight: var(--weight-medium);
 }
 
 .task-parent-tree__task small {
-  color: var(--ink-400);
-  font-size: var(--text-min);
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .task-parent-tree__icon {
@@ -676,7 +679,7 @@
   place-items: center;
   border-radius: 9px;
   background: var(--surface-soft);
-  color: var(--ink-500);
+  color: var(--fg-muted);
 }
 
 .task-parent-tree__connector {
@@ -693,23 +696,23 @@
   border: 1px dashed var(--line-strong);
   border-radius: 9px;
   background: var(--surface);
-  color: var(--ink-500);
+  color: var(--fg-muted);
   padding: var(--space-2);
-  font-size: var(--text-min);
-  font-weight: 750;
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
   transition: border-color .16s ease, background .16s ease, color .16s ease, box-shadow .16s ease;
 }
 
 .task-parent-tree__attach:hover {
   border-color: var(--cobalt-300);
   background: var(--cobalt-50);
-  color: var(--cobalt-700);
+  color: var(--fg-link);
 }
 
 .task-parent-tree__attach.is-selected {
   border-color: var(--cobalt-500);
   background: color-mix(in srgb, var(--cobalt-50) 76%, var(--surface));
-  color: var(--cobalt-700);
+  color: var(--fg-link);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--cobalt-500) 22%, transparent), 0 0 14px rgba(59, 114, 255, .16);
 }
 
@@ -719,14 +722,15 @@
   gap: var(--space-3);
   border-radius: 10px;
   background: var(--cobalt-50);
-  color: var(--ink-700);
+  color: var(--fg-body);
   padding: var(--space-3);
 }
 
 .task-create-weekdays legend {
-  color: var(--ink-700);
+  color: var(--fg-muted);
   padding: 0 var(--space-1);
-  font-weight: 700;
+  font-weight: var(--weight-medium);
+  font-size: var(--text-label);
 }
 
 .task-create-role-grid {
@@ -748,7 +752,7 @@
 }
 
 .task-create-role-card:focus-within {
-  border-color: var(--cobalt-200);
+  border-color: var(--cobalt-300);
   box-shadow: 0 8px 24px rgba(23, 66, 170, .08);
 }
 
@@ -766,7 +770,7 @@
   place-items: center;
   border-radius: 9px;
   background: var(--cobalt-50);
-  color: var(--cobalt-700);
+  color: var(--fg-link);
 }
 
 .task-create-role-card__header > span:nth-child(2) {
@@ -776,14 +780,15 @@
 }
 
 .task-create-role-card__header strong {
-  color: var(--ink-800);
-  font-size: 12px;
+  color: var(--fg-strong);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-bold);
 }
 
 .task-create-role-card__header small {
   overflow: hidden;
-  color: var(--ink-400);
-  font-size: var(--text-min);
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -792,17 +797,17 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--ink-400);
-  font-size: var(--text-min);
-  font-weight: 750;
+  color: var(--fg-muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
 }
 
 .task-create-role-card__count i {
   border-radius: 999px;
   background: var(--cobalt-50);
-  color: var(--cobalt-700);
+  color: var(--fg-link);
   padding: var(--space-1) var(--space-2);
-  font-size: var(--text-min);
+  font-size: var(--text-label);
   font-style: normal;
 }
 
@@ -839,29 +844,30 @@
 }
 
 .task-create-role-person strong {
-  color: var(--ink-700);
-  font-size: var(--text-min);
+  color: var(--fg-strong);
+  font-size: var(--text-person);
+  font-weight: var(--weight-medium);
 }
 
 .task-create-role-person small {
-  color: var(--ink-400);
-  font-size: var(--text-min);
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .task-create-role-card__empty {
   margin: 0;
   border: 1px dashed var(--line);
   border-radius: 9px;
-  color: var(--ink-400);
+  color: var(--fg-muted);
   padding: var(--space-2);
-  font-size: var(--text-min);
+  font-size: var(--text-meta);
   text-align: center;
 }
 
 .task-create-role-card .async-task-combobox > label {
-  color: var(--ink-500);
-  font-size: var(--text-min);
-  font-weight: 700;
+  color: var(--fg-muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
 }
 
 .task-create-checklist-add {
@@ -884,7 +890,7 @@
   border: 1px dashed var(--line-strong);
   border-radius: 12px;
   background: var(--surface-soft);
-  color: var(--ink-400);
+  color: var(--fg-muted);
   padding: var(--space-5);
   text-align: center;
 }
@@ -895,7 +901,7 @@
 
 .task-create-empty p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-meta);
 }
 
 .task-create-checklist {
@@ -940,7 +946,7 @@
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface);
-  color: var(--ink-500);
+  color: var(--fg-muted);
 }
 
 .task-create-planning-block {
@@ -952,7 +958,7 @@
 
 .task-create-planning-block p {
   margin: 0 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 
 .task-create-subsection {
@@ -973,6 +979,13 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  color: var(--fg-strong);
+  font-size: var(--text-heading);
+  font-weight: var(--weight-bold);
+}
+
+.task-create-subsection__title strong {
+  font-weight: inherit;
 }
 
 .task-create-reminders {
@@ -998,9 +1011,9 @@
   align-self: center;
   border-radius: 50%;
   background: var(--cobalt-100);
-  color: var(--cobalt-700);
-  font-size: var(--text-min);
-  font-weight: 800;
+  color: var(--fg-link);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
 }
 
 .task-create-switch {
@@ -1063,54 +1076,9 @@
   background: var(--warning);
 }
 
-/* Typography for the lower sections of the standalone creation form. */
-.task-create-primary-participants .task-create-role-card__header strong,
-.task-create-primary-participants .task-create-role-person strong,
-.task-create-details .task-create-disclosure__copy strong,
-.task-create-details .task-create-subsection__title strong,
-.task-create-details .task-create-subgroup__heading h4 {
-  font-size: 14px;
-}
-
-.task-create-primary-participants .task-create-role-card__empty,
-.task-create-primary-participants .async-task-combobox > label,
-.task-create-primary-participants .async-task-combobox li small,
-.task-create-primary-participants .task-create-local-state,
-.task-create-primary-participants .task-create-local-error,
-.task-create-details :is(label, input, select, .button),
-.task-create-details .task-create-disclosure__copy small,
-.task-create-details .task-create-disclosure__summary,
-.task-create-details .task-create-details__intro p,
-.task-create-details .task-create-subgroup__heading p,
-.task-create-details .task-create-planning-block p,
-.task-create-details .task-create-help,
-.task-create-details .task-create-local-state,
-.task-create-details .task-create-local-error,
-.task-create-details .task-create-empty p,
-.task-create-details .task-create-weekdays span,
-.task-create-details .task-create-chips span,
-.task-create-details .task-create-hierarchy-note small,
-.task-create-details .task-parent-tree-empty p,
-.task-create-details .task-parent-tree-state span,
-.task-create-details .task-parent-tree__task strong,
-.task-create-details .task-parent-tree__attach,
-.task-create-details .async-task-combobox li small {
-  font-size: var(--text-small);
-}
-
-.task-create-primary-participants .task-create-role-card__count,
-.task-create-primary-participants .task-create-role-card__count i,
-.task-create-details .task-create-kicker,
-.task-create-details .task-create-index,
-.task-create-details .task-parent-tree__task small {
-  font-size: var(--text-caption);
-}
-
 .task-create-primary-participants .task-create-role-card__header small {
   white-space: normal;
 }
-.task-create-primary-participants .task-create-role-card__header small,
-.task-create-primary-participants .task-create-role-person small { font-size: 11px; }
 
 @media (max-width: 1100px) {
   .task-create-core__meta {

@@ -5,7 +5,17 @@
   --text-caption: 12px;
   --text-small: 14px;
   --text-body: 16px;
-  --text-heading: 20px;
+  /* Type roles (docs/typography-color-plan.md): pick by role, not by look. */
+  --text-title: 30px;
+  --text-heading: 14px;
+  --text-reading: 14px;
+  --text-ui: 14px;
+  --text-person: 14px;
+  --text-meta: 12px;
+  --text-label: 11px;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-bold: 700;
   --font: 'Roboto Variable', 'Roboto', system-ui, sans-serif;
   --cobalt-700: #1746c9;
   --cobalt-600: #1f5eff;
@@ -46,7 +56,17 @@
   --radius-md: 14px;
   --radius-lg: 20px;
   --shadow-sm: 0 1px 2px rgba(15, 24, 45, .04), 0 5px 18px rgba(24, 35, 62, .04);
+  --shadow-md: 0 2px 4px rgba(15, 24, 45, .05), 0 10px 28px rgba(24, 35, 62, .1);
   --shadow-lg: 0 18px 60px rgba(13, 22, 45, .18);
+  /* Text colour roles: strong = headings and names, reading = long text, body = UI text, muted = meta and labels. */
+  --fg-strong: var(--ink-900);
+  --fg-reading: var(--ink-800);
+  --fg-body: var(--ink-700);
+  --fg-muted: var(--ink-500);
+  --fg-link: var(--cobalt-700);
+  /* One canvas for every conversation surface (chat page, right panel, empty state). */
+  --chat-canvas: #f5f8ff;
+  --chat-canvas-image: linear-gradient(rgba(246, 249, 255, .9), rgba(246, 249, 255, .9)), url("/assets/messages/pattern.svg");
   /* Spacing scale on a 4px grid; round odd values to the nearest step (ties go to the multiple of 8). */
   --space-0_5: 2px;
   --space-1: 4px;
@@ -105,6 +125,9 @@
   --violet: #b09af5;
   --orange: #ffae4a;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .2), 0 5px 18px rgba(0, 0, 0, .16);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, .22), 0 10px 28px rgba(0, 0, 0, .3);
   --shadow-lg: 0 18px 60px rgba(0, 0, 0, .46);
+  --chat-canvas: var(--canvas);
+  --chat-canvas-image: none;
   --focus: 0 0 0 3px rgba(113, 149, 255, .32);
 }

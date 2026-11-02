@@ -1,4 +1,4 @@
-.message-draft-label { color: var(--danger); font-weight: 400; }
+.message-draft-label { color: var(--danger); font-weight: var(--weight-regular); }
 
 .message-composer {
   position: relative;
@@ -41,7 +41,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-raised);
-  color: var(--cobalt-600);
+  color: var(--fg-link);
   transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
 }
 
@@ -56,15 +56,15 @@
   border-color: var(--line-strong);
   background: var(--surface-soft);
   padding: calc((var(--composer-action-size) - 21px - 2px) / 2) var(--space-3);
-  font-size: 14px;
-  font-weight: 400;
+  font-size: var(--text-reading);
+  font-weight: var(--weight-regular);
   line-height: 1.5;
 }
 
 .message-composer__input textarea::placeholder,
 .message-composer__row > textarea.message-composer__input::placeholder {
-  color: color-mix(in srgb, var(--ink-400) 65%, var(--surface-soft));
-  font-weight: 400;
+  color: var(--fg-muted);
+  font-weight: var(--weight-regular);
   opacity: 1;
 }
 
@@ -97,7 +97,7 @@
 .message-composer__row .message-composer__send:disabled {
   border-color: var(--line);
   background: var(--surface-soft);
-  color: var(--ink-300);
+  color: var(--fg-muted);
   box-shadow: none;
 }
 
@@ -130,14 +130,15 @@
 }
 
 .message-composer__reply strong {
-  color: var(--cobalt-700);
-  font-size: 12px;
+  color: var(--fg-strong);
+  font-size: var(--text-person);
+  font-weight: var(--weight-medium);
 }
 
 .message-composer__reply small {
   overflow: hidden;
-  color: var(--ink-400);
-  font-size: 12px;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -146,7 +147,7 @@
 .message-composer__attachments button {
   border: 0;
   background: transparent;
-  color: var(--ink-400);
+  color: var(--fg-muted);
 }
 
 .message-composer__attachments {
@@ -161,8 +162,8 @@
 
 .message-composer__attachment-count {
   width: 100%;
-  color: var(--ink-400);
-  font-size: 12px;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
 }
 
 .message-composer__attachments > span {
@@ -172,9 +173,9 @@
   gap: var(--space-1);
   border-radius: 7px;
   background: var(--cobalt-50);
-  color: var(--ink-600);
+  color: var(--fg-muted);
   padding: var(--space-1) var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-meta);
 }
 
 @container (max-width: 380px) {
