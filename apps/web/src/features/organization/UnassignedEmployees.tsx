@@ -8,11 +8,12 @@ import { Avatar, Button, ErrorState, Skeleton } from '../../shared/ui'
 
 interface Employee { id: string; displayName: string; jobTitle: string; avatarAsset: string | null }
 
-export function UnassignedEmployees({ companyId, units = [], onAssign, onOpen }: {
+export function UnassignedEmployees({ companyId, units = [], onAssign, onOpen, draggable = Boolean(onAssign) }: {
   companyId: string
   units?: OrgUnitView[]
   onAssign?: (employee: Employee, unit: OrgUnitView) => void
   onOpen?: (id: string) => void
+  draggable?: boolean
 }) {
   const [cursors, setCursors] = useState<string[]>([])
   const [targetId, setTargetId] = useState('')
@@ -26,8 +27,10 @@ export function UnassignedEmployees({ companyId, units = [], onAssign, onOpen }:
     <header><h3>{UNASSIGNED_DEPARTMENT_LABEL}</h3>{query.data && <span>{query.data.total}</span>}</header>
     {onAssign && units.length > 0 && <label>Перенести до підрозділу<select value={targetId} onChange={(event) => setTargetId(event.target.value)}><option value="">Оберіть підрозділ</option>{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></label>}
     {query.isLoading ? <Skeleton rows={3} /> : query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.data?.items.length ? <ul>
-      {query.data.items.map((employee) => <li key={employee.id} draggable={Boolean(onAssign)} onDragStart={(event) => {
+      {query.data.items.map((employee) => <li key={employee.id} draggable={draggable} tabIndex={draggable ? 0 : undefined} onDragStart={(event) => {
+        if (!draggable) { event.preventDefault(); return }
         event.dataTransfer.setData('application/x-lankadws-employee', employee.id)
+        event.dataTransfer.setData('text/plain', employee.id)
         event.dataTransfer.effectAllowed = 'move'
       }}>
         {onOpen ? <button className="organization-unassigned__person" type="button" onClick={() => onOpen(employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.jobTitle}</small></span></button> : <div className="organization-unassigned__person"><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.jobTitle}</small></span></div>}

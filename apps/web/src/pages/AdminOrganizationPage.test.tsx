@@ -135,14 +135,15 @@ it('keeps an archived parent selected instead of silently restoring a child at c
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/companies/cmp_test/org-units/child/restore', expect.objectContaining({ body: expect.stringContaining('"parentId":"root"') })))
 })
 
-it('shows the company holding area separately from company settings', async () => {
+it('shows unassigned employees through the company without a separate toolbar button', async () => {
   openSettings()
-  fireEvent.click(await screen.findByRole('button', { name: 'Не у підрозділі' }))
-  expect(await screen.findByRole('region', { name: 'Працівники без підрозділу' })).toBeInTheDocument()
-  expect(screen.queryByLabelText('Опис')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Вибрати компанію' }))
-  expect(await screen.findByLabelText('Опис')).toBeInTheDocument()
+  const companyButton = await screen.findByRole('button', { name: 'Вибрати компанію' })
+  expect(screen.queryByRole('button', { name: 'Не у підрозділі' })).not.toBeInTheDocument()
   expect(screen.queryByRole('region', { name: 'Працівники без підрозділу' })).not.toBeInTheDocument()
+  fireEvent.click(companyButton)
+  expect(await screen.findByLabelText('Опис')).toBeInTheDocument()
+  expect(await screen.findByRole('region', { name: 'Працівники без підрозділу' })).toBeInTheDocument()
+  expect(api).toHaveBeenCalledWith('/org/companies/cmp_test/unassigned-employees')
 })
 
 
@@ -372,6 +373,21 @@ it('opens the archive in the map panel and dismisses it on background click', as
 })
 
 
+
+it('allows dragging unassigned company employees in the structure editor', async () => {
+  const fallback = api.getMockImplementation()!
+  api.mockImplementation((path: string, options) => path === '/org/companies/cmp_test/unassigned-employees'
+    ? Promise.resolve({ items: [{ id: 'unassigned', displayName: 'Марія Іваненко', jobTitle: 'Дизайнерка', avatarAsset: null }], total: 1, nextCursor: null })
+    : fallback(path, options))
+  openSettings()
+  fireEvent.click(await screen.findByRole('button', { name: 'Вибрати компанію' }))
+  const row = (await screen.findByText('Марія Іваненко')).closest('li')!
+  expect(row).toHaveAttribute('draggable', 'true')
+  const setData = vi.fn()
+  fireEvent.dragStart(row, { dataTransfer: { setData } })
+  expect(setData).toHaveBeenCalledWith('application/x-lankadws-employee', 'unassigned')
+  expect(setData).toHaveBeenCalledWith('text/plain', 'unassigned')
+})
 
 it('shows department employees once and retains drag data', async () => {
 

@@ -17,7 +17,7 @@ afterEach(() => {
   Object.assign(profile, { id: 'usr_dmytro', displayName: 'Савчук Дмитро', firstName: 'Дмитро' })
 })
 
-it('refreshes a recent cached next step and links to the pending mandatory article', async () => {
+it('refreshes the overview without rendering the removed next step or notification KPI', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: false } } })
   const cached = {
     attentionCount: 0,
@@ -30,10 +30,13 @@ it('refreshes a recent cached next step and links to the pending mandatory artic
     ...cached,
     attentionCount: 1,
     focus: { nextStep: { title: 'Ознайомтеся з матеріалом «Інструкція»', detail: 'Обов’язкове ознайомлення' }, primaryAction: { href: '/knowledge/guide', label: 'Відкрити базу знань' } },
+    kpis: { unreadNotifications: { value: 3, href: '/feed?panel=notifications' } },
   })
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/feed?filter=ACK_REQUIRED']}><FeedOverview /></MemoryRouter></QueryClientProvider>)
-  expect(await screen.findByText('Ознайомтеся з матеріалом «Інструкція»')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /Відкрити базу знань/ })).toHaveAttribute('href', '/knowledge/guide')
+  expect(await screen.findByText('Дмитро, ось що зараз потребує уваги.')).toBeInTheDocument()
+  expect(screen.queryByText('Наступний крок')).not.toBeInTheDocument()
+  expect(screen.queryByText('Ознайомтеся з матеріалом «Інструкція»')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /Нові сповіщення|Відкрити базу знань/ })).toBeNull()
   expect(screen.queryByRole('link', { name: /Відкрити завдання/ })).toBeNull()
   expect(request).toHaveBeenCalledWith('/dashboard')
   expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Дмитро, ось що зараз потребує уваги.')

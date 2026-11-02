@@ -1,9 +1,8 @@
 export type TaskStatusGroup = 'ACTIVE' | 'DONE' | 'ALL'
-export type TaskStatusPreset = 'DUE_SOON' | 'DEFERRED' | 'OVERDUE' | 'NEW' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'ARCHIVED'
+export type TaskStatusPreset = 'DUE_SOON' | 'OVERDUE' | 'NEW' | 'IN_PROGRESS' | 'IN_REVIEW' | 'DONE' | 'ARCHIVED'
 
 export const TASK_STATUS_OPTIONS: Array<{ value: TaskStatusPreset; label: string }> = [
   { value: 'DUE_SOON', label: 'Скоро строк' },
-  { value: 'DEFERRED', label: 'Відкладені' },
   { value: 'OVERDUE', label: 'Прострочені' },
   { value: 'NEW', label: 'Нове' },
   { value: 'IN_PROGRESS', label: 'В роботі' },
@@ -23,6 +22,7 @@ export function readTaskStatusFilter(params: URLSearchParams) {
   const status = params.get('status') ?? ''
   const raw = (status || rawPreset).split(',').flatMap((value) => value === 'OTHER_ACTIVE' ? ['IN_PROGRESS', 'IN_REVIEW'] : [value])
   const legacyGroup = TASK_STATUS_GROUPS.find((item) => item.value === params.get('statusGroup'))
+    ?? (params.has('preset') ? undefined : TASK_STATUS_GROUPS[0])
   const selected = rawPreset === 'NONE' && !status ? [] : !status && rawPreset === 'ALL'
     ? (legacyGroup?.options ?? TASK_STATUS_OPTIONS).map((option) => option.value)
     : TASK_STATUS_OPTIONS.filter((option) => raw.includes(option.value)).map((option) => option.value)

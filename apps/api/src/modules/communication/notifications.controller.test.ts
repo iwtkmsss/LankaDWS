@@ -4,6 +4,22 @@ import { NotificationsController } from './notifications.controller.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 
 describe('NotificationsController chat read reconciliation', () => {
+  it.each([
+    ['all', {}],
+    ['unread', { readAt: null }],
+    ['mentions', { category: 'MENTION' }],
+  ])('lists %s notifications only for the current recipient', async (tab, filter) => {
+    const items = [{ id: 'notification-1' }]
+    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(items)
+    const controller = new NotificationsController({ notification: { findMany } } as unknown as PrismaService)
+    expect(await controller.list({ principal: { userId: 'user-1' } } as LankaDWSRequest, tab)).toEqual({ items })
+    expect(findMany).toHaveBeenLastCalledWith({
+      where: { recipientId: 'user-1', ...filter },
+      orderBy: [{ readAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+      take: 100,
+    })
+  })
+
   it('reads only the current recipient and opened entity through the loaded snapshot', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 2 })
     const publishSummary = vi.fn()
@@ -62,10 +78,10 @@ describe('NotificationsController chat read reconciliation', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['completed'] }, archivedAt: null, status: 'IN_PROGRESS' } }))
   })
   it('counts unread task notifications for the current recipient, including mentions', async () => {
-    const count = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(7).mockResolvedValueOnce(3)
+    const count = vi.fn().mockResolvedValueOnce(7).mockResolvedValueOnce(3)
     const controller = new NotificationsController({ notification: { count } } as unknown as PrismaService)
     const result = await (controller as unknown as { summaryCounts(userId: string): Promise<unknown> }).summaryCounts('user-1')
-    expect(result).toEqual({ action: 1, unread: 7, tasks: 3 })
+    expect(result).toEqual({ unread: 7, tasks: 3 })
     expect(count).toHaveBeenLastCalledWith({ where: { recipientId: 'user-1', entityType: 'TASK', readAt: null } })
   })
   it('marks only notifications whose source message is covered by the thread read marker', async () => {

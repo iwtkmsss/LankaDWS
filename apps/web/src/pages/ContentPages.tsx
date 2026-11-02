@@ -1,9 +1,11 @@
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
 import { personName } from '../shared/lib/personName'
 import './knowledge-reading.css'
+import { KnowledgeFeedbackTickets } from './KnowledgeFeedbackTickets'
 import { FormattedText } from '../shared/text/FormattedText'
 import { FormattedTextarea } from '../shared/text/FormattedTextarea'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BookOpenCheck, Building2, Check, Download, Eye, File as FileIcon, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, BookOpenCheck, Building2, Check, Download, Eye, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { api, apiUrl, jsonBody, randomId } from '../shared/api/client'
@@ -67,10 +69,13 @@ function KnowledgePage() {
   const [params, setParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [deleting, setDeleting] = useState<ArticleList | null>(null)
+  const [feedbackSent, setFeedbackSent] = useState(false)
   const client = useQueryClient()
   const canManage = user?.accountType === 'ADMIN'
   const managing = canManage && params.get('manage') === '1'
   const editor = managing ? params.get('edit') : null
+  const ticketEditor = params.get('feedback') === 'new'
+  const closeTicketEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('feedback'); return next })
   const query = useQuery({ queryKey: ['knowledge', 'articles', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`), enabled: !articleSlug, staleTime: 0, refetchOnMount: 'always' })
   const remove = useMutation({
     mutationFn: (article: ArticleList) => api(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
@@ -96,7 +101,9 @@ function KnowledgePage() {
       return next
     })}>{managing ? <Check size={17} /> : <Pencil size={17} />}{managing ? 'Завершити керування' : 'Керувати матеріалами'}</Button>} />
     <div className="knowledge-layout">
-      <Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input aria-label="Пошук матеріалів" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card>
+      <Card className="knowledge-feature"><div className="knowledge-feature-content"><div className="knowledge-feature-search"><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input aria-label="Пошук матеріалів" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></div><div className="knowledge-feedback"><span>Зворотний зв’язок</span><strong>Поділіться враженнями та пропозиціями</strong><p>Маєте ідеї, побажання чи хочете поділитися своїми враженнями?</p><Button onClick={() => { setFeedbackSent(false); setParams((previous) => { const next = new URLSearchParams(previous); next.set('feedback', 'new'); next.delete('edit'); return next }) }}>Залишити відгук <ArrowRight size={16} aria-hidden="true" /></Button></div></div></Card>
+      {feedbackSent && <p className="success-note" role="status"><Check size={17} />Звернення надіслано адміністратору. Дякуємо за відгук!</p>}
+      {canManage && <KnowledgeFeedbackTickets renderAttachment={(file) => <KnowledgeAttachmentPreview attachment={file} />} />}
       <section className="article-grid" aria-label="Матеріали бази знань">
         {query.isError ? <ErrorState /> : <>
           {query.data?.items.map((item) => <div className={`knowledge-article-card ${item.requiresAcknowledgement && !item.hasAcknowledged ? 'is-required' : ''}`} key={item.id}>
@@ -111,10 +118,11 @@ function KnowledgePage() {
     </div>
     {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending} />}
     {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
+    {ticketEditor && <KnowledgeEditor ticket onClose={closeTicketEditor} onSubmitted={() => setFeedbackSent(true)} />}
   </div>
 }
 
-function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void }) {
+function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?: string; ticket?: boolean; onClose: () => void; onSubmitted?: () => void }) {
   const client = useQueryClient()
   const [dirty, setDirty] = useState(false)
   const [newSlug] = useState(() => `article-${randomId()}`)
@@ -141,7 +149,7 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
   useEffect(() => {
     if (article.data?.currentVersion) setDraft((current) => current ?? article.data)
   }, [article.data])
-  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: KnowledgeCompanyOption[] }>('/admin/companies') })
+  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: KnowledgeCompanyOption[] }>('/admin/companies'), enabled: !ticket })
   const activeCompanies = (companies.data?.items ?? []).filter((company) => company.isActive)
   // Null means "not touched yet": a new article reaches every active company and
   // an existing one keeps the audience it was published with.
@@ -156,13 +164,14 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
   }
   async function uploadAttachments() {
     if (attachmentFiles.length === 0 && !imageFile) return []
+    if (ticket && attachmentFiles.length + (imageFile ? 1 : 0) > 20) throw new Error('До звернення можна додати не більше 20 файлів.')
     const companyId = audienceCompanyIds[0] ?? activeCompanies[0]?.id
-    if (!companyId) throw new Error('Немає активної компанії для завантаження файлу.')
+    if (!ticket && !companyId) throw new Error('Немає активної компанії для завантаження файлу.')
     const attachmentIds: string[] = []
     for (const file of [...(imageFile ? [imageFile] : []), ...attachmentFiles]) {
       const formData = new FormData()
       formData.set('file', file)
-      const uploaded = await api<{ id: string; scanStatus: string }>(`/files?company=${encodeURIComponent(companyId)}`, { method: 'POST', body: formData })
+      const uploaded = await api<{ id: string; scanStatus: string }>(ticket ? '/knowledge/tickets/attachments' : `/files?company=${encodeURIComponent(companyId!)}`, { method: 'POST', body: formData })
       let scanStatus = uploaded.scanStatus
       for (let attempt = 0; scanStatus !== 'CLEAN' && attempt < 6; attempt += 1) {
         await new Promise<void>((resolve) => window.setTimeout(resolve, 500))
@@ -174,34 +183,37 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
     return attachmentIds
   }
   const save = useMutation({
-    mutationFn: async (data: FormData) => api(slug ? `/knowledge/articles/${slug}` : '/knowledge/articles', {
+    mutationFn: async (data: FormData) => api(ticket ? '/knowledge/tickets' : slug ? `/knowledge/articles/${slug}` : '/knowledge/articles', {
       method: slug ? 'PATCH' : 'POST',
-      body: jsonBody({ title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), companyIds: audienceCompanyIds, requiresAcknowledgement: data.get('requiresAcknowledgement') === 'required', ...(slug ? { expectedVersion: Number(data.get('expectedVersion')), removedAttachmentIds } : { slug: newSlug }) }),
+      body: jsonBody(ticket ? { title: data.get('title'), body: data.get('body'), attachmentIds: await uploadAttachments() } : { title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), companyIds: audienceCompanyIds, requiresAcknowledgement: data.get('requiresAcknowledgement') === 'required', ...(slug ? { expectedVersion: Number(data.get('expectedVersion')), removedAttachmentIds } : { slug: newSlug }) }),
     }),
     onSuccess: async () => {
-      await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      if (ticket) {
+        await client.invalidateQueries({ queryKey: ['feedback-tickets'] })
+        onSubmitted?.()
+      } else await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
       closeGuard.closeForSuccess(onClose)
     },
   })
-  const ready = slug ? Boolean(draft?.currentVersion) : activeCompanies.length > 0
+  const ready = ticket || (slug ? Boolean(draft?.currentVersion) : activeCompanies.length > 0)
   return <>
     <Modal
-      title={slug ? 'Редагувати матеріал' : 'Додати матеріал'}
-      description={slug ? 'Оновіть текст і аудиторію матеріалу.' : 'Опублікуйте інструкцію для потрібних компаній.'}
-      size="lg"
+      title={ticket ? 'Звернення до адміністратора' : slug ? 'Редагувати матеріал' : 'Додати матеріал'}
+      description={ticket ? 'Поділіться ідеєю, відгуком або опишіть проблему. Запис бачитимуть лише адміністратори.' : slug ? 'Оновіть текст і аудиторію матеріалу.' : 'Опублікуйте інструкцію для потрібних компаній.'}
+      size="xl"
       closeDisabled={save.isPending}
       onBeforeClose={closeGuard.shouldClose}
       onRequestClose={save.isPending ? () => {} : closeGuard.requestClose}
     >
-      {(slug ? article.isLoading || companies.isLoading : companies.isLoading) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
+      {(!ticket && (slug ? article.isLoading || companies.isLoading : companies.isLoading)) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form knowledge-editor-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
         {slug && <input type="hidden" name="expectedVersion" value={draft?.version ?? ''} />}
-        <label className="span-2">Назва<input name="title" required defaultValue={draft?.currentVersion?.title ?? ''} autoFocus disabled={save.isPending} /></label>
-        <div className="span-2"><FormattedTextarea label="Текст матеріалу" name="body" rows={12} required defaultValue={draft?.currentVersion?.body ?? ''} disabled={save.isPending} /></div>
-        <label className="span-2">Ознайомлення<select name="requiresAcknowledgement" defaultValue={draft?.requiresAcknowledgement ? 'required' : 'optional'} disabled={save.isPending}>
+        <label className="span-2">{ticket ? 'Тема звернення' : 'Назва'}<input name="title" maxLength={ticket ? 200 : undefined} required defaultValue={draft?.currentVersion?.title ?? ''} autoFocus disabled={save.isPending} /></label>
+        <div className="span-2"><FormattedTextarea label={ticket ? 'Текст звернення' : 'Текст матеріалу'} name="body" rows={4} required defaultValue={draft?.currentVersion?.body ?? ''} disabled={save.isPending} /></div>
+        {!ticket && <><label className="knowledge-editor-acknowledgement">Ознайомлення<select name="requiresAcknowledgement" defaultValue={draft?.requiresAcknowledgement ? 'required' : 'optional'} disabled={save.isPending}>
           <option value="optional">Необов’язкове ознайомлення</option>
           <option value="required">Обов’язкове ознайомлення</option>
         </select></label>
-        <fieldset className="knowledge-audience span-2" disabled={save.isPending}>
+        <fieldset className="knowledge-audience" disabled={save.isPending}>
           <legend>Хто побачить статтю</legend>
           <div className="knowledge-audience__companies">
             {activeCompanies.map((company) => <label className="check-label" key={company.id}>
@@ -210,10 +222,9 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
             </label>)}
           </div>
           {audienceCompanyIds.length === 0 && <p className="knowledge-audience__hint" role="alert">Оберіть щонайменше одну компанію.</p>}
-        </fieldset>
-        <div className="span-2 knowledge-image-upload">
+        </fieldset></>}
+        <div className="knowledge-image-upload">
           <strong>Картинка запису</strong>
-          <p>Одна картинка для прев’ю запису. Вибір іншої картинки замінює попередню.</p>
           {imageFile || existingImage ? <div className="knowledge-image-slot">
             {imageFile ? <KnowledgeSelectedImage file={imageFile} /> : <KnowledgeImage fileId={existingImage?.id} className="knowledge-image-preview" />}
             <div className="knowledge-image-slot__details"><strong>{imageFile?.name ?? existingImage?.safeFilename}</strong><small>Картинку вибрано · 1 з 1</small>
@@ -221,7 +232,7 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
             </div>
           </div> : <FileDropzone label="Додати картинку" accept="image/png,image/jpeg,image/gif,image/webp" resetAfterSelect disabled={save.isPending} title="Додайте одну картинку" hint="PNG, JPG, GIF або WebP · 1 файл" onFiles={selectImage} />}
         </div>
-        <div className="span-2 knowledge-attachments-upload">
+        <div className="knowledge-attachments-upload">
           <span className="knowledge-attachments-upload__label">Файли</span>
           <FileDropzone
             label="Додати файли"
@@ -239,7 +250,7 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
               <ul className="file-dropzone-files" aria-label="Вибрані файли">
                 {attachmentFiles.map((file) => (
                   <li key={`${file.name}-${file.size}`}>
-                    <FileIcon size={15} aria-hidden="true" />
+                    <FileFormatIcon mimeType={file.type} fileName={file.name} size={15} />
                     <span>{file.name}</span>
                     <button
                       type="button"
@@ -259,14 +270,14 @@ function KnowledgeEditor({ slug, onClose }: { slug?: string; onClose: () => void
           </FileDropzone>
         </div>
         {existingFiles.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{existingFiles.map((file) => <KnowledgeExistingFile key={file.id} file={file} disabled={save.isPending} onRemove={() => removeAttachment(file.id)} />)}</ul></section> : null}
-        {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
-        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending || audienceCompanyIds.length === 0}>{save.isPending ? 'Зберігаємо…' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
+        {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : ticket ? 'Не вдалося надіслати звернення. Спробуйте ще раз.' : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
+        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending || (!ticket && audienceCompanyIds.length === 0)}>{save.isPending ? 'Зберігаємо…' : ticket ? 'Надіслати звернення' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
       </form>}
     </Modal>
     <UnsavedChangesDialog
       guard={closeGuard}
-      title={slug ? 'Закрити редагування матеріалу?' : 'Закрити створення матеріалу?'}
-      description={slug
+      title={ticket ? 'Закрити звернення?' : slug ? 'Закрити редагування матеріалу?' : 'Закрити створення матеріалу?'}
+      description={ticket ? 'Незбережене звернення не буде надіслано.' : slug
         ? 'Незбережені зміни матеріалу буде втрачено.'
         : 'Новий матеріал не буде опубліковано.'}
     />
@@ -340,7 +351,7 @@ function KnowledgeExistingFile({ file, disabled, onRemove }: { file: KnowledgeAt
   const [previewOpen, setPreviewOpen] = useState(false)
   return (
     <li>
-      <FileIcon size={16} />
+      <FileFormatIcon mimeType={file.mimeType} fileName={file.safeFilename} size={16} />
       {file.scanStatus === 'CLEAN' ? (
         <button type="button" className="knowledge-file-list__preview" onClick={() => setPreviewOpen(true)}>
           {file.safeFilename}

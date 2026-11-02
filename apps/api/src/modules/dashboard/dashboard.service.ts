@@ -160,7 +160,7 @@ export class DashboardService {
         unreadNotifications: notificationSummary
           ? {
               value: notificationSummary.unread,
-              href: '/notifications?tab=unread',
+              href: '/feed?panel=notifications',
             }
           : null,
       },
@@ -310,7 +310,7 @@ export class DashboardService {
         kind: 'NOTIFICATION',
         title: `${input.notificationActions} сповіщень потребують дії`,
         detail: 'Перегляньте запити та системні нагадування.',
-        href: '/notifications?tab=action',
+        href: '/feed?panel=notifications',
       };
     }
     if (input.pendingAcknowledgements > 0) {

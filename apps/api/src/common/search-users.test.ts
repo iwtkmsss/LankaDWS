@@ -71,6 +71,17 @@ describe('shared user search against SQLite', () => {
     expect(() => parseUserSearchExcludedIds(Array.from({ length: 201 }, (_, index) => String(index)).join(','))).toThrow()
   })
 
+  it('only returns bounded eligible recommendations when explicitly requested', async () => {
+    const findMany = vi.spyOn(prisma.user, 'findMany')
+    const users = await search('', { recommendations: true, limit: 1000,
+      where: { id: { in: ['admin', 'prefix', 'exact', 'foreign', 'inactive', 'uk', 'user-1', 'user-2', 'user-3'] } },
+      excludeIds: ['exact'],
+    })
+    expect(users.map((user) => user.id)).toEqual(['user-1', 'user-2', 'user-3', 'admin', 'prefix'])
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(findMany.mock.calls[0]?.[0]?.take).toBe(5)
+  })
+
   it('excludes a department with 1000 members using a SQL relationship predicate', async () => {
     await prisma.$executeRawUnsafe('CREATE TABLE UserOrgAssignment (id TEXT, userId TEXT, orgUnitId TEXT, endedAt DATETIME)')
     const assignments = Array.from({ length: 1000 }, (_, index) => [`assignment-${index}`, `user-${index}`, 'large-unit', null])

@@ -26,7 +26,7 @@ function TaskTreeBranch({
           <span className="task-parent-tree__icon"><GitBranch size={16} aria-hidden /></span>
           <span>
             <strong>{task.title}</strong>
-            <small>№ {task.number}</small>
+            <small>{task.number}</small>
           </span>
         </div>
         <span className="task-parent-tree__connector" aria-hidden />

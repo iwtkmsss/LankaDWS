@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { chatDayKey, formatChatDay } from '../lib/chatDates'
 import { MessageBubble } from './MessageBubble'
 import { continuesMessageGroup } from '../../../shared/messages/messageGrouping'
+import { PendingUploadCards } from './PendingUploadCards'
+import { usePendingUploads } from '../lib/pendingUploads'
 
 interface MessageStreamProps {
   threadId: string
@@ -22,6 +24,7 @@ interface MessageStreamProps {
 }
 
 export function MessageStream(props: MessageStreamProps) {
+  const hasPendingUploads = usePendingUploads().some((item) => item.threadId === props.threadId)
   const lastScrollTopRef = useRef<number | null>(null)
   const scrollingUpRef = useRef(false)
   const touchStartYRef = useRef<number | null>(null)
@@ -141,7 +144,8 @@ export function MessageStream(props: MessageStreamProps) {
       }}
     >
       <div ref={contentRef} className="message-stream__content">
-        {!props.messages.length ? (
+        <PendingUploadCards threadId={props.threadId} />
+        {!props.messages.length && !hasPendingUploads ? (
           <div className="message-stream__empty">
             <MessageCircle size={34} />
             <strong>Почніть розмову</strong>

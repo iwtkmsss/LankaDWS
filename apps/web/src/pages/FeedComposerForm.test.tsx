@@ -28,14 +28,14 @@ const secondAudience = {
   detail: 'Усі активні працівники організації',
 }
 
-function mount() {
+function mount(defaultCompanyId: string | null = 'cmp_lankadws_ua') {
   render(
     <OverlayProvider>
       <QueryClientProvider client={new QueryClient({
         defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
       })}>
         <FeedComposerForm
-          defaultCompanyId="cmp_lankadws_ua"
+          defaultCompanyId={defaultCompanyId}
           onPostCreated={vi.fn()}
           onFeedChanged={vi.fn()}
           onBusyChange={vi.fn()}
@@ -85,10 +85,11 @@ describe('FeedComposerForm', () => {
     expect(lankadws).toBeChecked()
     expect(other).not.toBeChecked()
     fireEvent.click(other)
+    expect(screen.getByRole('button', { name: 'Згадати співробітника' })).toBeEnabled()
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Текст публікації' }), {
-      target: { value: 'Важливе оновлення' },
-    })
+    const editor = screen.getByRole('textbox', { name: 'Текст публікації' })
+    editor.textContent = 'Важливе оновлення'
+    fireEvent.input(editor)
     fireEvent.click(screen.getByRole('button', { name: 'Опублікувати' }))
 
     await waitFor(() => expect(api).toHaveBeenCalledWith('/feed', expect.objectContaining({
@@ -113,15 +114,41 @@ describe('FeedComposerForm', () => {
     })
 
     await screen.findByText('1 із 10 прикріплено')
-    expect(screen.queryByText('оновлення.txt')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Показати прикріплені файли' }))
     expect(screen.getByText('оновлення.txt')).toBeVisible()
-    fireEvent.pointerDown(document.body)
-    expect(screen.queryByText('оновлення.txt')).not.toBeInTheDocument()
     expect(api).toHaveBeenCalledWith(
       '/feed/attachments?company=cmp_lankadws_ua',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('keeps files selected without an author company and uploads after choosing an audience', async () => {
+    mount(null)
+    await screen.findByRole('button', { name: 'Бачать: Ніхто' })
+    const input = screen.getByLabelText('Додати файл')
+    expect(input).toBeEnabled()
+    fireEvent.change(input, {
+      target: { files: [new File(['оновлення'], 'оновлення.txt', { type: 'text/plain' })] },
+    })
+    expect(screen.getByText('1 із 10 вибрано')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Опублікувати' })).toBeDisabled()
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/feed/attachments'), expect.anything())
+    expect(screen.getByText('оновлення.txt')).toBeVisible()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Lanka' }))
+    await screen.findByText('1 із 10 прикріплено')
+    expect(api).toHaveBeenCalledWith('/feed/attachments?company=cmp_lankadws_ua', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('accepts dropped files before an audience is selected and allows removing them', async () => {
+    mount(null)
+    await screen.findByRole('button', { name: 'Бачать: Ніхто' })
+    const input = screen.getByLabelText('Додати файл')
+    fireEvent.drop(input.closest('form')!, {
+      dataTransfer: { types: ['Files'], files: [new File(['text'], 'draft.txt', { type: 'text/plain' })] },
+    })
+    expect(screen.getByText('1 із 10 вибрано')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Прибрати draft.txt' }))
+    expect(screen.queryByText('draft.txt')).not.toBeInTheDocument()
+    expect(input).toBeEnabled()
   })
 
   it('requires confirmation before publishing an attachment without text', async () => {
@@ -147,7 +174,7 @@ describe('FeedComposerForm', () => {
     mount()
     await screen.findByRole('button', { name: 'Бачать: Lanka' })
 
-    expect(screen.getByRole('checkbox', { name: /Пункт «Ознайомився»/ })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Потрібне ознайомлення' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Створити завдання' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Додати подію' })).not.toBeInTheDocument()
   })

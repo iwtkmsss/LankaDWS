@@ -585,34 +585,6 @@
         ]
       }
     },
-    "/api/v1/tasks/{id}/followers": {
-      "post": {
-        "operationId": "TasksController_follow",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Tasks"
-        ]
-      }
-    },
-    "/api/v1/tasks/{id}/followers/{userId}": {
-      "delete": {
-        "operationId": "TasksController_unfollow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Tasks"
-        ]
-      }
-    },
     "/api/v1/tasks/{id}/user-state": {
       "put": {
         "operationId": "TasksController_userState",

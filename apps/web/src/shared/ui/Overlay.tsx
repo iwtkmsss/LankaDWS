@@ -36,6 +36,7 @@ export type ModalRole = 'dialog' | 'alertdialog'
 
 interface OverlayEntry {
   id: string
+  lockScroll: boolean
   requestClose: (reason: ModalCloseReason) => void
   escapeAllowed: () => boolean
   contains: (target: EventTarget | null) => boolean
@@ -115,8 +116,9 @@ export function OverlayProvider({ children }: PropsWithChildren) {
   }, [])
 
   const hasOverlay = stack.length > 0
+  const hasScrollLock = stack.some((entry) => entry.lockScroll)
   useLayoutEffect(() => {
-    if (!hasOverlay) return
+    if (!hasScrollLock) return
     const body = document.body
     const scrollX = window.scrollX
     const scrollY = window.scrollY
@@ -144,7 +146,7 @@ export function OverlayProvider({ children }: PropsWithChildren) {
       Object.assign(body.style, previous)
       window.scrollTo(scrollX, scrollY)
     }
-  }, [hasOverlay])
+  }, [hasScrollLock])
 
   const value = useMemo<OverlayContextValue>(() => ({
     register,
@@ -330,6 +332,7 @@ export interface ModalRootProps extends PropsWithChildren {
   size?: ModalSize
   mobileFullscreen?: boolean
   role?: ModalRole
+  lockScroll?: boolean
   onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
@@ -356,6 +359,7 @@ export function ModalRoot({
   size = 'md',
   mobileFullscreen = false,
   role = 'dialog',
+  lockScroll = true,
   onBeforeClose,
   onRequestClose,
   footer,
@@ -438,6 +442,7 @@ export function ModalRoot({
     }
     const unregister = register({
       id: overlayId,
+      lockScroll,
       escapeAllowed: () => closeOnEscapeRef.current && !closeDisabledRef.current,
       requestClose,
       contains: (target) => target instanceof Node && Boolean(surfaceRef.current?.contains(target)),
@@ -452,7 +457,7 @@ export function ModalRoot({
         restoreTimerRef.current = undefined
       }, 0)
     }
-  }, [focusSurface, overlayId, register, requestClose, surfaceRef])
+  }, [focusSurface, overlayId, register, requestClose, surfaceRef, lockScroll])
 
   function trapFocus(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key !== 'Tab' || !isTop(overlayId) || !surfaceRef.current) return

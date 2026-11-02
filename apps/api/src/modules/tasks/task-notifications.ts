@@ -1,3 +1,4 @@
+import { writeFeedProjection } from '../feed/feed-projection.service.js'
 import { id } from '../../common/crypto.js'
 import type { TaskTransaction } from './task-types.js'
 
@@ -25,7 +26,7 @@ export function taskNotificationTitle(action: string, diff: Record<string, unkno
       if (field === 'priority' && typeof value === 'string') return `пріоритет: ${({ LOW: 'низький', MEDIUM: 'середній', HIGH: 'високий', CRITICAL: 'терміновий' } as Record<string, string>)[value] ?? value}`
       return fields[field] ?? 'параметри завдання'
     })
-    return details.length ? `Зміни: ${details.join('; ')}` : null
+    return details.length ? `Зміни: ${details.join('; ')}` : 'Завдання оновлено'
   }
   if (action === 'task.status_changed') {
     const status = diff.status as { from?: string; to?: string } | undefined
@@ -38,8 +39,12 @@ export function taskNotificationTitle(action: string, diff: Record<string, unkno
     'task.attachment_removed': 'Вилучено вкладення із завдання', 'task.subtask_created': 'Додано підзавдання',
     'task.participant_added': 'Додано учасника завдання', 'task.participant_changed': 'Змінено учасників завдання',
     'task.participant_removed': 'Вилучено учасника завдання',
+    'task.comment_created': 'Нове повідомлення у завданні',
+    'task.comment_updated': 'Повідомлення у завданні змінено',
+    'task.comment_deleted': 'Повідомлення у завданні вилучено',
+    'task.reaction_changed': 'Реакції на повідомлення змінено',
   }
-  return labels[action] ?? null
+  return labels[action] ?? 'Завдання оновлено'
 }
 
 export async function notifyTaskParticipants(
@@ -59,6 +64,18 @@ export async function notifyTaskParticipants(
     include: { participants: { where: { removedAt: null }, select: { userId: true, role: true } } },
   })
   if (!task) return []
+  await writeFeedProjection(tx, {
+    workspaceId: task.workspaceId, companyId: task.companyId,
+    sourceType: 'TASK', sourceId: task.id, sourceVersion: version,
+    action: action.replace(/^task\./, '').toUpperCase(), actorId,
+    recipientIds: [task.createdById, task.reporterId, ...task.participants.map((p) => p.userId)],
+    visibility: 'PARTICIPANTS', occurredAt: task.updatedAt,
+    taskDetails: {
+      ...(typeof diff.role === 'string' ? { role: diff.role } : {}),
+      ...(typeof diff.change === 'string' ? { change: diff.change } : {}),
+      changedFields: Array.isArray(diff.changedFields) ? diff.changedFields.filter((field): field is string => typeof field === 'string') : [],
+    },
+  })
   const effectiveActorId = actorId ?? (['task.created', 'task.recurrence_created'].includes(action) ? task.createdById : null)
   const recipientIds = [...new Set([task.createdById, task.reporterId, ...task.participants.map((p) => p.userId)])].filter((userId) => userId !== effectiveActorId || (diff.change === 'DELEGATED' && userId === diff.previousResponsibleId) || (action === 'task.status_changed' && (diff.status as { from?: string } | undefined)?.from === 'DONE'))
   const recipients = await tx.user.findMany({ where: { id: { in: recipientIds }, workspaceId: task.workspaceId, isActive: true }, select: { id: true } })

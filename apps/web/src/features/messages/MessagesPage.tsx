@@ -35,7 +35,6 @@ import {
   getThreadPage,
   sendMessage,
   setMessageReaction,
-  uploadMessageAttachments,
 } from './api/messageApi'
 import { messageKeys } from './api/messageKeys'
 import { ConversationPane } from './components/ConversationPane'
@@ -48,6 +47,7 @@ import { ThreadInfoDrawer } from './components/ThreadInfoDrawer'
 import { useUserProfile } from '../employees/UserProfileDrawer'
 import { replyPreviewText } from './lib/replyPreview'
 import { photoAttachmentBatches } from './lib/photoAlbums'
+import { localAttachment, stageMessageFiles } from './lib/localAttachments'
 import {
   addOptimisticMessage,
   removeMessageCache,
@@ -131,7 +131,7 @@ export function MessagesPage() {
   const directStartingRef = useRef('')
   const sendAttemptRef = useRef({ signature: '', key: '', tempId: '' })
   const draftBodyRef = useRef('')
-  const pendingDraftFilesRef = useRef<File[]>([])
+  const pendingDraftFilesRef = useRef<ChatAttachmentView[]>([])
   // The message SSE stream is opened once at the shell level (AppShell);
   // mounting it here as well would open a second EventSource per user.
 
@@ -222,12 +222,7 @@ export function MessagesPage() {
       setStartingUserId(null)
       const pendingFiles = pendingDraftFilesRef.current
       pendingDraftFilesRef.current = []
-      let uploadedAttachments: ChatAttachmentView[] = []
-      if (pendingFiles.length) {
-        const result = await uploadMessageAttachments(thread.id, pendingFiles)
-        uploadedAttachments = result.uploaded
-      }
-      setComposerSeed({ threadId: thread.id, body: draftBodyRef.current, attachments: uploadedAttachments })
+      setComposerSeed({ threadId: thread.id, body: draftBodyRef.current, attachments: pendingFiles })
       void client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })
       navigate(`/messages/${thread.id}`)
     },
@@ -253,6 +248,7 @@ export function MessagesPage() {
 
   const send = useMutation({
     mutationFn: async (input: {
+      threadId: string
       body: string
       reply: ChatMessageView | null
       attachments: ChatAttachmentView[]
@@ -261,35 +257,33 @@ export function MessagesPage() {
       key: string
       tempId: string
     }) => {
-      const result = await sendMessage(threadId!, {
+      const result = await sendMessage(input.threadId, {
         body: input.body,
         replyToId: input.reply?.id ?? null,
         attachmentIds: input.attachments.map((attachment) => attachment.id),
         mentions: input.mentions,
       }, input.key, input.attachments)
-      return { ...result, tempId: input.tempId }
+      return { ...result, tempId: input.tempId, threadId: input.threadId }
     },
     onSuccess: async (result) => {
       const serverMessage = await getMessage(result.id)
-      upsertMessageCache(client, threadId!, serverMessage, result.tempId)
-      await client.invalidateQueries({ queryKey: messageKeys.pages(threadId!) })
-      setReplyTo(null)
-      setAttachments([])
-      sendAttemptRef.current = { signature: '', key: '', tempId: '' }
-      await client.invalidateQueries({ queryKey: messageKeys.detail(threadId!) })
+      upsertMessageCache(client, result.threadId, serverMessage, result.tempId)
+      await client.invalidateQueries({ queryKey: messageKeys.pages(result.threadId) })
+      if (threadId === result.threadId) {
+        setReplyTo(null)
+        setAttachments([])
+        sendAttemptRef.current = { signature: '', key: '', tempId: '' }
+      }
+      await client.invalidateQueries({ queryKey: messageKeys.detail(result.threadId) })
     },
     onError: (_error, input) => {
-      removeMessageCache(client, threadId!, input.tempId)
+      removeMessageCache(client, input.threadId, input.tempId)
     },
   })
-  const upload = useMutation({
-    mutationFn: async (files: File[]) => {
-      return uploadMessageAttachments(threadId!, files)
-    },
-    onSuccess: ({ uploaded }) => {
-      setAttachments((current) => [...current, ...uploaded])
-    },
-  })
+  function addFiles(files: File[]) {
+    const staged = stageMessageFiles(files)
+    setAttachments((current) => [...current, ...staged])
+  }
 
   const markRead = useMutation({
     retry: 2,
@@ -402,9 +396,10 @@ export function MessagesPage() {
       canEdit: true,
       canDelete: true,
     }
-    addOptimisticMessage(client, threadId, optimistic)
+    if (!attachments.some((attachment) => localAttachment(attachment))) addOptimisticMessage(client, threadId, optimistic)
     try {
       await send.mutateAsync({
+        threadId,
         body: input.body,
         mentions: input.mentions,
         reply: replyTo,
@@ -557,7 +552,7 @@ export function MessagesPage() {
           replyTo={replyTo}
           attachments={attachments}
           sending={send.isPending}
-          uploading={upload.isPending}
+          uploading={false}
           initialComposerBody={composerSeed?.threadId === threadId ? composerSeed.body : undefined}
           onInitialComposerBodyConsumed={() => setComposerSeed(null)}
           onBack={() => navigate(`/messages?${params}`)}
@@ -588,7 +583,7 @@ export function MessagesPage() {
           onEdit={editMessage}
           onDelete={deleteMessage}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
-          onFiles={(files) => upload.mutate(files)}
+          onFiles={addFiles}
           onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}
           onSend={submitMessage}
           onRetry={() => {
@@ -616,7 +611,9 @@ export function MessagesPage() {
               }
             }}
             onFiles={(files) => {
-              pendingDraftFilesRef.current.push(...files)
+              const staged = stageMessageFiles(files)
+              if (!staged.length) return
+              pendingDraftFilesRef.current.push(...staged)
               if (!directStartingRef.current && !direct.isSuccess) {
                 directStartingRef.current = targetContact.data.id
                 direct.mutate(targetContact.data)

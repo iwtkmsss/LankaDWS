@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { LoaderCircle, Search } from 'lucide-react'
 import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValue'
 import { Avatar } from '../../shared/ui'
@@ -28,7 +28,41 @@ export function AsyncTaskCombobox({
   const [active, setActive] = useState(-1)
   const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle')
   const root = useRef<HTMLDivElement>(null)
+  const control = useRef<HTMLDivElement>(null)
+  const menu = useRef<HTMLUListElement>(null)
   const { debouncedValue, isComposing, onCompositionStart, onCompositionEnd } = useDebouncedSearchValue(text)
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const panel = menu.current!
+    // The top layer escapes clipping cards and scroll containers while the
+    // list stays inside the field's DOM for focus and outside-click handling.
+    panel.showPopover?.()
+    const place = () => {
+      const rect = control.current!.getBoundingClientRect()
+      const gap = 4
+      const edge = 8
+      const below = Math.max(0, window.innerHeight - rect.bottom - gap - edge)
+      const above = Math.max(0, rect.top - gap - edge)
+      const upward = below < Math.min(panel.scrollHeight, 230) && above > below
+      const width = Math.min(rect.width, window.innerWidth - edge * 2)
+      panel.style.width = `${width}px`
+      panel.style.maxHeight = `${Math.min(230, upward ? above : below)}px`
+      panel.style.left = `${Math.max(edge, Math.min(rect.left, window.innerWidth - width - edge))}px`
+      panel.style.top = `${upward ? Math.max(edge, rect.top - gap - panel.getBoundingClientRect().height) : rect.bottom + gap}px`
+    }
+    place()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place)
+    observer?.observe(control.current!)
+    observer?.observe(panel)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -58,7 +92,7 @@ export function AsyncTaskCombobox({
     }
   }}>
     <label htmlFor={inputId}>{label}</label>
-    <div className="search-field async-task-combobox__control">
+    <div className="search-field async-task-combobox__control" ref={control}>
       <Search size={16} aria-hidden />
       <input id={inputId} role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list" value={text} disabled={disabled}
         placeholder={placeholder} onFocus={() => setOpen(true)} onClick={() => setOpen(true)} onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}
@@ -71,7 +105,7 @@ export function AsyncTaskCombobox({
           if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); setText(selectedOption?.label ?? '') }
         }} />
       {state === 'loading' && <LoaderCircle className="is-spinning" size={16} aria-label="Завантаження" />}
-      {open && <ul id={listId} role="listbox" aria-label={label}>
+      {open && <ul ref={menu} id={listId} popover="manual" role="listbox" aria-label={label}>
         {state === 'error' ? <li role="status">Не вдалося завантажити варіанти.</li>
           : items.length ? items.map((item, index) => <li key={item.id} role="option" aria-selected={index === active} className={`${index === active ? 'is-active' : ''}${item.avatar ? ' has-avatar' : ''}`} onMouseDown={(event) => { event.preventDefault(); choose(item) }}>
             {item.avatar && <Avatar size="sm" name={item.avatar.name} src={item.avatar.src} />}

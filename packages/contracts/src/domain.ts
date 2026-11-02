@@ -111,8 +111,6 @@ export interface TaskReminderView {
 export interface TaskPersonalStateView {
   favorited: boolean
   important: boolean
-  following: boolean
-  followerCount: number
   reminders: TaskReminderView[]
 }
 

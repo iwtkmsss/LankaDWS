@@ -18,12 +18,16 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); Reflect.deleteProperty(HTMLElement.prototype, 'showPopover') })
 
-function Harness() {
+function Harness({ showMentionButton = false, formatting = false, linkMentions = false }: { showMentionButton?: boolean; formatting?: boolean; linkMentions?: boolean }) {
   const [value, setValue] = useState('')
   const [mentions, setMentions] = useState<StructuredMentionInput[]>([])
   return (
     <>
       <MentionTextarea
+        showMentionButton={showMentionButton}
+        formatting={formatting}
+        linkMentions={linkMentions}
+        toolbarActions={formatting ? <button type="button">Вставити фото</button> : undefined}
         label="Текст"
         value={value}
         mentions={mentions}
@@ -40,6 +44,24 @@ function Harness() {
 }
 
 describe('MentionTextarea', () => {
+  it('starts a mention at the textarea caret without fetching an empty user search', () => {
+    vi.mocked(api).mockClear()
+    render(<QueryClientProvider client={new QueryClient()}><Harness showMentionButton /></QueryClientProvider>)
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'Привіт колего' } })
+    input.setSelectionRange(7, 7)
+    fireEvent.click(screen.getByRole('button', { name: 'Згадати співробітника' }))
+    expect(input).toHaveValue('Привіт @колего')
+    expect(screen.getByText('Введіть ім’я співробітника…')).toBeVisible()
+    expect(api).not.toHaveBeenCalled()
+  })
+
+  it('places the mention action before the photo action in the formatting toolbar', () => {
+    render(<QueryClientProvider client={new QueryClient()}><Harness formatting /></QueryClientProvider>)
+    const mention = screen.getByRole('button', { name: 'Згадати співробітника' })
+    const photo = screen.getByRole('button', { name: 'Вставити фото' })
+    expect(mention.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
   it.each([
     { top: 50, bottom: 100, placement: 'bottom' },
     { top: 650, bottom: 700, placement: 'top' },
@@ -57,7 +79,7 @@ describe('MentionTextarea', () => {
     expect(list).toHaveStyle({ top: `${placement === 'top' ? top - 111 : bottom + 5}px`, maxHeight: '260px' })
   })
 
-  it('creates a structured mention only after selecting a candidate', async () => {
+  it.each(['@', '+'])('creates a structured mention from %s only after selecting a candidate', async (prefix) => {
     vi.mocked(api).mockResolvedValue({
       items: [{
         id: 'usr_maria',
@@ -71,7 +93,7 @@ describe('MentionTextarea', () => {
     render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>)
 
     const textbox = screen.getByRole('textbox', { name: 'Текст' })
-    fireEvent.change(textbox, { target: { value: '@мар', selectionStart: 4 } })
+    fireEvent.change(textbox, { target: { value: `${prefix}мар`, selectionStart: 4 } })
     expect(screen.getByText('[]')).toBeVisible()
     await screen.findByRole('option', { name: /Марія Іваненко/ })
     fireEvent.click(screen.getByRole('option', { name: /Марія Іваненко/ }))
@@ -81,6 +103,16 @@ describe('MentionTextarea', () => {
     expect(JSON.parse(screen.getByRole('status').textContent ?? '[]')).toEqual([
       { userId: 'usr_maria', start: 0, end: '@Марія Іваненко'.length, label: 'Марія Іваненко' },
     ])
+  })
+
+  it.each(['@', '+'])('replaces %s with a persistent person link for descriptions', async (prefix) => {
+    vi.mocked(api).mockResolvedValue({ items: [{ id: 'usr_maria', displayName: 'Іваненко Марія Петрівна', username: 'maria', jobTitle: '', avatarAsset: null }] })
+    render(<QueryClientProvider client={new QueryClient()}><Harness linkMentions /></QueryClientProvider>)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: `${prefix}мар`, selectionStart: 4 } })
+    fireEvent.click(await screen.findByRole('option', { name: /Іваненко Марія/ }))
+    expect(input).toHaveValue('[Іваненко Марія](/?employeeId=usr_maria)')
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
   })
 
   it('shifts mentions for edits before them and removes an edited mention', () => {
@@ -104,8 +136,8 @@ describe('MentionTextarea', () => {
     )
 
     expect(screen.queryByRole('link', { name: '@Марія' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
-    expect(screen.getByText('@Андрій')).toHaveClass('is-inactive')
+    expect(screen.getByRole('link', { name: 'Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
+    expect(screen.getByText('Андрій')).toHaveClass('is-inactive')
   })
 
   it('shortens stored mention names while retaining their original offsets and surrounding text', () => {
@@ -115,7 +147,7 @@ describe('MentionTextarea', () => {
       body={`${prefix}${name}, дякую!`}
       mentions={[{ userId: 'usr_olena', start: prefix.length, end: prefix.length + name.length, active: true }]}
     /></div></MemoryRouter>)
-    expect(screen.getByRole('link', { name: '@Петренко Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
-    expect(screen.getByTestId('stored-mention')).toHaveTextContent('Привіт, @Петренко Олена, дякую!')
+    expect(screen.getByRole('link', { name: 'Петренко Олена' })).toHaveAttribute('href', '/?employeeId=usr_olena')
+    expect(screen.getByTestId('stored-mention')).toHaveTextContent('Привіт, Петренко Олена, дякую!')
   })
 })

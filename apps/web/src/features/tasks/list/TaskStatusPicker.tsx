@@ -71,7 +71,7 @@ export function TaskStatusPicker({ selected, onChange, compact = false }: {
           : event.key === 'Home' ? 0 : event.key === 'End' ? inputs.length - 1 : -1
         if (next >= 0) { event.preventDefault(); inputs[next]?.focus() }
       }}>
-      {TASK_STATUS_OPTIONS.map((option) => <label key={option.value}>
+      {TASK_STATUS_OPTIONS.filter((option) => option.value !== 'ARCHIVED').map((option) => <label key={option.value} data-task-status={option.value}>
         <input type="checkbox" checked={selected.includes(option.value)} onChange={(event) => onChange(event.target.checked
           ? [...selected, option.value] : selected.filter((value) => value !== option.value))} />
         <span>{option.label}</span>

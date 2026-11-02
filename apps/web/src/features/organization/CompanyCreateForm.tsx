@@ -1,3 +1,4 @@
+import { ResizableTextarea } from '../../shared/ui/ResizableTextarea'
 import { CompanyLogoPicker } from './CompanyLogoPicker'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
@@ -43,7 +44,7 @@ export function CompanyCreateForm({ onClose, onCreated }: {
     <form className="entity-form account-form" onSubmit={submit}>
       <CompanyLogoPicker value={logoFileId} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending} />
       <label className="span-2">Назва<input name="name" required /></label>
-      <label className="span-2">Стислий опис<textarea name="description" rows={4} maxLength={320} defaultValue="" placeholder="Чим займається компанія та за що відповідає команда" /></label>
+      <label className="span-2">Стислий опис<ResizableTextarea name="description" rows={4} maxLength={320} defaultValue="" placeholder="Чим займається компанія та за що відповідає команда" /></label>
       <label className="span-2">Системний slug<input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,62}" /></label>
       <label className="span-2">Часовий пояс<input name="timezone" required defaultValue="Europe/Kyiv" /></label>
       <label className="check-row span-2"><input type="checkbox" name="isActive" defaultChecked />Компанія активна</label>

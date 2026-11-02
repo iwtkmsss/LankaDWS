@@ -1,30 +1,65 @@
 import type { ReactNode } from 'react'
 import type { StructuredMentionView } from '@lankadws/contracts'
 import { MentionText } from '../mentions/MentionRenderer'
+import { personName } from '../lib/personName'
 import './formatted-text.css'
+
+function tableCells(line: string) {
+  const cells: { value: string; offset: number }[] = []
+  let start = 1
+  for (let index = 1; index < line.length; index += 1) {
+    if (line[index] === '\\') { index += 1; continue }
+    if (line[index] === '|') {
+      cells.push({ value: line.slice(start, index), offset: start })
+      start = index + 1
+    }
+  }
+  return cells
+}
 
 // Render a deliberately small Markdown vocabulary as React elements. Raw HTML
 // stays text; links accept only web URLs and local paths.
-export function FormattedText({ body, mentions = [], hideMentionPrefix = false }: { body: string; mentions?: StructuredMentionView[]; hideMentionPrefix?: boolean }) {
-  return <div className="formatted-text"><FormattedContent body={body} mentions={mentions} hideMentionPrefix={hideMentionPrefix} /></div>
+export function FormattedText({ body, mentions = [], hideMentionPrefix = false, preview = false }: { body: string; mentions?: StructuredMentionView[]; hideMentionPrefix?: boolean; preview?: boolean }) {
+  return <div className="formatted-text"><FormattedContent body={body} mentions={mentions} hideMentionPrefix={hideMentionPrefix} preview={preview} /></div>
 }
 
-export function FormattedContent({ body, mentions = [], hideMentionPrefix = false, renderText }: { body: string; mentions?: StructuredMentionView[]; hideMentionPrefix?: boolean; renderText?: (value: string, offset: number) => ReactNode }) {
+export function FormattedContent({ body, mentions = [], hideMentionPrefix = false, renderText, preview = false }: { body: string; mentions?: StructuredMentionView[]; hideMentionPrefix?: boolean; renderText?: (value: string, offset: number) => ReactNode; preview?: boolean }) {
   function text(value: string, offset: number) {
     if (renderText) return renderText(value, offset)
     return <MentionText body={value} hideMentionPrefix={hideMentionPrefix} mentions={mentions.filter((mention) => mention.start >= offset && mention.end <= offset + value.length).map((mention) => ({ ...mention, start: mention.start - offset, end: mention.end - offset }))} />
   }
   function inline(value: string, offset: number, depth = 0): ReactNode {
     if (depth > 8) return text(value, offset)
-    const pattern = /(\\[\\*~`[\]#>.-]|`[^`\n]+`|\*\*\*[^\n]+?\*\*\*|\*\*[^\n]+?\*\*(?!\*)|~~[^\n]+?~~|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\))/g
+    const pattern = /(\\[\\*~`[\]#>.|-]|`[^`\n]+`|\[br\]|\[u\].*?\[\/u\]|\[size=(?:1\d|2\d|3[0-6])\].*?\[\/size\]|\[align=(?:left|center|right|justify)\].*?\[\/align\]|\*\*\*[^\n]+?\*\*\*|\*\*[^\n]+?\*\*(?!\*)|~~[^\n]+?~~|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\))/g
     const nodes: ReactNode[] = []
     let cursor = 0
     for (const match of value.matchAll(pattern)) {
       const start = match.index
+      if (start < cursor) continue
       if (start > cursor) nodes.push(<span key={`text-${cursor}`}>{text(value.slice(cursor, start), offset + cursor)}</span>)
-      const token = match[0]
+      let token = match[0]
+      const extension = /^\[(u|size|align)(?:=|\])/.exec(token)?.[1]
+      if (extension) {
+        const tags = new RegExp(`\\[${extension}(?:=[^\\]]+)?\\]|\\[/${extension}\\]`, 'g')
+        tags.lastIndex = start
+        let nesting = 0
+        for (let tag = tags.exec(value); tag; tag = tags.exec(value)) {
+          nesting += tag[0].startsWith('[/') ? -1 : 1
+          if (nesting === 0) { token = value.slice(start, tags.lastIndex); break }
+        }
+      }
       const key = `format-${start}`
       if (token.startsWith('\\')) nodes.push(<span key={key}>{text(token.slice(1), offset + start + 1)}</span>)
+      else if (token === '[br]') nodes.push(<br key={key} />)
+      else if (token.startsWith('[u]')) nodes.push(<u key={key}>{inline(token.slice(3, -4), offset + start + 3, depth + 1)}</u>)
+      else if (token.startsWith('[size=')) {
+        const opening = token.indexOf(']') + 1
+        nodes.push(<span key={key} style={{ fontSize: `${Number(token.slice(6, opening - 1))}pt` }}>{inline(token.slice(opening, -7), offset + start + opening, depth + 1)}</span>)
+      } else if (token.startsWith('[align=')) {
+        const opening = token.indexOf(']') + 1
+        const textAlign = token.slice(7, opening - 1) as 'left' | 'center' | 'right' | 'justify'
+        nodes.push(<span key={key} className="formatted-text__aligned" style={{ textAlign }}>{inline(token.slice(opening, -8), offset + start + opening, depth + 1)}</span>)
+      }
       else if (token.startsWith('`')) nodes.push(<code key={key}>{token.slice(1, -1)}</code>)
       else if (token.startsWith('***')) nodes.push(<strong key={key}><em>{inline(token.slice(3, -3), offset + start + 3, depth + 1)}</em></strong>)
       else if (token.startsWith('**')) nodes.push(<strong key={key}>{inline(token.slice(2, -2), offset + start + 2, depth + 1)}</strong>)
@@ -34,7 +69,9 @@ export function FormattedContent({ body, mentions = [], hideMentionPrefix = fals
         const separator = token.indexOf('](')
         const href = token.slice(separator + 2, -1)
         const safe = /^(https?:\/\/|\/(?!\/))/i.test(href) && !href.includes('\\') && ![...href].some((character) => character.charCodeAt(0) <= 32)
-        nodes.push(safe ? <a key={key} href={href} rel="noopener noreferrer">{inline(token.slice(1, separator), offset + start + 1, depth + 1)}</a> : <span key={key}>{text(token, offset + start)}</span>)
+        const employeeLink = /^\/\?employeeId=[^&]+$/.test(href)
+        const label = employeeLink ? personName(token.slice(1, separator)) : token.slice(1, separator)
+        nodes.push(safe ? <a key={key} href={href} className={employeeLink ? 'structured-mention' : undefined} rel="noopener noreferrer">{inline(label, offset + start + 1, depth + 1)}</a> : <span key={key}>{text(token, offset + start)}</span>)
       }
       cursor = start + token.length
     }
@@ -46,6 +83,31 @@ export function FormattedContent({ body, mentions = [], hideMentionPrefix = fals
   let offset = 0
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!
+    const alignedLine = /^\[align=(left|center|right|justify)\](.*)\[\/align\]$/.exec(line)
+    if (alignedLine) {
+      const textAlign = alignedLine[1] as 'left' | 'center' | 'right' | 'justify'
+      const openingLength = line.indexOf(']') + 1
+      blocks.push(<p key={index} style={{ textAlign }}>{inline(alignedLine[2]!, offset + openingLength)}</p>)
+      offset += line.length + 1
+      continue
+    }
+    if (line.startsWith('|') && line.endsWith('|') && line.length > 1) {
+      const rows: ReactNode[] = []
+      do {
+        const row = lines[index]!
+        if (preview) {
+          const cells = tableCells(row).filter((cell) => cell.value.trim())
+          if (cells.length) rows.push(<p key={index}>{cells.map((cell, column) => <span key={column}>{column > 0 && ' · '}{inline(cell.value, offset + cell.offset)}</span>)}</p>)
+        } else {
+          rows.push(<tr key={index}>{tableCells(row).map((cell, column) => <td key={column}>{inline(cell.value, offset + cell.offset)}</td>)}</tr>)
+        }
+        offset += row.length + 1
+        if (!lines[index + 1]?.startsWith('|') || !lines[index + 1]?.endsWith('|')) break
+        index += 1
+      } while (index < lines.length)
+      blocks.push(preview ? <div key={`table-${index}`}>{rows}</div> : <table key={`table-${index}`}><tbody>{rows}</tbody></table>)
+      continue
+    }
     if (line === '```') {
       const code: string[] = []
       offset += line.length + 1

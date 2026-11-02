@@ -10,7 +10,7 @@ import request from 'supertest';
 import type { ChatMessagePage, ChatMessageView, ChatThreadDetail, ChatUserSearchPage, DashboardView, OrganizationCapabilityView, FeedListResult, ImportReadinessView, PrincipalView, TaskDetailView } from '@lankadws/contracts';
 import { resetConfigForTests } from '../../src/config/config.js';
 import { configureApp } from '../../src/bootstrap.js';
-import { FeedProjectionService } from '../../src/modules/feed/feed-projection.service.js';
+import { FeedProjectionService, writeFeedProjection } from '../../src/modules/feed/feed-projection.service.js';
 import { JobsService } from '../../src/modules/jobs/jobs.service.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 
@@ -57,6 +57,7 @@ beforeAll(async () => {
     stdio: 'pipe',
   })
   process.env.NODE_ENV = 'test';
+  process.env.MALWARE_SCANNER = 'development-clean';
   process.env.DATABASE_URL = databaseUrl;
   process.env.DISABLE_JOB_WORKER = 'true';
   resetConfigForTests();
@@ -510,6 +511,40 @@ describe('LankaDWS API workflows', () => {
     expect(await prisma.outboxEvent.findFirst({ where: { eventType: 'capability.changed' } })).not.toBeNull();
   });
 
+  it('persists Feed comment photos and keeps their downloads inside the live post audience', async () => {
+    const maria = await login('maria');
+    const andrii = await login('andrii');
+    const olena = await login('olena');
+    const prisma = app.get(PrismaService);
+    const post = await maria.agent.post('/api/v1/feed').set('x-csrf-token', maria.csrf)
+      .set('idempotency-key', `feed-photo-${Date.now()}`).send({
+        companyId: 'cmp_lankadws_ua', body: 'Приватне обговорення з фото.', audience: { type: 'USERS', userIds: ['usr_andrii'] },
+      }).expect(201);
+    const postId = (post.body as { id: string }).id;
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64');
+    await olena.agent.post(`/api/v1/feed/${postId}/comment-attachments`).set('x-csrf-token', olena.csrf).attach('file', png, 'screen.png').expect(404);
+    await andrii.agent.post(`/api/v1/feed/${postId}/comment-attachments`).set('x-csrf-token', andrii.csrf).attach('file', Buffer.from('plain text'), 'fake.png').expect(400);
+    const uploaded = await andrii.agent.post(`/api/v1/feed/${postId}/comment-attachments`).set('x-csrf-token', andrii.csrf).attach('file', png, 'screen.png').expect(201);
+    const photoId = (uploaded.body as { id: string }).id;
+    await andrii.agent.get(`/api/v1/files/${photoId}/download`).expect(403);
+    await maria.agent.post(`/api/v1/feed/${postId}/comments`).set('x-csrf-token', maria.csrf)
+      .send({ body: 'Не моє вкладення', attachmentIds: [photoId] }).expect(400);
+    const comment = await andrii.agent.post(`/api/v1/feed/${postId}/comments`).set('x-csrf-token', andrii.csrf)
+      .send({ body: '', attachmentIds: [photoId] }).expect(201);
+    const commentId = (comment.body as { id: string }).id;
+    const detail = await maria.agent.get(`/api/v1/feed/${postId}`).expect(200);
+    expect(detail.body.comments).toEqual(expect.arrayContaining([expect.objectContaining({ id: commentId, body: '', attachments: [expect.objectContaining({ id: photoId, scanStatus: 'QUARANTINED' })] })]));
+    expect(await prisma.fileLink.findFirst({ where: { fileId: photoId, entityType: 'FEED_COMMENT', entityId: commentId } })).not.toBeNull();
+    // Process only this scan job; other seeded jobs are unrelated to the scenario.
+    await app.get<{ scanUploadedFile: (id: string) => Promise<void> }>(JobsService).scanUploadedFile(photoId);
+    await maria.agent.get(`/api/v1/files/${photoId}/download`).expect(200);
+    await olena.agent.get(`/api/v1/files/${photoId}/download`).expect(404);
+    const reloaded = await maria.agent.get(`/api/v1/feed/${postId}`).expect(200);
+    expect(reloaded.body.comments[0].attachments[0]).toMatchObject({ id: photoId, scanStatus: 'CLEAN' });
+    await prisma.comment.update({ where: { id: commentId }, data: { deletedAt: new Date() } });
+    await maria.agent.get(`/api/v1/files/${photoId}/download`).expect(404);
+  });
+
   it('publishes a private-safe feed with explicit acknowledgement and a monotonic read cursor', async () => {
     const maria = await login('maria');
     const prisma = app.get(PrismaService);
@@ -921,104 +956,56 @@ describe('LankaDWS API workflows', () => {
     })).not.toBeNull();
   });
 
-  it('shares a standalone file explicitly, rechecks scan and audience ACL, and hides it after revoke', async () => {
+  it('retires standalone Feed file sharing while preserving legacy access and revocation', async () => {
     const dmytro = await login('dmytro');
     const andrii = await login('andrii');
     const maria = await login('maria');
     const uploaded = await dmytro.agent
       .post('/api/v1/feed/attachments?company=cmp_lankadws_ua')
       .set('x-csrf-token', dmytro.csrf)
-      .attach('file', Buffer.from('Standalone feed file without projected metadata\n'), {
-        filename: 'standalone-plan.txt',
-        contentType: 'text/plain',
+      .attach('file', Buffer.from('Legacy shared file\n'), {
+        filename: 'standalone-plan.txt', contentType: 'text/plain',
       })
       .expect(201);
     const fileId = (uploaded.body as { id: string }).id;
-    const idempotency = `feed-file-share-${Date.now()}`;
-    const firstShare = await dmytro.agent
+    const prisma = app.get(PrismaService);
+    await dmytro.agent
       .post(`/api/v1/feed/file-shares/${fileId}`)
       .set('x-csrf-token', dmytro.csrf)
-      .set('idempotency-key', idempotency)
-      .send({
-        companyId: 'cmp_lankadws_ua',
-        audience: { type: 'USERS', userIds: ['usr_andrii'] },
-      })
-      .expect(201);
-    const share = firstShare.body as { id: string; fileId: string; version: number; status: string };
-    expect(share).toMatchObject({ fileId, version: 1, status: 'ACTIVE' });
-    const repeatedShare = await dmytro.agent
-      .post(`/api/v1/feed/file-shares/${fileId}`)
-      .set('x-csrf-token', dmytro.csrf)
-      .set('idempotency-key', idempotency)
-      .send({
-        companyId: 'cmp_lankadws_ua',
-        audience: { type: 'USERS', userIds: ['usr_andrii'] },
-      })
-      .expect(201);
-    expect(repeatedShare.body).toMatchObject({ id: share.id });
+      .set('idempotency-key', 'retired-feed-file-share')
+      .send({ companyId: 'cmp_lankadws_ua', audience: { type: 'USERS', userIds: ['usr_andrii'] } })
+      .expect(404);
+    expect(await prisma.feedFileShare.count({ where: { fileId } })).toBe(0);
 
-    const pendingFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
-      .expect(200);
-    const pendingCard = (pendingFeed.body as FeedListResult).items.find((item) =>
-      item.kind === 'SOURCE' && item.id === share.id);
-    expect(pendingCard).toMatchObject({
-      kind: 'SOURCE',
-      sourceType: 'FILE',
-      title: 'standalone-plan.txt',
-      actionState: 'PROCESSING',
-    });
-    expect((await maria.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
-      .expect(200)).body.items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: share.id }),
-    ]));
+    const before = await andrii.agent.get('/api/v1/feed?company=cmp_lankadws_ua').expect(200);
+    const beforeSummary = await andrii.agent.get('/api/v1/feed/summary?company=cmp_lankadws_ua').expect(200);
+    const share = await prisma.feedFileShare.create({ data: {
+      id: 'fshare_legacy_hidden', workspaceId: 'ws_lankadws', companyId: 'cmp_lankadws_ua',
+      fileId, ownerId: 'usr_dmytro', audienceType: 'USER', audienceKey: 'USER:usr_andrii',
+      directRecipients: { create: { id: 'fshr_legacy_hidden', userId: 'usr_andrii' } },
+    } });
+    const itemId = await prisma.$transaction((tx) => writeFeedProjection(tx, {
+      workspaceId: share.workspaceId, companyId: share.companyId, sourceType: 'FILE',
+      sourceId: share.id, fileShareId: share.id, sourceVersion: 1, action: 'SHARED',
+      actorId: 'usr_dmytro', recipientIds: ['usr_andrii'], visibility: 'PARTICIPANTS', occurredAt: new Date(),
+    }));
+    const feed = await andrii.agent.get('/api/v1/feed?company=cmp_lankadws_ua').expect(200);
+    expect((feed.body as FeedListResult).items.some((item) => item.itemId === itemId)).toBe(false);
+    expect((feed.body as FeedListResult).unreadCount).toBe((before.body as FeedListResult).unreadCount);
+    const summary = await andrii.agent.get('/api/v1/feed/summary?company=cmp_lankadws_ua').expect(200);
+    expect(summary.body).toEqual(beforeSummary.body);
+    const fileFeed = await andrii.agent.get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE').expect(200);
+    expect(fileFeed.body).toMatchObject({ items: [], unreadCount: (before.body as FeedListResult).unreadCount, nextCursor: null });
+
     await andrii.agent.get(`/api/v1/files/${fileId}/status`).expect(200);
     await andrii.agent.get(`/api/v1/files/${fileId}/download`).expect(403);
     await maria.agent.get(`/api/v1/files/${fileId}/status`).expect(404);
-
-    const prisma = app.get(PrismaService);
-    const stored = await prisma.feedItem.findMany({
-      where: { sourceType: 'FILE', sourceId: share.id },
-    });
-    expect(stored).toHaveLength(1);
-    expect(stored[0]?.safePayload).not.toContain('standalone-plan.txt');
-    expect(stored[0]?.safePayload).not.toContain('text/plain');
-
-    const jobs = app.get(JobsService);
-    for (let index = 0; index < 20; index += 1) {
-      await jobs.runOnce();
-      const status = await dmytro.agent.get(`/api/v1/files/${fileId}/status`).expect(200);
-      if ((status.body as { scanStatus: string }).scanStatus === 'CLEAN') break;
-    }
-    const readyFeed = await andrii.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
-      .expect(200);
-    const readyCard = (readyFeed.body as FeedListResult).items.find((item) =>
-      item.kind === 'SOURCE' && item.id === share.id);
-    expect(readyCard).toMatchObject({ id: share.id, actionState: 'AVAILABLE' });
-    if (!readyCard) throw new Error('Ready standalone File card is missing');
-    await andrii.agent.get(`/api/v1/files/${fileId}/download`).expect(200);
-
     await dmytro.agent
       .delete(`/api/v1/feed/file-shares/${share.id}`)
       .set('x-csrf-token', dmytro.csrf)
       .send({ expectedVersion: 1 })
       .expect(200, { revoked: true, version: 2 });
-    const afterRevoke = await andrii.agent
-      .get('/api/v1/feed?company=cmp_lankadws_ua&type=FILE')
-      .expect(200);
-    expect((afterRevoke.body as FeedListResult).items).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: share.id }),
-    ]));
     await andrii.agent.get(`/api/v1/files/${fileId}/status`).expect(404);
-    await andrii.agent.get(`/api/v1/files/${fileId}/download`).expect(404);
-    expect(await prisma.auditEvent.findFirst({
-      where: { action: 'feed.file.revoked', entityId: share.id },
-    })).not.toBeNull();
-    expect(await prisma.outboxEvent.findFirst({
-      where: { eventType: 'feed.file.revoked', aggregateId: share.id },
-    })).not.toBeNull();
   });
 
   it('returns a company-scoped org tree with safe employee projections', async () => {
@@ -1530,7 +1517,7 @@ describe('LankaDWS API workflows', () => {
     })).toBe(2);
   });
 
-  it('supports complete task editing, private state, following, reminders, and readable history', async () => {
+  it('supports complete task editing, private state, reminders, and readable history', async () => {
     const maria = await login('maria');
     const andrii = await login('andrii');
     const marko = await login('marko');
@@ -1554,8 +1541,6 @@ describe('LankaDWS API workflows', () => {
       personalState: {
         favorited: false,
         important: false,
-        following: false,
-        followerCount: 0,
         reminders: [],
       },
     });
@@ -1629,19 +1614,18 @@ describe('LankaDWS API workflows', () => {
       expect.objectContaining({ id: taskId }),
     ]));
 
-    const followKey = `task-follow-${Date.now()}`;
+    // Subscription endpoints are removed; observer participants remain the
+    // canonical way to include a person in task updates.
     await maria.agent
       .post(`/api/v1/tasks/${taskId}/followers`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', followKey)
+      .set('idempotency-key', `removed-subscription-${Date.now()}`)
       .send({})
-      .expect(201, { userId: 'usr_maria', following: true });
+      .expect(404);
     await maria.agent
-      .post(`/api/v1/tasks/${taskId}/followers`)
+      .delete(`/api/v1/tasks/${taskId}/followers/usr_maria`)
       .set('x-csrf-token', maria.csrf)
-      .set('idempotency-key', followKey)
-      .send({})
-      .expect(201, { userId: 'usr_maria', following: true });
+      .expect(404);
 
     const remindAt = new Date(Date.now() + 1200).toISOString();
     const reminderResponse = await maria.agent
@@ -1661,6 +1645,8 @@ describe('LankaDWS API workflows', () => {
     if (!reminderId) throw new Error('Task reminder was not created');
 
     const detail = await maria.agent.get(`/api/v1/tasks/${taskId}`).expect(200);
+    expect(detail.body.personalState).not.toHaveProperty('following');
+    expect(detail.body.personalState).not.toHaveProperty('followerCount');
     expect(detail.body).toMatchObject({
       title: 'Погодити повний сценарій редагування',
       description: 'Оновлений критерій готовності',
@@ -1671,8 +1657,6 @@ describe('LankaDWS API workflows', () => {
       personalState: {
         favorited: true,
         important: true,
-        following: true,
-        followerCount: 1,
         reminders: [expect.objectContaining({ id: reminderId, status: 'ACTIVE' })],
       },
     });
@@ -1751,19 +1735,6 @@ describe('LankaDWS API workflows', () => {
       && item.label === 'Створено завдання'
     ))).toBe(true);
 
-    await maria.agent
-      .delete(`/api/v1/tasks/${taskId}/followers/usr_maria`)
-      .set('x-csrf-token', maria.csrf)
-      .expect(200, { userId: 'usr_maria', following: false });
-    const afterUnfollow = await maria.agent
-      .get(`/api/v1/tasks/${taskId}`)
-      .expect(200);
-    expect(afterUnfollow.body.personalState).toMatchObject({
-      favorited: true,
-      important: true,
-      following: false,
-      followerCount: 0,
-    });
   });
 
   it('searches only active scoped users with Unicode-insensitive deterministic ranking', async () => {

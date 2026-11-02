@@ -42,10 +42,10 @@ export function TaskActiveStatusAccordion({ selected, onChange }: {
   }, [open])
 
   const renderOption = (option: typeof options[number]) => <button key={option.value} type="button"
-    aria-pressed={selected.includes(option.value)} data-preset={option.value}
+    aria-pressed={selected.includes(option.value)} data-preset={option.value} data-task-status={option.value}
     onClick={() => {
       pendingFocus.current = option.value
-      onChange(selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])
+      onChange(selected.includes(option.value) ? selected.filter((value) => value !== option.value && value !== 'ARCHIVED') : [...selected.filter((value) => value !== 'ARCHIVED'), option.value])
     }}>{option.label}</button>
 
   return <div className="task-active-status-accordion" ref={root}

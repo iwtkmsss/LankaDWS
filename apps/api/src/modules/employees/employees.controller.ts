@@ -22,7 +22,7 @@ export class EmployeesController {
 
   private async searchOptions(principal: AuthPrincipal, companyIds: string[], query: UserSelectorSearchQuery) {
     return { items: await searchUsers(this.prisma, principal, query.q, {
-      excludeIds: query.excludeIds, limit: query.limit,
+      excludeIds: query.excludeIds, limit: query.limit, recommendations: query.recommendations,
       where: { AND: [{ OR: [
         { accountType: 'USER', primaryCompanyId: { in: companyIds } },
         ...(query.accountType !== 'USER' ? [{ accountType: 'ADMIN' as const }] : []),

@@ -18,19 +18,35 @@ function principal(): AuthPrincipal {
   }
 }
 
-function serviceWith(prisma: Record<string, unknown>, access: Record<string, unknown> = {}, files: Record<string, unknown> = {}) {
+function serviceWith(prisma: Record<string, unknown>, access: Record<string, unknown> = {}, files: Record<string, unknown> = {}, commands: Record<string, unknown> = {}) {
   return new TaskCompatibilityService(
     prisma as never,
     { allowedCompanies: vi.fn().mockReturnValue(['cmp_1']) } as never,
     access as never,
     files as never,
-    {} as never,
+    commands as never,
     {} as never,
     {} as never,
   )
 }
 
 describe('TaskCompatibilityService', () => {
+  it('includes archived records only when requested while preserving participant scope', () => {
+    const service = serviceWith({})
+    const archived = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { status: 'ARCHIVED' })
+    expect(archived).toMatchObject({ workspaceId: 'wrk_1', companyId: { in: ['cmp_1'] }, status: 'ARCHIVED' })
+    expect(archived).not.toHaveProperty('archivedAt')
+    expect(archived.AND).toContainEqual({ participants: { some: { userId: 'usr_viewer', role: 'RESPONSIBLE', removedAt: null } } })
+    expect(service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE')).toHaveProperty('archivedAt', null)
+  })
+  it('passes staged subtask photos through the canonical aggregate command', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'child', version: 1 })
+    const service = serviceWith({ task: { findUniqueOrThrow: vi.fn().mockResolvedValue({ version: 2 }) } }, {
+      editableTask: vi.fn().mockResolvedValue({ id: 'parent', parentTaskId: null, status: 'NEW', projectId: null }),
+    }, {}, { create })
+    await service.createSubtask(principal(), 'parent', { title: 'Child', assigneeId: 'usr_viewer', expectedVersion: 1, attachmentIds: ['photo'] }, 'key')
+    expect(create).toHaveBeenCalledWith(principal(), expect.objectContaining({ parentTaskId: 'parent', attachmentIds: ['photo'] }), 'key', { expectedParentVersion: 1 })
+  })
   it('stages a composer upload without linking it, changing the task or publishing an event', async () => {
     const staged = { id: 'file_1', fileName: 'note.txt', bytes: 4, mimeType: 'text/plain', scanStatus: 'QUARANTINED' }
     const transaction = vi.fn()
@@ -80,7 +96,6 @@ describe('TaskCompatibilityService', () => {
       fileLink: { createMany: vi.fn(), count: vi.fn().mockResolvedValue(0), findFirst: vi.fn().mockResolvedValue(null) },
       task: { update: vi.fn().mockResolvedValue({ version: 2 }), findUniqueOrThrow: vi.fn().mockResolvedValue(task) },
       taskParticipant: { findMany: vi.fn().mockResolvedValue([]) },
-      taskFollower: { findMany: vi.fn().mockResolvedValue([]) },
       auditEvent: { create: vi.fn() },
       outboxEvent: { create: vi.fn() },
     }
@@ -170,7 +185,8 @@ describe('TaskCompatibilityService', () => {
       { status: { in: ['IN_PROGRESS', 'IN_REVIEW'] }, OR: [{ dueAt: null }, { dueAt: { gt: expect.any(Date) as Date } }] },
       { status: 'DONE' }, { status: 'ARCHIVED' },
     ] })
-    expect(mixed).toMatchObject({ workspaceId: 'wrk_1', companyId: { in: ['cmp_1'] }, archivedAt: null })
+    expect(mixed).toMatchObject({ workspaceId: 'wrk_1', companyId: { in: ['cmp_1'] } })
+    expect(mixed).not.toHaveProperty('archivedAt')
     const empty = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { preset: 'NONE' })
     expect(empty.AND).toContainEqual({ id: { in: [] } })
     expect(empty.AND).toContainEqual({ participants: { some: { userId: 'usr_viewer', role: 'RESPONSIBLE', removedAt: null } } })

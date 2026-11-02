@@ -75,6 +75,12 @@ export class FilesService {
     return this.persistUpload(principal, principal.primaryCompanyId, file)
   }
 
+  async uploadFeedbackAttachment(principal: AuthPrincipal, file: UploadedBinary) {
+    const uploaded = await this.persistUpload(principal, null, file)
+    await this.scheduleStagedCleanup(uploaded.id)
+    return uploaded
+  }
+
   async uploadCompanyLogo(principal: AuthPrincipal, file: UploadedBinary) {
     if (!file?.buffer || file.size <= 0 || file.size > 2 * 1024 * 1024) throw badRequest('Зображення має бути не більше 2 МБ.')
     const detected = await fileTypeFromBuffer(file.buffer)
@@ -390,7 +396,7 @@ export class FilesService {
         workspaceId: principal.workspaceId,
         OR: [
           { companyId: { in: principal.allowedCompanyIds } },
-          { companyId: null, ownerId: principal.userId },
+          { companyId: null, ...(isGlobalAdmin(principal) ? {} : { ownerId: principal.userId }) },
         ],
       },
     })
@@ -417,6 +423,10 @@ export class FilesService {
       where: { fileId },
       select: { entityType: true, entityId: true },
     })
+    const ticketIds = links.filter((link) => link.entityType === 'FEEDBACK_TICKET').map((link) => link.entityId)
+    if (isGlobalAdmin(principal) && ticketIds.length && await this.prisma.feedbackTicket.findFirst({
+      where: { id: { in: ticketIds }, workspaceId: principal.workspaceId, status: 'ACTIVE' }, select: { id: true },
+    })) return file
     {
       const messageIds = links
         .filter((link) => link.entityType === 'MESSAGE')
@@ -509,6 +519,29 @@ export class FilesService {
       }
     }
     const postIds = links.filter((link) => link.entityType === 'FEED_POST').map((link) => link.entityId)
+    const feedCommentIds = links.filter((link) => link.entityType === 'FEED_COMMENT').map((link) => link.entityId)
+    if (feedCommentIds.length > 0) {
+      const comments = await this.prisma.comment.findMany({
+        where: { id: { in: feedCommentIds }, workspaceId: principal.workspaceId, entityType: 'FEED_POST', deletedAt: null },
+        select: { entityId: true },
+      })
+      const post = comments.length > 0 ? await this.prisma.feedPost.findFirst({
+        where: {
+          id: { in: [...new Set(comments.map((comment) => comment.entityId))] },
+          workspaceId: principal.workspaceId,
+          status: 'PUBLISHED',
+          OR: [
+            { authorId: principal.userId },
+            { recipients: { some: { OR: [
+              { type: 'COMPANY', recipientId: { in: principal.allowedCompanyIds } },
+              { type: 'USER', recipientId: principal.userId },
+            ] } } },
+          ],
+        },
+        select: { id: true },
+      }) : null
+      if (post) return file
+    }
     if (postIds.length > 0) {
       const post = await this.prisma.feedPost.findFirst({
         where: {

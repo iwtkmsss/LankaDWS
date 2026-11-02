@@ -11,12 +11,13 @@ import { id } from '../../common/crypto.js';
 import { getConfig } from '../../config/config.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js';
-import { writeFeedProjection } from '../feed/feed-projection.service.js';
 import {
   deleteStoredFile,
+  filePathForScan,
   promoteFile,
   writeCleanFile,
 } from '../files/storage.js';
+import { scanFile, verifyScanContents } from '../files/malware-scanner.js';
 import {
   nextRecurrenceOccurrence,
   recurrenceJobRunAt,
@@ -193,6 +194,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       const nextState =
         candidate.attempts + 1 >= candidate.maxAttempts ? 'FAILED' : 'QUEUED';
+      if (candidate.type === 'file.scan') {
+        await this.prisma.fileObject.updateMany({
+          where: { id: candidate.entityId, scanStatus: { in: ['QUARANTINED', 'SCANNING'] } },
+          data: { scanStatus: nextState === 'FAILED' ? 'FAILED' : 'QUARANTINED' },
+        });
+      }
       await this.prisma.backgroundJob.update({
         where: { id: candidate.id },
         data: {
@@ -229,7 +236,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     entityId: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
-    if (type === 'file.scan') return this.markDevelopmentScan(entityId);
+    if (type === 'file.scan') return this.scanUploadedFile(entityId);
     if (type === 'file.staged.cleanup') return this.cleanupStagedFile(entityId);
     if (type === 'task.recurrence')
       return this.createRecurringTask(entityId, payload);
@@ -239,19 +246,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       if (recipient) this.realtime?.publishSummary([recipient], ['notifications']);
       return;
     }
-    if (
-      [
-        'task.created',
-        'task.updated',
-        'task.archived',
-        'task.recurrence_created',
-        'task.status_changed',
-        'task.participant_changed',
-        'task.subtask_created',
-        'task.attachment_added',
-        'task.attachment_removed',
-      ].includes(type)
-    ) {
+    if (type.startsWith('task.')) {
       return this.projectTaskEvent(entityId, type, payload);
     }
     if (type === 'retention.purge') return this.runRetention(entityId, payload);
@@ -261,18 +256,21 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     throw new Error('UnknownJobType');
   }
 
-  private async markDevelopmentScan(fileId: string): Promise<void> {
-    if (getConfig().MALWARE_SCANNER !== 'development-clean')
-      throw new Error('ScannerUnavailable');
+  private async scanUploadedFile(fileId: string): Promise<void> {
+    const file = await this.prisma.fileObject.findUnique({ where: { id: fileId } });
+    if (!file || ['CLEAN', 'INFECTED', 'UNSUPPORTED'].includes(file.scanStatus)) return;
+    await this.prisma.fileObject.update({ where: { id: fileId }, data: { scanStatus: 'SCANNING' } });
+    const path = await filePathForScan(file.storageKey);
+    await verifyScanContents(path, file.bytes, file.sha256);
+    const verdict = await scanFile(path);
+    await verifyScanContents(path, file.bytes, file.sha256);
     await this.prisma.$transaction(async (tx) => {
-      const file = await tx.fileObject.findUnique({
-        where: { id: fileId },
-      });
-      if (!file || file.scanStatus === 'CLEAN') return;
-      await promoteFile(file.storageKey);
+      const current = await tx.fileObject.findUnique({ where: { id: fileId } });
+      if (!current || current.scanStatus !== 'SCANNING') return;
+      if (verdict === 'CLEAN') await promoteFile(file.storageKey);
       await tx.fileObject.update({
         where: { id: fileId },
-        data: { scanStatus: 'CLEAN' },
+        data: { scanStatus: verdict },
       });
     });
   }
@@ -308,6 +306,10 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     eventType: string,
     payload: Record<string, unknown>,
   ): Promise<void> {
+    // Comment creation already writes the projection and recipient notifications
+    // atomically. Its feedItemId is nested in notificationDiff and can be null
+    // for an existing projection; neither case needs another notification.
+    if (eventType === 'task.comment_created') return;
     const task = await this.prisma.task.findUnique({
       where: { id: taskId },
       include: {
@@ -325,29 +327,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.$transaction(async (tx) => {
       const diff = (payload.notificationDiff ?? payload) as Record<string, unknown>;
       const recipients = await notifyTaskParticipants(tx, taskId, payloadString(payload, 'actorId') || null, aggregateVersion, eventType, diff);
-      if (['task.created', 'task.updated', 'task.archived', 'task.recurrence_created', 'task.attachment_added', 'task.attachment_removed'].includes(eventType)) await writeFeedProjection(tx, {
-        workspaceId: task.workspaceId,
-        companyId: task.companyId,
-        sourceType: 'TASK',
-        sourceId: task.id,
-        sourceVersion: aggregateVersion,
-        action: eventType.slice('task.'.length).toUpperCase(),
-        taskDetails: {
-          changedFields: Array.isArray(diff.changedFields)
-            ? diff.changedFields.filter((field): field is string => typeof field === 'string')
-            : [],
-        },
-        actorId: payloadString(payload, 'actorId') || null,
-        recipientIds: [
-          task.createdById,
-          task.reporterId,
-          ...task.participants.map((participant) => participant.userId),
-        ],
-        visibility: 'PARTICIPANTS',
-        occurredAt: task.updatedAt,
-      });
       return recipients;
-    }).then((recipients) => this.realtime?.publishSummary(recipients, ['notifications']));
+    }).then((recipients) => this.realtime?.publishSummary(recipients, ['notifications', 'feed']));
   }
 
   private async createRecurringTask(

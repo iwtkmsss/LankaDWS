@@ -3,8 +3,8 @@ import { personName } from '../shared/lib/personName'
 import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search, Users, X } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
 import { OrganizationSearchEmptyState } from '../features/organization/OrganizationSearchEmptyState'
@@ -162,15 +162,16 @@ export default function OrganizationUniversePage() {
             sidePanel={selectedUnitId === 'company' ? <>
               <div className="admin-org-panel-actions"><span className="eyebrow organization-panel-kind">Компанія</span><button type="button" aria-label="Закрити панель" onClick={() => update('unitId', '')}><X size={18} /></button></div>
               <header className="organization-unit-header">
-                <div className="organization-panel-company-heading"><span className="organization-panel-company-logo"><CompanyLogo src={unitsQuery.data.company.logoAsset} size={28} /></span><h2 className="organization-panel-title">{unitsQuery.data.company.name}</h2>{unitsQuery.data.company.description && <p>{unitsQuery.data.company.description}</p>}</div>
+                <OrganizationPanelHeading symbol={<CompanyLogo src={unitsQuery.data.company.logoAsset} size={28} />} name={unitsQuery.data.company.name} description={unitsQuery.data.company.description} />
                 <OrganizationStats label="Показники компанії" employeeCount={selectedCompany.userCount} childCount={units.filter((unit) => unit.parentId === null).length} />
               </header>
               <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>{unitsQuery.data.company.manager ? <div className="org-people org-people--manager"><button type="button" onClick={() => update('employeeId', unitsQuery.data.company.manager!.id)}><Avatar name={personName(unitsQuery.data.company.manager.displayName)} src={unitsQuery.data.company.manager.avatarAsset} /><span><strong>{personName(unitsQuery.data.company.manager.displayName)}</strong><small>{unitsQuery.data.company.manager.jobTitle || 'Без посади'}</small></span></button></div> : <p>Без керівника</p>}</section>
+              <section className="organization-panel-section organization-company-employees" aria-label="Працівники компанії">{selectedCompany.userCount ? <Link className="organization-company-employees-link" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=people`}><Users size={16} aria-hidden="true" />Переглянути працівників компанії</Link> : <p>У компанії ще немає працівників.</p>}</section>
               <UnassignedEmployees key={companyId} companyId={companyId} onOpen={(id) => update('employeeId', id)} />
             </> : selectedUnit ? <>
               <div className="admin-org-panel-actions"><span className="eyebrow organization-panel-kind">Підрозділ</span><button type="button" aria-label="Закрити панель" onClick={() => update('unitId', '')}><X size={18} /></button></div>
               <header className="organization-unit-header">
-                <div><h2 className="organization-panel-title"><UnitIcon icon={selectedUnit.icon} size={28} /><span>{selectedUnit.name}</span></h2>{selectedUnit.description && <p>{selectedUnit.description}</p>}</div>
+                <OrganizationPanelHeading symbol={<UnitIcon icon={selectedUnit.icon} size={28} />} name={selectedUnit.name} description={selectedUnit.description} />
                 <OrganizationStats label="Показники підрозділу" employeeCount={selectedUnit.activeEmployeeCount} childCount={selectedUnit.childCount} />
               </header>
               <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>
@@ -186,6 +187,14 @@ export default function OrganizationUniversePage() {
       )}
     </div>
   )
+}
+
+function OrganizationPanelHeading({ symbol, name, description }: { symbol: ReactNode; name: string; description?: string | null }) {
+  return <div className="organization-panel-heading">
+    <span className="organization-panel-heading__symbol">{symbol}</span>
+    <h2 className="organization-panel-title">{name}</h2>
+    {description && <p>{description}</p>}
+  </div>
 }
 
 function OrganizationStats({ label, employeeCount, childCount }: { label: string; employeeCount: number; childCount: number }) {
@@ -273,10 +282,11 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
     <Card className="directory-card directory-card--people">
       <header className="directory-people-heading">
         <div className="directory-people-title">
-          <span className="eyebrow">Команда</span>
           <div className="directory-people-title__summary">
-            <div><h2>{scopeName ?? 'Усі працівники'}</h2><p>{scopeName ? 'Працівники вибраного підрозділу та його доступна робоча інформація.' : 'Каталог працівників усієї компанії.'}</p></div>
-            <div className="directory-people-count"><strong>{query.data?.items.length ?? 0}</strong><span>Знайдено.</span></div>
+            <div>
+              <h2>{scopeName ?? 'Усі працівники'}: {query.data?.items.length ?? 0}</h2>
+              <p>{scopeName ? 'Працівники вибраного підрозділу.' : 'Каталог працівників вибраної компанії та її підрозділів.'}</p>
+            </div>
           </div>
         </div>
       </header>

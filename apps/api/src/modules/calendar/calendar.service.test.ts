@@ -18,13 +18,16 @@ const input: CreateCalendarEventInput = {
 function setup() {
   const createdAt = new Date('2026-10-16T10:00:00Z')
   const tx = {
-    event: { create: vi.fn().mockResolvedValue({ id: 'event', version: 1, createdAt }), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    event: { create: vi.fn().mockResolvedValue({ id: 'event', version: 1, createdAt }), updateMany: vi.fn().mockResolvedValue({ count: 1 }), deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
     eventAudience: { createMany: vi.fn(), deleteMany: vi.fn() },
+    user: { findMany: vi.fn().mockResolvedValue([{ id: 'recipient' }]) },
+    eventAcknowledgement: { createMany: vi.fn() },
+    notification: { createMany: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
     backgroundJob: { create: vi.fn(), updateMany: vi.fn(), findUnique: vi.fn().mockResolvedValue(null) },
     idempotencyRecord: { create: vi.fn() },
     auditEvent: { create: vi.fn() }, outboxEvent: { create: vi.fn() },
     feedItem: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
-    feedSourceHead: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
+    feedSourceHead: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn(), deleteMany: vi.fn() },
   }
   const prisma = {
     idempotencyRecord: { findUnique: vi.fn().mockResolvedValue(null) },
@@ -49,12 +52,75 @@ it('creates one canonical feed reference in the event transaction for a shared c
   expect(tx.eventAudience.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ companyId: 'audience-company' })] })
 })
 
+it('deletes only an owned workspace event at its current version and cleans live references', async () => {
+  const { service, prisma, tx } = setup()
+  prisma.event.findFirst.mockResolvedValue({ id: 'event', version: 1, companyId: 'owner-company' })
+  await service.remove(principal, 'event', 1)
+  const where = { id: 'event', workspaceId: 'workspace', ownerId: 'owner', companyId: { in: principal.allowedCompanyIds } }
+  expect(prisma.event.findFirst).toHaveBeenCalledWith({ where })
+  expect(tx.event.deleteMany).toHaveBeenCalledWith({ where: { ...where, version: 1 } })
+  expect(tx.backgroundJob.updateMany).toHaveBeenCalledWith({
+    where: { type: 'calendar.reminder', entityId: 'event', state: 'QUEUED' }, data: { state: 'CANCELLED' },
+  })
+  expect(tx.notification.deleteMany).toHaveBeenCalledWith({ where: { entityType: 'EVENT', entityId: 'event' } })
+  expect(tx.feedSourceHead.deleteMany).toHaveBeenCalledWith({ where: { workspaceId: 'workspace', sourceType: 'EVENT', sourceId: 'event' } })
+  expect(tx.auditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'calendar.event.deleted' }) as unknown })
+  expect(tx.outboxEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ eventType: 'calendar.event.deleted', aggregateVersion: 2 }) as unknown })
+})
+
+it('rejects deletion of an inaccessible or foreign event before a transaction', async () => {
+  const { service, prisma, tx } = setup()
+  prisma.event.findFirst.mockResolvedValue(null)
+  await expect(service.remove(principal, 'event', 1)).rejects.toThrow()
+  expect(tx.event.deleteMany).not.toHaveBeenCalled()
+  expect(prisma.$transaction).not.toHaveBeenCalled()
+})
+
+it('rejects stale deletion before cleaning references', async () => {
+  const { service, tx } = setup()
+  tx.event.deleteMany.mockResolvedValue({ count: 0 })
+  await expect(service.remove(principal, 'event', 1)).rejects.toMatchObject({ status: 409 })
+  expect(tx.notification.deleteMany).not.toHaveBeenCalled()
+  expect(tx.feedSourceHead.deleteMany).not.toHaveBeenCalled()
+})
+
 it('keeps a calendar event for only myself out of the feed', async () => {
   const { service, tx } = setup()
   await service.create(principal, { ...input, audience: { type: 'PRIVATE' } }, 'private-request')
   expect(tx.event.create).toHaveBeenCalledOnce()
   expect(tx.feedItem.create).not.toHaveBeenCalled()
   expect(tx.feedSourceHead.upsert).not.toHaveBeenCalled()
+})
+
+it('snapshots recipients and sends individual action notifications only when requested', async () => {
+  const { service, tx } = setup()
+  await service.create(principal, { ...input, requiresAcknowledgement: true }, 'ack')
+  expect(tx.event.create).toHaveBeenCalledWith({ data: expect.objectContaining({ requiresAcknowledgement: true }) as unknown })
+  expect(tx.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
+    workspaceId: 'workspace', isActive: true, id: { not: 'owner' }, primaryCompanyId: { in: ['audience-company'] },
+  } }))
+  expect(tx.eventAcknowledgement.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ eventId: 'event', userId: 'recipient', eventVersion: 1 })] })
+  expect(tx.notification.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ recipientId: 'recipient', entityType: 'EVENT', requiresAction: true })] })
+})
+
+it('rejects acknowledgement for private events at the service boundary', async () => {
+  const { service, tx } = setup()
+  await expect(service.create(principal, { ...input, audience: { type: 'PRIVATE' }, requiresAcknowledgement: true }, 'private-ack')).rejects.toThrow()
+  expect(tx.event.create).not.toHaveBeenCalled()
+})
+
+it('renews acknowledgements on edits and disables them when the event becomes private', async () => {
+  const { service, tx, prisma } = setup()
+  prisma.event.findFirst.mockResolvedValue({
+    id: 'event', version: 1, companyId: 'owner-company', ownerId: 'owner', requiresAcknowledgement: true,
+  })
+  await service.update(principal, 'event', { ...input, expectedVersion: 1 })
+  expect(tx.event.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ requiresAcknowledgement: true }) as unknown }))
+  expect(tx.eventAcknowledgement.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ eventId: 'event', userId: 'recipient', eventVersion: 2 })] })
+  tx.eventAcknowledgement.createMany.mockClear()
+  await service.update(principal, 'event', { ...input, expectedVersion: 1, audience: { type: 'PRIVATE' } })
+  expect(tx.event.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ requiresAcknowledgement: false }) as unknown }))
+  expect(tx.eventAcknowledgement.createMany).not.toHaveBeenCalled()
 })
 
 it('returns an idempotent replay without creating another event or feed item', async () => {

@@ -3,7 +3,6 @@ import { lazy } from 'react'
 import type { OrganizationCapabilityCode } from '@lankadws/contracts'
 import {
   BookOpen,
-  Bell,
   CalendarDays,
   CheckSquare2,
   FileSearch,
@@ -20,7 +19,7 @@ export interface RouteMeta {
   title: string
   adminOnly?: boolean
   nav?: boolean
-  navGroup?: 'primary' | 'communication' | 'company' | 'management' | 'administration'
+  navGroup?: 'primary' | 'company' | 'management' | 'administration'
   navOrder?: number
   navIcon?: LucideIcon
   capability?: OrganizationCapabilityCode
@@ -35,7 +34,7 @@ const loadTasks = () => import('../pages/TasksPage')
 const loadCalendar = () => import('../pages/CalendarPage')
 const loadContent = () => import('../pages/ContentPages')
 const loadDrive = () => import('../features/drive/DrivePage')
-const loadCommunication = () => import('../pages/CommunicationPages')
+const loadMessages = () => import('../features/messages/MessagesPage').then((module) => ({ default: module.MessagesPage }))
 const loadSettings = () => import('../pages/SettingsPages')
 const loadLifecycle = () => import('../pages/LifecyclePage')
 const loadAdmin = () => import('../pages/AdminPages')
@@ -44,12 +43,13 @@ const loadAdminOrganization = () => import('../pages/AdminOrganizationPage')
 const loadLegacyRedirect = () => import('../pages/LegacyRouteRedirectPage')
 
 const Feed = lazy(loadFeed)
+const FeedShowcase = lazy(() => import('../features/feed-showcase/FeedShowcasePage'))
 const Tasks = lazy(loadTasks)
 const TaskCreate = lazy(() => import('../pages/TaskCreatePage'))
 const Calendar = lazy(loadCalendar)
 const Content = lazy(loadContent)
 const Drive = lazy(loadDrive)
-const Communication = lazy(loadCommunication)
+const Messages = lazy(loadMessages)
 const Settings = lazy(loadSettings)
 const Lifecycle = lazy(loadLifecycle)
 const Admin = lazy(loadAdmin)
@@ -58,6 +58,7 @@ const AdminOrganization = lazy(loadAdminOrganization)
 const LegacyRedirect = lazy(loadLegacyRedirect)
 
 export const routes: RouteMeta[] = [
+  { path: '/feed-showcase', title: 'Галерея живої стрічки', component: FeedShowcase },
   {
     path: '/tasks',
     title: 'Завдання',
@@ -107,15 +108,6 @@ export const routes: RouteMeta[] = [
   { path: '/employees/org', title: 'Структура', component: LegacyRedirect },
   { path: '/employees/:employeeId', title: 'Профіль працівника', component: LegacyRedirect },
   {
-    path: '/notifications',
-    title: 'Сповіщення',
-    nav: true,
-    navGroup: 'communication',
-    navOrder: 4,
-    navIcon: Bell,
-    component: Communication,
-  },
-  {
     path: '/feed',
     title: 'Жива стрічка',
     nav: true,
@@ -132,10 +124,10 @@ export const routes: RouteMeta[] = [
     navGroup: 'primary',
     navOrder: 3,
     navIcon: MessageCircle,
-    component: Communication,
-    preload: loadCommunication,
+    component: Messages,
+    preload: loadMessages,
   },
-  { path: '/messages/:threadId', title: 'Діалог', component: Communication },
+  { path: '/messages/:threadId', title: 'Діалог', component: Messages },
   {
     path: '/drive',
     title: 'Диск',

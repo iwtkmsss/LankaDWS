@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiBody, ApiConsumes } from '@nestjs/swagger'
 import {
   chatReactionSchema,
+  reactionUsersQuerySchema,
   createTaskSchema,
   deleteTaskCommentSchema,
   manualTimeEntrySchema,
@@ -50,7 +51,6 @@ import {
   TasksService,
   type CreateSubtaskInput,
   type LegacyUpdateTaskInput,
-  type TaskFollowerInput,
   type TaskUserStateInput,
 } from './tasks.service.js'
 
@@ -294,26 +294,6 @@ export class TasksController {
     )
   }
 
-  @Post(':id/followers')
-  follow(
-    @Req() request: LankaDWSRequest,
-    @Param('id') taskId: string,
-    @Body() body: TaskFollowerInput,
-    @Headers('idempotency-key') key?: string,
-  ) {
-    if (!key) throw badRequest('idempotency_key_required')
-    return this.tasks.followTask(principalFrom(request), taskId, body, key)
-  }
-
-  @Delete(':id/followers/:userId')
-  unfollow(
-    @Req() request: LankaDWSRequest,
-    @Param('id') taskId: string,
-    @Param('userId') userId: string,
-  ) {
-    return this.tasks.unfollowTask(principalFrom(request), taskId, userId)
-  }
-
   @Put(':id/user-state')
   userState(
     @Req() request: LankaDWSRequest,
@@ -398,6 +378,18 @@ export class TasksController {
     const parsed = deleteTaskCommentSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('task_comment_invalid')
     return this.tasks.deleteComment(principalFrom(request), taskId, commentId, parsed.data)
+  }
+
+  @Get(':id/comments/:commentId/reactions')
+  commentReactionUsers(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Query() rawQuery: Record<string, unknown>,
+  ) {
+    const parsed = reactionUsersQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('task_comment_reaction_query_invalid')
+    return this.tasks.commentReactionUsers(principalFrom(request), taskId, commentId, parsed.data)
   }
 
   @Post(':id/comments/:commentId/reactions')

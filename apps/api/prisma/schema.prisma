@@ -324,6 +324,7 @@ model User {
   managedOrgUnits              OrgUnit[]                      @relation("OrgUnitManager")
   managedCompanies             Company[]                      @relation("CompanyManager")
   orgAssignments               UserOrgAssignment[]
+  eventAcknowledgements        EventAcknowledgement[]
   createdSourceCompanyMappings SourceCompanyMapping[]         @relation("SourceCompanyMappingCreator")
   activatedMigrations          MigrationActivation[]          @relation("MigrationActivator")
   taskParticipations           TaskParticipant[]              @relation("TaskParticipantUser")
@@ -332,7 +333,6 @@ model User {
   tasksReported                Task[]                         @relation("TaskReporter")
   taskRelationsCreated         TaskRelation[]                 @relation("TaskRelationCreator")
   taskTimeEntries              TimeEntry[]
-  taskFollowers                TaskFollower[]
   taskStates                   TaskUserState[]
   taskReminders                TaskReminder[]
   taskApprovalRequests         TaskApprovalRound[]            @relation("TaskApprovalRequester")
@@ -1078,7 +1078,6 @@ model Task {
   createdBy              User                @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   reporter               User                @relation("TaskReporter", fields: [reporterId], references: [id], onDelete: Restrict)
   participants           TaskParticipant[]
-  followers              TaskFollower[]
   userStates             TaskUserState[]
   reminders              TaskReminder[]
   tags                   TaskTag[]
@@ -1151,20 +1150,6 @@ model TaskParticipant {
   @@unique([taskId, userId])
   @@index([taskId, role, removedAt, userId])
   @@index([userId, role, removedAt, taskId])
-}
-
-model TaskFollower {
-  id        String    @id
-  taskId    String
-  userId    String
-  createdAt DateTime  @default(now())
-  mutedAt   DateTime?
-  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([taskId, userId])
-  @@index([userId, mutedAt, taskId])
-  @@index([taskId, mutedAt, userId])
 }
 
 model TaskUserState {
@@ -1349,9 +1334,25 @@ model Event {
   updatedAt      DateTime        @updatedAt
   recurrenceJson String?
   audiences      EventAudience[]
+  requiresAcknowledgement Boolean @default(false)
+  acknowledgements EventAcknowledgement[]
 
   @@index([companyId, startAt, endAt])
   @@index([ownerId, startAt])
+}
+
+model EventAcknowledgement {
+  id             String    @id
+  eventId        String
+  userId         String
+  eventVersion   Int
+  acknowledgedAt DateTime?
+  event          Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, eventVersion])
+  @@index([eventId, eventVersion, acknowledgedAt])
+  @@index([userId, eventId])
 }
 
 model EventAudience {
@@ -1512,6 +1513,18 @@ model DocumentAcl {
   actionsJson   String
 
   @@unique([documentId, principalType, principalId])
+}
+
+model FeedbackTicket {
+  id          String       @id
+  workspaceId String
+  ownerId     String
+  title       String
+  body        String
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+
+  @@index([workspaceId, status, createdAt, id])
 }
 
 model KnowledgeArticle {

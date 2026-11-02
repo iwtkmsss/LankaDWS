@@ -21,6 +21,21 @@ function setup() {
 }
 
 describe('bounded employee selector search', () => {
+  it('applies company, membership and selected-user restrictions before the recommendation cap', async () => {
+    const { controller, request, findMany } = setup()
+    await controller.search(request, { q: '', recommendations: true, limit: 1000,
+      accountType: 'USER', excludeIds: ['selected'], excludeOrgUnitId: 'unit', managersOnly: true })
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 5, where: {
+      workspaceId: 'workspace-a', isActive: true, AND: [
+        { AND: [
+          { OR: [{ accountType: 'USER', primaryCompanyId: { in: ['company-a', 'company-b'] } }] },
+          expect.any(Object),
+          { orgAssignments: { none: { orgUnitId: 'unit', endedAt: null } } },
+        ] }, {}, { id: { notIn: ['selected'] } },
+      ],
+    } })
+  })
+
   it('does not query users for an empty or whitespace-only search', async () => {
     const { search, findMany } = setup()
     expect(await search('')).toEqual({ items: [] })

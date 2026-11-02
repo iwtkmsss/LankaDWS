@@ -98,7 +98,7 @@ test('creates a task through the complete page workflow', async ({ page }, testI
   })
   await expect(dialog.locator('.task-create-attachments li').filter({ hasText: attachmentName })).toBeVisible()
 
-  const responsibleSearch = dialog.getByRole('combobox', { name: 'Змінити: відповідальний' })
+  const responsibleSearch = dialog.getByRole('combobox', { name: 'Змінити відповідального' })
   await responsibleSearch.fill('Андр')
   await dialog.getByRole('option', { name: /Андрій Коваль/ }).click()
   const collaboratorSearch = dialog.getByRole('combobox', { name: 'Додати: співвиконавець' })

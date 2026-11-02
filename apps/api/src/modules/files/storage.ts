@@ -21,7 +21,26 @@ export async function promoteFile(key: string): Promise<void> {
   const source = safePath(getConfig().FILE_QUARANTINE_DIR, key)
   const target = safePath(getConfig().FILE_STORAGE_DIR, key)
   await mkdir(dirname(target), { recursive: true })
-  await rename(source, target)
+  try {
+    await rename(source, target)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    // A retry after promotion succeeded but the DB transaction failed.
+    await stat(target)
+  }
+}
+
+export async function filePathForScan(key: string): Promise<string> {
+  const quarantine = safePath(getConfig().FILE_QUARANTINE_DIR, key)
+  try {
+    await stat(quarantine)
+    return quarantine
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    const clean = safePath(getConfig().FILE_STORAGE_DIR, key)
+    await stat(clean)
+    return clean
+  }
 }
 
 export async function readCleanFile(key: string): Promise<Buffer> {

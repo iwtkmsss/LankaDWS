@@ -23,7 +23,7 @@ describe('canonical route registry', () => {
       navGroup: 'primary',
     })
     expect(routes.find((route) => route.path === '/feed')?.capability).toBeUndefined()
-    expect(routes.find((route) => route.path === '/notifications')).toMatchObject({ navGroup: 'communication' })
+    expect(routes.find((route) => route.path === '/notifications')).toBeUndefined()
   })
 
   it('resolves stable titles for list and deep-link routes', () => {
@@ -52,7 +52,7 @@ describe('canonical route registry', () => {
 
   it('groups each sidebar destination once in the requested information architecture', () => {
     const pathsByGroup = Object.fromEntries(
-      ['primary', 'communication', 'company', 'management', 'administration'].map((group) => [
+      ['primary', 'company', 'management', 'administration'].map((group) => [
         group,
         routes
           .filter((route) => route.navGroup === group)
@@ -62,7 +62,6 @@ describe('canonical route registry', () => {
     )
     expect(pathsByGroup).toEqual({
       primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar'],
-      communication: ['/notifications'],
       company: ['/organization'],
       management: ['/knowledge'],
       administration: [

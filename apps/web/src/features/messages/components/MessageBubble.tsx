@@ -24,11 +24,13 @@ import { editableMentions, trimMentionValue } from '../../../shared/mentions/men
 import { apiUrl } from '../../../shared/api/client'
 import { formatChatTime } from '../lib/chatDates'
 import { FilePreviewModal } from '../../../shared/files/FilePreviewModal'
-import { FileFormatIcon, FileThumbnail } from '../../../shared/files/FileThumbnail'
+import { FileThumbnail } from '../../../shared/files/FileThumbnail'
+import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
 import { importFileToDrive } from '../../drive/api'
 import { SaveToDriveButton } from '../../../shared/files/SaveToDriveButton'
 import { isChatPhoto } from '../lib/photoAlbums'
 import { MessageBubbleOutline } from './MessageBubbleOutline'
+import { MessageLikeButton } from '../../../shared/messages/MessageLikeButton'
 
 interface MessageBubbleProps {
   idPrefix?: string
@@ -203,17 +205,13 @@ export function MessageBubble({
       {singleImageAttachment && <CompactFileName fileName={singleImageAttachment.fileName} />}
       <span className="message-bubble__meta-actions">
         {likeCount > 0 && (
-          <button
-            type="button"
-            className={`message-bubble__likes${message.reactions.likedByMe ? ' is-mine' : ''}`}
-            aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
-            aria-pressed={message.reactions.likedByMe}
+          <MessageLikeButton
+            reactionsUrl={`/messages/${encodeURIComponent(message.id)}/reactions`}
+            className="message-bubble__likes"
+            count={likeCount}
+            liked={message.reactions.likedByMe}
             onClick={() => onLike(message)}
-          >
-            <Heart size={13} fill={message.reactions.likedByMe ? 'currentColor' : 'none'} />
-            <span>·</span>
-            <span>{likeCount}</span>
-          </button>
+          />
         )}
         {messageTimestamp}
       </span>
@@ -321,11 +319,16 @@ export function MessageBubble({
             data-photo-count={photoAlbum ? visibleAttachments.length : undefined}>
             {visibleAttachments.map((attachment) => (
               <div className="message-attachment" key={attachment.id}>
-                {attachment.scanStatus === 'CLEAN' && !isChatPhoto(attachment) && (
+                {attachment.scanStatus === 'CLEAN' && (
                   <button
                     type="button"
                     className="message-attachment__open"
                     onClick={() => setPreviewFile(attachment)}
+                    onContextMenu={isChatPhoto(attachment) ? (event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      openMenu(event.clientX, event.clientY, attachment)
+                    } : undefined}
                     aria-label={`Переглянути ${attachment.fileName}`}
                     title="Переглянути файл"
                   />
@@ -338,21 +341,18 @@ export function MessageBubble({
                   </button>
                 )}
                 {attachment.scanStatus === 'CLEAN' && isChatPhoto(attachment) ? (
-                  <button
-                    type="button"
-                    className="message-attachment__preview"
-                    aria-label={`Переглянути ${attachment.fileName}`}
+                  <span
+                    className={photosOnly ? 'message-attachment__preview' : 'message-attachment__thumbnail'}
                     onContextMenu={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
                       openMenu(event.clientX, event.clientY, attachment)
                     }}
-                    onClick={() => setPreviewFile(attachment)}
                   >
                     <FileThumbnail file={attachment} />
-                  </button>
+                  </span>
                 ) : (
-                  <span className="message-attachment__icon"><FileFormatIcon mimeType={attachment.mimeType} /></span>
+                  <span className="message-attachment__icon"><FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} /></span>
                 )}
                 <span className="message-attachment__copy">
                   {singleImageAttachment?.id !== attachment.id && <CompactFileName fileName={attachment.fileName} />}

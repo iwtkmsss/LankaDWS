@@ -1,0 +1,24 @@
+.message-like-button {
+  display: inline-flex;
+  min-height: 0;
+  align-items: center;
+  gap: var(--space-0_5);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  padding: 0 var(--space-1);
+  font-size: var(--text-meta);
+  line-height: 1.2;
+  font-weight: var(--weight-medium);
+}
+.message-like-button:hover { background: var(--surface-soft); color: var(--fg-link); }
+.message-like-button.is-mine { color: var(--fg-link); }
+.message-like-users { position: fixed; z-index: 100; width: min(280px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--fg-body); padding: var(--space-2); box-shadow: var(--shadow-lg); }
+.message-like-users p { margin: 0; padding: var(--space-2); font-size: var(--text-meta); }
+.message-like-users__list { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.message-like-users__list li { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); font-size: var(--text-ui); line-height: 1.4; }
+.message-like-users__list svg { flex: 0 0 auto; color: var(--fg-link); }
+.message-like-users__list span { min-width: 0; overflow-wrap: anywhere; }
+.message-like-users > .button { width: 100%; margin-top: var(--space-2); }
+.message-like-users__scroll { max-height: min(60dvh, 520px); overflow-y: auto; overscroll-behavior: contain; }

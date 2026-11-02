@@ -7,7 +7,8 @@ import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } fr
 import { apiUrl } from '../../shared/api/client'
 import { formatDateTime, formatFileSize } from '../../shared/lib/format'
 import { IconButton } from '../../shared/ui'
-import { FileFormatIcon } from '../../shared/files/FileThumbnail'
+import { DriveFileVisual } from './DriveFileVisual'
+import { DriveFileName } from './DriveFileName'
 import { useAuth } from '../../shared/auth/AuthProvider'
 import { DriveMoveMenu } from './DriveMoveMenu'
 
@@ -26,26 +27,15 @@ const targetShared = (target: DriveTarget) => target.kind === 'FOLDER' ? target.
 const targetUpdated = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.updatedAt : target.file.updatedAt
 const targetOwnerName = (target: DriveTarget) => target.kind === 'FOLDER' ? target.folder.ownerName : target.file.ownerName
 
-function FileGlyph({ file, size = 20 }: { file: DriveFileItem; size?: number }) {
-  return <FileFormatIcon mimeType={file.mimeType} size={size} />
-}
-
-function FileName({ file }: { file: DriveFileItem }) {
-  const extension = file.extension && !file.name.toLowerCase().endsWith(file.extension.toLowerCase()) ? file.extension : ''
-  return (
-    <span className="drive-tile__name" title={`${file.name}${extension}`}>
-      {file.name}<span aria-hidden>{extension}</span>
-    </span>
-  )
+function FileGlyph({ file, size = 20, thumbnail = false }: { file: DriveFileItem; size?: number; thumbnail?: boolean }) {
+  return <DriveFileVisual file={file} size={size} thumbnail={thumbnail} />
 }
 
 function AccessIndicators({ item }: { item: DriveFileItem | DriveFolderItem }) {
   const editable = item.isOwner || item.accessRole === 'EDITOR'
   return (
     <span className="drive-item__indicators">
-      <span role="img" aria-label={editable ? 'Доступно для редагування' : 'Доступно для перегляду'} title={editable ? 'Доступно для редагування' : 'Доступно для перегляду'}>
-        {editable ? <Pencil size={13} aria-hidden /> : <Eye size={13} aria-hidden />}
-      </span>
+      {!editable && <span role="img" aria-label="Доступно для перегляду" title="Доступно для перегляду"><Eye size={13} aria-hidden /></span>}
       {(item.isShared || item.sharedWithCount > 0) && <span role="img" aria-label="Спільний доступ" title="Спільний доступ"><Users size={13} aria-hidden /></span>}
     </span>
   )
@@ -238,8 +228,8 @@ export function DriveItems(props: ItemsProps) {
             >
               <td>
                 <button type="button" className="drive-list__name" aria-label={file.name} onClick={() => !isTrash && onPreview(file)}>
-                  <FileGlyph file={file} size={18} />
-                  <FileName file={file} />
+                  <FileGlyph file={file} size={18} thumbnail />
+                  <DriveFileName file={file} />
                   <AccessIndicators item={file} />
                 </button>
               </td>
@@ -293,7 +283,7 @@ export function DriveItems(props: ItemsProps) {
           <div className="drive-tile__header">
             <button type="button" className="drive-tile__open" onClick={() => !isTrash && onPreview(file)}>
               <FileGlyph file={file} size={18} />
-              <FileName file={file} />
+              <DriveFileName file={file} />
             </button>
             {menuFor({ kind: 'FILE', file })}
           </div>

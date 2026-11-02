@@ -129,6 +129,9 @@ export const drivePickerQuerySchema = z.object({
 })
 export type DrivePickerQuery = z.infer<typeof drivePickerQuerySchema>
 export const drivePickerItemSchema = driveFileItemSchema.pick({ id: true, name: true, fileType: true, sizeBytes: true }).extend({
+  extension: z.string().nullable().optional(),
+  fileId: z.string().nullable().optional(),
+  mimeType: z.string().nullable().optional(),
   folderPath: z.array(z.string()).optional(),
 })
 export type DrivePickerItem = z.infer<typeof drivePickerItemSchema>

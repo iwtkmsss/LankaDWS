@@ -67,13 +67,114 @@ async function openPanel(overrides: Partial<ChatMessageView> = {}, conversation:
   return client
 }
 
-describe('RightCommunicationPanel message actions', () => {
+describe('RightCommunicationPanel notifications', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.localStorage.clear()
     window.sessionStorage.clear()
+  })
+
+  function renderNotifications(entityType = 'DOCUMENT', entry = '/') {
+    const item = {
+      id: 'notification-1', category: 'DRIVE', safeTitle: 'Вам відкрито доступ',
+      safeSnippet: 'Колега надав доступ для перегляду.', entityType, entityId: 'doc/one',
+      readAt: null, requiresAction: false, createdAt: '2026-10-20T10:00:00Z',
+    }
+    vi.mocked(api).mockResolvedValue({ items: [item] })
+    const router = createMemoryRouter([
+      { path: '/', element: <OverlayProvider>
+        <RightCommunicationPanel chatUnread={0} notificationUnread={1} targetUserId={null}
+          onClearTarget={vi.fn()} onClose={vi.fn()} />
+      </OverlayProvider> },
+      { path: '/drive', element: <div>Диск</div> },
+      { path: '/drive/:documentId', element: <div>Файл</div> },
+    ], { initialEntries: [entry] })
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>)
+    if (entry === '/') fireEvent.click(screen.getByRole('tab', { name: /Сповіщення/ }))
+    return router
+  }
+
+  it.each([
+    ['DOCUMENT', '/drive/doc%2Fone', ''],
+    ['DRIVE_FOLDER', '/drive', '?folder=doc%2Fone'],
+  ])('opens %s access notifications from the right panel', async (entityType, pathname, search) => {
+    const router = renderNotifications(entityType)
+    fireEvent.click(await screen.findByRole('button', { name: /Вам відкрито доступ/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe(pathname))
+    expect(router.state.location.search).toBe(search)
+  })
+
+  it('keeps background scrolling available while the panel is open and after it closes', async () => {
+    const router = renderNotifications()
+    const panel = screen.getByRole('complementary', { name: 'Чат і сповіщення' })
+    expect(document.documentElement).not.toHaveClass('right-panel-scroll-lock')
+    expect(fireEvent.wheel(document.body, { deltaY: 100 })).toBe(true)
+    expect(fireEvent.touchMove(document.body)).toBe(true)
+    expect(fireEvent.keyDown(document.body, { key: 'PageDown' })).toBe(true)
+    expect(fireEvent.wheel(panel, { deltaY: 100 })).toBe(true)
+    expect(fireEvent.touchMove(panel)).toBe(true)
+    expect(fireEvent.keyDown(panel, { key: 'PageDown' })).toBe(true)
+    const dialog = document.createElement('div')
+    dialog.setAttribute('role', 'dialog')
+    document.body.append(dialog)
+    expect(fireEvent.wheel(dialog, { deltaY: 100 })).toBe(true)
+    dialog.remove()
+    fireEvent.click(await screen.findByRole('button', { name: /Вам відкрито доступ/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/drive/doc%2Fone'))
+    expect(document.documentElement).not.toHaveClass('right-panel-scroll-lock')
+    expect(fireEvent.wheel(document.body, { deltaY: 100 })).toBe(true)
+    expect(fireEvent.touchMove(document.body)).toBe(true)
+    expect(fireEvent.keyDown(document.body, { key: 'PageDown' })).toBe(true)
+  })
+
+  it('filters and marks notifications read without linking to the removed page', async () => {
+    renderNotifications()
+    await screen.findByText('Вам відкрито доступ')
+    expect(screen.queryByRole('link', { name: /Усі сповіщення/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Непрочитані' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/notifications?tab=unread'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Позначити прочитаним' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/notifications/notification-1', {
+      method: 'PATCH', body: JSON.stringify({ read: true }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'Прочитати всі' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/notifications/read-all', {
+      method: 'PATCH', body: JSON.stringify({ tab: 'unread' }),
+    }))
+  })
+
+  it('opens notifications through a dashboard link even when chat was selected', async () => {
+    window.localStorage.setItem('lankadws.right-panel.tab', 'chat')
+    renderNotifications('DOCUMENT', '/?panel=notifications')
+    expect(await screen.findByText('Вам відкрито доступ')).toBeVisible()
+    expect(screen.getByRole('tab', { name: /Сповіщення/ })).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('RightCommunicationPanel message actions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api).mockResolvedValue({})
+    window.localStorage.clear()
+    window.sessionStorage.clear()
     HTMLElement.prototype.scrollTo = vi.fn()
     vi.mocked(sendMessage).mockResolvedValue({ ...message, id: 'sent-1' })
+  })
+
+  it('keeps attachments local until Send and removes them without a server delete', async () => {
+    await openPanel()
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['data'], 'local.txt', { type: 'text/plain' })] } })
+    expect(screen.getByRole('button', { name: 'Прибрати local.txt' })).toBeVisible()
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes('/attachments'))).toHaveLength(0)
+    expect(sendMessage).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Прибрати local.txt' }))
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes('/draft'))).toHaveLength(0)
+    fireEvent.change(input, { target: { files: [new File(['data'], 'local.txt', { type: 'text/plain' })] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Надіслати' }))
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith('thread-1', expect.objectContaining({ attachmentIds: [expect.stringMatching(/^local-attachment:/)] }), expect.any(String), [expect.objectContaining({ fileName: 'local.txt' })]))
   })
 
   it('uses the same photo thumbnails and document format icons in messages and chat files', async () => {
@@ -88,12 +189,59 @@ describe('RightCommunicationPanel message actions', () => {
     expect(screen.getByRole('img', { name: 'photo.png' })).toBeVisible()
     expect(screen.getByRole('img', { name: 'Формат PDF' })).toBeVisible()
     expect(screen.getByRole('img', { name: 'Формат TXT' })).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: 'Розгорнути інформацію про користувача' }))
     fireEvent.click(screen.getByRole('button', { name: /Файли в чаті/ }))
     const grid = document.querySelector('.right-panel__chat-files-grid') as HTMLElement
+    expect(screen.queryByRole('region', { name: 'Коротка інформація про користувача' })).not.toBeInTheDocument()
     expect(within(grid).getByRole('img', { name: 'photo.png' })).toBeVisible()
     expect(within(grid).getByRole('img', { name: 'Формат PDF' })).toBeVisible()
     expect(within(grid).getByRole('img', { name: 'Формат TXT' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /Файли в чаті/ }))
+    expect(screen.getByText(message.body)).toBeVisible()
+  })
+
+  it('opens an empty file list in a group chat and returns to messages', async () => {
+    await openPanel()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    const toggle = screen.getByRole('button', { name: 'Файли в чаті' })
+    fireEvent.click(toggle)
+    expect(screen.getByText('У цьому чаті ще немає файлів.')).toBeVisible()
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.click(toggle)
+    expect(screen.getByText(message.body)).toBeVisible()
+  })
+
+  it('expands files with the keyboard and restores profile information when reopened', async () => {
+    await openPanel({ attachments: [
+      { id: 'pdf', fileName: 'report.pdf', mimeType: 'application/pdf', bytes: 10, scanStatus: 'CLEAN' },
+    ] }, { ...thread, kind: 'DIRECT', title: 'Петренко Олена', participants: [
+      { id: 'user-2', displayName: 'Петренко Олена', username: 'olena', jobTitle: '', avatarAsset: null, role: 'MEMBER', version: 1 },
+    ] })
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Розгорнути інформацію про користувача' }))
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Файли в чаті/ })).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(screen.getByRole('button', { name: /Файли в чаті/ }))
+    const separator = screen.getByRole('separator', { name: 'Змінити розмір блоку файлів' })
+    expect(separator).toBeVisible()
+    const profile = document.querySelector('.right-panel__resizable-profile') as HTMLElement
+    Object.defineProperty(profile, 'clientHeight', { configurable: true, value: 200 })
+    Object.defineProperty(profile.firstElementChild, 'clientHeight', { configurable: true, value: 200 })
+    fireEvent.keyDown(separator, { key: 'ArrowUp' })
+    expect(profile.style.maxHeight).toBe('168px')
+    expect(screen.getByRole('button', { name: /Файли в чаті/ })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(separator, { key: 'Home' })
+    expect(Number.parseFloat(profile.style.maxHeight)).toBe(0)
+    expect(profile).toHaveAttribute('inert')
+    expect(separator).toHaveAttribute('aria-valuenow', '100')
+    expect(screen.getByRole('button', { name: /Файли в чаті/ })).toBeVisible()
+    fireEvent.keyDown(separator, { key: 'End' })
+    expect(profile.style.maxHeight).toBe('200px')
+    expect(profile).not.toHaveAttribute('inert')
+    fireEvent.click(screen.getByRole('button', { name: /Файли в чаті/ }))
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Файли в чаті/ }))
+    expect(screen.getByRole('separator')).toHaveAttribute('aria-valuenow', '0')
+    expect((document.querySelector('.right-panel__resizable-profile') as HTMLElement).style.maxHeight).toBe('')
   })
 
   it('shows the author only at the start of consecutive incoming mini-chat messages', async () => {

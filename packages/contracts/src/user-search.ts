@@ -29,6 +29,7 @@ export const userSelectorSearchSchema = z.object({
   excludeIds: z.array(z.string().min(1).max(120)).max(5000).default([]),
   excludeOrgUnitId: z.string().min(1).max(120).optional(),
   managersOnly: z.boolean().default(false),
+  recommendations: z.boolean().optional(),
 })
 export type UserSelectorSearchQuery = z.infer<typeof userSelectorSearchSchema>
 

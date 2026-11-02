@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Download, ExternalLink, FileArchive, FileText, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, ExternalLink, ZoomIn, ZoomOut } from 'lucide-react'
+import { FileFormatIcon } from './FileFormatIcon'
+import { fileFormat } from './fileFormat'
 import { apiUrl } from '../api/client'
 import { IconButton, Modal } from '../ui'
 import { SaveToDriveButton } from './SaveToDriveButton'
@@ -70,7 +72,7 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
   const isText = isTextPreview(file.mimeType)
   const textTooLarge = isText && file.bytes != null && file.bytes > MAX_TEXT_PREVIEW_BYTES
   const compact = !isImage && !isPdf && (!isText || textTooLarge)
-  const isArchive = /zip|rar|tar|gzip|bzip|xz|7z/.test(mimeType)
+  const isArchive = fileFormat(file.mimeType, file.fileName) === 'archive'
   const fileType = FILE_TYPE_NAMES[mimeType] || file.fileName.match(/\.([a-z\d]{1,12})$/i)?.[1].toUpperCase()
     || (isArchive ? 'Архів' : isImage ? mimeType.slice(6).toUpperCase() : 'Файл')
   const size = formatFileSize(file.bytes)
@@ -282,7 +284,7 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
           downloadUrl={downloadUrl} headerActionsTarget={headerActionsTarget} />
       ) : (
         <div className="file-preview-modal__unsupported">
-          {isArchive ? <FileArchive size={42} aria-hidden /> : <FileText size={42} aria-hidden />}
+          <FileFormatIcon mimeType={file.mimeType} fileName={file.fileName} size={42} />
           <strong>{file.fileName}</strong>
           <span>{fileType}{size ? ` · ${size}` : ''}</span>
           <p>{textTooLarge

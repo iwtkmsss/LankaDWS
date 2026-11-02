@@ -13,6 +13,7 @@ import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { writeFeedProjection } from '../feed/feed-projection.service.js'
 import { readReminderMinutes, scheduleCalendarReminder } from './calendar-reminder.js'
+import { snapshotEventAcknowledgements } from './calendar-acknowledgement.js'
 
 const createOperation = 'calendar.event.create'
 
@@ -108,6 +109,8 @@ export class CalendarService {
       input.audience,
     )
     const nextVersion = input.expectedVersion + 1
+    const requiresAcknowledgement = !isPrivate && (input.requiresAcknowledgement ?? event.requiresAcknowledgement ?? false)
+    if (isPrivate && input.requiresAcknowledgement) throw badRequest('calendar_acknowledgement_shared_only')
     await this.prisma.$transaction(async (tx) => {
       if (input.reminderMinutes != null && !isPrivate) throw badRequest('calendar_reminder_private_only')
       const reminderMinutes = !isPrivate ? null : input.reminderMinutes === undefined
@@ -125,6 +128,7 @@ export class CalendarService {
           endAt: new Date(input.endAt),
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
+          requiresAcknowledgement,
           recurrenceJson: input.recurrence === undefined ? undefined : input.recurrence ? JSON.stringify(input.recurrence) : null,
           visibility: isPrivate ? privateVisibility : sharedVisibility,
           version: { increment: 1 },
@@ -150,6 +154,13 @@ export class CalendarService {
           companyId,
         })),
       })
+      await tx.notification.updateMany({
+        where: { entityType: 'EVENT', entityId: event.id, dedupeKey: { startsWith: `calendar-ack:${event.id}:` } },
+        data: { requiresAction: false },
+      })
+      if (requiresAcknowledgement) await snapshotEventAcknowledgements(tx, {
+        id: event.id, version: nextVersion, ownerId: event.ownerId, workspaceId: principal.workspaceId,
+      }, audienceCompanyIds)
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -179,9 +190,72 @@ export class CalendarService {
     return { id: event.id, version: nextVersion }
   }
 
-  /**
-   * Every audience company must be in the principal's workspace scope.
-   */
+  async remove(principal: AuthPrincipal, eventId: string, expectedVersion: number) {
+    const where = {
+      id: eventId, workspaceId: principal.workspaceId,
+      companyId: { in: principal.allowedCompanyIds }, ownerId: principal.userId,
+    }
+    const event = await this.prisma.event.findFirst({ where })
+    if (!event) throw notFound()
+    await this.capabilities.assertEnabled(principal, event.companyId, OrganizationCapability.CalendarWrite)
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.event.deleteMany({ where: { ...where, version: expectedVersion } })
+      if (deleted.count !== 1) throw conflict('Подія вже змінилася. Оновіть календар перед видаленням.')
+      // Audience rows and acknowledgement receipts cascade with the event.
+      await tx.backgroundJob.updateMany({
+        where: { type: 'calendar.reminder', entityId: eventId, state: 'QUEUED' },
+        data: { state: 'CANCELLED' },
+      })
+      await tx.notification.deleteMany({ where: { entityType: 'EVENT', entityId: eventId } })
+      // Keep immutable projection history, but remove the event from the live Feed.
+      await tx.feedSourceHead.deleteMany({
+        where: { workspaceId: principal.workspaceId, sourceType: 'EVENT', sourceId: eventId },
+      })
+      await tx.auditEvent.create({ data: {
+        id: id('aud'), workspaceId: principal.workspaceId, companyId: event.companyId,
+        actorType: 'USER', actorId: principal.userId, action: 'calendar.event.deleted',
+        entityType: 'EVENT', entityId: eventId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr'),
+      } })
+      await tx.outboxEvent.create({ data: {
+        id: id('out'), aggregateType: 'EVENT', aggregateId: eventId, aggregateVersion: expectedVersion + 1,
+        eventType: 'calendar.event.deleted', safePayload: JSON.stringify({ eventId, companyId: event.companyId }),
+      } })
+    })
+    return { id: eventId }
+  }
+
+  async acknowledge(principal: AuthPrincipal, eventId: string, expectedVersion: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const event = await tx.event.findFirst({
+        where: {
+          id: eventId, workspaceId: principal.workspaceId,
+          audiences: { some: { companyId: { in: this.scope.allowedCompanies(principal, 'all') } } },
+          visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] }, requiresAcknowledgement: true,
+        },
+      })
+      if (!event) throw notFound()
+      if (event.version !== expectedVersion) throw conflict('Подія вже змінилася. Оновіть її перед підтвердженням.')
+      const where = { eventId_userId_eventVersion: { eventId, userId: principal.userId, eventVersion: expectedVersion } }
+      const recipient = await tx.eventAcknowledgement.findUnique({ where })
+      if (!recipient) throw notFound()
+      if (recipient.acknowledgedAt) return { acknowledgedAt: recipient.acknowledgedAt.toISOString() }
+      const acknowledgedAt = new Date()
+      await tx.eventAcknowledgement.update({ where, data: { acknowledgedAt } })
+      await tx.notification.updateMany({
+        where: { recipientId: principal.userId, dedupeKey: `calendar-ack:${eventId}:${expectedVersion}:${principal.userId}` },
+        data: { requiresAction: false, readAt: acknowledgedAt },
+      })
+      await tx.auditEvent.create({ data: {
+        id: id('aud'), workspaceId: principal.workspaceId, companyId: event.companyId,
+        actorType: 'USER', actorId: principal.userId, action: 'calendar.event.acknowledged',
+        entityType: 'EVENT', entityId: eventId, result: 'SUCCESS', risk: 'NORMAL',
+        safeDiffJson: JSON.stringify({ eventVersion: expectedVersion }), correlationId: id('corr'),
+      } })
+      return { acknowledgedAt: acknowledgedAt.toISOString() }
+    })
+  }
+
+  /** Every audience company must be in the principal's workspace scope. */
   private resolveAudience(
     principal: AuthPrincipal,
     companyId: string,
@@ -204,6 +278,7 @@ export class CalendarService {
     operation: string,
   ): Promise<{ id: string; version: number }> {
     this.assertTimezone(input.sourceTimezone)
+    if (isPrivate && input.requiresAcknowledgement) throw badRequest('calendar_acknowledgement_shared_only')
     if (input.reminderMinutes != null && !isPrivate) throw badRequest('calendar_reminder_private_only')
     const requestFingerprint = fingerprint(JSON.stringify({
       audienceCompanyIds: [...audienceCompanyIds].sort(),
@@ -252,6 +327,7 @@ export class CalendarService {
           endAt,
           sourceTimezone: input.sourceTimezone,
           allDay: input.allDay,
+          requiresAcknowledgement: input.requiresAcknowledgement ?? false,
           recurrenceJson: input.recurrence === undefined ? undefined : input.recurrence ? JSON.stringify(input.recurrence) : null,
           visibility: isPrivate ? privateVisibility : sharedVisibility,
         },
@@ -268,6 +344,9 @@ export class CalendarService {
         })),
       })
       if (!isPrivate) {
+        if (input.requiresAcknowledgement) await snapshotEventAcknowledgements(tx, {
+          id: event.id, version: event.version, ownerId: principal.userId, workspaceId: principal.workspaceId,
+        }, audienceCompanyIds)
         await writeFeedProjection(tx, {
           workspaceId: principal.workspaceId,
           companyId,

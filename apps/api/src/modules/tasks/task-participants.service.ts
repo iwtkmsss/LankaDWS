@@ -271,11 +271,6 @@ export class TaskParticipantsService {
           data: { removedAt: new Date() },
         })
       }
-      const now = new Date()
-      await tx.taskFollower.updateMany({
-        where: { taskId, userId },
-        data: { mutedAt: now },
-      })
       const activeReminders = await tx.taskReminder.findMany({
         where: { taskId, userId, status: 'ACTIVE' },
         select: { id: true },

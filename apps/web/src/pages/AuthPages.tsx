@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { PASSWORD_MIN_LENGTH } from '@lankadws/contracts'
-import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, LockKeyhole, ShieldCheck } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, LockKeyhole, ShieldCheck, UserRound } from 'lucide-react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -25,9 +25,9 @@ export function LoginPage() {
     } catch { setError('Перевірте нікнейм і пароль та спробуйте ще раз.') } finally { setBusy(false) }
   }
   return <main className="auth-page">
-    <section className="auth-panel"><div className="auth-brand"><BrandMark /><strong>Lanka</strong></div><div className="auth-copy"><span className="eyebrow">Внутрішній простір команди</span><h2>Робота, рішення й знання — в одному місці.</h2></div><img src="/assets/auth/editorial-workspace.png" alt="Світлий сучасний робочий простір Lanka" width="720" height="480" /></section>
+    <section className="auth-panel"><div className="auth-brand"><BrandMark /><strong>Lanka</strong></div><div className="auth-copy"><span className="eyebrow">Внутрішній простір команди</span><h2>Робота, рішення й знання в одному місці.</h2></div><img src="/assets/auth/editorial-workspace.png" alt="Світлий сучасний робочий простір Lanka" width="720" height="480" /></section>
     <section className="login-card"><div><span className="eyebrow">З поверненням</span><h1>Увійти до Lanka</h1></div>
-      <form onSubmit={submit}><label>Нікнейм<div className="field-with-icon"><span>@</span><input autoComplete="username" value={username} onChange={(event) => setUsername(removeWhitespace(event.target.value).toLowerCase())} required pattern="[a-z0-9._\-]{3,32}" placeholder="maria" /></div></label><label>Пароль<div className="field-with-icon"><LockKeyhole size={17} /><input autoComplete="current-password" type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(removeWhitespace(event.target.value))} required /><button type="button" aria-label={show ? 'Сховати пароль' : 'Показати пароль'} onClick={() => setShow((value) => !value)}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>{error && <div className="form-error" role="alert">{error}</div>}<Button disabled={busy}>{busy ? 'Перевіряємо…' : <>Увійти <ArrowRight size={17} /></>}</Button><a href="/access-help">Не вдається увійти?</a></form>
+      <form onSubmit={submit}><label>Нікнейм<div className="field-with-icon"><UserRound size={17} aria-hidden="true" /><input autoComplete="username" value={username} onChange={(event) => setUsername(removeWhitespace(event.target.value).toLowerCase())} required pattern="[a-z0-9._\-]{3,32}" placeholder="maria" /></div></label><label>Пароль<div className="field-with-icon"><LockKeyhole size={17} /><input autoComplete="current-password" type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(removeWhitespace(event.target.value))} required /><button type="button" aria-label={show ? 'Сховати пароль' : 'Показати пароль'} onClick={() => setShow((value) => !value)}>{show ? <EyeOff size={17} /> : <Eye size={17} />}</button></div></label>{error && <div className="form-error" role="alert">{error}</div>}<Button disabled={busy}>{busy ? 'Перевіряємо…' : <>Увійти <ArrowRight size={17} /></>}</Button><a href="/access-help">Не вдається увійти?</a></form>
       {__LANKADWS_DEMO_MODE__ && <aside className="demo-note"><strong>Демо-режим</strong><span>maria / andrii / olena / dmytro</span><code>{__LANKADWS_DEMO_PASSWORD__}</code></aside>}
     </section>
   </main>

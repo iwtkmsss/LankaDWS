@@ -139,6 +139,68 @@ describe('FilesService Drive administrator access', () => {
   })
 })
 
+describe('FilesService feedback attachment access', () => {
+  it.each(['USER', 'ADMIN'] as const)('allows only an admin to download another user’s private ticket attachment (%s)', async (accountType) => {
+    const prisma = {
+      fileObject: { findFirst: vi.fn().mockResolvedValue({ id: 'private-file', workspaceId: principal.workspaceId, companyId: null, ownerId: 'sender', scanStatus: 'CLEAN', storageKey: 'private', safeFilename: 'feedback.txt', detectedMime: 'text/plain' }) },
+      feedFileShare: { findFirst: vi.fn().mockResolvedValue(null) },
+      fileLink: { findMany: vi.fn().mockResolvedValue([{ entityType: 'FEEDBACK_TICKET', entityId: 'ticket' }]) },
+      feedbackTicket: { findFirst: vi.fn().mockResolvedValue({ id: 'ticket' }) },
+      auditEvent: { create: vi.fn() },
+    }
+    vi.mocked(readCleanFile).mockResolvedValue(Buffer.from('private feedback'))
+    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never)
+    const result = service.download({ ...principal, accountType }, 'private-file')
+    if (accountType === 'ADMIN') {
+      await expect(result).resolves.toMatchObject({ name: 'feedback.txt' })
+      expect(prisma.feedbackTicket.findFirst).toHaveBeenCalledWith({ where: { id: { in: ['ticket'] }, workspaceId: principal.workspaceId, status: 'ACTIVE' }, select: { id: true } })
+      prisma.feedbackTicket.findFirst.mockResolvedValue(null)
+      await expect(service.download({ ...principal, accountType }, 'private-file')).rejects.toMatchObject({ status: 404 })
+    } else {
+      await expect(result).rejects.toMatchObject({ status: 404 })
+      expect(prisma.feedbackTicket.findFirst).not.toHaveBeenCalled()
+    }
+  })
+})
+
+describe('FilesService Feed comment photo access', () => {
+  function setup() {
+    const prisma = {
+      fileObject: { findFirst: vi.fn().mockResolvedValue({ id: 'photo', workspaceId: principal.workspaceId, companyId: 'company-1', ownerId: 'author', scanStatus: 'CLEAN', storageKey: 'photo', safeFilename: 'screen.png', detectedMime: 'image/png' }) },
+      feedFileShare: { findFirst: vi.fn().mockResolvedValue(null) },
+      fileLink: { findMany: vi.fn().mockResolvedValue([{ entityType: 'FEED_COMMENT', entityId: 'comment' }]) },
+      comment: { findMany: vi.fn().mockResolvedValue([{ entityId: 'post' }]) },
+      feedPost: { findFirst: vi.fn().mockResolvedValue({ id: 'post' }) },
+      auditEvent: { create: vi.fn() },
+    }
+    vi.mocked(readCleanFile).mockResolvedValue(Buffer.from('image'))
+    return { prisma, service: new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never) }
+  }
+
+  it('resolves the live comment and requires the current post audience', async () => {
+    const { prisma, service } = setup()
+    await expect(service.download(principal, 'photo')).resolves.toMatchObject({ name: 'screen.png' })
+    expect(prisma.comment.findMany).toHaveBeenCalledWith({ where: { id: { in: ['comment'] }, workspaceId: principal.workspaceId, entityType: 'FEED_POST', deletedAt: null }, select: { entityId: true } })
+    expect(prisma.feedPost.findFirst).toHaveBeenCalledWith({ where: {
+      id: { in: ['post'] }, workspaceId: principal.workspaceId, status: 'PUBLISHED', OR: [
+        { authorId: principal.userId },
+        { recipients: { some: { OR: [{ type: 'COMPANY', recipientId: { in: principal.allowedCompanyIds } }, { type: 'USER', recipientId: principal.userId }] } } },
+      ],
+    }, select: { id: true } })
+    prisma.feedPost.findFirst.mockResolvedValue(null)
+    await expect(service.download(principal, 'photo')).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('denies deleted comments and keeps unscanned photos unavailable', async () => {
+    const { prisma, service } = setup()
+    prisma.comment.findMany.mockResolvedValue([])
+    await expect(service.download(principal, 'photo')).rejects.toMatchObject({ status: 404 })
+    prisma.comment.findMany.mockResolvedValue([{ entityId: 'post' }])
+    prisma.fileObject.findFirst.mockResolvedValue({ ...await prisma.fileObject.findFirst(), scanStatus: 'QUARANTINED' })
+    await expect(service.download(principal, 'photo')).rejects.toMatchObject({ status: 403 })
+  })
+})
+
 describe('FilesService avatar access', () => {
   const prisma = {
     fileObject: { findFirst: vi.fn() },

@@ -34,6 +34,35 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function jsonBody(value: unknown): string { return JSON.stringify(value) }
 
+/** Multipart transport with real browser upload progress and the same auth as api(). */
+export function uploadApi<T>(path: string, form: FormData, signal: AbortSignal, onProgress: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+    const request = new XMLHttpRequest()
+    const abort = () => request.abort()
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    request.open('POST', apiUrl(path))
+    request.withCredentials = true
+    request.responseType = 'json'
+    if (csrfToken) request.setRequestHeader('x-csrf-token', csrfToken)
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total)
+    }
+    request.upload.onload = () => onProgress(1)
+    request.onload = () => {
+      cleanup()
+      if (request.status >= 200 && request.status < 300) { resolve(request.response as T); return }
+      const problem = request.response as ProblemDetails | null
+      if (request.status === 401 && problem?.code !== 'credential_step_required') window.dispatchEvent(new Event('lankadws:session-ended'))
+      reject(new ApiProblem(problem ?? { type: 'about:blank', title: 'Не вдалося завантажити файл', status: request.status, code: `http_${request.status}`, correlationId: request.getResponseHeader('x-correlation-id') ?? 'unknown' }))
+    }
+    request.onerror = () => { cleanup(); reject(new Error('Не вдалося завантажити файл. Перевірте з’єднання та спробуйте ще раз.')) }
+    request.onabort = () => { cleanup(); reject(new DOMException('Aborted', 'AbortError')) }
+    signal.addEventListener('abort', abort, { once: true })
+    try { request.send(form) } catch (error) { cleanup(); reject(error) }
+  })
+}
+
 export function randomId(): string {
   const cryptoApi = globalThis.crypto
   if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()

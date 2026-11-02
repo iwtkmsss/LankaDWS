@@ -1,6 +1,7 @@
 import type { StructuredMentionInput } from '@lankadws/contracts'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { FormattedContent } from './FormattedText'
+import { personName } from '../lib/personName'
 
 export function editorMarkup(body: string, mentions: StructuredMentionInput[]) {
   if (!body) return ''
@@ -11,7 +12,8 @@ export function editorMarkup(body: string, mentions: StructuredMentionInput[]) {
       const start = mention.start - offset
       if (start < cursor) continue
       pieces.push(value.slice(cursor, start))
-      pieces.push(<span key={start} data-mention-id={mention.userId} data-mention-label={mention.label} className="structured-mention">{value.slice(start, mention.end - offset)}</span>)
+      const name = personName(mention.label)
+      pieces.push(<span key={start} data-mention-id={mention.userId} data-mention-label={mention.label} className="structured-mention"><span hidden aria-hidden="true">@</span>{name}<span hidden aria-hidden="true">{mention.label.slice(name.length)}</span></span>)
       cursor = mention.end - offset
     }
     pieces.push(value.slice(cursor))
@@ -31,6 +33,7 @@ export function readEditor(root: HTMLElement) {
   const points: { node: Node; domOffset: number; offset: number }[] = []
   let quote = ''
   let plainTextDepth = 0
+  let tableCellDepth = 0
   function boundary(node: Node, domOffset: number) { points.push({ node, domOffset, offset: body.length }) }
   function beginLine(prefix = '') {
     if (body && !body.endsWith('\n')) body += '\n'
@@ -46,14 +49,23 @@ export function readEditor(root: HTMLElement) {
       for (let index = 0; index < value.length; index += 1) {
         points.push({ node, domOffset: index, offset: body.length })
         const character = value[index]!
-        body += !plainTextDepth && /[\\*~`[\]#>.-]/.test(character) ? `\\${character}` : character
+        body += !plainTextDepth && /[\\*~`[\]#>.|-]/.test(character) ? `\\${character}` : character
       }
       points.push({ node, domOffset: value.length, offset: body.length })
       return
     }
     if (!(node instanceof HTMLElement)) return
     const tag = node.tagName
-    if (tag === 'BR') { body += '\n'; return }
+    if (tag === 'BR') { body += tableCellDepth ? '[br]' : '\n'; return }
+    if (tag === 'TABLE') {
+      beginLine()
+      node.querySelectorAll('tr').forEach((row) => {
+        body += '|'
+        Array.from(row.cells).forEach((cell) => { tableCellDepth += 1; children(cell); tableCellDepth -= 1; body += '|' })
+        body += '\n'
+      })
+      return
+    }
     if (tag === 'PRE') {
       beginLine('```\n')
       // Code is plain text, including its line breaks.
@@ -87,8 +99,17 @@ export function readEditor(root: HTMLElement) {
     }
     const block = ['P', 'DIV', 'H2', 'H3', 'H4'].includes(tag)
     if (block) {
+      if (tableCellDepth) {
+        if (!body.endsWith('|') && !body.endsWith('[br]')) body += '[br]'
+        children(node)
+        return
+      }
       if (!node.classList.contains('formatted-text__space')) beginLine(/^H[234]$/.test(tag) ? `${'#'.repeat(Number(tag.slice(1)) - 1)} ` : '')
+      const alignment = node.style.textAlign
+      const aligned = ['left', 'center', 'right', 'justify'].includes(alignment)
+      if (aligned) body += `[align=${alignment}]`
       children(node)
+      if (aligned) body += '[/align]'
       // A single BR is the browser's empty paragraph placeholder.
       if (!(node.childNodes.length === 1 && node.firstChild instanceof HTMLElement && node.firstChild.tagName === 'BR')) body += '\n'
       return
@@ -97,10 +118,18 @@ export function readEditor(root: HTMLElement) {
     if (tag === 'B' || tag === 'STRONG' || node.style.fontWeight === 'bold' || Number(node.style.fontWeight) >= 600) marker = '**'
     else if (tag === 'I' || tag === 'EM' || node.style.fontStyle === 'italic') marker = '*'
     else if (['S', 'STRIKE', 'DEL'].includes(tag) || node.style.textDecoration.includes('line-through')) marker = '~~'
+    else if (tag === 'U' || node.style.textDecoration.includes('underline')) marker = '[u]'
     else if (tag === 'CODE' && node.parentElement?.tagName !== 'PRE') marker = '`'
     if (!node.textContent) marker = ''
     const href = tag === 'A' ? node.getAttribute('href') ?? '' : ''
     const link = href && safeEditorLink(href)
+    const size = /^(\d+)(pt|px)$/.exec(node.style.fontSize)
+    const pointsSize = size ? Math.round(Number(size[1]) * (size[2] === 'px' ? .75 : 1)) : 0
+    const sized = pointsSize >= 10 && pointsSize <= 36
+    const alignment = node.style.textAlign
+    const aligned = ['left', 'center', 'right', 'justify'].includes(alignment)
+    if (aligned) body += `[align=${alignment}]`
+    if (sized) body += `[size=${pointsSize}]`
     body += link ? '[' : marker
     const start = body.length
     const plain = tag === 'CODE' || Boolean(node.dataset.mentionId)
@@ -113,7 +142,9 @@ export function readEditor(root: HTMLElement) {
     if (node.dataset.mentionId && label && node.textContent === `@${label}` && mentionStart >= start && mentionStart + label.length + 1 <= end) {
       mentions.push({ userId: node.dataset.mentionId, label, start: mentionStart, end: mentionStart + label.length + 1 })
     }
-    body += link ? `](${href})` : marker
+    body += link ? `](${href})` : marker === '[u]' ? '[/u]' : marker
+    if (sized) body += '[/size]'
+    if (aligned) body += '[/align]'
   }
   children(root)
   if (body.endsWith('\n')) body = body.slice(0, -1)

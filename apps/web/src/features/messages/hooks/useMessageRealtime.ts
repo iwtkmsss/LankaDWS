@@ -116,6 +116,7 @@ export function useMessageRealtime(enabled = true, userId?: string): boolean {
         }
         return [
           client.invalidateQueries({ queryKey: ['notifications'] }),
+          client.invalidateQueries({ queryKey: ['feed'] }),
           client.invalidateQueries({ queryKey: ['task'] }),
           client.invalidateQueries({ queryKey: ['task-activity'] }),
         ]

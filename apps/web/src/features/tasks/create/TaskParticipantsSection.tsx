@@ -1,6 +1,6 @@
 import { personName } from '../../../shared/lib/personName'
 import type { PrincipalView, TaskParticipantRoleV2 } from '@lankadws/contracts'
-import { Eye, UserCheck, UserCog, UsersRound, X } from 'lucide-react'
+import { Eye, UserRoundCheck, UserRoundPen, UsersRound, X } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { Avatar } from '../../../shared/ui'
 import { UserSearchCombobox } from '../../employees/UserSearchCombobox'
@@ -107,8 +107,7 @@ function ParticipantRoleCard({
           <small>{description}</small>
         </span>
         <span className="task-create-role-card__count">
-          {required && <i>Обов’язково</i>}
-          {selected.length}
+          {required ? <i>Обов’язково {selected.length}</i> : selected.length}
         </span>
       </header>
 
@@ -156,12 +155,12 @@ function ReporterRoleCard({
   return (
     <section className="task-create-role-card" aria-labelledby="task-create-role-reporter">
       <header className="task-create-role-card__header">
-        <span className="task-create-role-card__icon"><UserCog size={18} aria-hidden /></span>
+        <span className="task-create-role-card__icon"><UserRoundPen size={18} aria-hidden /></span>
         <span>
           <strong id="task-create-role-reporter">Постановник</strong>
           <small>Створює доручення та приймає результат</small>
         </span>
-        <span className="task-create-role-card__count"><i>Обов’язково</i>{reporter ? 1 : 0}</span>
+        <span className="task-create-role-card__count"><i>Обов’язково {reporter ? 1 : 0}</i></span>
       </header>
 
       {reporter && (
@@ -231,7 +230,7 @@ export function TaskParticipantsSection({
           role="RESPONSIBLE"
           title="Відповідальний"
           description="Веде завдання та відповідає за результат"
-          icon={<UserCheck size={18} aria-hidden />}
+          icon={<UserRoundCheck size={18} aria-hidden />}
           required
           single
           draft={draft}

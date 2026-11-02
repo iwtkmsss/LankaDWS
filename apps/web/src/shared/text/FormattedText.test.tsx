@@ -11,6 +11,18 @@ import { editorMarkup, readEditor } from './richTextDom'
 vi.mock('../../features/employees/UserProfileDrawer', () => ({ UserProfileLink: ({ children }: { children: React.ReactNode }) => <a href="/person">{children}</a> }))
 afterEach(cleanup)
 
+it('flattens table cells and omits empty rows only in previews', () => {
+  const body = '| | | | |\n|Керівник|**Підключити**|\nОпис завдання'
+  const { container, rerender } = render(<FormattedText body={body} preview />)
+  expect(container.querySelector('table')).toBeNull()
+  expect(container.querySelectorAll('p')).toHaveLength(2)
+  expect(container.querySelector('p')).toHaveTextContent('Керівник · Підключити')
+  expect(container.querySelector('strong')).toHaveTextContent('Підключити')
+  rerender(<FormattedText body={body} />)
+  expect(container.querySelectorAll('tr')).toHaveLength(2)
+  expect(container.querySelectorAll('td')).toHaveLength(6)
+})
+
 it('renders supported formatting while leaving HTML and unsafe links inert', () => {
   const { container } = render(<FormattedText body={'## План\n**важливо** і *курсив* та ~~старе~~\n- один\n- два\n> цитата\n`код`\n[сайт](https://example.com)\n[x](javascript:alert)\n<img src=x onerror=alert(1)>'} />)
   expect(screen.getByRole('heading', { name: 'План' })).toBeInTheDocument()
@@ -49,7 +61,7 @@ it('preserves mention ranges when formatting the selected mention', () => {
   expect(changed).toHaveBeenCalledWith('**@Олена**', [{ userId: 'user', start: 2, end: 8, label: 'Олена' }])
   cleanup()
   render(<FormattedText body="**@Олена**" mentions={[{ userId: 'user', start: 2, end: 8, active: true }]} />)
-  expect(screen.getByRole('link', { name: '@Олена' }).closest('strong')).not.toBeNull()
+  expect(screen.getByRole('link', { name: 'Олена' }).closest('strong')).not.toBeNull()
 })
 
 it('round-trips existing headings, lists, code and safe links without leaking HTML', () => {
@@ -92,4 +104,65 @@ it('reopens combined inline styles and tracks the caret inside them', () => {
   selection.removeAllRanges(); selection.addRange(range)
   expect(readEditor(root).end).toBe(5)
   root.remove()
+})
+
+it('round-trips font sizes, underline, alignment and mentions', () => {
+  const root = document.createElement('div')
+  root.innerHTML = '<p style="text-align:center"><span style="font-size:36pt"><u><span data-mention-id="user" data-mention-label="Олена">@Олена</span></u></span></p>'
+  const next = readEditor(root)
+  expect(next.body).toBe('[align=center][size=36][u]@Олена[/u][/size][/align]')
+  expect(next.body.slice(next.mentions[0]!.start, next.mentions[0]!.end)).toBe('@Олена')
+  root.innerHTML = editorMarkup(next.body, next.mentions)
+  expect(root.querySelector('u')).toHaveTextContent('@Олена')
+  expect(root.querySelector('[style*="font-size"]')).toHaveStyle({ fontSize: '36pt' })
+  expect(readEditor(root).body).toBe(next.body)
+  expect(readEditor(root).mentions).toEqual(next.mentions)
+})
+
+it('round-trips tables with formatted cells and literal pipes', () => {
+  const root = document.createElement('div')
+  root.innerHTML = '<table><tbody><tr><td><b>План</b></td><td>а|б</td></tr><tr><td> </td><td>Зміст<br>далі</td></tr></tbody></table>'
+  const body = readEditor(root).body
+  root.innerHTML = editorMarkup(body, [])
+  expect(root.querySelectorAll('td')).toHaveLength(4)
+  expect(root.querySelector('strong')).toHaveTextContent('План')
+  expect(root.querySelectorAll('td')[1]).toHaveTextContent('а|б')
+  expect(readEditor(root).body).toBe(body)
+})
+
+it('keeps nested sizes and rejects unsupported formatting values', () => {
+  const { container } = render(<FormattedText body={'[size=12]один [size=36]два[/size] три[/size]\n[size=99]великий[/size]\n[align=evil]текст[/align]'} />)
+  expect(container.querySelector('[style*="12pt"] [style*="36pt"]')).toHaveTextContent('два')
+  expect(container.querySelector('[style*="99"]')).toBeNull()
+  expect(container.textContent).toContain('[align=evil]текст[/align]')
+})
+
+it('offers sizes 10 through 36 and places undo and redo last', () => {
+  render(<FormattedTextarea label="Опис" />)
+  expect(screen.getAllByRole('option')).toHaveLength(27)
+  expect(screen.getByRole('option', { name: '10 pt' })).toHaveValue('10')
+  expect(screen.getByRole('option', { name: '36 pt' })).toHaveValue('36')
+  const toolbar = screen.getByRole('group', { name: 'Форматування тексту' })
+  expect(toolbar.children[toolbar.children.length - 2]).toHaveAccessibleName('Скасувати дію')
+  expect(toolbar.lastElementChild).toHaveAccessibleName('Повторити дію')
+})
+
+
+it('hides mention prefixes and patronymics in the editor while preserving transport offsets', () => {
+  const body = 'Привіт @Іваненко Марія Петрівна!'
+  const start = body.indexOf('@')
+  const mentions = [{ userId: 'maria', label: 'Іваненко Марія Петрівна', start, end: body.length - 1 }]
+  const root = document.createElement('div')
+  root.innerHTML = editorMarkup(body, mentions)
+  const mention = root.querySelector('.structured-mention')!
+  expect(mention.querySelector('[hidden]')).toHaveTextContent('@')
+  const visible = mention.cloneNode(true) as HTMLElement
+  visible.querySelectorAll('[hidden]').forEach((node) => node.remove())
+  expect(visible.textContent).toBe('Іваненко Марія')
+  expect(readEditor(root)).toMatchObject({ body, mentions })
+})
+
+it('renders a saved description person link without a prefix or patronymic', () => {
+  render(<FormattedText body="[Іваненко Марія Петрівна](/?employeeId=maria)" />)
+  expect(screen.getByRole('link', { name: 'Іваненко Марія' })).toHaveClass('structured-mention')
 })

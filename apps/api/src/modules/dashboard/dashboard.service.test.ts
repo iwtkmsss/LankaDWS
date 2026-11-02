@@ -200,7 +200,7 @@ describe('DashboardService', () => {
       activeTasks: { value: 3 },
       overdueTasks: { value: 1 },
       unreadMessages: { value: 4 },
-      unreadNotifications: { value: 3 },
+      unreadNotifications: { value: 3, href: '/feed?panel=notifications' },
     });
     expect(result.taskAnalytics).toEqual({
       byStatus: [{ status: 'IN_PROGRESS', count: 1 }],

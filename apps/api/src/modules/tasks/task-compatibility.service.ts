@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable, Optional } from '@nestjs/common'
 import { taskListSortExpressions, taskListSortQuery } from './task-list-sort.js'
 import {
@@ -17,6 +18,8 @@ import {
 } from '@lankadws/contracts'
 import type { EntityLink, FileObject, Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
+import { listReactionUsers } from '../../common/reaction-users.js'
+import type { ReactionUsersQuery } from '@lankadws/contracts'
 import {
   badRequest,
   conflict,
@@ -94,6 +97,7 @@ export interface CreateSubtaskInput {
   deadline?: string
   priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'URGENT'
   expectedVersion: number
+  attachmentIds?: string[]
 }
 
 export interface LegacyUpdateTaskInput {
@@ -111,10 +115,6 @@ export interface LegacyUpdateTaskInput {
 export interface TaskUserStateInput {
   favorited?: boolean
   important?: boolean
-}
-
-export interface TaskFollowerInput {
-  userId?: string
 }
 
 export interface DashboardTaskSummary {
@@ -264,7 +264,7 @@ export class TaskCompatibilityService {
     const where: Prisma.TaskWhereInput = {
       workspaceId: principal.workspaceId,
       companyId: { in: companyIds },
-      archivedAt: null,
+      ...((selectedStatuses.includes('ARCHIVED') || presets.includes('ARCHIVED')) ? {} : { archivedAt: null }),
       AND: [
         roleWhere,
         ...(presetWhere ? [presetWhere] : []),
@@ -415,7 +415,7 @@ export class TaskCompatibilityService {
       },
     })
     const canEdit = this.canEdit(principal, task)
-    const [comments, entityLinks, personalState, following, followerCount, reminders] = await Promise.all([
+    const [comments, entityLinks, personalState, reminders] = await Promise.all([
       this.prisma.comment.findMany({
         where: { entityType: 'TASK', entityId: task.id, deletedAt: null },
         orderBy: { createdAt: 'asc' },
@@ -432,11 +432,6 @@ export class TaskCompatibilityService {
         where: { taskId_userId: { taskId: task.id, userId: principal.userId } },
         select: { favoritedAt: true, important: true },
       }),
-      this.prisma.taskFollower.findUnique({
-        where: { taskId_userId: { taskId: task.id, userId: principal.userId } },
-        select: { mutedAt: true },
-      }),
-      this.prisma.taskFollower.count({ where: { taskId: task.id, mutedAt: null } }),
       this.prisma.taskReminder.findMany({
         where: {
           taskId: task.id,
@@ -647,8 +642,6 @@ export class TaskCompatibilityService {
       personalState: {
         favorited: Boolean(personalState?.favoritedAt),
         important: personalState?.important ?? false,
-        following: Boolean(following && !following.mutedAt),
-        followerCount,
         reminders: reminders.flatMap((reminder) => (
           reminder.remindAt
             ? [{
@@ -795,6 +788,8 @@ export class TaskCompatibilityService {
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
       throw badRequest('task_version')
     }
+    if (input.attachmentIds !== undefined && (!Array.isArray(input.attachmentIds) || input.attachmentIds.length > 10
+      || input.attachmentIds.some((fileId) => typeof fileId !== 'string' || !fileId.trim() || fileId.length > 120))) throw badRequest('task_attachments')
     const priority = this.normalizePriority(input.priority ?? 'MEDIUM')
     if (!priority) throw badRequest('task_priority')
     const dueAt = input.deadline ? new Date(input.deadline) : null
@@ -813,7 +808,7 @@ export class TaskCompatibilityService {
       relations: [],
       reminders: [],
       recurrence: null,
-      attachmentIds: [],
+      attachmentIds: [...new Set(input.attachmentIds ?? [])],
     }, idempotencyKey, { expectedParentVersion: input.expectedVersion })
     const currentParent = await this.prisma.task.findUniqueOrThrow({
       where: { id: parent.id },
@@ -1141,55 +1136,6 @@ export class TaskCompatibilityService {
     return { favorited, important }
   }
 
-  async followTask(
-    principal: AuthPrincipal,
-    taskId: string,
-    input: TaskFollowerInput,
-    idempotencyKey: string,
-  ): Promise<{ userId: string; following: true }> {
-    const task = await this.access.readableTask(principal, taskId)
-    const userId = input.userId ?? principal.userId
-    await this.assertFollowerTarget(principal, task, userId)
-    const operation = `task.follower.add:${task.id}`
-    const requestFingerprint = sha256(JSON.stringify({ operation, userId }))
-    if (await this.idempotencyHit(principal.userId, idempotencyKey, operation, requestFingerprint)) {
-      return { userId, following: true }
-    }
-    await this.prisma.$transaction(async (tx) => {
-      const follower = await tx.taskFollower.upsert({
-        where: { taskId_userId: { taskId: task.id, userId } },
-        create: { id: id('tfol'), taskId: task.id, userId },
-        update: { mutedAt: null },
-      })
-      await this.recordIdempotency(
-        tx,
-        principal.userId,
-        idempotencyKey,
-        operation,
-        requestFingerprint,
-        'TASK_FOLLOWER',
-        follower.id,
-      )
-    })
-    return { userId, following: true }
-  }
-
-  async unfollowTask(
-    principal: AuthPrincipal,
-    taskId: string,
-    userId: string,
-  ): Promise<{ userId: string; following: false }> {
-    const task = await this.access.readableTask(principal, taskId)
-    await this.assertFollowerTarget(principal, task, userId)
-    const now = new Date()
-    await this.prisma.taskFollower.upsert({
-      where: { taskId_userId: { taskId: task.id, userId } },
-      create: { id: id('tfol'), taskId: task.id, userId, mutedAt: now },
-      update: { mutedAt: now },
-    })
-    return { userId, following: false }
-  }
-
   async transition(
     principal: AuthPrincipal,
     taskId: string,
@@ -1427,20 +1373,13 @@ export class TaskCompatibilityService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      const [activeParticipants, followers] = await Promise.all([
-        tx.taskParticipant.findMany({
-          where: { taskId: task.id, removedAt: null },
-          select: { userId: true },
-        }),
-        tx.taskFollower.findMany({
-          where: { taskId: task.id, mutedAt: null, userId: { not: principal.userId } },
-          select: { userId: true },
-        }),
-      ])
+      const activeParticipants = await tx.taskParticipant.findMany({
+        where: { taskId: task.id, removedAt: null },
+        select: { userId: true },
+      })
       const recipients = [...new Set([
         task.reporterId,
         ...activeParticipants.map((participant) => participant.userId),
-        ...followers.map((follower) => follower.userId),
         ...(replyTarget?.authorId ? [replyTarget.authorId] : []),
       ])].filter((userId) => userId !== principal.userId)
       const mentionedRecipients = new Set(mentionedUserIds)
@@ -1521,6 +1460,19 @@ export class TaskCompatibilityService {
     }
   }
 
+  async commentReactionUsers(principal: AuthPrincipal, taskId: string, commentId: string, query: ReactionUsersQuery) {
+    const task = await this.access.readableTask(principal, taskId)
+    const comment = await this.prisma.comment.findFirst({
+      where: {
+        id: commentId, workspaceId: principal.workspaceId, companyId: task.companyId,
+        entityType: 'TASK', entityId: task.id, deletedAt: null,
+      },
+      select: { id: true },
+    })
+    if (!comment) throw notFound()
+    return listReactionUsers(this.prisma, principal.workspaceId, { commentId: comment.id }, query)
+  }
+
   async reactToComment(
     principal: AuthPrincipal,
     taskId: string,
@@ -1540,42 +1492,22 @@ export class TaskCompatibilityService {
       select: { id: true, authorId: true },
     })
     if (!comment) throw notFound()
-    if (liked) {
-      const reaction = await this.prisma.taskCommentReaction.upsert({
-        where: {
-          commentId_userId_kind: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
-        },
-        create: { id: id('tcr'), commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
-        update: {},
-        select: { createdAt: true },
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.taskCommentReaction.findUnique({
+        where: { commentId_userId_kind: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' } },
       })
-      if (comment.authorId !== principal.userId) {
-        const actor = await this.prisma.user.findFirst({
-          where: { id: principal.userId, workspaceId: principal.workspaceId },
-          select: { displayName: true },
+      if (Boolean(existing) === liked) return
+      if (liked) {
+        await tx.taskCommentReaction.create({
+          data: { id: id('tcr'), commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
         })
-        await this.prisma.notification.upsert({
-          where: { dedupeKey: `task-comment:${comment.id}:reaction:LIKE:${principal.userId}` },
-          create: {
-            id: id('ntf'),
-            recipientId: comment.authorId,
-            category: 'REACTION',
-            safeTitle: `${actor?.displayName ?? 'Колега'} вподобав ваше повідомлення`,
-            safeSnippet: task.title.slice(0, 180),
-            entityType: 'TASK',
-            entityId: task.id,
-            deliveredAt: reaction.createdAt,
-            dedupeKey: `task-comment:${comment.id}:reaction:LIKE:${principal.userId}`,
-          },
-          update: { readAt: null, deliveredAt: reaction.createdAt },
-        })
-        this.realtime?.publishSummary([comment.authorId], ['notifications'])
+      } else {
+        await tx.taskCommentReaction.deleteMany({ where: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' } })
       }
-    } else {
-      await this.prisma.taskCommentReaction.deleteMany({
-        where: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' },
-      })
-    }
+      const updated = await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } } })
+      await notifyTaskParticipants(tx, taskId, principal.userId, updated.version, 'task.reaction_changed')
+    })
+    this.realtime?.publishSummary([task.createdById, task.reporterId, comment.authorId], ['notifications', 'feed'])
     const [likeCount, ownReaction] = await Promise.all([
       this.prisma.taskCommentReaction.count({ where: { commentId: comment.id, kind: 'LIKE' } }),
       this.prisma.taskCommentReaction.findUnique({
@@ -1947,38 +1879,6 @@ export class TaskCompatibilityService {
 
   private canManageParticipants(principal: AuthPrincipal, task: Task, canEdit: boolean): boolean {
     return canEdit && (task.reporterId === principal.userId || isGlobalAdmin(principal))
-  }
-
-  private async assertFollowerTarget(
-    principal: AuthPrincipal,
-    task: Task,
-    userId: string,
-  ): Promise<void> {
-    if (!userId || userId.length > 120) throw badRequest('task_follower')
-    if (userId !== principal.userId && !isGlobalAdmin(principal)) {
-      throw forbidden()
-    }
-    const user = await this.prisma.user.findFirst({
-      where: {
-        id: userId,
-        workspaceId: principal.workspaceId,
-        isActive: true,
-      },
-      select: { id: true },
-    })
-    if (!user) throw badRequest('task_follower')
-    if (
-      userId === task.createdById
-      || userId === task.reporterId
-      || await this.prisma.taskParticipant.findFirst({
-        where: { taskId: task.id, userId, removedAt: null },
-        select: { id: true },
-      })
-      || isGlobalAdmin(principal)
-    ) {
-      return
-    }
-    throw badRequest('task_follower')
   }
 
   private async activeSubtaskIds(taskId: string): Promise<string[]> {

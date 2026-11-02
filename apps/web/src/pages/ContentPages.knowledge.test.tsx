@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import ContentPages from './ContentPages'
@@ -11,6 +11,52 @@ const { request, principal } = vi.hoisted(() => ({ request: vi.fn(), principal: 
 vi.mock('../shared/api/client', async (load) => ({ ...await load<object>(), api: request }))
 vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: principal }) }))
 afterEach(() => { cleanup(); request.mockReset(); principal.accountType = 'USER'; vi.unstubAllGlobals() })
+
+it('submits private feedback through the shared editor without requesting companies or showing acknowledgement controls', async () => {
+  request.mockImplementation(async (path: string) => path === '/knowledge/tickets' ? { submitted: true } : path === '/knowledge/tickets/attachments' ? { id: 'attachment', scanStatus: 'CLEAN' } : { items: [] })
+  const router = createMemoryRouter([{ path: '/knowledge', element: <OverlayProvider><TopbarContentProvider><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Залишити відгук' }))
+  expect(router.state.location.search).toBe('?feedback=new')
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).queryByText('Ознайомлення')).toBeNull()
+  expect(within(dialog).queryByRole('group', { name: 'Хто побачить статтю' })).toBeNull()
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Тема звернення' }), { target: { value: 'Побажання' } })
+  const body = within(dialog).getByRole('textbox', { name: 'Текст звернення' })
+  body.innerHTML = '<p>Мій відгук</p>'
+  fireEvent.input(body)
+  fireEvent.change(within(dialog).getByLabelText('Додати файли'), { target: { files: [new File(['text'], 'feedback.txt', { type: 'text/plain' })] } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Надіслати звернення' }))
+  await screen.findByText('Звернення надіслано адміністратору. Дякуємо за відгук!')
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  const submission = request.mock.calls.find(([path, init]) => path === '/knowledge/tickets' && init?.method === 'POST')
+  expect(JSON.parse(submission![1].body)).toEqual({ title: 'Побажання', body: 'Мій відгук', attachmentIds: ['attachment'] })
+  expect(request.mock.calls.some(([path]) => path === '/admin/companies')).toBe(false)
+  expect(request.mock.calls.some(([path, init]) => path === '/knowledge/tickets' && init?.method !== 'POST')).toBe(false)
+})
+
+it('lets an admin read and delete a ticket with confirmation', async () => {
+  principal.accountType = 'ADMIN'
+  let removed = false
+  const ticket = { id: 'ticket', title: 'Побажання', author: 'Автор', createdAt: '2026-10-19T09:00:00Z' }
+  request.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/knowledge/tickets/ticket' && init?.method === 'DELETE') { removed = true; return { archived: true } }
+    if (path === '/knowledge/tickets/ticket') return { ...ticket, body: '**Мій відгук**', attachments: [] }
+    if (path === '/knowledge/tickets') return { items: removed ? [] : [ticket], nextCursor: null }
+    return { items: [] }
+  })
+  const router = createMemoryRouter([{ path: '/knowledge', element: <OverlayProvider><TopbarContentProvider><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: /Побажання.*Автор/ }))
+  const dialog = await screen.findByRole('dialog')
+  expect((await within(dialog).findByText('Мій відгук')).closest('strong')).not.toBeNull()
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Видалити звернення' }))
+  const confirmation = await screen.findByRole('alertdialog')
+  expect(removed).toBe(false)
+  fireEvent.click(within(confirmation).getByRole('button', { name: 'Видалити' }))
+  await screen.findByText('Нових звернень поки немає.')
+  expect(removed).toBe(true)
+})
 
 it('opens an article directly as a page, renders formatting and confirms reading', async () => {
   request.mockImplementation(async (path: string) => path.endsWith('/acknowledge') ? {} : {

@@ -5,15 +5,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { FeedSummary } from '@lankadws/contracts'
 import {
+  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   Ellipsis,
+  FlaskConical,
   Gauge,
   KeyRound,
   LogOut,
   Menu,
   Moon,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Search,
@@ -45,7 +46,6 @@ interface SidebarNavSection {
 }
 const sidebarNavGroups = [
   { key: 'primary', label: 'Щоденна робота' },
-  { key: 'communication', label: 'Комунікації' },
   { key: 'company', label: 'Співпраця' },
   { key: 'management', label: 'Знання' },
   { key: 'administration', label: 'Адміністрування' },
@@ -73,6 +73,9 @@ export function AppShell({ children }: PropsWithChildren) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
     window.localStorage.getItem('lankadws.sidebar.collapsed') === 'true')
   const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('panel') === 'notifications') setRightPanelOpen(true)
+  }, [location.key, location.search])
   const [profileOpen, setProfileOpen] = useState(false)
   const [theme, setTheme] = useState(getStoredTheme)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -219,7 +222,7 @@ export function AppShell({ children }: PropsWithChildren) {
   } as const
   const notificationSummary = useQuery({
     queryKey: ['notifications', 'summary'],
-    queryFn: () => api<{ action: number; unread: number; tasks: number }>('/notifications/summary'),
+    queryFn: () => api<{ unread: number; tasks: number }>('/notifications/summary'),
     enabled: Boolean(user),
     ...summaryBadgeFallback,
   })
@@ -387,11 +390,6 @@ export function AppShell({ children }: PropsWithChildren) {
             {sidebarCollapsed ? '!' : knowledgePending > 99 ? '99+' : knowledgePending}
           </b>
         )}
-        {route.path === '/notifications' && (notificationSummary.data?.unread ?? 0) > 0 && (
-          <b className="nav-unread-badge" aria-label={`${notificationSummary.data!.unread} непрочитаних сповіщень`}>
-            {notificationSummary.data!.unread > 99 ? '99+' : notificationSummary.data!.unread}
-          </b>
-        )}
       </NavLink>
     )
   }
@@ -454,7 +452,7 @@ export function AppShell({ children }: PropsWithChildren) {
               })
             }}
           >
-            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            {sidebarCollapsed ? <ArrowRight size={14} strokeWidth={1.5} aria-hidden="true" /> : <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />}
           </IconButton>
           <IconButton label="Закрити меню" onClick={() => setMobileNav(false)}>
             <X size={18} />
@@ -569,6 +567,14 @@ export function AppShell({ children }: PropsWithChildren) {
             )} />
           </div>
           <div className="topbar__actions">
+            <Link
+              to="/feed-showcase"
+              className={`icon-button${location.pathname === '/feed-showcase' ? ' is-active' : ''}`}
+              aria-label="Галерея живої стрічки"
+              title="Галерея живої стрічки"
+            >
+              <FlaskConical size={19} />
+            </Link>
             <IconButton
               className={rightPanelOpen ? 'is-active' : ''}
               label={rightPanelOpen ? 'Закрити праву панель' : 'Відкрити чат і сповіщення'}

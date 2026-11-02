@@ -1,6 +1,7 @@
 import { conversationName, personName, personPatronymic, personNamesInLabel } from '../shared/lib/personName'
 import { useDocumentVisible } from '../shared/lib/useDocumentVisible'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { NotificationReadStatus } from '../features/notifications/NotificationReadStatus'
 import { useReadingMessageThread } from '../features/messages/lib/messageSound'
 import { sortThreadsWithDrafts, useMessageDrafts } from '../features/messages/lib/messageDrafts'
 import { useChatPin } from '../features/messages/hooks/useChatPin'
@@ -20,6 +21,7 @@ import {
 } from '@tanstack/react-query'
 import {
   ArrowLeft,
+  ArrowUp,
   Bell,
   BellRing,
   BriefcaseBusiness,
@@ -27,8 +29,6 @@ import {
   CheckCircle2,
   CircleAlert,
   ChevronDown,
-  ChevronRight,
-  FileText,
   ListTodo,
   LoaderCircle,
   Mail,
@@ -44,8 +44,8 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   getMessagePage,
   getMessage,
@@ -55,7 +55,6 @@ import {
   getThreadPage,
   createThread,
   sendMessage,
-  uploadMessageAttachments,
 } from '../features/messages/api/messageApi'
 import { messageKeys } from '../features/messages/api/messageKeys'
 import { MessageBubble } from '../features/messages/components/MessageBubble'
@@ -64,6 +63,9 @@ import { ForwardMessageDrawer } from '../features/messages/components/ForwardMes
 import { upsertMessageCache } from '../features/messages/lib/messageCache'
 import { formatChatTime } from '../features/messages/lib/chatDates'
 import { MessageComposer } from '../features/messages/components/MessageComposer'
+import { stageMessageFiles } from '../features/messages/lib/localAttachments'
+import { validMessageFiles } from '../shared/files/uploadValidation'
+import { PendingUploadCards } from '../features/messages/components/PendingUploadCards'
 import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
 import { useUserSearch } from '../shared/lib/useUserSearch'
 import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
@@ -76,6 +78,7 @@ import { Avatar, ErrorState, IconButton, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FileThumbnail } from '../shared/files/FileThumbnail'
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
@@ -141,6 +144,8 @@ function notificationIcon(category: string) {
 
 function notificationRoute(item: NotificationItem) {
   if (!item.entityId) return null
+  if (item.entityType === 'DOCUMENT') return `/drive/${encodeURIComponent(item.entityId)}`
+  if (item.entityType === 'DRIVE_FOLDER') return `/drive?folder=${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'TASK') return `/tasks/${item.entityId}`
   if (item.entityType === 'EVENT') return `/calendar/events/${encodeURIComponent(item.entityId)}`
   if (item.entityType === 'MESSAGE_THREAD') return `/messages/${item.entityId}`
@@ -207,6 +212,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   const drafts = useMessageDrafts(user?.id ?? '')
   const chatPin = useChatPin()
   const navigate = useNavigate()
+  const location = useLocation()
   const client = useQueryClient()
   const [tab, setTab] = useState<PanelTab>(() => {
     try {
@@ -217,8 +223,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       return 'chat'
     }
   })
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('panel') === 'notifications') setTab('notifications')
+  }, [location.key, location.search])
   const [chatScreen, setChatScreen] = useState<ChatScreen>('threads')
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
+  const [draftSendingThreadId, setDraftSendingThreadId] = useState<string | null>(null)
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all')
   const [chatUserQuery, setChatUserQuery] = useState('')
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
@@ -379,11 +389,8 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         }, attempt.threadKey)
         attempt.threadId = thread.id
       }
-      if (files.length && attempt.attachments.length !== files.length) {
-        const result = await uploadMessageAttachments(attempt.threadId, files)
-        if (result.failed) throw new Error('chat_attachment_upload_failed')
-        attempt.attachments = result.uploaded
-      }
+      setDraftSendingThreadId(attempt.threadId)
+      if (files.length && attempt.attachments.length !== files.length) attempt.attachments = stageMessageFiles(files)
       await sendMessage(attempt.threadId, {
         body,
         mentions: [],
@@ -407,6 +414,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
         client.invalidateQueries({ queryKey: ['threads', 'summary'] }),
       ])
     },
+    onSettled: () => setDraftSendingThreadId(null),
   })
 
   useEffect(() => {
@@ -443,7 +451,8 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   }
 
   const send = useMutation({
-    mutationFn: (input: { body: string; mentions: StructuredMentionInput[] }) => {
+    mutationFn: async (input: { body: string; mentions: StructuredMentionInput[] }) => {
+      const threadId = selectedThreadId!
       const payload = {
         body: input.body,
         mentions: input.mentions,
@@ -454,35 +463,34 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       if (sendAttemptRef.current.signature !== signature) {
         sendAttemptRef.current = { signature, key: idempotencyKey('right-panel-message') }
       }
-      return sendMessage(selectedThreadId!, payload, sendAttemptRef.current.key, attachments)
+      await sendMessage(threadId, payload, sendAttemptRef.current.key, attachments)
+      return { threadId }
     },
-    onSuccess: async () => {
-      sendAttemptRef.current = { signature: '', key: '' }
-      setSentMessageVersion((version) => version + 1)
-      setReplyTo(null)
-      setAttachments([])
+    onSuccess: async ({ threadId }) => {
+      if (selectedThreadId === threadId) {
+        sendAttemptRef.current = { signature: '', key: '' }
+        setSentMessageVersion((version) => version + 1)
+        setReplyTo(null)
+        setAttachments([])
+      }
       await Promise.all([
-        client.invalidateQueries({ queryKey: messageKeys.pages(selectedThreadId!) }),
-        client.invalidateQueries({ queryKey: messageKeys.detail(selectedThreadId!) }),
+        client.invalidateQueries({ queryKey: messageKeys.pages(threadId) }),
+        client.invalidateQueries({ queryKey: messageKeys.detail(threadId) }),
         client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] }),
         client.invalidateQueries({ queryKey: ['threads', 'summary'] }),
       ])
     },
   })
-  const upload = useMutation({
-    mutationFn: async (files: File[]) => {
-      return uploadMessageAttachments(selectedThreadId!, files)
-    },
-    onSuccess: ({ uploaded }) => {
-      setAttachments((current) => [...current, ...uploaded])
-    },
-  })
+  function addFiles(files: File[]) {
+    const staged = stageMessageFiles(files)
+    setAttachments((current) => [...current, ...staged])
+  }
   const { isDragging: isConversationDragging, dropTargetProps: conversationDropTargetProps } = useFileDropTarget({
     disabled: tab !== 'chat'
       || chatScreen !== 'conversation'
       || !detail.data?.canPost
-      || upload.isPending,
-    onFiles: (files) => upload.mutate(files),
+      || send.isPending,
+    onFiles: addFiles,
   })
   const markThreadRead = useMutation({
     retry: 2,
@@ -514,7 +522,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     queryKey: ['notifications', notificationFilter],
     queryFn: () => api<{
       items: NotificationItem[]
-      counts: { action: number; unread: number }
     }>(`/notifications?tab=${notificationFilter}`),
     enabled: tab === 'notifications',
   })
@@ -671,7 +678,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
           {...conversationDropTargetProps}
         >
           <FileDropOverlay active={isConversationDragging} label="Відпустіть файли, щоб прикріпити до повідомлення" />
-          <div className={`right-panel__person-overview ${profileSummaryOpen ? 'is-open' : ''}`}>
+          <div className={`right-panel__person-overview ${profileSummaryOpen ? 'is-open' : ''} ${chatFilesOpen ? 'has-open-files' : ''}`}>
             <header className="right-panel__conversation-header">
               <IconButton label="До списку діалогів" onClick={() => { props.onClearTarget(); setChatScreen('threads'); setProfileSummaryOpen(false) }}><ArrowLeft size={19} /></IconButton>
               <div className="right-panel__person-trigger">
@@ -685,16 +692,21 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                   <small>{personPatronymic(directParticipant?.displayName ?? profile.data?.displayName ?? targetContact.data?.displayName)}</small>
                 </span>
               </div>
+              {selectedThreadId && (
+                <IconButton
+                  className={`right-panel__files-toggle ${chatFilesOpen ? 'is-active' : ''}`}
+                  label="Файли в чаті"
+                  aria-expanded={chatFilesOpen}
+                  aria-controls={chatFilesOpen ? 'right-panel-chat-files-grid' : undefined}
+                  onClick={() => setChatFilesOpen((value) => !value)}
+                ><Paperclip size={16} /></IconButton>
+              )}
               {profileUserId && (
                 <IconButton
                   className={`right-panel__profile-toggle ${profileSummaryOpen ? 'is-active' : ''}`}
                   label={profileSummaryOpen ? 'Згорнути інформацію про користувача' : 'Розгорнути інформацію про користувача'}
                   aria-expanded={profileSummaryOpen}
-                  onClick={() => setProfileSummaryOpen((value) => {
-                    const nextValue = !value
-                    if (!nextValue) setChatFilesOpen(false)
-                    return nextValue
-                  })}
+                  onClick={() => setProfileSummaryOpen((value) => !value)}
                 >
                   <ChevronDown size={15} />
                 </IconButton>
@@ -702,20 +714,17 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
             </header>
             {profileSummaryOpen && (
               <div className="right-panel__profile-details">
-                <CompactProfileSummary
-                  profile={profile.data}
-                  fallback={directParticipant ?? undefined}
-                  loading={profile.isLoading}
-                  error={profile.isError}
-                  onRetry={() => void profile.refetch()}
-                />
-                {sharedAttachments.length > 0 && (
-                  <ChatFilesDropdown
-                    files={sharedAttachments}
-                    open={chatFilesOpen}
-                    onToggle={() => setChatFilesOpen((value) => !value)}
+                <ChatProfileResize
+                  open={chatFilesOpen}
+                >
+                  <CompactProfileSummary
+                    profile={profile.data}
+                    fallback={directParticipant ?? undefined}
+                    loading={profile.isLoading}
+                    error={profile.isError}
+                    onRetry={() => void profile.refetch()}
                   />
-                )}
+                </ChatProfileResize>
               </div>
             )}
           </div>
@@ -734,11 +743,15 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
             </>
           ) : props.targetUserId && !selectedThreadId && targetContact.data ? (
             <>
-              <div className="right-panel__empty-spacer" aria-hidden="true" />
-              <ConversationEmptyState
-                title={`Почніть розмову з ${personName(targetContact.data.displayName)}`}
-                description="Чат з’явиться у списку після першого повідомлення."
-              />
+              {draftSendingThreadId ? (
+                <div className="pending-uploads-draft-stream"><PendingUploadCards threadId={draftSendingThreadId} /></div>
+              ) : <>
+                <div className="right-panel__empty-spacer" aria-hidden="true" />
+                <ConversationEmptyState
+                  title={`Почніть розмову з ${personName(targetContact.data.displayName)}`}
+                  description="Чат з’явиться у списку після першого повідомлення."
+                />
+              </>}
               <DirectDraftComposer
                 key={targetContact.data.id}
                 contact={targetContact.data}
@@ -790,10 +803,10 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                   replyTo={replyTo}
                   attachments={attachments}
                   sending={send.isPending}
-                  uploading={upload.isPending}
+                  uploading={false}
                   onReplyCancel={() => setReplyTo(null)}
                   onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
-                  onFiles={(files) => upload.mutate(files)}
+                  onFiles={addFiles}
                   onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}
                   onSend={async (input) => {
                     try {
@@ -828,12 +841,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
           ) : notifications.data?.items.length ? (
             <div className="right-panel__notification-list">
               {notifications.data.items.map((item) => (
-                <article className={item.readAt ? '' : 'is-unread'} key={item.id}>
+                <article className={`notification-state ${item.readAt ? 'is-read' : 'is-unread'}`} key={item.id}>
                   <span className={`right-panel__notification-icon right-panel__notification-icon--${item.category.toLowerCase()}`}>{notificationIcon(item.category)}</span>
                   <button type="button" onClick={() => openNotification(item)}>
                     <span><strong>{personNamesInLabel(item.safeTitle)}</strong>{item.requiresAction && <em>Потрібна дія</em>}</span>
-                    <p>{item.safeSnippet}</p>
-                    <small>{notificationLabels[item.category] ?? 'Оновлення'} · {formatDateTime(item.createdAt)}</small>
+                    <p>{item.entityType === 'TASK' || item.category === 'TASKS' ? item.safeSnippet.replace(/^№\s*/u, '') : item.safeSnippet}</p>
+                    <small><NotificationReadStatus readAt={item.readAt} />{notificationLabels[item.category] ?? 'Оновлення'} · {formatDateTime(item.createdAt)}</small>
                   </button>
                   <button
                     type="button"
@@ -845,12 +858,11 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
               ))}
             </div>
           ) : <div className="right-panel__empty"><Bell size={28} /><strong>Нових сповіщень немає</strong></div>}
-          <footer className="right-panel__notifications-footer">
-            {Boolean(notifications.data?.items.some((item) => !item.readAt)) && (
+          {Boolean(notifications.data?.items.some((item) => !item.readAt)) && (
+            <footer className="right-panel__notifications-footer">
               <button type="button" disabled={markAllNotifications.isPending} onClick={() => markAllNotifications.mutate()}>Прочитати всі</button>
-            )}
-            <Link className="right-panel__footer-link" to="/notifications" onClick={props.onClose}>Усі сповіщення <ChevronRight size={16} /></Link>
-          </footer>
+            </footer>
+          )}
         </section>
       )}
       {forwarding && selectedThreadId && (
@@ -925,29 +937,83 @@ function CompactProfileSummary({
   )
 }
 
-function ChatFilesDropdown({
-  files,
-  open,
-  onToggle,
-}: {
-  files: ChatAttachmentView[]
-  open: boolean
-  onToggle: () => void
-}) {
+function ChatProfileResize({ open, children }: { open: boolean; children: ReactNode }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ y: number; height: number; max: number } | null>(null)
+  const [height, setHeight] = useState<number | null>(null)
+  const [expansion, setExpansion] = useState(0)
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    if (!open) {
+      setHeight(null)
+      setExpansion(0)
+    }
+  }, [open])
+
+  function resize(nextHeight: number, max: number) {
+    const value = Math.max(0, Math.min(max, nextHeight))
+    setHeight(value)
+    setExpansion(max > 0 ? Math.round((1 - value / max) * 100) : 100)
+  }
+
+  if (!open) return <>{children}</>
+
   return (
-    <section className="right-panel__chat-files" aria-label="Файли в чаті">
-      <button
-        type="button"
-        className={open ? 'is-open' : ''}
-        aria-expanded={open}
+    <>
+      <div className="right-panel__resizable-profile" ref={viewportRef} inert={height === 0} style={{ maxHeight: height ?? undefined }}>
+        <div ref={contentRef}>{children}</div>
+      </div>
+      <div
+        className="right-panel__files-resizer"
+        data-dragging={dragging || undefined}
+        role="separator"
+        tabIndex={0}
+        aria-label="Змінити розмір блоку файлів"
+        aria-orientation="horizontal"
         aria-controls="right-panel-chat-files-grid"
-        onClick={onToggle}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={expansion}
+        aria-valuetext={`Розширення блоку файлів: ${expansion}%`}
+        title="Потягніть угору, щоб розширити файли. Подвійне натискання — розгорнути або відновити."
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          event.currentTarget.focus()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          setDragging(true)
+          dragRef.current = {
+            y: event.clientY,
+            height: viewportRef.current?.clientHeight ?? 0,
+            max: contentRef.current?.clientHeight ?? 0,
+          }
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current
+          if (drag) resize(drag.height + event.clientY - drag.y, drag.max)
+        }}
+        onPointerUp={(event) => {
+          dragRef.current = null
+          setDragging(false)
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onLostPointerCapture={() => { dragRef.current = null; setDragging(false) }}
+        onPointerCancel={() => { dragRef.current = null; setDragging(false) }}
+        onDoubleClick={() => resize(height === 0 ? contentRef.current?.clientHeight ?? 0 : 0, contentRef.current?.clientHeight ?? 0)}
+        onKeyDown={(event) => {
+          if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const max = contentRef.current?.clientHeight ?? 0
+          const current = viewportRef.current?.clientHeight ?? 0
+          resize(event.key === 'Home' ? 0 : event.key === 'End' ? max : current + (event.key === 'ArrowUp' ? -32 : 32), max)
+        }}
       >
-        <span><Paperclip size={16} aria-hidden />Файли в чаті</span>
-        <b>{files.length}</b>
-        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-      </button>
-    </section>
+        <ArrowUp size={14} aria-hidden="true" />
+        <span>Потягніть, щоб розширити</span>
+      </div>
+    </>
   )
 }
 
@@ -956,6 +1022,7 @@ function ChatFilesGrid({ files }: { files: ChatAttachmentView[] }) {
   return (
     <>
       <div className="right-panel__chat-files-grid" id="right-panel-chat-files-grid">
+        {files.length === 0 && <p className="right-panel__chat-files-empty">У цьому чаті ще немає файлів.</p>}
         {files.map((file) => file.scanStatus === 'CLEAN' ? (
           <button type="button" key={file.id} title={file.fileName} onClick={() => setPreviewFile(file)}>
             <FileThumbnail file={file} />
@@ -1007,7 +1074,8 @@ function DirectDraftComposer({
   function addFiles(nextFiles: File[]) {
     if (!nextFiles.length || sending) return
     onEdit()
-    setFiles((current) => [...current, ...nextFiles])
+    const valid = validMessageFiles(nextFiles)
+    setFiles((current) => [...current, ...valid])
   }
 
   async function submit() {
@@ -1041,11 +1109,11 @@ function DirectDraftComposer({
       className="right-panel__draft-composer is-file-drop-target"
       dropTargetProps={dropTargetProps}
       overlay={<FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити" />}
-      attachments={files.length > 0 && (
+      attachments={!sending && files.length > 0 && (
         <div className="message-composer__attachments">
           {files.map((file, index) => (
             <span key={`${file.name}:${file.size}:${file.lastModified}:${index}`}>
-              <FileText size={15} />
+              <FileFormatIcon mimeType={file.type} fileName={file.name} size={15} />
               <span className="message-composer__attachment-name" title={file.name}>{file.name}</span>
               <button
                 type="button"
@@ -1310,6 +1378,7 @@ function PanelMessageStream({
               />
             </div>
           })}
+          <PendingUploadCards threadId={threadId} />
         </div>
       </div>
       {showBottom && (

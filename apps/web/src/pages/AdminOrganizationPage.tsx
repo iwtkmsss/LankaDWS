@@ -1,3 +1,4 @@
+import { ResizableTextarea } from '../shared/ui/ResizableTextarea'
 import { UnitIconPicker, UnitIcon, CompanyLogo } from '../features/organization/OrganizationVisuals'
 import { CompanyLogoPicker } from '../features/organization/CompanyLogoPicker'
 import { UserSearchCombobox, type UserSearchOption } from '../features/employees/UserSearchCombobox'
@@ -5,7 +6,7 @@ import { personName } from '../shared/lib/personName'
 import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import type { AdminOrgUnitView, OrgCompanyView, OrgUnitEmployeeView, OrgUnitIcon } from '@lankadws/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Building2, List, Network, PencilRuler, Plus, RotateCcw, X } from 'lucide-react'
+import { Archive, Building2, List, Network, PencilRuler, Plus, RotateCcw, Users, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { OrganizationMap } from '../features/organization/OrganizationMap'
@@ -64,7 +65,6 @@ export default function AdminOrganizationPage() {
   }, [params, setParams])
   const [creatingCompany, setCreatingCompany] = useState(false)
   const [companySelected, setCompanySelected] = useState(false)
-  const [showUnassigned, setShowUnassigned] = useState(false)
   const [pendingMove, setPendingMove] = useState<{ employeeId: string; employeeName: string; target: AdminOrgUnitView } | null>(null)
   const [moveLookupError, setMoveLookupError] = useState(false)
   const query = useQuery({
@@ -99,7 +99,6 @@ export default function AdminOrganizationPage() {
   })
 
   const selectUnit = (unitId: string) => {
-    setShowUnassigned(false)
     setShowArchived(false)
     setEditor(null)
     setCreatingCompany(false)
@@ -117,7 +116,6 @@ export default function AdminOrganizationPage() {
   }
 
   const closePanel = () => {
-    setShowUnassigned(false)
     setShowArchived(false)
     setEditor(null)
     setCreatingCompany(false)
@@ -126,7 +124,6 @@ export default function AdminOrganizationPage() {
   }
 
   const openUnitEditor = (value: NonNullable<typeof editor>) => {
-    setShowUnassigned(false)
     setShowArchived(false)
     setCreatingCompany(false)
     setCompanySelected(false)
@@ -152,7 +149,6 @@ export default function AdminOrganizationPage() {
       <h1 className="sr-only">Структура · {query.data.company.name}</h1>
       <Card className="organization-context-bar admin-org-context-bar">
         <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => {
-          setShowUnassigned(false)
           setCompanySelected(false)
           setEditor(null)
           setPendingMove(null)
@@ -160,10 +156,9 @@ export default function AdminOrganizationPage() {
         }}>{(companies.data?.items ?? [query.data.company]).filter((company) => !('isActive' in company) || company.isActive !== false || company.id === companyId).map((company) => <option key={company.id} value={company.id}>{company.name}{'isActive' in company && company.isActive === false ? ' · Архівована' : ''}</option>)}</select></label>
           <div className="organization-heading-actions admin-org-context-actions">
           <div className="admin-org-map-actions">
-            <Button variant="secondary" type="button" onClick={() => { setShowArchived(false); setEditor(null); setCreatingCompany(false); setCompanySelected(false); setShowUnassigned(true); clearSelection() }}>{UNASSIGNED_DEPARTMENT_LABEL}</Button>
-            <Button className="admin-org-create-company" type="button" aria-label="Нова компанія" onClick={() => { setShowUnassigned(false); setShowArchived(false); setEditor(null); setCompanySelected(false); setCreatingCompany(true) }}><Plus size={17} />Нова компанія</Button>
+            <Button className="admin-org-create-company" type="button" aria-label="Нова компанія" onClick={() => { setShowArchived(false); setEditor(null); setCompanySelected(false); setCreatingCompany(true) }}><Plus size={17} />Нова компанія</Button>
             <Button onClick={() => openUnitEditor({ parentId: selected?.status === 'ACTIVE' ? selected.id : null })}><Plus size={17} />Новий підрозділ</Button>
-            <button className="button button--secondary" type="button" aria-expanded={showArchived} onClick={() => { setShowUnassigned(false); setShowArchived((value) => !value) }}><Archive size={16} />Архів ({archived.length + archivedCompanies.length})</button>
+            <button className="button button--secondary" type="button" aria-expanded={showArchived} onClick={() => { setShowArchived((value) => !value) }}><Archive size={16} />Архів ({archived.length + archivedCompanies.length})</button>
           </div>
           <div className="organization-view-control">
             <span className="organization-view-label">Оберіть вигляд</span>
@@ -180,7 +175,6 @@ export default function AdminOrganizationPage() {
         selectedId={selected?.status === 'ACTIVE' ? selected.id : null}
         onSelect={selectUnit}
         onSelectCompany={() => {
-          setShowUnassigned(false)
           setShowArchived(false)
           setEditor(null)
           setCreatingCompany(false)
@@ -207,17 +201,11 @@ export default function AdminOrganizationPage() {
           }
         }}
         emptyState={<EmptyState title="Підрозділів ще немає" description="Створіть перший відділ." />}
-        sidePanel={showUnassigned || showArchived || creatingCompany || editor || companySelected || selected ? <div onKeyDown={(event) => {
+        sidePanel={showArchived || creatingCompany || editor || companySelected || selected ? <div onKeyDown={(event) => {
           if (event.key === 'Escape' && !event.defaultPrevented && !(event.target as HTMLElement).closest('[role="dialog"], [role="alertdialog"]')) closePanel()
         }}>
           <div className="admin-org-panel-actions"><button type="button" aria-label="Закрити панель" onClick={closePanel}><X size={18} /></button></div>
-          {showUnassigned ? <>
-            <header><span className="eyebrow">Компанія</span><h2>{query.data.company.name}</h2></header>
-            <UnassignedEmployees key={companyId} companyId={companyId} units={query.data.items.filter((unit) => unit.status === 'ACTIVE')} onAssign={(employee, target) => {
-              const unit = query.data.items.find((item) => item.id === target.id)
-              if (unit) setPendingMove({ employeeId: employee.id, employeeName: personName(employee.displayName), target: unit })
-            }} />
-          </> : showArchived ? <section className="admin-org-archive" aria-label="Архів компаній та підрозділів">
+          {showArchived ? <section className="admin-org-archive" aria-label="Архів компаній та підрозділів">
         <section className="admin-org-archive-group">
         <header><Building2 size={17} aria-hidden /><h3>Компанії в архіві</h3><span>{archivedCompanies.length}</span></header>
         {archivedCompanies.length ? archivedCompanies.map((company) => <button type="button" key={company.id} className={companyId === company.id && companySelected ? 'is-selected' : ''} onClick={() => {
@@ -333,22 +321,23 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
   if (settings.isLoading) return <Skeleton rows={5} />
   if (settings.isError || !settings.data) return <ErrorState onRetry={() => void settings.refetch()} />
   return <>
-    <header><span className="eyebrow">Компанія · {settings.data.isActive ? 'Активна' : 'Архівована'}</span><h2>Редагувати компанію</h2></header>
+    <header className="admin-org-company-header"><span className="eyebrow">Компанія · {settings.data.isActive ? 'Активна' : 'Архівована'}</span><h2>Редагувати компанію</h2></header>
     <form className="entity-form admin-org-form admin-org-company-form" onSubmit={(event) => {
       event.preventDefault()
       if (logoBusy) return
       mutation.mutate({ name: name.trim(), description: description.trim(), nextManagerId: managerId })
     }}>
       <div className="organization-panel-identity span-2"><span className="organization-panel-symbol"><CompanyLogo src={logoFileId ? settings.data.logoAsset : null} size={32} /></span><label>Назва<input name="name" required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label></div>
-      <details className="organization-panel-visual-picker"><summary>Змінити логотип</summary><CompanyLogoPicker value={logoFileId} src={settings.data.logoAsset} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending || status.isPending} /></details>
-      <label className="span-2">Опис<textarea name="description" rows={3} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається компанія та за що відповідає команда" /></label>
+      <CompanyLogoPicker value={logoFileId} src={settings.data.logoAsset} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending || status.isPending} showPreview={false} />
+      <label className="span-2">Опис<ResizableTextarea name="description" rows={3} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається компанія та за що відповідає команда" /></label>
       <dl className="organization-unit-stats" aria-label="Показники компанії"><div><dt>Працівники</dt><dd>{settings.data.counts.users}</dd></div><div><dt>Підрозділи</dt><dd>{childCount}</dd></div></dl>
       <div className="admin-org-person-picker organization-panel-section">
         <UserSearchCombobox label="Керівник" value={managerId ?? ''} defaultUser={company.manager}
           placeholder="Без керівника · знайти" companyId={companyId} includeAdmins={false} onChange={(id) => setManagerId(id || null)} />
         {managerId && <button type="button" className="admin-org-person-picker__clear" aria-label="Очистити керівника" onClick={() => setManagerId(null)}><X size={15} /></button>}
       </div>
-      <section className="organization-panel-section"><h3>Працівники</h3>{settings.data.counts.users ? <Link to={`/organization?companyId=${encodeURIComponent(companyId)}&view=people`}>Переглянути працівників компанії</Link> : <p>У компанії ще немає працівників.</p>}</section>
+      <section className="organization-panel-section organization-company-employees" aria-label="Працівники компанії">{settings.data.counts.users ? <Link className="organization-company-employees-link" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=people`}><Users size={16} aria-hidden="true" />Переглянути працівників компанії</Link> : <p>У компанії ще немає працівників.</p>}</section>
+      <UnassignedEmployees key={companyId} companyId={companyId} draggable />
       {mutation.isError && <p role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Не вдалося зберегти зміни. Оновіть структуру та повторіть.'}</p>}
       <Button disabled={logoBusy || mutation.isPending || status.isPending}>Зберегти зміни</Button>
     </form>
@@ -423,7 +412,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
       }} disabled={defaultParentId !== null && defaultParentId !== undefined}>
         {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
       </select></label>}
-      <label className="span-2">Опис<textarea name="description" rows={3} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається цей відділ" /></label>
+      <label className="span-2">Опис<ResizableTextarea name="description" rows={3} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається цей відділ" /></label>
       {unit && <dl className="organization-unit-stats span-2" aria-label="Показники підрозділу"><div><dt>Працівники</dt><dd>{unit.activeEmployeeCount}</dd></div><div><dt>Підрозділи</dt><dd>{unit.childCount}</dd></div></dl>}
       <div className="span-2 admin-org-person-picker organization-panel-section">
         <UserSearchCombobox label="Керівник" value={managerId ?? ''} defaultUser={unit?.manager}

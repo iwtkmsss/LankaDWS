@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   FeedAttachmentView,
@@ -7,12 +8,22 @@ import type {
 } from '@lankadws/contracts'
 import {
   ChevronDown,
-  FileText,
+  ImagePlus,
+  LoaderCircle,
+  ShieldCheck,
+  UsersRound,
+  X,
   Paperclip,
   Send,
 } from 'lucide-react'
+import { FEED_COMMENT_PHOTO_LIMIT, FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
+import { FeedDraftPhotos } from '../features/feed/FeedDraftPhotos'
+import { feedPhotoError, type FeedDraftPhoto } from '../features/feed/useFeedCommentPhotos'
+import { FeedFileRow } from '../features/feed/FeedCardDesign'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import '../features/feed/feed-composer.css'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
-import { Button, ConfirmationDialog } from '../shared/ui'
+import { Button, ConfirmationDialog, IconButton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
@@ -35,12 +46,24 @@ export function FeedComposerForm({
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[] | null>(null)
   const [requiresAcknowledgement, setRequiresAcknowledgement] = useState(false)
   const [attachments, setAttachments] = useState<FeedAttachmentView[]>([])
-  const [attachmentsOpen, setAttachmentsOpen] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [audienceOpen, setAudienceOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [confirmFileOnly, setConfirmFileOnly] = useState(false)
   const [message, setMessage] = useState('')
-  const attachmentControlRef = useRef<HTMLDivElement>(null)
+  const [photoError, setPhotoError] = useState('')
+  const photoInput = useRef<HTMLInputElement>(null)
+  const uploadLock = useRef(false)
+  const uploadRequest = useRef<AbortController | null>(null)
+  const mounted = useRef(true)
+  const [photoPreviews, setPhotoPreviews] = useState<FeedDraftPhoto[]>([])
+  const [preview, setPreview] = useState<FeedAttachmentView | null>(null)
+  const previewUrls = useRef(new Set<string>())
+  useEffect(() => {
+    mounted.current = true
+    const urls = previewUrls.current
+    return () => { mounted.current = false; uploadRequest.current?.abort(); urls.forEach(URL.revokeObjectURL); urls.clear() }
+  }, [])
   const audiences = useQuery({
     queryKey: ['feed-audiences', 'all'],
     queryFn: () => api<{ items: FeedAudienceOption[] }>(
@@ -76,7 +99,8 @@ export function FeedComposerForm({
     body.trim()
     || selectedCompanyIds !== null
     || requiresAcknowledgement
-    || attachments.length,
+    || attachments.length
+    || pendingFiles.length,
   )
 
   useEffect(() => {
@@ -88,21 +112,6 @@ export function FeedComposerForm({
     onDirtyChange(dirty)
   }, [dirty, onDirtyChange])
 
-  useEffect(() => {
-    if (!attachmentsOpen) return
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!attachmentControlRef.current?.contains(event.target as Node)) setAttachmentsOpen(false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setAttachmentsOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [attachmentsOpen])
 
   const companies = (audiences.data?.items ?? []).filter((item) => item.type === 'COMPANY')
   const defaultCompanyIds = defaultCompanyId && companies.some((item) => item.companyId === defaultCompanyId)
@@ -116,16 +125,17 @@ export function FeedComposerForm({
     : selectedCompanies.length > 0
       ? selectedCompanies.map((item) => item.label).join(', ')
       : 'Ніхто'
-  const mentionCandidateUrl = selectedCompanies.length === 1
+  const mentionCandidateUrl = selectedCompanies.length > 0
     ? `/feed/mention-candidates?${new URLSearchParams({
         company: selectedCompanies[0].companyId,
         audienceType: 'COMPANY',
+        companyIds: selectedCompanies.map((item) => item.companyId).join(','),
       })}`
     : null
 
   async function publish() {
     const prepared = trimMentionValue(body, mentions)
-    if (!primaryCompany || (!prepared.body && attachments.length === 0)) return
+    if (busy || pendingFiles.length || !primaryCompany || (!prepared.body && attachments.length === 0)) return
     setMessage('')
     await create.mutateAsync({
       companyId: primaryCompany.companyId,
@@ -141,6 +151,7 @@ export function FeedComposerForm({
 
   function submit(event: FormEvent) {
     event.preventDefault()
+    if (busy || pendingFiles.length) return
     const prepared = trimMentionValue(body, mentions)
     if (!primaryCompany || (!prepared.body && attachments.length === 0)) return
     if (!prepared.body) {
@@ -150,184 +161,137 @@ export function FeedComposerForm({
     void publish()
   }
 
-  async function uploadSelected(files: FileList | File[] | null) {
-    if (!files?.length) return
-    if (!primaryCompany) {
-      setMessage('Спочатку оберіть, хто побачить публікацію.')
-      return
-    }
+  const uploadSelected = useCallback(async (files: FileList | File[] | null) => {
+    if (!files?.length || !primaryCompany || uploadLock.current) return
     const remaining = Math.max(0, 10 - attachments.length)
     const selected = [...files].slice(0, remaining)
     if (selected.length === 0) {
       setMessage('До однієї публікації можна додати не більше 10 файлів.')
       return
     }
+    uploadLock.current = true
+    const controller = new AbortController()
+    uploadRequest.current = controller
     setUploading(true)
     setMessage('')
+    const failures: string[] = []
     try {
-      const uploaded: FeedAttachmentView[] = []
       for (const file of selected) {
         const form = new FormData()
         form.append('file', file)
-        uploaded.push(await api<FeedAttachmentView>(
-          `/feed/attachments?company=${encodeURIComponent(primaryCompany.companyId)}`,
-          { method: 'POST', body: form },
-        ))
+        try {
+          const attachment = await api<FeedAttachmentView>(
+            '/feed/attachments?company=' + encodeURIComponent(primaryCompany.companyId),
+            { method: 'POST', body: form, signal: controller.signal },
+          )
+          if (!mounted.current) return
+          setAttachments((current) => [...current, attachment])
+          if (FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.type)) {
+            const src = URL.createObjectURL(file)
+            previewUrls.current.add(src)
+            setPhotoPreviews((current) => [...current, { attachment, src }])
+          }
+        } catch { if (controller.signal.aborted) return; failures.push(file.name) }
       }
-      setAttachments((current) => [...current, ...uploaded])
-    } catch {
-      setMessage('Не вдалося додати файл. Перевірте формат і розмір.')
     } finally {
-      setUploading(false)
+      if (mounted.current) {
+        setMessage(failures.length ? 'Не вдалося додати: ' + failures.join(', ') + '. Спробуйте ще раз.' : '')
+        setUploading(false)
+      }
+      uploadLock.current = false
+      uploadRequest.current = null
+    }
+  }, [attachments.length, primaryCompany])
+
+  function selectFiles(files: FileList | File[] | null) {
+    if (!files?.length || busy) return
+    const remaining = Math.max(0, 10 - attachments.length - pendingFiles.length)
+    if (remaining === 0) {
+      setMessage('До однієї публікації можна додати не більше 10 файлів.')
+      return
+    }
+    const selected = Array.from(files).slice(0, remaining)
+    setPendingFiles((current) => [...current, ...selected])
+    if (!primaryCompany) {
+      setAudienceOpen(true)
+      setMessage('Файли вибрано. Оберіть, хто побачить публікацію, щоб завантажити їх.')
     }
   }
 
+  useEffect(() => {
+    if (!primaryCompany || busy || pendingFiles.length === 0) return
+    setPendingFiles([])
+    void uploadSelected(pendingFiles)
+  }, [primaryCompany, busy, pendingFiles, uploadSelected])
+
+  const attachmentCount = attachments.length + pendingFiles.length
+
   const { isDragging, dropTargetProps } = useFileDropTarget({
-    disabled: busy || !primaryCompany || attachments.length >= 10,
-    onFiles: (files) => void uploadSelected(files),
+    disabled: busy || attachmentCount >= 10,
+    onFiles: selectFiles,
   })
 
+  function selectPhotos(files: File[]) {
+    const errors = files.map(feedPhotoError).filter(Boolean)
+    const photoCount = attachments.filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.mimeType)).length
+      + pendingFiles.filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.type)).length
+    const remaining = Math.max(0, FEED_COMMENT_PHOTO_LIMIT - photoCount)
+    const valid = files.filter((file) => !feedPhotoError(file))
+    selectFiles(valid.slice(0, remaining))
+    setPhotoError(errors.length || valid.length > remaining ? errors[0] ?? 'Можна вставити не більше 5 фото.' : '')
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => current.filter((file) => file.id !== id))
+    setPhotoPreviews((current) => current.filter((photo) => {
+      if (photo.attachment.id !== id) return true
+      URL.revokeObjectURL(photo.src)
+      previewUrls.current.delete(photo.src)
+      return false
+    }))
+  }
+
   return (
-    <form className="feed-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
+    <form className="feed-composer stream-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
       <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити до публікації" />
-      <MentionTextarea
-        formatting
-        className="feed-composer__body"
-        label="Текст публікації"
-        value={body}
-        mentions={mentions}
-        candidateUrl={mentionCandidateUrl}
-        maxLength={10_000}
-        rows={10}
-        placeholder="Коротко опишіть оновлення, рішення або потрібну дію…"
-        disabled={busy}
-        autoFocus
-        onChange={(nextBody, nextMentions) => {
-          setBody(nextBody)
-          setMentions(nextMentions)
-        }}
-      />
-      <div className="feed-composer__controls">
-        <div
-          ref={attachmentControlRef}
-          className={`feed-attachment-control${attachmentsOpen ? ' is-open' : ''}`}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setAttachmentsOpen(false)
-          }}
-        >
-          <label className="feed-attachment-picker" title="Виберіть файли або перетягніть їх у форму">
-            <Paperclip size={17} />
-            <span>
-              <strong>{uploading ? 'Додаємо файли…' : 'Додати файли'}</strong>
-              <small>
-                {attachments.length > 0
-                  ? `${attachments.length} із 10 прикріплено`
-                  : 'Перетягніть файли сюди або виберіть їх'}
-              </small>
-            </span>
-            <input
-              aria-label="Додати файл"
-              type="file"
-              multiple
-              disabled={busy || !primaryCompany || attachments.length >= 10}
-              onChange={(event) => {
-                void uploadSelected(event.target.files)
-                event.currentTarget.value = ''
-              }}
-            />
+      <MentionTextarea formatting className="feed-composer__body" label="Текст публікації" value={body}
+        mentions={mentions} candidateUrl={mentionCandidateUrl} maxLength={10000} rows={5}
+        placeholder="Поділіться важливим оновленням…" disabled={busy} autoFocus
+        toolbarActions={<button type="button" className="stream-composer__insert-photo" aria-label="Вставити фото" title="Вставити фото · до 5 фото · до 10 МБ" disabled={busy || attachmentCount >= 10} onClick={() => photoInput.current?.click()}><ImagePlus size={16} /></button>}
+        onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); selectPhotos(files) } }}
+        onChange={(nextBody, nextMentions) => { setBody(nextBody); setMentions(nextMentions) }} />
+      <input ref={photoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} disabled={busy || attachmentCount >= 10} aria-label="Фото в публікацію" onChange={(event) => { selectPhotos(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+      {photoPreviews.length > 0 && <FeedDraftPhotos photos={photoPreviews} onRemove={removeAttachment} disabled={busy} />}
+      {(pendingFiles.length > 0 || attachments.some((file) => !photoPreviews.some((photo) => photo.attachment.id === file.id))) && <section className="stream-composer__files" aria-label="Додані файли">
+        {pendingFiles.map((file, index) => <div key={index}><FileFormatIcon mimeType={file.type} fileName={file.name} size={24} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)} · очікує вибору аудиторії</small></span><IconButton label={'Прибрати ' + file.name} disabled={busy} onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}><X size={15} /></IconButton></div>)}
+        {attachments.filter((file) => !photoPreviews.some((photo) => photo.attachment.id === file.id)).map((file) => <div key={file.id}><FeedFileRow file={file} onPreview={() => setPreview(file)} downloadHref={'/api/v1/files/' + encodeURIComponent(file.id) + '/download'} /><IconButton label={'Прибрати ' + file.fileName} disabled={busy} onClick={() => removeAttachment(file.id)}><X size={15} /></IconButton></div>)}
+      </section>}
+      <section className="stream-composer__audience">
+        <button type="button" disabled={busy} aria-expanded={audienceOpen} onClick={() => setAudienceOpen((current) => !current)}><UsersRound size={16} /><span>Бачать: <strong>{audiences.isLoading ? 'завантаження…' : audienceSummary}</strong></span><ChevronDown size={15} /></button>
+        {audienceOpen && <fieldset disabled={busy || audiences.isLoading}><legend>Хто побачить публікацію</legend>
+          {companies.map((option) => <label key={option.companyId}><input type="checkbox" checked={effectiveCompanyIds.includes(option.companyId)} onChange={(event) => {
+            setSelectedCompanyIds((current) => { const ids = current ?? defaultCompanyIds; return event.target.checked ? [...ids, option.companyId] : ids.filter((id) => id !== option.companyId) })
+            setMentions([])
+          }} />{option.label}</label>)}
+          {!companies.length && <span>{audiences.isLoading ? 'Завантажуємо…' : audiences.isError ? 'Не вдалося завантажити' : 'Немає доступних компаній'}</span>}
+        </fieldset>}
+        {audiences.isError && <Button type="button" variant="secondary" onClick={() => void audiences.refetch()}>Повторити завантаження аудиторії</Button>}
+      </section>
+      {attachmentCount >= 10 && <p className="stream-section-label">До публікації додано максимальні 10 файлів.</p>}
+      {(photoError || message) && <p className="stream-photo-error" role="alert">{photoError || message}</p>}
+      <footer className="stream-composer__footer">
+        <div className="stream-composer__options">
+          <label className="button button--secondary stream-composer__attach">
+            {uploading ? <LoaderCircle size={16} className="stream-spin" /> : <Paperclip size={16} />}
+            {uploading ? 'Додаємо файли…' : 'Додати файл'}
+            <input aria-label="Додати файл" type="file" multiple disabled={busy || attachmentCount >= 10} onChange={(event) => { selectFiles(event.target.files); event.target.value = '' }} />
           </label>
-          <button
-            className="feed-attachment-control__toggle"
-            type="button"
-            aria-label="Показати прикріплені файли"
-            aria-expanded={attachmentsOpen}
-            onClick={() => setAttachmentsOpen((current) => !current)}
-          >
-            <ChevronDown size={17} />
-          </button>
-          {attachmentsOpen && (
-            <div className="feed-composer__attachments" aria-label="Додані файли">
-              {attachments.length > 0 ? attachments.map((attachment) => (
-                <span key={attachment.id}>
-                  <FileText size={15} />
-                  <span>
-                    <strong>{attachment.fileName}</strong>
-                    <small>{formatBytes(attachment.bytes)} · перевіряється</small>
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    aria-label={`Прибрати ${attachment.fileName}`}
-                    onClick={() => setAttachments((current) =>
-                      current.filter((item) => item.id !== attachment.id))}
-                  >
-                    ×
-                  </button>
-                </span>
-              )) : (
-                <span className="feed-composer__attachments-empty">Файлів ще немає</span>
-              )}
-            </div>
-          )}
+          {attachmentCount > 0 && <span className="stream-section-label">{attachmentCount} із 10 {pendingFiles.length ? 'вибрано' : 'прикріплено'}</span>}
+          <label className="stream-composer__ack"><input type="checkbox" checked={requiresAcknowledgement} disabled={busy} onChange={(event) => setRequiresAcknowledgement(event.target.checked)} /><ShieldCheck size={17} /><span>Потрібне ознайомлення</span></label>
         </div>
-        <label className="feed-ack-option">
-          <input
-            type="checkbox"
-            checked={requiresAcknowledgement}
-            disabled={busy}
-            onChange={(event) => setRequiresAcknowledgement(event.target.checked)}
-          />
-          <span>
-            <strong>Пункт «Ознайомився»</strong>
-            <small>Адресати підтверджують окремо</small>
-          </span>
-        </label>
-        <Button disabled={!primaryCompany || busy || (!body.trim() && attachments.length === 0)}>
-          <Send size={16} /> {create.isPending ? 'Публікуємо…' : 'Опублікувати'}
-        </Button>
-      </div>
-      <footer>
-        <div className={`feed-audience-select${audienceOpen ? ' is-open' : ''}`}>
-          <button
-            className="feed-audience-select__trigger"
-            type="button"
-            disabled={busy}
-            aria-expanded={audienceOpen}
-            onClick={() => setAudienceOpen((current) => !current)}
-          >
-            <ChevronDown size={16} />
-            <span>Бачать: <strong>{audiences.isLoading ? 'завантаження…' : audienceSummary}</strong></span>
-          </button>
-          {audienceOpen && (
-            <fieldset className="feed-company-audience" disabled={busy || audiences.isLoading}>
-              <legend className="sr-only">Хто побачить</legend>
-              {companies.length > 0 ? companies.map((option) => (
-                <label key={option.companyId} title={option.label}>
-                  <span>{option.label}</span>
-                  <input
-                    type="checkbox"
-                    checked={effectiveCompanyIds.includes(option.companyId)}
-                    onChange={(event) => {
-                      setSelectedCompanyIds((current) => {
-                        const currentIds = current ?? defaultCompanyIds
-                        return event.target.checked
-                          ? [...currentIds, option.companyId]
-                          : currentIds.filter((id) => id !== option.companyId)
-                      })
-                      setMentions([])
-                    }}
-                  />
-                </label>
-              )) : (
-                <span className="feed-company-audience__empty">
-                  {audiences.isLoading ? 'Завантажуємо…' : audiences.isError ? 'Не вдалося завантажити' : 'Немає доступних компаній'}
-                </span>
-              )}
-            </fieldset>
-          )}
-        </div>
-        {message && <span role="status">{message}</span>}
+        <Button disabled={!primaryCompany || busy || pendingFiles.length > 0 || (!body.trim() && attachments.length === 0)}>{create.isPending ? <LoaderCircle size={16} className="stream-spin" /> : <Send size={16} />}{create.isPending ? 'Публікуємо…' : 'Опублікувати'}</Button>
       </footer>
+      {preview?.scanStatus === 'CLEAN' && <FilePreviewModal file={preview} onClose={() => setPreview(null)} />}
       {confirmFileOnly && (
         <ConfirmationDialog
           title="Опублікувати лише файл?"

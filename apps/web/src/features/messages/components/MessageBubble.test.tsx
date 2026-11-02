@@ -1,10 +1,15 @@
 import type { ChatMessageView } from '@lankadws/contracts'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render as renderBase, screen, waitFor, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { MessageBubble } from './MessageBubble'
 import { OverlayProvider } from '../../../shared/ui'
+
+function render(ui: ReactElement) {
+  return renderBase(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>)
+}
 
 function message(overrides: Partial<ChatMessageView> = {}): ChatMessageView {
   return {
@@ -76,6 +81,24 @@ describe('MessageBubble', () => {
     expect(download).toHaveAttribute('href', '/api/v1/files/pdf-1/download')
     expect(download.closest('.message-attachment__open')).toBeNull()
     expect(screen.getByRole('button', { name: 'Зберегти на Диск' }).closest('a')).toBeNull()
+  })
+
+  it.each(['message', 'right-panel-message'])('opens a mixed photo attachment from the full card in %s', (idPrefix) => {
+    render(<OverlayProvider><MemoryRouter><MessageBubble threadId="thread-1" idPrefix={idPrefix} own {...handlers}
+      message={message({ attachments: [
+        { id: 'photo', fileName: 'photo.png', mimeType: 'image/png', bytes: 10, scanStatus: 'CLEAN' },
+        { id: 'zip', fileName: 'files.zip', mimeType: 'application/zip', bytes: 10, scanStatus: 'CLEAN' },
+      ] })} /></MemoryRouter></OverlayProvider>)
+    const open = screen.getByRole('button', { name: 'Переглянути photo.png' })
+    const card = screen.getByTitle('photo.png').closest('.message-attachment')!
+    expect(open).toHaveClass('message-attachment__open')
+    expect(open.parentElement).toBe(card)
+    expect(card.querySelector('.message-attachment__thumbnail')?.tagName).toBe('SPAN')
+    fireEvent.contextMenu(open, { clientX: 100, clientY: 100 })
+    expect(within(screen.getByRole('menu')).getByRole('button', { name: 'Переглянути фото' })).toBeVisible()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.click(open)
+    expect(screen.getByRole('dialog', { name: 'photo.png' })).toBeVisible()
   })
 
   it.each([

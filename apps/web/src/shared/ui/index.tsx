@@ -76,7 +76,7 @@ export function CompactFileName({ fileName, className = '' }: { fileName: string
 export function StatusBadge({ status }: { status: string }) {
   const tone = ['DONE', 'SUCCEEDED', 'APPROVED', 'PUBLISHED', 'ACTIVE', 'READY'].includes(status) ? 'success' : ['BLOCKED', 'FAILED', 'REJECTED', 'INACTIVE'].includes(status) ? 'danger' : ['PENDING', 'RETURNED', 'QUEUED', 'SCHEDULED'].includes(status) ? 'warning' : 'info'
   const Icon = tone === 'success' ? Check : tone === 'danger' ? CircleAlert : tone === 'warning' ? AlertTriangle : LoaderCircle
-  return <span className={`status status--${tone}`}><Icon size={13} aria-hidden />{statusLabels[status] ?? status}</span>
+  return <span className={`status status--${tone}`} data-status={status}><Icon size={13} aria-hidden />{statusLabels[status] ?? status}</span>
 }
 
 export function Skeleton({ rows = 4 }: { rows?: number }) { return <div className="skeleton-stack" role="status" aria-label="Завантаження">{Array.from({ length: rows }, (_, index) => <span key={index} className="skeleton-row" />)}</div> }

@@ -1,6 +1,7 @@
+import { FileFormatIcon } from './FileFormatIcon'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Copy, FileText, LoaderCircle } from 'lucide-react'
+import { Copy, LoaderCircle } from 'lucide-react'
 import { IconButton } from '../ui'
 import { MAX_TEXT_PREVIEW_BYTES } from './filePreview'
 
@@ -95,12 +96,12 @@ export function FileDocumentPreview({ kind, fileName, downloadUrl, headerActions
     {state.status === 'loading' ? <div className="file-preview-modal__notice" role="status">
       <LoaderCircle size={28} className="is-spinning" aria-hidden />Завантажуємо файл…
     </div> : state.status === 'error' ? <div className="file-preview-modal__notice" role="alert">
-      <FileText size={36} aria-hidden />
+      <FileFormatIcon mimeType={kind === 'pdf' ? 'application/pdf' : 'text/plain'} fileName={fileName} size={36} />
       <strong>Не вдалося відкрити файл</strong>
       <span>Перевірте з’єднання та доступ до файлу. Спробуйте ще раз або завантажте його.</span>
       <button type="button" className="button button--secondary" onClick={() => setAttempt((value) => value + 1)}>Повторити</button>
     </div> : state.status === 'too-large' ? <div className="file-preview-modal__notice" role="status">
-      <FileText size={36} aria-hidden /><strong>Текстовий файл завеликий для перегляду</strong>
+      <FileFormatIcon mimeType="text/plain" fileName={fileName} size={36} /><strong>Текстовий файл завеликий для перегляду</strong>
       <span>Перегляд доступний для файлів до 1 МБ. Завантажте файл, щоб прочитати його повністю.</span>
     </div> : state.status === 'ready' && (kind === 'pdf'
       ? <iframe title={`Перегляд ${fileName}`} src={state.content} />

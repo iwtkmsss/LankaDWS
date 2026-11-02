@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { readTaskStatusFilter, TASK_STATUS_OPTIONS, writeTaskStatusFilter } from './task-status-filters'
 
 describe('task status filter URL state', () => {
+  it('defaults to active tasks and preserves explicit all or completed filters', () => {
+    expect(readTaskStatusFilter(new URLSearchParams())).toMatchObject({
+      group: 'ACTIVE',
+      selected: ['DUE_SOON', 'OVERDUE', 'NEW', 'IN_PROGRESS', 'IN_REVIEW'],
+      preset: 'DUE_SOON,OVERDUE,NEW,IN_PROGRESS,IN_REVIEW',
+    })
+    expect(readTaskStatusFilter(new URLSearchParams('preset=ALL')).selected).toHaveLength(TASK_STATUS_OPTIONS.length)
+    expect(readTaskStatusFilter(new URLSearchParams('status=DONE')).selected).toEqual(['DONE'])
+  })
   it('round-trips multiple actual statuses and preserves unrelated filters', () => {
     const params = new URLSearchParams('page=3&role=CREATOR&search=test')
     writeTaskStatusFilter(params, 'ALL', ['NEW', 'IN_PROGRESS'])

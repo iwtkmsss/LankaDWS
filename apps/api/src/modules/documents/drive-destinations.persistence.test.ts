@@ -36,6 +36,8 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe("INSERT INTO Document VALUES ('document', 'workspace', 'company', 'me', 1, NULL, 'Root file', NULL, 'root-file', 'CONFIDENTIAL', 1000)")
   await prisma.$executeRawUnsafe("INSERT INTO Document VALUES ('contents', 'workspace', 'company', 'me', 1, 'source', 'Nested file', NULL, 'nested-file', 'CONFIDENTIAL', 1000)")
   await prisma.$executeRawUnsafe("INSERT INTO FileObject VALUES ('root-file', 'workspace', 'application/pdf', 'application/pdf', 123), ('nested-file', 'workspace', 'text/plain', 'text/plain', 456)")
+  await prisma.$executeRawUnsafe("ALTER TABLE FileObject ADD COLUMN safeFilename TEXT DEFAULT 'file.txt'")
+  await prisma.$executeRawUnsafe("UPDATE FileObject SET safeFilename = 'original.pdf' WHERE id = 'root-file'")
   const db = prisma as PrismaService
   const sharing = new DriveSharingService(db)
   folders = new DriveFoldersService(db, {} as never, sharing)
@@ -62,7 +64,6 @@ describe('Drive destinations against SQLite', () => {
     await prisma.$executeRawUnsafe("ALTER TABLE Document ADD COLUMN number TEXT DEFAULT 'DOC-1'")
     await prisma.$executeRawUnsafe("ALTER TABLE Document ADD COLUMN status TEXT DEFAULT 'DRAFT'")
     await prisma.$executeRawUnsafe('ALTER TABLE Document ADD COLUMN createdAt DATETIME DEFAULT 1000')
-    await prisma.$executeRawUnsafe("ALTER TABLE FileObject ADD COLUMN safeFilename TEXT DEFAULT 'file.txt'")
     await prisma.$executeRawUnsafe('CREATE TABLE User (id TEXT PRIMARY KEY, workspaceId TEXT, displayName TEXT, username TEXT)')
     await prisma.$executeRawUnsafe("INSERT INTO User VALUES ('me', 'workspace', 'Me', 'me'), ('other', 'workspace', 'Other', 'other')")
 
@@ -80,6 +81,7 @@ describe('Drive destinations against SQLite', () => {
     await expect(service.list(user, driveListQuerySchema.parse({ folderId: 'destination' }))).rejects.toMatchObject({ status: 404 })
     const picker = await service.picker(user, drivePickerQuerySchema.parse({}))
     expect(picker.items.map((file) => file.id).sort()).toEqual(['document', 'shared'])
+    expect(picker.items.every((file) => file.fileId)).toBe(true)
     expect(picker.folders.map((folder) => folder.id).sort()).toEqual(['destination-child', 'source'])
 
     if (accountType === 'ADMIN') {
@@ -98,11 +100,11 @@ describe('Drive destinations against SQLite', () => {
     const second = await service.picker(principal, drivePickerQuerySchema.parse({ limit: 1, cursor: first.nextCursor }))
     expect(second.folders).toEqual([{ id: 'source', name: 'Source' }])
     const third = await service.picker(principal, drivePickerQuerySchema.parse({ limit: 1, cursor: second.nextCursor }))
-    expect(third.items).toEqual([{ id: 'document', name: 'Root file', fileType: 'PDF', sizeBytes: 123 }])
+    expect(third.items).toEqual([{ id: 'document', name: 'Root file', fileId: 'root-file', fileType: 'PDF', mimeType: 'application/pdf', sizeBytes: 123, extension: '.pdf' }])
     expect(third.nextCursor).toBeNull()
     const source = await service.picker(principal, drivePickerQuerySchema.parse({ folderId: 'source' }))
     expect(source.folders).toEqual([{ id: 'source-child', name: 'Source child' }])
-    expect(source.items).toEqual([{ id: 'contents', name: 'Nested file', fileType: 'DOCUMENT', sizeBytes: 456 }])
+    expect(source.items).toEqual([{ id: 'contents', name: 'Nested file', fileId: 'nested-file', fileType: 'DOCUMENT', mimeType: 'text/plain', sizeBytes: 456, extension: '.txt' }])
     const empty = await service.picker(principal, drivePickerQuerySchema.parse({ folderId: 'source-child' }))
     expect(empty).toEqual({ folders: [], items: [], nextCursor: null })
     const search = await service.picker(principal, drivePickerQuerySchema.parse({ search: 'Nested' }))

@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import type { TaskReminderInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
@@ -146,6 +147,7 @@ export class TaskReminderService {
         participantIds,
         [reminder],
       )
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.reminder_changed')
       return {
         reminders: rows.map((row) => ({
           id: row.id,
@@ -177,6 +179,8 @@ export class TaskReminderService {
     }
     if (reminder.status === 'ACTIVE') {
       await this.prisma.$transaction(async (tx) => {
+        const task = await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } } })
+        await notifyTaskParticipants(tx, taskId, principal.userId, task.version, 'task.reminder_changed')
         await tx.taskReminder.updateMany({
           where: { id: reminderId, status: 'ACTIVE' },
           data: { status: 'CANCELLED', cancelledAt: new Date() },

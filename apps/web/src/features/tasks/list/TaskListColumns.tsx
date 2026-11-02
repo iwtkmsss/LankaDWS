@@ -13,11 +13,11 @@ import { api, ApiProblem, jsonBody } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'
 
 export const DEFAULT_TASK_LIST_COLUMNS: TaskListColumnsPreferenceValue = {
-  visible: ['responsibles', 'dueDate', 'status'],
+  visible: ['reporter', 'responsibles', 'dueDate', 'status', 'activity'],
 }
 
 const columnLabels: Record<TaskListColumnId, string> = {
-  responsibles: 'Виконавці',
+  responsibles: 'Відповідальні',
   dueDate: 'Строк',
   status: 'Статус',
   reporter: 'Постановник',

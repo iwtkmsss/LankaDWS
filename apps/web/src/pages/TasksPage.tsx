@@ -1,8 +1,9 @@
 import { DateTimePicker } from '../shared/ui/DateTimePicker'
 import { personName } from '../shared/lib/personName'
 import { FormattedTextarea } from '../shared/text/FormattedTextarea'
+import { stageTaskAttachment } from '../features/tasks/create/api'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
-import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
   PageResult,
   StructuredMentionInput,
@@ -29,16 +30,13 @@ import {
   Copy,
   Download,
   Eye,
-  FileArchive,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
   Flag,
   HardDrive,
   Heart,
   Link2,
   ListChecks,
   MessageCircle,
+  ChevronUp,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -49,12 +47,12 @@ import {
   Send,
   Trash2,
   RotateCcw,
-  User,
-  UserPlus,
+  UserRoundPen,
+  UserRoundCheck,
   Users,
   X,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -71,12 +69,13 @@ import { FormattedText } from '../shared/text/FormattedText'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
 import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
+import { MessageLikeButton } from '../shared/messages/MessageLikeButton'
 import { formatChatTime } from '../features/messages/lib/chatDates'
-import { usePreservedChatScroll } from '../features/messages/hooks/usePreservedChatScroll'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
-import { FileFormatIcon } from '../shared/files/FileThumbnail'
-import { officeFileFormat } from '../shared/files/filePreview'
+import { FileThumbnail } from '../shared/files/FileThumbnail'
+import { isPreviewableImage } from '../shared/files/filePreview'
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
 import { SaveToDriveButton } from '../shared/files/SaveToDriveButton'
 import {
   Avatar,
@@ -148,6 +147,7 @@ function TasksListPage() {
   const search = params.get('search') ?? ''
   const statusFilter = readTaskStatusFilter(params)
   const { status, preset } = statusFilter
+  const archiveActive = statusFilter.selected.length === 1 && statusFilter.selected[0] === 'ARCHIVED'
   const priority = params.get('priority') ?? ''
   const favorite = params.get('favorite') ?? ''
   const important = params.get('important') ?? ''
@@ -280,7 +280,7 @@ function TasksListPage() {
     description: 'Оберіть «Усі статуси», «Виконані» або змініть додаткові фільтри.',
   } : taskRoleEmptyState(selectedRoles.length === 1 ? selectedRoles[0]! : 'ALL')
   const roleItems = [
-    { value: 'RESPONSIBLE', label: 'Виконавець' },
+    { value: 'RESPONSIBLE', label: 'Відповідальний' },
     { value: 'CO_EXECUTOR', label: 'Співвиконавець' },
     { value: 'OBSERVER', label: 'Спостерігач' },
     { value: 'CREATOR', label: 'Постановник' },
@@ -346,6 +346,16 @@ function TasksListPage() {
         <div className="task-preset-toolbar">
           <TaskStatusFilters group={statusFilter.group} selected={statusFilter.selected}
             onChange={(group, selected) => updateParams((current) => writeTaskStatusFilter(current, group, selected))} />
+          <button type="button" className={`task-archive-filter${archiveActive ? ' is-active' : ''}`}
+            aria-label="Архівовані завдання" title="Архівовані завдання" aria-pressed={archiveActive}
+            onClick={() => updateParams((current) => {
+              const active = archiveActive
+              for (const key of Array.from(current.keys())) current.delete(key)
+              if (!active) {
+                current.set('role', 'ALL')
+                writeTaskStatusFilter(current, 'ALL', ['ARCHIVED'])
+              }
+            })}><Archive size={19} aria-hidden="true" /></button>
         </div>
         {filtersOpen && (
           <div className="filter-panel task-advanced-filters">
@@ -541,7 +551,7 @@ function TasksListPage() {
                 <tr>
                   {renderSortHeader('title', 'Завдання')}
                   {taskListColumns.visible.includes('reporter') && renderSortHeader('reporter', 'Постановник')}
-                  {taskListColumns.visible.includes('responsibles') && renderSortHeader('responsibles', 'Виконавці')}
+                  {taskListColumns.visible.includes('responsibles') && renderSortHeader('responsibles', 'Відповідальні')}
                   {taskListColumns.visible.includes('dueDate') && renderSortHeader('dueDate', 'Строк')}
                   {taskListColumns.visible.includes('status') && renderSortHeader('status', 'Статус')}
                   {taskListColumns.visible.includes('priority') && renderSortHeader('priority', 'Пріоритет')}
@@ -554,18 +564,17 @@ function TasksListPage() {
                   <tr key={task.id}>
                     <td data-label="Завдання">
                       <Link to={`/tasks/${task.id}${location.search}`}>
-                        <span className={`priority-dot priority-dot--${task.priority.toLowerCase()}`} />
                         <span>
                           <strong>{task.title}</strong>
                           <small>
-                            № {task.number}
+                            {task.number}
                             {task.parentTaskId ? ' · Підзадача' : ''}
                           </small>
                         </span>
                       </Link>
                     </td>
                     {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><UserProfileLink className="person-cell" userId={task.reporter.id}><Avatar size="sm" name={personName(task.reporter.displayName)} src={task.reporter.avatarAsset} />{personName(task.reporter.displayName)}</UserProfileLink></td>}
-                    {taskListColumns.visible.includes('responsibles') && <td data-label="Виконавці">
+                    {taskListColumns.visible.includes('responsibles') && <td data-label="Відповідальні">
                       {task.responsibles.length ? (
                         <span className="person-cell task-responsibles">
                           {task.responsibles.map((responsible) => (
@@ -583,7 +592,7 @@ function TasksListPage() {
                     </td>}
                     {taskListColumns.visible.includes('dueDate') && <td data-label="Строк">
                       {task.deadline ? (
-                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : ''}`}>
+                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : isTaskDueSoon(task) ? 'is-due-soon' : ''}`}>
                           {isTaskOverdue(task) && <AlertTriangle size={14} />}
                           <span>
                             {formatDate(task.deadline)}
@@ -658,6 +667,11 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [discussionExpanded, setDiscussionExpanded] = useState(false)
+  const [showDiscussionTop, setShowDiscussionTop] = useState(false)
+  const discussionRef = useRef<HTMLElement>(null)
+  const discussionBodyRef = useRef<HTMLDivElement>(null)
+  const discussionContentRef = useRef<HTMLDivElement>(null)
   const [delegateOpen, setDelegateOpen] = useState(false)
   const [delegateId, setDelegateId] = useState('')
   const [delegateError, setDelegateError] = useState('')
@@ -716,9 +730,16 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const [contentMessage, setContentMessage] = useState('')
   const [newItem, setNewItem] = useState('')
   const [editOpen, setEditOpen] = useState(false)
+  const [editCreatorId, setEditCreatorId] = useState('')
   const [editMessage, setEditMessage] = useState('')
   const [subtaskFormOpen, setSubtaskFormOpen] = useState(false)
   const [subtaskError, setSubtaskError] = useState('')
+  const [subtaskPhotos, setSubtaskPhotos] = useState<Array<{ id: string; fileName: string }>>([])
+  const subtaskPhotoUpload = useMutation({
+    mutationFn: stageTaskAttachment,
+    onSuccess: (file) => { setSubtaskPhotos((current) => [...current, file]); markDirty('subtask') },
+    onError: () => setSubtaskError('Не вдалося додати фото до підзадачі.'),
+  })
   const [participantMessage, setParticipantMessage] = useState('')
   const [statusError, setStatusError] = useState('')
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
@@ -917,6 +938,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       deadline?: string
       priority: string
       expectedVersion: number
+      attachmentIds?: string[]
     }) => api<{ id: string }>(`/tasks/${id}/subtasks`, {
       method: 'POST',
       headers: { 'idempotency-key': idempotencyKey('subtask') },
@@ -924,6 +946,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     }),
     onSuccess: () => {
       setSubtaskError('')
+      setSubtaskPhotos([])
       clearDirty('subtask')
       setSubtaskFormOpen(false)
       void client.invalidateQueries({ queryKey: ['task', id] })
@@ -933,7 +956,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       setSubtaskError(
         error instanceof ApiProblem && error.problem.status === 409
           ? 'Завдання вже змінилося. Оновіть його перед додаванням підзадачі.'
-          : 'Не вдалося додати підзадачу. Перевірте поля та доступ виконавця.',
+          : 'Не вдалося додати підзадачу. Перевірте поля та доступ відповідального.',
       )
     },
   })
@@ -1216,37 +1239,76 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         item,
       })) ?? []),
   ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
-  const discussionScroll = usePreservedChatScroll(discussionEntries.length, id)
-  const discussionScrollTopRef = useRef<number | null>(null)
-  const discussionScrollingUpRef = useRef(false)
-  const discussionHasScrollIntentRef = useRef(false)
-  const discussionPointerYRef = useRef<number | null>(null)
-  const discussionLoadingOlderRef = useRef(false)
+  const visibleDiscussionEntries = discussionExpanded
+    ? discussionEntries
+    : discussionEntries.slice(-11)
 
   useEffect(() => {
-    if (!activity.isFetchingNextPage) discussionLoadingOlderRef.current = false
-  }, [activity.isFetchingNextPage])
+    setDiscussionExpanded(false)
+    setShowDiscussionTop(false)
+  }, [id])
 
-  function loadOlderDiscussionEntries(element: HTMLDivElement) {
-    const previousScrollTop = discussionScrollTopRef.current
-    const scrolledUp = discussionScrollingUpRef.current
-      || (previousScrollTop !== null && element.scrollTop < previousScrollTop)
-    discussionScrollTopRef.current = element.scrollTop
-    discussionScrollingUpRef.current = false
-    if (
-      !scrolledUp
-      || !discussionHasScrollIntentRef.current
-      || element.scrollTop > 72
-      || !activity.hasNextPage
-      || activity.isFetchingNextPage
-      || discussionLoadingOlderRef.current
-    ) return
-    discussionHasScrollIntentRef.current = false
-    discussionLoadingOlderRef.current = true
-    discussionScroll.rememberBeforePrepend()
-    void activity.fetchNextPage().catch(() => {
-      discussionLoadingOlderRef.current = false
-    })
+  // Reserve a clipped older message above the complete recent messages as a history cue.
+  useLayoutEffect(() => {
+    const body = discussionBodyRef.current
+    const content = discussionContentRef.current
+    if (!body || !content) return
+    const measure = () => {
+      const children = Array.from(content.children) as HTMLElement[]
+      const bodyStyle = getComputedStyle(body)
+      const available = body.clientHeight - parseFloat(bodyStyle.paddingTop || '0') - parseFloat(bodyStyle.paddingBottom || '0')
+      const gap = parseFloat(getComputedStyle(content).rowGap || '0') || 0
+      for (const child of children) child.classList.remove('is-history-peek')
+      const heights = children.map((child) => child.getBoundingClientRect().height)
+      const budget = available
+      let used = 0
+      let fullCount = 0
+      let peekShown = false
+      for (let index = children.length - 1; index >= 0; index--) {
+        const child = children[index]
+        const fits = discussionExpanded || (!peekShown && fullCount < 10 && used + heights[index] <= budget)
+        const peek = !discussionExpanded && !fits && !peekShown
+        if (peek) child.style.setProperty('--history-peek-height', `${Math.max(0, available - used)}px`)
+        if (peek) peekShown = true
+        child.classList.toggle('is-history-peek', peek)
+        child.style.visibility = fits || peek ? '' : 'hidden'
+        child.inert = !fits
+        if (fits) {
+          used += heights[index] + gap
+          fullCount++
+        }
+      }
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    observer.observe(content)
+    for (const child of content.children) observer.observe(child)
+    return () => observer.disconnect()
+  }, [discussionExpanded, query.data, activity.data])
+
+  useEffect(() => {
+    if (discussionExpanded && activity.hasNextPage && !activity.isFetchingNextPage && !activity.isFetchNextPageError) {
+      void activity.fetchNextPage().catch(() => undefined)
+    }
+  }, [discussionExpanded, activity.hasNextPage, activity.isFetchingNextPage, activity.isFetchNextPageError, activity.fetchNextPage])
+
+  useEffect(() => {
+    const update = () => setShowDiscussionTop(
+      discussionExpanded && (discussionRef.current?.getBoundingClientRect().top ?? 0) < -80,
+    )
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [discussionExpanded])
+
+  const scrollToDiscussion = () => {
+    discussionRef.current?.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
   }
   const canManageTask = Boolean(
     query.data
@@ -1269,7 +1331,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <section className="task-detail-overview">
           <div className="task-detail-heading">
             <div>
-              <span className="task-detail-number">Завдання №{query.data.number}</span>
+              <span className="task-detail-number">Завдання {query.data.number}</span>
               <h2>{query.data.title}</h2>
               <FormattedText body={query.data.description || 'Опис не додано.'} />
             </div>
@@ -1305,6 +1367,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     onClick={() => {
                       setActionsOpen(false)
                       setEditMessage('')
+                      setEditCreatorId(query.data.creator.id)
                       if (editOpen) clearDirty('edit')
                       setEditOpen((value) => !value)
                     }}
@@ -1378,7 +1441,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             >
               <div className="task-edit-form__intro">
                 <strong>Редагування завдання</strong>
-                <small>Зміни зберігаються з перевіркою актуальної версії.</small>
               </div>
               <label className="span-2">
                 <span>
@@ -1393,24 +1455,21 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 />
               </label>
               <div className="span-2"><FormattedTextarea label="Опис"
+                  candidateUrl={`/tasks/${id}/mention-candidates`}
+                  onPhotos={(files) => void uploadFiles(files, false)}
+                  photosDisabled={!canAttachFiles || uploadAttachment.isPending}
                   name="description"
                   defaultValue={query.data.description}
                   rows={4}
                   maxLength={20000}
-                  placeholder="Контекст і критерій готовності"
+                  placeholder="Опис завдання"
                 />
               </div>
               <input type="hidden" name="assigneeId" value={query.data.assignee.id} />
-              {query.data.canTransferCreator && (
-                <UserSearchCombobox
-                  label="Постановник"
-                  name="creatorId"
-                  defaultUser={query.data.creator}
-                />
-              )}
+              {query.data.canTransferCreator && <input type="hidden" name="creatorId" value={editCreatorId} />}
               <div className="task-edit-form__workflow span-2">
                 <label>
-                  Пріоритет
+                  <span className="task-edit-field-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
                   <select name="priority" defaultValue={query.data.priority}>
                     <option value="LOW">Низький</option>
                     <option value="MEDIUM">Середній</option>
@@ -1419,7 +1478,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   </select>
                 </label>
                 <label>
-                  Строк
+                  <span className="task-edit-field-label"><CalendarDays size={14} aria-hidden="true" />Строк</span>
                   <DateTimePicker
                     name="deadline"
                     type="datetime-local"
@@ -1566,7 +1625,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               </div>
           </details>
           <section
-            className="task-discussion is-file-drop-target"
+            ref={discussionRef}
+            className={`task-discussion is-file-drop-target${discussionExpanded ? ' is-expanded' : ''}`}
             data-task-section="discussion"
             aria-labelledby={`task-discussion-${id}`}
             {...commentFilesDrop.dropTargetProps}
@@ -1577,48 +1637,30 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 <span className="task-detail-card-icon"><MessageCircle size={18} /></span>
                 <h3 id={`task-discussion-${id}`}>Обговорення</h3>
               </span>
+              <Button
+                type="button"
+                variant="ghost"
+                className="task-discussion__expand"
+                aria-expanded={discussionExpanded}
+                aria-controls={`task-discussion-body-${id}`}
+                onClick={() => {
+                  if (discussionExpanded) scrollToDiscussion()
+                  setDiscussionExpanded((expanded) => !expanded)
+                }}
+              >
+                <ArrowDown size={16} aria-hidden="true" />
+                {discussionExpanded ? 'Згорнути чат' : 'Розгорнути чат'}
+              </Button>
             </header>
             <div
-              ref={discussionScroll.containerRef}
+              id={`task-discussion-body-${id}`}
+              ref={discussionBodyRef}
               className="task-discussion__body"
-              tabIndex={0}
               aria-label="Повідомлення та історія обговорення"
-              onKeyDown={(event) => {
-                discussionScroll.onUserScrollIntent()
-                if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
-                  discussionHasScrollIntentRef.current = true
-                  discussionScrollingUpRef.current = true
-                }
-              }}
-              onPointerDown={(event) => {
-                discussionScroll.onUserScrollIntent()
-                discussionPointerYRef.current = event.clientY
-                discussionScrollTopRef.current = event.currentTarget.scrollTop
-              }}
-              onPointerMove={(event) => {
-                if (discussionPointerYRef.current === null) return
-                discussionHasScrollIntentRef.current = true
-                discussionScrollingUpRef.current = event.clientY > discussionPointerYRef.current
-                discussionPointerYRef.current = event.clientY
-              }}
-              onPointerUp={() => { discussionPointerYRef.current = null }}
-              onTouchStart={() => {
-                discussionScroll.onUserScrollIntent()
-                discussionHasScrollIntentRef.current = true
-              }}
-              onWheel={(event) => {
-                discussionScroll.onUserScrollIntent()
-                discussionHasScrollIntentRef.current = true
-                discussionScrollingUpRef.current = event.deltaY < 0
-              }}
-              onScroll={(event) => {
-                discussionScroll.onScroll()
-                loadOlderDiscussionEntries(event.currentTarget)
-              }}
             >
-            {discussionEntries.length > 0 ? (
-              <div ref={discussionScroll.contentRef} className="task-comments">
-                {discussionEntries.map((entry) => {
+            {visibleDiscussionEntries.length > 0 ? (
+              <div ref={discussionContentRef} className="task-comments">
+                {visibleDiscussionEntries.map((entry) => {
                   if (entry.kind === 'activity') {
                     return (
                       <div className="task-system-event" key={entry.id}>
@@ -1634,9 +1676,9 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   const item = entry.item
                   const ownComment = item.author.id === user?.id
                   return (
+                    <div className="task-comment-row" key={item.id}>
                     <article
                       className={`task-comment ${ownComment ? 'is-own' : 'is-other'}${item.replyToCommentId ? ' is-reply' : ''}`}
-                      key={item.id}
                       onContextMenu={(event) => {
                         if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
                         event.preventDefault()
@@ -1716,9 +1758,9 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                               </Button>
                             </div>
                           </form>
-                        ) : (
+                        ) : item.body.trim() ? (
                           <FormattedText body={item.body} mentions={item.mentions} hideMentionPrefix />
-                        )}
+                        ) : null}
                         {editingComment?.id !== item.id && item.attachments.length > 0 && (
                           <div className="task-comment-attachments">
                             {item.attachments.map((attachment) => (
@@ -1729,17 +1771,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                         )}
                         {editingComment?.id !== item.id && (
                           <footer className="task-comment__meta">
-                            {item.reactions.likeCount > 0 && (
-                              <button
-                                type="button"
-                                className={item.reactions.likedByMe ? 'is-mine' : ''}
-                                aria-label={`${item.reactions.likeCount} вподобань`}
-                                aria-pressed={item.reactions.likedByMe}
-                                onClick={() => reactToComment.mutate(item)}
-                              >
-                                <Heart size={12} /> {item.reactions.likeCount}
-                              </button>
-                            )}
                             {item.editedAt && <span>змінено</span>}
                           </footer>
                         )}
@@ -1825,7 +1856,44 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                             )
                         )}
                       </div>
+                      {editingComment?.id !== item.id && (
+                        <div className="task-comment__side-actions" aria-label="Швидкі дії з повідомленням">
+                          {item.reactions.likeCount > 0 ? (
+                            <MessageLikeButton
+                              previewPlacement="right"
+                              reactionsUrl={`/tasks/${encodeURIComponent(id)}/comments/${encodeURIComponent(item.id)}/reactions`}
+                              count={item.reactions.likeCount}
+                              liked={item.reactions.likedByMe}
+                              onClick={() => { if (!reactToComment.isPending) reactToComment.mutate(item) }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="message-like-button task-comment__reveal-action"
+                              aria-label="Подобається"
+                              aria-pressed={false}
+                              disabled={reactToComment.isPending}
+                              onClick={() => reactToComment.mutate(item)}
+                            >
+                              <Heart size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="task-comment__reply-action task-comment__reveal-action"
+                            aria-label="Відповісти"
+                            title="Відповісти"
+                            onClick={() => {
+                              setReplyTo({ id: item.id, authorName: personName(item.author.displayName), body: item.body })
+                              commentTextareaRef.current?.focus()
+                            }}
+                          >
+                            <Reply size={14} />
+                          </button>
+                        </div>
+                      )}
                     </article>
+                    </div>
                   )
                 })}
               </div>
@@ -1834,8 +1902,18 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             ) : (
               <p className="muted">Ще немає повідомлень. Додайте перше корисне уточнення.</p>
             )}
-            {activity.isFetchingNextPage && <div className="task-discussion__older">Завантажуємо давнішу історію…</div>}
+            {discussionExpanded && activity.isFetchingNextPage && <div className="task-discussion__older">Завантажуємо давнішу історію…</div>}
             </div>
+            {discussionExpanded && activity.isFetchNextPageError && (
+              <Button type="button" variant="ghost" onClick={() => void activity.fetchNextPage()}>
+                Повторити завантаження історії
+              </Button>
+            )}
+            {showDiscussionTop && (
+              <button type="button" className="task-discussion__to-top" aria-label="До початку чату" title="До початку чату" onClick={scrollToDiscussion}>
+                <ChevronUp size={24} />
+              </button>
+            )}
             <form
               className="task-comment-form"
               onSubmit={(event) => {
@@ -1957,6 +2035,13 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                       event.preventDefault()
                       event.currentTarget.closest('form')?.requestSubmit()
                     }}
+                    onPaste={(event) => {
+                      const files = [...event.clipboardData.files]
+                      if (!files.length) return
+                      event.preventDefault()
+                      if (!canAttachFiles || post.isPending || commentFileRemoval.pending) return
+                      void uploadFiles(files.slice(0, 5 - commentAttachmentIds.length), true)
+                    }}
                   />
                 )}
                 sendAction={(
@@ -1979,7 +2064,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               {commentFileRemoval.error && <div className="form-error" role="alert">{commentFileRemoval.error}</div>}
               {drivePickerOpen && (
                 <DrivePicker
-                  onPick={(attachment) => attachDriveFile.mutate(attachment.id)}
+                  onPick={(attachment) => attachDriveFile.mutateAsync(attachment.id)}
+                  maxSelection={5 - commentAttachments.length}
                   onClose={() => setDrivePickerOpen(false)}
                 />
               )}
@@ -2220,7 +2306,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   to={`/tasks/${query.data.parent.id}${location.search}`}
                 >
                   <ArrowLeft size={15} />
-                  До батьківського завдання · № {query.data.parent.number}
+                  До батьківського завдання · {query.data.parent.number}
                 </Link>
               )}
               {query.data.subtaskProgress.total > 0 && (
@@ -2236,7 +2322,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     <Link key={subtask.id} to={`/tasks/${subtask.id}${location.search}`}>
                       <span>
                         <strong>{subtask.title}</strong>
-                        <small>№ {subtask.number}</small>
+                        <small>{subtask.number}</small>
                       </span>
                       <StatusBadge status={subtask.status} />
                       <ChevronRight size={16} aria-hidden="true" />
@@ -2260,6 +2346,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                       deadline: deadline ? new Date(deadline).toISOString() : undefined,
                       priority: String(form.get('priority') ?? 'MEDIUM'),
                       expectedVersion: query.data.version,
+                      ...(subtaskPhotos.length ? { attachmentIds: subtaskPhotos.map((file) => file.id) } : {}),
                     })
                   }}
                 >
@@ -2280,7 +2367,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     />
                   </label>
                   <UserSearchCombobox
-                    label="Виконавець"
+                    label="Відповідальний"
                     name="assigneeId"
                     defaultUser={query.data.assignee}
                   />
@@ -2298,12 +2385,20 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     <DateTimePicker name="deadline" type="datetime-local" />
                   </label>
                   <div className="span-2"><FormattedTextarea label="Опис"
+                      candidateUrl={`/tasks/${id}/mention-candidates`}
+                      onPhotos={(files) => { void (async () => {
+                        for (const file of files.slice(0, 10 - subtaskPhotos.length)) await subtaskPhotoUpload.mutateAsync(file).catch(() => undefined)
+                      })() }}
+                      photosDisabled={subtaskPhotoUpload.isPending || subtaskPhotos.length >= 10}
                       name="description"
                       rows={3}
                       maxLength={20000}
-                      placeholder="Контекст і критерій готовності"
+                      placeholder="Опис завдання"
                     />
                   </div>
+                  {subtaskPhotos.length > 0 && <ul className="span-2" aria-label="Фото підзадачі">{subtaskPhotos.map((file) => <li key={file.id}>{file.fileName}
+                    <button type="button" aria-label={`Прибрати ${file.fileName}`} onClick={() => setSubtaskPhotos((current) => current.filter((item) => item.id !== file.id))}><X size={14} /></button>
+                  </li>)}</ul>}
                   {subtaskError && (
                     <div className="form-error span-2" role="alert">{subtaskError}</div>
                   )}
@@ -2318,7 +2413,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     >
                       Скасувати
                     </Button>
-                    <Button disabled={createSubtask.isPending}>
+                    <Button disabled={createSubtask.isPending || subtaskPhotoUpload.isPending}>
                       <CirclePlus size={16} />
                       Створити підзадачу
                     </Button>
@@ -2332,7 +2427,18 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
             <TaskSingleRoleCard
               label="Постановник"
               person={query.data.reporter}
-            />
+            >
+              {editOpen && query.data.canTransferCreator && (
+                <div className="task-role-card__add">
+                  <UserSearchCombobox
+                    label="Змінити постановника"
+                    value={editCreatorId}
+                    defaultUser={query.data.creator}
+                    onChange={(userId) => { setEditCreatorId(userId); markDirty('edit') }}
+                  />
+                </div>
+              )}
+            </TaskSingleRoleCard>
             <TaskSingleRoleCard
               label="Відповідальний"
               person={query.data.assignee}
@@ -2413,27 +2519,39 @@ function TaskDetailLayout({
 }) {
   return (
     <div className="task-detail-page">
-      <PageHeader title={title} />
+      <PageHeader title={title} action={(
+        <Link className="button button--primary" to="/tasks/new">
+          <Plus size={17} />
+          Створити завдання
+        </Link>
+      )} />
       <Card className="task-detail-surface">{children}</Card>
     </div>
   )
 }
 
 function TaskAttachmentGlyph({ attachment }: { attachment: TaskAttachmentView }) {
-  const extension = attachment.fileName.split('.').pop()?.toLowerCase() ?? ''
-  const mime = attachment.mimeType.toLowerCase()
-  if (officeFileFormat(mime)) return <FileFormatIcon mimeType={mime} size={18} className="task-attachment-glyph" />
-  const kind = mime === 'application/pdf' || extension === 'pdf' ? 'pdf'
-    : /^(docx?|odt|rtf)$/.test(extension) || /word|opendocument.text|rtf/.test(mime) ? 'word'
-    : /^(xlsx?|xlsm|ods|csv)$/.test(extension) || /spreadsheet|excel|csv/.test(mime) ? 'excel'
-    : mime.startsWith('image/') || /^(png|jpe?g|gif|webp|svg|bmp|avif|heic)$/.test(extension) ? 'image'
-    : /^(zip|rar|7z|tar|gz|bz2|xz)$/.test(extension) || /zip|compressed|archive|tar/.test(mime) ? 'archive'
-    : 'other'
-  const Icon = kind === 'excel' ? FileSpreadsheet : kind === 'image' ? FileImage : kind === 'archive' ? FileArchive : FileText
-  return <span className={`task-attachment-glyph task-attachment-glyph--${kind}`} aria-hidden="true">
-    <Icon size={17} />
-    {['pdf', 'word', 'excel'].includes(kind) && <span>{kind === 'pdf' ? 'PDF' : kind === 'word' ? 'W' : 'X'}</span>}
-  </span>
+  return <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={18} className="task-attachment-glyph" />
+}
+
+function taskFileStatusOptions(attachment: TaskAttachmentView) {
+  return queryOptions({
+    queryKey: ['file-status', attachment.id],
+    queryFn: () => api<{ scanStatus: TaskAttachmentView['scanStatus'] }>(`/files/${attachment.id}/status`),
+    enabled: !['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus),
+    staleTime: 0,
+    refetchInterval: (result) => {
+      const current = result.state.data?.scanStatus ?? attachment.scanStatus
+      return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(current) ? false : 2_000
+    },
+  })
+}
+
+function resolvedTaskFileStatus(attachment: TaskAttachmentView, polled?: TaskAttachmentView['scanStatus']) {
+  // A refreshed task may already have a terminal verdict while the disabled
+  // status query still holds an older SCANNING response.
+  return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus)
+    ? attachment.scanStatus : polled ?? attachment.scanStatus
 }
 
 function TaskAttachment({
@@ -2448,32 +2566,21 @@ function TaskAttachment({
   actions?: boolean
 }) {
   const [previewOpen, setPreviewOpen] = useState(false)
-  const status = useQuery({
-    queryKey: ['file-status', attachment.id],
-    queryFn: () => api<{ scanStatus: TaskAttachmentView['scanStatus'] }>(
-      `/files/${attachment.id}/status`,
-    ),
-    enabled: !['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus),
-    refetchInterval: (result) => {
-      const current = result.state.data?.scanStatus ?? attachment.scanStatus
-      return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(current)
-        ? false
-        : 2_000
-    },
-  })
-  const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
+  const status = useQuery(taskFileStatusOptions(attachment))
+  const scanStatus = resolvedTaskFileStatus(attachment, status.data?.scanStatus)
+  const imagePreview = compact && scanStatus === 'CLEAN' && isPreviewableImage(attachment.mimeType)
   const extensionIndex = attachment.fileName.lastIndexOf('.')
   const className = composer
     ? 'task-comment-composer__attachment-name'
-    : compact ? 'task-attachment is-compact' : 'task-attachment'
+    : compact ? `task-attachment is-compact${imagePreview ? ' task-comment-image' : ''}` : 'task-attachment'
   const content = composer ? (
     <>
-      <FileFormatIcon mimeType={attachment.mimeType} size={15} />
+      <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={15} />
       <span>{attachment.fileName}</span>
     </>
   ) : (
     <>
-      <TaskAttachmentGlyph attachment={attachment} />
+      {imagePreview ? <FileThumbnail file={{ ...attachment, scanStatus }} /> : <TaskAttachmentGlyph attachment={attachment} />}
       <span>
         <strong title={attachment.fileName}>
           <span className="task-attachment__stem">{extensionIndex > 0 ? attachment.fileName.slice(0, extensionIndex) : attachment.fileName}</span>
@@ -2523,17 +2630,19 @@ function TaskSingleRoleCard({
   person,
   canChange = false,
   onChange,
+  children,
 }: {
   label: 'Постановник' | 'Відповідальний'
   person: TaskDetailView['reporter']
   canChange?: boolean
   onChange?: (userId: string) => void
+  children?: ReactNode
 }) {
   const headingId = label === 'Постановник' ? 'task-reporter' : 'task-responsible'
   return (
     <section className="task-role-card task-role-card--single" aria-labelledby={headingId}>
       <header>
-        <span className="task-role-card__icon"><User size={18} /></span>
+        <span className="task-role-card__icon">{label === 'Постановник' ? <UserRoundPen size={18} aria-hidden /> : <UserRoundCheck size={18} aria-hidden />}</span>
         <h3 id={headingId}>{label}</h3>
       </header>
       <UserProfileLink className="task-role-card__person" userId={person.id}>
@@ -2550,6 +2659,7 @@ function TaskSingleRoleCard({
             onChange={(userId) => { if (userId) onChange(userId) }}
           />
       )}
+      {children}
     </section>
   )
 }
@@ -2578,7 +2688,6 @@ function TaskParticipantGroup({
   onRemove: (userId: string) => void
 }) {
   const headingId = `task-role-${role.toLowerCase()}`
-  const [selectedUserId, setSelectedUserId] = useState('')
   return (
     <section className="task-role-card task-role-group" aria-labelledby={headingId}>
       <header>
@@ -2616,32 +2725,17 @@ function TaskParticipantGroup({
         <p className="task-role-card__empty">{emptyLabel}</p>
       )}
       {canEdit && (
-        <form
-          className="task-role-card__add"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!selectedUserId) return
-            onAdd(selectedUserId)
-            setSelectedUserId('')
-          }}
-        >
+        <div className="task-role-card__add">
           <UserSearchCombobox
-            label={`Додати: ${label.toLowerCase()}`}
-            value={selectedUserId}
+            label={role === 'CO_EXECUTOR' ? 'Додати співвиконавця' : 'Додати спостерігача'}
+            value=""
+            clearOnSelect
+            disabled={addPending}
             placeholder="Почніть вводити ім’я"
             excludeIds={excludedUserIds}
-            onChange={setSelectedUserId}
+            onChange={(userId) => { if (userId && !addPending) onAdd(userId) }}
           />
-          <Button
-            type="submit"
-            variant="secondary"
-            aria-label={`Додати учасника до ролі «${label}»`}
-            disabled={addPending || !selectedUserId}
-          >
-            <UserPlus size={16} />
-            Додати
-          </Button>
-        </form>
+        </div>
       )}
     </section>
   )
@@ -2665,6 +2759,7 @@ function taskAttachmentStateLabel(status: TaskAttachmentView['scanStatus']): str
   if (status === 'QUARANTINED' || status === 'SCANNING') return 'Перевіряється'
   if (status === 'INFECTED') return 'Заблоковано перевіркою'
   if (status === 'UNSUPPORTED') return 'Формат не підтримується'
+  if (status === 'FAILED') return 'Не вдалося перевірити файл'
   return 'Файл недоступний'
 }
 
@@ -2685,6 +2780,12 @@ function isTaskOverdue(task: TaskListItem): boolean {
   )
 }
 
+function isTaskDueSoon(task: TaskListItem): boolean {
+  if (!task.deadline || ['DONE', 'ARCHIVED'].includes(task.status)) return false
+  const remaining = new Date(task.deadline).getTime() - Date.now()
+  return remaining >= 0 && remaining <= 72 * 60 * 60 * 1000
+}
+
 function taskRoleEmptyState(role: TaskViewRole): { title: string; description: string } {
   if (role === 'CO_EXECUTOR') {
     return {
@@ -2695,7 +2796,7 @@ function taskRoleEmptyState(role: TaskViewRole): { title: string; description: s
   if (role === 'CREATOR') {
     return {
       title: 'Ви ще нічого не доручили',
-      description: 'Створені вами завдання залишатимуться тут незалежно від виконавця.',
+      description: 'Створені вами завдання залишатимуться тут незалежно від відповідального.',
     }
   }
   if (role === 'OBSERVER') {
@@ -2717,12 +2818,16 @@ function taskRoleEmptyState(role: TaskViewRole): { title: string; description: s
 }
 
 function TaskFilesArchive({ attachments }: { attachments: TaskAttachmentView[] }) {
-  if (!attachments.length) return null
-  const ready = attachments.every((file) => file.scanStatus === 'CLEAN')
+  const statuses = useQueries({ queries: attachments.map(taskFileStatusOptions) })
+  if (attachments.length < 2) return null
+  const current = attachments.map((file, index) => resolvedTaskFileStatus(file, statuses[index]?.data?.scanStatus))
+  const ready = current.every((status) => status === 'CLEAN')
   return ready ? (
     <a className="task-files-archive" href={`/api/v1/files/archive?ids=${encodeURIComponent(attachments.map((file) => file.id).join(','))}`}>
       <Download size={14} aria-hidden="true" />
       <span>Завантажити все одним архівом</span>
     </a>
-  ) : <span className="task-files-archive muted">Архів буде доступний після перевірки всіх файлів</span>
+  ) : <span className="task-files-archive muted">{current.some((status) => ['INFECTED', 'UNSUPPORTED', 'FAILED'].includes(status))
+    ? 'Архів недоступний: не всі файли пройшли перевірку'
+    : 'Архів буде доступний після перевірки всіх файлів'}</span>
 }

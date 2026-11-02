@@ -9,6 +9,7 @@ import {
   chatMessagePageQuerySchema,
   chatMessageSearchQuerySchema,
   chatReactionSchema,
+  reactionUsersQuerySchema,
   chatThreadListQuerySchema,
   chatUserSearchQuerySchema,
   createChatThreadSchema,
@@ -286,6 +287,13 @@ export class MessagesController {
     const parsed = deleteChatMessageSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('chat_message_invalid')
     return this.messages.deleteMessage(principalFrom(request), id, parsed.data)
+  }
+
+  @Get(':id/reactions')
+  reactionUsers(@Req() request: LankaDWSRequest, @Param('id') id: string, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = reactionUsersQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('chat_reaction_query_invalid')
+    return this.messages.reactionUsers(principalFrom(request), id, parsed.data)
   }
 
   @Post(':id/reactions')

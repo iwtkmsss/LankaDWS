@@ -1,10 +1,11 @@
 import { DateTimePicker } from '../../../shared/ui/DateTimePicker'
 import { FormattedTextarea } from '../../../shared/text/FormattedTextarea'
 import { useMutation } from '@tanstack/react-query'
-import { FilePlus2, Plus, Trash2 } from 'lucide-react'
+import { CalendarDays, CalendarClock, Flag, FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
 import { Button } from '../../../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
+import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
 import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
 import { createProject, createTag, loadTaskCreateOptions, stageTaskAttachment } from './api'
 import type {
@@ -61,6 +62,12 @@ export function TaskBasicsSection({
           </span>
           <input
             ref={titleRef}
+            onKeyDown={(event) => {
+              if (event.key === 'Tab' && !event.shiftKey) {
+                const description = event.currentTarget.closest('section')?.querySelector<HTMLElement>('.rich-editor__input')
+                if (description) { event.preventDefault(); description.focus() }
+              }
+            }}
             value={draft.title}
             maxLength={200}
             required
@@ -74,10 +81,13 @@ export function TaskBasicsSection({
           />
         </label>
         <div className="span-2"><FormattedTextarea label="Опис"
+            candidateUrl="/employees"
+            onPhotos={(files) => void uploadFiles(files)}
+            photosDisabled={upload.isPending || freeAttachmentSlots <= 0}
             value={draft.description}
-            rows={5}
+            rows={10}
             maxLength={20_000}
-            placeholder="Контекст, очікуваний результат і критерії готовності"
+            placeholder="Опис завдання"
             onChange={(event) => update((current) => ({
               ...current,
               description: event.target.value,
@@ -116,6 +126,7 @@ export function TaskBasicsSection({
             <ul className="task-create-attachments">
               {draft.attachments.map((attachment) => (
                 <li key={attachment.id}>
+                  <div><FileFormatIcon mimeType={null} fileName={attachment.fileName} size={22} /></div>
                   <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
                   <button
                     type="button"
@@ -136,7 +147,7 @@ export function TaskBasicsSection({
       </div>
       <div className="task-create-core__meta">
         <label>
-          Дата початку
+          <span className="task-create-meta-label"><CalendarDays size={14} aria-hidden="true" />Дата початку</span>
           <DateTimePicker
             type="datetime-local"
             value={draft.startsAt}
@@ -147,7 +158,7 @@ export function TaskBasicsSection({
           />
         </label>
         <label>
-          Кінцевий термін
+          <span className="task-create-meta-label"><CalendarClock size={14} aria-hidden="true" />Кінцевий термін</span>
           <DateTimePicker
             ref={dueAtRef}
             type="datetime-local"
@@ -162,7 +173,7 @@ export function TaskBasicsSection({
           />
         </label>
         <label>
-          Пріоритет
+          <span className="task-create-meta-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
           <select
             value={draft.priority}
             onChange={(event) => update((current) => ({
@@ -186,8 +197,7 @@ export function TaskBasicsSection({
             }))}
           />
           <span>
-            <strong>Передати на перевірку після завершення</strong>
-            <small>Постановник перевірить результат роботи.</small>
+            <strong>Прийняти після завершення</strong>
           </span>
         </label>
       </div>

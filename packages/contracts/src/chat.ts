@@ -135,14 +135,18 @@ const calendarEventFields = {
   endAt: z.string().datetime(),
   sourceTimezone: z.string().trim().min(1).max(80).default('Europe/Kyiv'),
   allDay: z.boolean().default(false),
+  requiresAcknowledgement: z.boolean().optional(),
   recurrence: calendarRecurrenceSchema.nullable().optional(),
   reminderMinutes: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(15), z.literal(30), z.literal(60), z.literal(120), z.literal(1440)]).nullable().optional(),
 }
 
 function assertEventWindow(
-  value: { startAt: string; endAt: string; recurrence?: CalendarRecurrenceInput | null; reminderMinutes?: number | null; audience: CalendarEventAudienceInput },
+  value: { startAt: string; endAt: string; recurrence?: CalendarRecurrenceInput | null; reminderMinutes?: number | null; requiresAcknowledgement?: boolean; audience: CalendarEventAudienceInput },
   context: z.core.$RefinementCtx,
 ): void {
+  if (value.requiresAcknowledgement && value.audience.type === 'PRIVATE') {
+    context.addIssue({ code: 'custom', path: ['requiresAcknowledgement'], message: 'Acknowledgement requires a shared event.' })
+  }
   if (value.reminderMinutes != null && value.audience.type !== 'PRIVATE') {
     context.addIssue({ code: 'custom', path: ['reminderMinutes'], message: 'Reminders are only available for private events.' })
   }
@@ -183,6 +187,17 @@ export const updateCalendarEventSchema = z.object({
   audience: calendarEventAudienceSchema,
 }).superRefine(assertEventWindow)
 export type UpdateCalendarEventInput = z.infer<typeof updateCalendarEventSchema>
+
+export const acknowledgeCalendarEventSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+})
+
+export interface CalendarAcknowledgementView {
+  requiredForMe: boolean
+  acknowledgedAt: string | null
+  recipientCount: number
+  acknowledgedCount: number
+}
 
 export interface CalendarAudienceOption {
   companyId: string

@@ -19,7 +19,6 @@ import {
   markChatReadSchema,
   removeChatParticipantSchema,
   sendChatMessageSchema,
-  sendUserNotificationSchema,
   updateChatParticipantSchema,
   updateChatPreferenceSchema,
   createFeedCommentSchema,
@@ -236,6 +235,9 @@ describe('transport schemas', () => {
       body: ' Відповідь ',
       replyToCommentId: 'cmt_parent',
     })).toMatchObject({ body: 'Відповідь', replyToCommentId: 'cmt_parent' })
+    expect(createFeedCommentSchema.parse({ body: '', attachmentIds: ['photo', 'photo'] })).toMatchObject({ body: '', attachmentIds: ['photo'] })
+    expect(createFeedCommentSchema.safeParse({ body: ' ' }).success).toBe(false)
+    expect(createFeedCommentSchema.safeParse({ body: '', attachmentIds: Array.from({ length: 6 }, (_, index) => `photo-${index}`) }).success).toBe(false)
     expect(createFeedPostSchema.parse({
       companyId: 'cmp_lankadws',
       body: '@Марія перевір, будь ласка',
@@ -383,23 +385,6 @@ describe('transport schemas', () => {
       .toEqual({ lastReadMessageId: 'msg_1' })
     expect(updateChatPreferenceSchema.parse({ notificationMode: 'NONE', expectedVersion: 2 }))
       .toEqual({ notificationMode: 'NONE', expectedVersion: 2 })
-  })
-
-  it('validates direct user notifications without accepting empty copy', () => {
-    expect(sendUserNotificationSchema.parse({
-      recipientId: 'usr_olena',
-      title: 'Перевірка',
-      body: 'Будь ласка, перегляньте оновлення.',
-    })).toEqual({
-      recipientId: 'usr_olena',
-      title: 'Перевірка',
-      body: 'Будь ласка, перегляньте оновлення.',
-    })
-    expect(() => sendUserNotificationSchema.parse({
-      recipientId: 'usr_olena',
-      title: ' ',
-      body: ' ',
-    })).toThrow()
   })
 
   it('keeps task comment mentions structured and defaults legacy comments safely', () => {

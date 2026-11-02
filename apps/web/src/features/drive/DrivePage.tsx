@@ -5,7 +5,7 @@ import type {
   DriveSort, DriveSortDirection, DriveView,
 } from '@lankadws/contracts'
 import {
-  Clock, FolderPlus, Grid2x2, HardDrive, List, Search, Trash2, Upload, Users, X,
+  ArrowLeft, Clock, FolderPlus, Grid2x2, HardDrive, List, Search, Trash2, Upload, Users, X,
 } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -313,6 +313,16 @@ export default function DrivePage() {
 
           {(view === 'MY_DRIVE' || isUsersView) && (
             <nav className="drive-breadcrumbs" aria-label="Шлях">
+              <button
+                type="button"
+                className="drive-breadcrumbs__up"
+                aria-label="Назад"
+                title="Назад"
+                disabled={folderId ? !query.data || query.isFetching || query.isError : !ownerId}
+                onClick={() => update(folderId
+                  ? { folder: breadcrumbs.at(-2)?.id }
+                  : { owner: undefined, ownerCursor: undefined })}
+              ><ArrowLeft size={17} aria-hidden /></button>
               <button type="button" onClick={() => update({ folder: undefined, ...(isUsersView ? { owner: undefined, ownerCursor: undefined } : {}) })}>{isUsersView ? 'Файли користувачів' : 'Мій диск'}</button>
               {isUsersView && query.data?.owner && <span><span aria-hidden>/</span><button type="button" onClick={() => update({ folder: undefined })}>{query.data.owner.displayName} <span className="drive-owner-tag">@{query.data.owner.username}</span></button></span>}
               {breadcrumbs.map((crumb, index) => (

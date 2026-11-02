@@ -13,7 +13,11 @@ import type {
   RecommendedChatUsersPage,
   SendChatMessageInput,
 } from '@lankadws/contracts'
-import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
+import { api, ApiProblem, idempotencyKey, jsonBody, uploadApi } from '../../../shared/api/client'
+import { FILE_UPLOAD_FORMATS_MESSAGE, FILE_UPLOAD_SIZE_MESSAGE } from '@lankadws/contracts'
+import { showFileError } from '../../../shared/files/uploadValidation'
+import { localAttachment } from '../lib/localAttachments'
+import { addPendingUploads, removePendingUploads, updatePendingUpload } from '../lib/pendingUploads'
 import { photoAttachmentBatches } from '../lib/photoAlbums'
 
 export function getThreadPage(
@@ -98,21 +102,71 @@ export async function sendMessage(
   key: string,
   attachments?: Pick<ChatAttachmentView, 'id' | 'mimeType'>[],
 ) {
-  const batches = attachments ? photoAttachmentBatches(attachments) : null
-  let result!: { id: string }
-  for (let index = 0; index < (batches?.length ?? 1); index++) {
-    result = await api<{ id: string }>(`/messages/threads/${threadId}/messages`, {
-      method: 'POST',
-      // Stable keys let a retry finish a partially sent album without duplicates.
-      headers: { 'idempotency-key': index === 0 ? key : `${key}:album:${index}` },
-      body: jsonBody({
-        ...input,
-        ...(batches ? { attachmentIds: batches[index]!.map((attachment) => attachment.id) } : {}),
-        ...(index > 0 ? { body: '', mentions: [] } : {}),
-      }),
-    })
+  const local = (attachments ?? []).filter((attachment) => localAttachment(attachment))
+  const controller = new AbortController()
+  const pendingIds = local.map((attachment) => `${key}:${attachment.id}`)
+  addPendingUploads(local.map((attachment, index) => ({
+    id: pendingIds[index]!, threadId, file: localAttachment(attachment)!.file,
+    loaded: 0, phase: 'queued', cancel: () => controller.abort(),
+  })))
+  try {
+    const resolved = new Map<string, ChatAttachmentView>()
+    let next = 0
+    async function worker() {
+      while (next < local.length) {
+        const index = next++
+        const attachment = local[index]!
+        const record = localAttachment(attachment)!
+        if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+        let uploaded = record.uploaded.get(threadId)
+        if (!uploaded) {
+          updatePendingUpload(pendingIds[index]!, { phase: 'uploading' })
+          const form = new FormData()
+          form.append('file', record.file)
+          uploaded = await uploadApi<ChatAttachmentView>(`/messages/threads/${threadId}/attachments`, form, controller.signal, (fraction) => {
+            updatePendingUpload(pendingIds[index]!, { loaded: Math.round(record.file.size * fraction), phase: fraction >= 1 ? 'processing' : 'uploading' })
+          })
+          record.uploaded.set(threadId, uploaded)
+        }
+        resolved.set(attachment.id, uploaded)
+        updatePendingUpload(pendingIds[index]!, { loaded: record.file.size, phase: 'processing' })
+      }
+    }
+    // Wait for all workers to settle before removing cards or allowing retries.
+    const workers = await Promise.allSettled(Array.from({ length: Math.min(3, local.length) }, () => worker().catch((error) => { controller.abort(); throw error })))
+    const failure = workers.find((result) => result.status === 'rejected' && result.reason?.name !== 'AbortError')
+      ?? workers.find((result) => result.status === 'rejected')
+    if (failure?.status === 'rejected') throw failure.reason
+    if (controller.signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    attachments = attachments?.map((attachment) => resolved.get(attachment.id) ?? attachment)
+    if (local.length) input = { ...input, attachmentIds: attachments!.map((attachment) => attachment.id) }
+    pendingIds.forEach((id) => updatePendingUpload(id, { phase: 'sending' }))
+    const batches = attachments ? photoAttachmentBatches(attachments) : null
+    let result!: { id: string }
+    for (let index = 0; index < (batches?.length ?? 1); index++) {
+      result = await api<{ id: string }>(`/messages/threads/${threadId}/messages`, {
+        method: 'POST',
+        // Stable keys let a retry finish a partially sent album without duplicates.
+        headers: { 'idempotency-key': index === 0 ? key : `${key}:album:${index}` },
+        body: jsonBody({
+          ...input,
+          ...(batches ? { attachmentIds: batches[index]!.map((attachment) => attachment.id) } : {}),
+          ...(index > 0 ? { body: '', mentions: [] } : {}),
+        }),
+      })
+    }
+    return result
+  } catch (error) {
+    if (local.length && !(error instanceof DOMException && error.name === 'AbortError')) {
+      const code = error instanceof ApiProblem ? error.problem.code : ''
+      showFileError(code === 'file_type' ? FILE_UPLOAD_FORMATS_MESSAGE
+        : code === 'file_size' || error instanceof ApiProblem && error.problem.status === 413 ? FILE_UPLOAD_SIZE_MESSAGE
+        : 'Не вдалося надіслати повідомлення. Вкладення збережено — спробуйте ще раз.')
+    }
+    throw error
+  } finally {
+    removePendingUploads(pendingIds)
   }
-  return result
 }
 
 export function uploadMessageAttachment(threadId: string, file: File) {

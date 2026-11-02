@@ -10,14 +10,15 @@ export interface UserSearchOptions {
   excludeIds?: string[]
   excludeOrgUnitId?: string
   signal?: AbortSignal
+  recommendations?: boolean
 }
 
 /** All people selectors use this request builder and the shared search policy. */
 export async function searchUsers<T = UserSearchOptionView>(query: string, {
-  endpoint = '/employees', params = {}, includeAdmins = true, managersOnly = false, companyId, excludeIds = [], excludeOrgUnitId, signal,
+  endpoint = '/employees', params = {}, includeAdmins = true, managersOnly = false, companyId, excludeIds = [], excludeOrgUnitId, signal, recommendations = false,
 }: UserSearchOptions = {}): Promise<{ items: T[] }> {
   const search = normalizeUserSearchValue(query)
-  if (!search) return { items: [] }
+  if (!search && !recommendations) return { items: [] }
   const [path, existingParams] = endpoint.split('?')
   const queryParams = new URLSearchParams(existingParams)
   for (const [key, value] of Object.entries(params)) queryParams.set(key, value)
@@ -29,10 +30,11 @@ export async function searchUsers<T = UserSearchOptionView>(query: string, {
   if (excludeIds.length) queryParams.set('exclude', excludeIds.join(','))
   if (excludeOrgUnitId) queryParams.set('excludeOrgUnitId', excludeOrgUnitId)
   // Keep large exclusion lists out of the URL/header limits without truncating them.
-  if (path === '/employees' && (excludeIds.length > 200 || queryParams.toString().length > 6000)) {
+  if (path === '/employees' && ((!search && recommendations) || excludeIds.length > 200 || queryParams.toString().length > 6000)) {
     return api<{ items: T[] }>('/employees/search', { method: 'POST', signal, body: JSON.stringify({
       q: search, limit: USER_SEARCH_LIMIT, company: queryParams.get('company') ?? undefined,
       accountType: includeAdmins ? 'ALL' : 'USER', excludeIds, excludeOrgUnitId, managersOnly,
+      ...(!search && recommendations ? { recommendations: true } : {}),
     }) })
   }
   return api<{ items: T[] }>(`${path}?${queryParams}`, { signal })

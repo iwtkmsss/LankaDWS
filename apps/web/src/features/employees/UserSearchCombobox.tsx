@@ -39,7 +39,7 @@ export function UserSearchCombobox({
   if (defaultUser) knownUsers.current.set(defaultUser.id, { ...defaultUser, jobTitle: defaultUser.jobTitle ?? '' })
   const excludeKey = excludeIds.join(',')
   const loadOptions = useCallback(async (search: string, signal: AbortSignal) => {
-    const { items: users } = await searchUsers<UserSearchOption>(search, { signal, includeAdmins, managersOnly, companyId, excludeOrgUnitId, excludeIds: excludeKey ? excludeKey.split(',') : [] })
+    const { items: users } = await searchUsers<UserSearchOption>(search, { signal, includeAdmins, managersOnly, companyId, excludeOrgUnitId, excludeIds: excludeKey ? excludeKey.split(',') : [], recommendations: true })
     if (signal.aborted) return []
     for (const user of users) knownUsers.current.set(user.id, user)
     return users.map((user) => ({ id: user.id, label: personName(user.displayName),
@@ -64,6 +64,8 @@ export function UserSearchCombobox({
       disabled={disabled}
       clearOnSelect={clearOnSelect}
       loadOptions={loadOptions}
+      loadOnOpen
+      initialEmptyLabel="Немає рекомендованих користувачів."
       onChange={(id) => {
         setLocalValue(id)
         onChange?.(id)

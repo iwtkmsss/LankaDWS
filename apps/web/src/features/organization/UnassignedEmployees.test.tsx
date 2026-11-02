@@ -6,6 +6,27 @@ import { UnassignedEmployees } from './UnassignedEmployees'
 const { api } = vi.hoisted(() => ({ api: vi.fn() }))
 vi.mock('../../shared/api/client', () => ({ api }))
 
+it('allows dragging without showing assignment controls and leaves read-only rows non-draggable', async () => {
+  const employee = { id: 'person', displayName: 'Марія Іваненко', jobTitle: 'Дизайнерка', avatarAsset: null }
+  api.mockResolvedValue({ items: [employee], total: 1, nextCursor: null })
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const view = render(<QueryClientProvider client={client}>
+    <UnassignedEmployees companyId="company" draggable />
+  </QueryClientProvider>)
+  const row = (await screen.findByText(employee.displayName)).closest('li')!
+  expect(row).toHaveAttribute('draggable', 'true')
+  expect(screen.queryByLabelText('Перенести до підрозділу')).not.toBeInTheDocument()
+  const dataTransfer = { setData: vi.fn(), effectAllowed: '' }
+  fireEvent.dragStart(row, { dataTransfer })
+  expect(dataTransfer.setData).toHaveBeenCalledWith('application/x-lankadws-employee', employee.id)
+  expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', employee.id)
+  expect(dataTransfer.effectAllowed).toBe('move')
+  view.rerender(<QueryClientProvider client={client}>
+    <UnassignedEmployees companyId="company" />
+  </QueryClientProvider>)
+  expect(row).toHaveAttribute('draggable', 'false')
+})
+
 it('pages through company users and assigns only after choosing a department', async () => {
   const employee = { id: 'person', displayName: 'Марія Іваненко', jobTitle: 'Дизайнерка', avatarAsset: null }
   api.mockImplementation(async (path: string) => path.includes('?cursor=')

@@ -24,8 +24,9 @@ export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayVi
             <Avatar name={personName(birthday.displayName)} src={birthday.avatarAsset} />
             <span>
               <strong>{personName(birthday.displayName)}</strong>
-              <small>День народження · {formatBirthdayDate(birthday.birthdayDate)}</small>
+              <small>{formatBirthdayDate(birthday.birthdayDate)}</small>
             </span>
+            {birthday.isToday && <span className="stream-birthday-today">Сьогодні</span>}
             <ChevronRight size={17} aria-hidden />
           </UserProfileLink>
         ))}

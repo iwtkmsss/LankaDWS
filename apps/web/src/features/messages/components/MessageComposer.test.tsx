@@ -1,9 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ChatAttachmentView } from '@lankadws/contracts'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MessageComposer } from './MessageComposer'
 import { api } from '../../../shared/api/client'
+import { stageMessageFiles } from '../lib/localAttachments'
 
 vi.mock('../../../shared/api/client', () => ({ api: vi.fn() }))
 
@@ -40,7 +41,21 @@ function renderComposer(
 }
 
 describe('MessageComposer', () => {
-  beforeEach(() => window.sessionStorage.clear())
+  beforeEach(() => {
+    window.sessionStorage.clear()
+    // jsdom does not open the native popover used by mention suggestions.
+    Object.defineProperty(HTMLElement.prototype, 'showPopover', { configurable: true, value: function (this: HTMLElement) { this.removeAttribute('popover') } })
+  })
+  afterEach(() => { Reflect.deleteProperty(HTMLElement.prototype, 'showPopover') })
+
+  it('removes a local attachment without sending a request to the server', () => {
+    const [attachment] = stageMessageFiles([new File(['data'], 'local.txt', { type: 'text/plain' })])
+    const { onRemoveAttachment } = renderComposer(undefined, [attachment!])
+    vi.mocked(api).mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Прибрати local.txt' }))
+    expect(onRemoveAttachment).toHaveBeenCalledWith(attachment!.id)
+    expect(api).not.toHaveBeenCalled()
+  })
 
   it('deletes a draft attachment on the server and blocks sending until deletion finishes', async () => {
     let finish: (() => void) | undefined

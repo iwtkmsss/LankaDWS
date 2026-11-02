@@ -104,7 +104,7 @@ Task creation is the standalone `/tasks/new` page (`src/pages/TaskCreatePage.tsx
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/layout/AppShell.tsx`, `apps/web/src/pages/CommunicationPages.tsx` (`/notifications`) |
+| Frontend entry | `apps/web/src/layout/AppShell.tsx`, `apps/web/src/layout/RightCommunicationPanel.tsx` (right panel only) |
 | API request | `GET /api/v1/notifications`, `GET /summary`, `PATCH /read-all`, `PATCH /:id` |
 | Controller / service | `communication/notifications.controller.ts` / controller-owned Prisma projection |
 | Contract / model | `packages/contracts/src/domain.ts`; `Notification`, `NotificationPreference` |

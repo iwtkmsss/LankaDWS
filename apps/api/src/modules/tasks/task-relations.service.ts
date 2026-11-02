@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import type { TaskRelationInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
@@ -58,6 +59,7 @@ export class TaskRelationsService {
           createdById: principal.userId,
         },
       })
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { id: relationId, version: expectedVersion + 1 }
     })
   }
@@ -79,6 +81,7 @@ export class TaskRelationsService {
         },
       })
       if (!removed.count) throw badRequest('task_relation')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { version: expectedVersion + 1 }
     })
   }

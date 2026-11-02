@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { createCalendarEventSchema, updateCalendarEventSchema } from '@lankadws/contracts'
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
+import { z } from 'zod'
+import { acknowledgeCalendarEventSchema, createCalendarEventSchema, updateCalendarEventSchema } from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
@@ -8,6 +9,7 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { CalendarService } from './calendar.service.js'
 import { calendarOccurrences, readCalendarRecurrence } from './calendar-recurrence.js'
 import { readReminderMinutes } from './calendar-reminder.js'
+import { eventAcknowledgementView } from './calendar-acknowledgement.js'
 
 @Controller('calendar')
 export class CalendarController {
@@ -87,7 +89,7 @@ export class CalendarController {
           { participants: { some: { userId: principal.userId, removedAt: null } } },
         ] }),
       },
-      select: { id: true, companyId: true, title: true, dueAt: true, createdById: true, reporterId: true },
+      select: { id: true, companyId: true, title: true, dueAt: true, createdById: true },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
     })
     const taskItems = tasks.map((task) => ({
@@ -98,9 +100,10 @@ export class CalendarController {
       audienceCompanyIds: task.companyId ? [task.companyId] : [], audienceLabel: '',
       sourceTimezone: 'UTC', version: 1, recurrence: null,
     }))
-    const inMyCompany = (event: typeof events[number]) => event.visibility !== 'PRIVATE'
-      && principal.primaryCompanyId !== null
-      && event.audiences.some((audience) => audience.companyId === principal.primaryCompanyId)
+    const isPersonal = (event: typeof events[number]) => event.visibility === 'PRIVATE' && event.ownerId === principal.userId
+    // Reads above already enforce workspace, audience and visibility access.
+    // Every readable shared event belongs to Company, regardless of primary company.
+    const isCompany = (event: typeof events[number]) => event.visibility !== 'PRIVATE'
     const ownerIds = [...new Set(events.map((event) => event.ownerId))]
     const owners = await this.prisma.user.findMany({
       where: { id: { in: ownerIds }, workspaceId: principal.workspaceId },
@@ -109,8 +112,8 @@ export class CalendarController {
     const ownerById = new Map(owners.map((owner) => [owner.id, owner.displayName]))
     const companyNames = await this.companyNames(principal.workspaceId)
     const filtered = events.filter((event) =>
-      scope === 'MINE' ? event.ownerId === principal.userId
-        : scope === 'TEAM' ? inMyCompany(event)
+      scope === 'MINE' ? isPersonal(event)
+        : scope === 'TEAM' ? isCompany(event)
           : scope === 'TASKS' ? false
           : true,
     )
@@ -124,17 +127,29 @@ export class CalendarController {
         audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
         startAt: event.startAt.toISOString(),
         endAt: event.endAt.toISOString(),
-      })), ...taskItems.filter((task) => scope === 'ALL' || scope === 'TASKS'
-        || (scope === 'MINE' && tasks.some((row) => row.id === task.id && (row.createdById === principal.userId || row.reporterId === principal.userId)))
-        || (scope === 'TEAM' && task.companyId === principal.primaryCompanyId && principal.primaryCompanyId !== null))]
+      })), ...(scope === 'ALL' || scope === 'TASKS' ? taskItems : [])]
         .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id)),
       counts: {
         ALL: events.length + tasks.length,
-        MINE: events.filter((event) => event.ownerId === principal.userId).length + tasks.filter((task) => task.createdById === principal.userId || task.reporterId === principal.userId).length,
-        TEAM: events.filter(inMyCompany).length + tasks.filter((task) => principal.primaryCompanyId !== null && task.companyId === principal.primaryCompanyId).length,
+        MINE: events.filter(isPersonal).length,
+        TEAM: events.filter(isCompany).length,
         TASKS: tasks.length,
       },
     }
+  }
+
+  @Delete('events/:id')
+  deleteEvent(@Req() request: LankaDWSRequest, @Param('id') eventId: string, @Body() rawBody: unknown) {
+    const parsed = z.object({ expectedVersion: z.number().int().positive() }).safeParse(rawBody)
+    if (!parsed.success) throw badRequest('calendar_event_invalid')
+    return this.calendar.remove(principalFrom(request), eventId, parsed.data.expectedVersion)
+  }
+
+  @Post('events/:id/acknowledge')
+  acknowledgeEvent(@Req() request: LankaDWSRequest, @Param('id') eventId: string, @Body() rawBody: unknown) {
+    const parsed = acknowledgeCalendarEventSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('calendar_acknowledgement_invalid')
+    return this.calendar.acknowledge(principalFrom(request), eventId, parsed.data.expectedVersion)
   }
 
   @Get('events/:id')
@@ -164,6 +179,7 @@ export class CalendarController {
       ...rest,
       kind: 'EVENT',
       recurrence: readCalendarRecurrence(recurrenceJson),
+      acknowledgement: await eventAcknowledgementView(this.prisma, event, principal.userId),
       reminderMinutes: event.ownerId === principal.userId && event.visibility === 'PRIVATE'
         ? await readReminderMinutes(this.prisma, event.id, event.version) : null,
       ownerName: owner?.displayName ?? 'Недоступний користувач',

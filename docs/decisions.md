@@ -2,6 +2,22 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-10-22 — Remove unused task subscriptions
+
+Task subscriptions have no current UI and are removed entirely: the follow/unfollow endpoints, follower projections and notification fan-out, input/export types, and `TaskFollower` persistence. A forward migration drops subscription records and their idempotency results. Task notification recipients continue to come from the existing task roles; comment replies and mentions retain their existing delivery rules. Observer participants, personal favourites/importance and reminders remain separate features. This supersedes the follower subscription portions of the 2026-07-24 decisions; earlier migration history remains immutable.
+
+## 2026-10-22 — Shared calendar events support explicit acknowledgement
+
+Calendar create/edit forms may request individual acknowledgement for shared events. Each saved revision snapshots active users whose primary company belongs to the event audience, excluding the organizer, and sends individual calendar notifications. Reading never acknowledges an event: the recipient must press «Ознайомився» in its details or feed card. Receipts are idempotent and tied to the exact event version; edits require a fresh confirmation for the whole series. The server rechecks current event access before accepting a receipt. Switching to private visibility disables acknowledgement. Event details show aggregate confirmation counts without exposing a user directory. Calendar event cards and authored posts awaiting the current recipient's acknowledgement are explicitly marked and ordered before the regular Live Feed timeline, independently of its pagination cursor. Recipients may confirm the same current event revision from either its calendar details or its feed card; both surfaces refresh after confirmation.
+
+## 2026-10-20 — Notifications live only in the right communication panel
+
+The left navigation entry and standalone `/notifications` page are removed. The right panel owns notification filtering, opening sources and read/unread actions. The unused manual notification composer, its POST endpoint and input contract are removed. Notification delivery, recipient authorization, entity-read reconciliation, realtime updates and counters remain shared.
+
+## 2026-10-19 — Knowledge feedback tickets are private submissions to administrators
+
+Authenticated users can submit feedback from the knowledge banner through the existing material editor, with a title, rich text and optional image/files, without company audiences or reading acknowledgement. Tickets are separate from published knowledge articles and never enter the knowledge reading counters. Only workspace administrators can list, open or archive tickets; the sender receives a submission confirmation rather than access to a ticket history. Administrators see the author and creation date, with cursor pagination and confirmed archival. Clean, sender-owned staged attachments inherit ticket access for administrators; the uploader retains access to their own uploaded files.
+
 ## 2026-10-15 — Company membership is the holding area for employees without a department
 
 A company user's department is optional. The selected company remains their primary company when no department is selected, and the company's paginated “Без підрозділу” list lets administrators distribute these employees later. Archiving a department or branch ends its primary employee assignments without moving employees to another company. Restoring structure never recreates employee assignments.
@@ -287,3 +303,13 @@ Personal Drive listings, search, recent/shared views, counts and file pickers in
 «Підрозділ не обраний» is a company-specific category for users without an active primary department assignment. It is not a persisted OrgUnit, a separate company, or a node counted in the department hierarchy. Creating or editing a company user without a department places them in this category within their selected company.
 
 Archiving a department or branch ends assignments only to the archived departments, including secondary assignments so they cannot reappear after restoration. Users retain their company, job title, active status and other stored user fields. Restoring the department hierarchy does not reopen assignments: affected users remain in «Підрозділ не обраний» until explicitly assigned again. Company archival and authorization remain unchanged.
+
+## 2026-10-27 — File sharing uses notifications, without standalone Feed cards
+
+Sharing a Drive file or folder uses the existing recipient notification and unread highlight. It does not publish a standalone file card to the Live Feed. The Feed showcase no longer includes «Поширені файли»; attachment rows in authored posts and their shared preview remain available. The legacy Feed file-share create endpoint is removed, and existing file-share projections are excluded from Feed listings, unread counts and audience facets. Stored files, existing access grants and their revocation remain intact. This supersedes the earlier standalone file-card decision.
+
+## 2026-10-29 — Live Feed adopts the laboratory presentation and persists comment photos
+
+The production Feed and its laboratory share the same card presentation. Production actions retain the canonical API, source navigation, versioned acknowledgement, notification-read and audience boundaries; demonstration data and local mutations remain in the laboratory.
+
+Feed comments may contain text, up to five PNG/JPEG/WebP/GIF photos of at most 10 MB each, or both. Photos reuse staged `FileObject` uploads and transactional `FileLink` records with `entityType=FEED_COMMENT`; no new persistence aggregate is introduced. Upload and comment creation authorize the current post, attachment linking checks uploader/company/scan state, and recipient downloads require a live comment and the current published-post audience. Scanning still gates download and preview.

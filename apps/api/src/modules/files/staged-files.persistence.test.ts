@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,7 @@ import { resetConfigForTests } from '../../config/config.js'
 import { JobsService } from '../jobs/jobs.service.js'
 import { FilesService } from './files.service.js'
 import { deleteStoredFile } from './storage.js'
+import * as scanner from './malware-scanner.js'
 
 const principal = { userId: 'me', workspaceId: 'workspace', allowedCompanyIds: ['company'] } as AuthPrincipal
 let db: PrismaClient
@@ -42,6 +44,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await db?.$disconnect()
   await rm(root, { recursive: true, force: true })
   vi.unstubAllEnvs()
@@ -64,8 +67,49 @@ async function createFile(fileId = 'file', staged = true) {
 }
 
 function worker() {
-  return jobs as unknown as { cleanupStagedFile: (id: string) => Promise<void>; markDevelopmentScan: (id: string) => Promise<void> }
+  return jobs as unknown as { cleanupStagedFile: (id: string) => Promise<void>; scanUploadedFile: (id: string) => Promise<void> }
 }
+
+describe('file scan worker quarantine boundary', () => {
+  async function queuedScan() {
+    const key = await createFile('scan-file', false)
+    await rm(join(root, 'clean', key))
+    await db.fileObject.update({ where: { id: 'scan-file' }, data: {
+      scanStatus: 'QUARANTINED', sha256: createHash('sha256').update('contents').digest('hex'),
+    } })
+    await jobs.enqueue('file.scan', 'FILE', 'scan-file', {}, 'scan:scan-file')
+    vi.spyOn(jobs, 'dispatchOutbox').mockResolvedValue(undefined)
+    return key
+  }
+  it.each(['CLEAN', 'INFECTED', 'UNSUPPORTED'] as const)('only releases a file after the CLEAN verdict: %s', async (verdict) => {
+    const key = await queuedScan()
+    vi.spyOn(scanner, 'scanFile').mockResolvedValue(verdict)
+    await jobs.runOnce()
+    expect((await db.fileObject.findUniqueOrThrow({ where: { id: 'scan-file' } })).scanStatus).toBe(verdict)
+    expect((await db.backgroundJob.findUniqueOrThrow({ where: { idempotencyKey: 'scan:scan-file' } })).state).toBe('SUCCEEDED')
+    if (verdict === 'CLEAN') expect(await readFile(join(root, 'clean', key), 'utf8')).toBe('contents')
+    else {
+      expect(await readFile(join(root, 'quarantine', key), 'utf8')).toBe('contents')
+      await expect(stat(join(root, 'clean', key))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  })
+  it.each([1, 5])('keeps unavailable scans inaccessible, with a terminal status after retry exhaustion (%i attempts)', async (maxAttempts) => {
+    const key = await queuedScan()
+    await db.backgroundJob.update({ where: { idempotencyKey: 'scan:scan-file' }, data: { maxAttempts } })
+    vi.spyOn(scanner, 'scanFile').mockRejectedValue(new scanner.ScannerError())
+    await jobs.runOnce()
+    expect((await db.fileObject.findUniqueOrThrow({ where: { id: 'scan-file' } })).scanStatus).toBe(maxAttempts === 1 ? 'FAILED' : 'QUARANTINED')
+    await expect(stat(join(root, 'clean', key))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+  it('rejects changed bytes even if the scanner would return CLEAN', async () => {
+    const key = await queuedScan()
+    await writeFile(join(root, 'quarantine', key), 'tampered')
+    const scan = vi.spyOn(scanner, 'scanFile').mockResolvedValue('CLEAN')
+    await jobs.runOnce()
+    expect(scan).not.toHaveBeenCalled()
+    expect((await db.fileObject.findUniqueOrThrow({ where: { id: 'scan-file' } })).scanStatus).toBe('QUARANTINED')
+  })
+})
 
 describe('staged attachment storage lifecycle', () => {
   it('removes discarded uploads from the database, clean storage and quarantine', async () => {
@@ -77,7 +121,7 @@ describe('staged attachment storage lifecycle', () => {
       await expect(readFile(join(root, directory, key))).rejects.toMatchObject({ code: 'ENOENT' })
     }
     // An already claimed scan cannot recreate a discarded file.
-    await worker().markDevelopmentScan('file')
+    await worker().scanUploadedFile('file')
     expect(await db.backgroundJob.count({ where: { state: { not: 'SUCCEEDED' } } })).toBe(0)
     expect(await files.discardStagedAttachment(principal, 'file')).toEqual({ discarded: false })
   })

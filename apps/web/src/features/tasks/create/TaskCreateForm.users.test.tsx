@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { expect, it, vi } from 'vitest'
 import { TaskCreateForm } from './TaskCreateForm'
@@ -20,6 +20,12 @@ it('keeps the responsible user when the catalog has no user search page', async 
     <RouterProvider router={router} />
   </QueryClientProvider>)
   const selected = await screen.findByRole('list', { name: 'Відповідальний: вибрані люди' })
+  expect(screen.getByRole('button', { name: 'Вставити фото' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Згадати співробітника' })).toBeEnabled()
+  const title = screen.getByRole('textbox', { name: /Назва завдання/ })
+  title.focus()
+  fireEvent.keyDown(title, { key: 'Tab' })
+  expect(screen.getByRole('textbox', { name: 'Опис' })).toHaveFocus()
   expect(await within(selected).findByText('Яна')).toBeVisible()
   expect(request).toHaveBeenCalledWith('/employees/user-999', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   expect(screen.queryByText('Ще нікого не додано', { selector: '.task-create-role-card:has(#task-create-role-RESPONSIBLE) p' })).not.toBeInTheDocument()

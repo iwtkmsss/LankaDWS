@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { DashboardView } from '@lankadws/contracts'
 import {
   AlertTriangle,
   ArrowRight,
-  Bell,
   CalendarDays,
   ListTodo,
   MessageCircle,
@@ -13,11 +12,38 @@ import {
 import { Link } from 'react-router-dom'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { formatDate, formatDateTime } from '../shared/lib/format'
+import { formatDate } from '../shared/lib/format'
 import {
   ErrorState,
   PageDataLoader,
 } from '../shared/ui'
+
+function OverviewFocusPanel({ attention, children }: { attention: boolean; children: ReactNode }) {
+  const frameRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    const panel = panelRef.current
+    if (!frame || !panel || typeof ResizeObserver === 'undefined') return
+
+    const updateHeight = () => {
+      frame.style.height = `${panel.getBoundingClientRect().height}px`
+    }
+    updateHeight()
+    const observer = new ResizeObserver(updateHeight)
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div className="overview-focus-frame" ref={frameRef}>
+      <section ref={panelRef} className={`focus-panel ${attention ? 'focus-panel--attention' : 'focus-panel--clear'}`}>
+        {children}
+      </section>
+    </div>
+  )
+}
 
 export function FeedOverview() {
   const { user } = useAuth()
@@ -45,7 +71,7 @@ export function FeedOverview() {
   const firstName = user.firstName?.trim()
   return (
     <section className="feed-overview" aria-label="Робочий огляд">
-      <section className={`focus-panel ${data.attentionCount ? 'focus-panel--attention' : 'focus-panel--clear'}`}>
+      <OverviewFocusPanel attention={Boolean(data.attentionCount)}>
         <div className="focus-panel__intro">
           <span className="eyebrow">
             <Sparkles size={15} /> {formatLocalDate(data.meta.localDate)}
@@ -61,24 +87,12 @@ export function FeedOverview() {
               : 'План дня та актуальний робочий контекст зібрані нижче.'}
           </p>
         </div>
-        <div className="focus-panel__next">
-          <span>Наступний крок</span>
-          <strong>{data.focus.nextStep?.title ?? 'Робочий план актуальний'}</strong>
-          <small>
-            {formatFocusDetail(data.focus.nextStep?.detail)
-              ?? 'Нові важливі пункти з’являться тут.'}
-          </small>
-          <Link className="button button--primary" to={data.focus.primaryAction.href}>
-            {data.focus.primaryAction.label} <ArrowRight size={16} />
-          </Link>
-        </div>
-      </section>
-
       <section className="dashboard-kpis" aria-label="Ключові показники">
         {data.kpis.activeTasks && (
           <KpiCard
             icon={<ListTodo size={19} />}
             label="Активні завдання"
+            tone="task"
             value={data.kpis.activeTasks.value}
             href={data.kpis.activeTasks.href}
           />
@@ -95,6 +109,7 @@ export function FeedOverview() {
         {data.kpis.events && (
           <KpiCard
             icon={<CalendarDays size={19} />}
+            tone="calendar"
             label={data.kpis.events.todayCount
               ? 'Події сьогодні'
               : 'Найближча подія'}
@@ -116,15 +131,8 @@ export function FeedOverview() {
             href={data.kpis.unreadMessages.href}
           />
         )}
-        {data.kpis.unreadNotifications && (
-          <KpiCard
-            icon={<Bell size={19} />}
-            label="Нові сповіщення"
-            value={data.kpis.unreadNotifications.value}
-            href={data.kpis.unreadNotifications.href}
-          />
-        )}
       </section>
+      </OverviewFocusPanel>
 
     </section>
   )
@@ -144,7 +152,7 @@ function KpiCard({
   value: number | string
   detail?: string
   href: string
-  tone?: 'danger'
+  tone?: 'danger' | 'task' | 'calendar'
   textValue?: boolean
 }) {
   return (
@@ -167,12 +175,6 @@ function formatLocalDate(value: string): string {
     day: 'numeric',
     month: 'long',
   }).format(parsed)
-}
-
-function formatFocusDetail(value: string | undefined): string | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : formatDateTime(value)
 }
 
 function attentionLabel(value: number): string {

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CalendarAcknowledgementView } from './chat.js'
 import { companyScopeSchema } from './domain.js'
 import { mentionSearchQuerySchema, structuredMentionInputSchema, type StructuredMentionView } from './mentions.js'
 
@@ -49,6 +50,7 @@ export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema
   .extend({
     company: companyScopeSchema,
     audienceType: z.enum(['COMPANY']),
+    companyIds: z.string().max(12100).transform((value) => value.split(',')).pipe(z.array(z.string().trim().min(1).max(120)).min(1).max(100)).optional(),
     audienceId: z.string().trim().min(1).max(120).optional(),
   })
 export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQuerySchema>
@@ -111,6 +113,9 @@ export type CreateFeedPostInput = z.infer<typeof createFeedPostSchema>
 export const updateFeedPostSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   expectedVersion: z.number().int().positive(),
+  // New photos to append; existing attachments are preserved.
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5)
+    .transform((items) => [...new Set(items)]).optional(),
   mentionedUserIds: z
     .array(z.string().trim().min(1).max(120))
     .max(100)
@@ -120,8 +125,14 @@ export const updateFeedPostSchema = z.object({
 })
 export type UpdateFeedPostInput = z.infer<typeof updateFeedPostSchema>
 
+export const FEED_COMMENT_PHOTO_LIMIT = 5
+export const FEED_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+export const FEED_PHOTO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+
 export const createFeedCommentSchema = z.object({
-  body: z.string().trim().min(1).max(4_000),
+  body: z.string().trim().max(4_000),
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(FEED_COMMENT_PHOTO_LIMIT)
+    .transform((items) => [...new Set(items)]).default([]),
   replyToCommentId: z.string().trim().min(1).max(120).nullable().optional(),
   mentionedUserIds: z
     .array(z.string().trim().min(1).max(120))
@@ -129,6 +140,10 @@ export const createFeedCommentSchema = z.object({
     .transform((items) => [...new Set(items)])
     .default([]),
   mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).superRefine((value, context) => {
+  if (!value.body && value.attachmentIds.length === 0) {
+    context.addIssue({ code: 'custom', path: ['body'], message: 'Comment requires text or a photo.' })
+  }
 })
 export type CreateFeedCommentInput = z.infer<typeof createFeedCommentSchema>
 
@@ -191,6 +206,7 @@ export interface FeedCommentView {
   replyToCommentId: string | null
   createdAt: string
   editedAt: string | null
+  attachments?: FeedAttachmentView[]
 }
 
 export interface FeedAttachmentView {
@@ -238,6 +254,7 @@ export interface FeedSourceView {
   id: string
   itemId: string
   companyId: string
+  pinnedByMe?: boolean
   sourceType: 'TASK' | 'EVENT' | 'FILE'
   action: string
   actor: {
@@ -251,6 +268,9 @@ export interface FeedSourceView {
     avatarAsset: string | null
   } | null
   taskAssignee?: FeedSourceView['taskReporter']
+  taskChanges?: { messages: number; status: number; participants: number }
+  eventAcknowledgement?: CalendarAcknowledgementView | null
+  eventVersion?: number
   label: string
   title: string
   summary: string

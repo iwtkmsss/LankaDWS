@@ -74,12 +74,22 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
 describe('MessagesSidebar', () => {
   it('pins without opening the conversation and exposes the unpin action', () => {
     const onPinThread = vi.fn()
-    const { props, rerender } = renderSidebar({ onPinThread })
+    const { props, rerender } = renderSidebar({ onPinThread, threads: [{ ...thread, unread: false, unreadCount: 0 }] })
     fireEvent.click(screen.getByRole('button', { name: 'Закріпити чат: Марко Литвин' }))
     expect(onPinThread).toHaveBeenCalledWith('thread-1', true)
     expect(props.onSelectThread).not.toHaveBeenCalled()
-    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true }]} />)
+    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)
     expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toHaveAttribute('aria-pressed', 'true')
+  })
+  it('replaces the pin with the unread count until the chat is read', () => {
+    const { props, rerender, container } = renderSidebar({ threads: [{ ...thread, pinned: true }] })
+    expect(container.querySelector('.message-thread-meta .message-thread-unread')).toHaveTextContent('2')
+    expect(screen.queryByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Марко Литвин, 2 непрочитаних' }))
+    expect(props.onSelectThread).toHaveBeenCalledWith('thread-1')
+    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)
+    expect(container.querySelector('.message-thread-unread')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toBeInTheDocument()
   })
   it('replaces the last-message preview with the draft and restores it on clearing', () => {
     const { props, rerender } = renderSidebar({

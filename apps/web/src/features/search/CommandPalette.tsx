@@ -173,7 +173,7 @@ export function CommandPalette({ onClose, shortcuts }: {
                     onClick={() => open(item)}
                   >
                     <i>{itemIcon(item)}</i>
-                    <span><strong>{item.type === 'EMPLOYEE' ? personName(item.title) : item.title}</strong><small>{item.safeSnippet}</small></span>
+                    <span><strong>{item.type === 'EMPLOYEE' ? personName(item.title) : item.title}</strong><small>{item.type === 'TASK' ? item.safeSnippet.replace(/^№\s*/u, '') : item.safeSnippet}</small></span>
                   </button>
                 </li>
               )

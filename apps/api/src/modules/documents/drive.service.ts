@@ -147,7 +147,7 @@ export class DriveService {
     const page = documents.slice(0, fileLimit)
     const files = await this.prisma.fileObject.findMany({
       where: { workspaceId: principal.workspaceId, id: { in: page.flatMap((document) => document.fileId ? [document.fileId] : []) } },
-      select: { id: true, detectedMime: true, declaredMime: true, bytes: true },
+      select: { id: true, detectedMime: true, declaredMime: true, bytes: true, safeFilename: true },
     })
     const metadata = new Map(files.map((file) => [file.id, file]))
     const ancestors = new Map<string, { name: string; parentId: string | null }>()
@@ -176,7 +176,9 @@ export class DriveService {
           cursor = parent.parentId
         }
         folderPath.unshift(cursor ? 'Спільні файли' : 'Мій диск')
-        return { id: document.id, name: document.name, fileType: fileTypeOf(file?.detectedMime ?? file?.declaredMime ?? null), sizeBytes: file?.bytes ?? null,
+        const mimeType = file?.detectedMime ?? file?.declaredMime ?? null
+        return { id: document.id, name: document.name, fileId: file?.id ?? null, fileType: fileTypeOf(mimeType), mimeType, sizeBytes: file?.bytes ?? null,
+          extension: file?.safeFilename.match(/\.[a-z0-9]{1,16}$/i)?.[0].toLowerCase() ?? null,
           ...(query.search ? { folderPath } : {}),
         }
       }),

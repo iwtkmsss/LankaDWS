@@ -1,7 +1,5 @@
-import { sendUserNotificationSchema } from '@lankadws/contracts'
 import { z } from 'zod'
-import { Body, Controller, Get, Headers, Optional, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { fingerprint, id } from '../../common/crypto.js'
+import { Body, Controller, Get, Optional, Param, Patch, Query, Req } from '@nestjs/common'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
@@ -18,29 +16,21 @@ export class NotificationsController {
   ) {}
 
   private tabWhere(tab: string) {
-    const startOfToday = new Date()
-    startOfToday.setHours(0, 0, 0, 0)
-    if (tab === 'action') return { requiresAction: true, readAt: null }
     if (tab === 'unread') return { readAt: null }
     if (tab === 'mentions') return { category: 'MENTION' }
-    if (tab === 'today') return { createdAt: { gte: startOfToday } }
-    if (tab === 'earlier') return { createdAt: { lt: startOfToday } }
     return {}
   }
 
   @Get()
-  async list(@Req() request: LankaDWSRequest, @Query('tab') tab = 'action') {
+  async list(@Req() request: LankaDWSRequest, @Query('tab') tab = 'all') {
     const principal = principalFrom(request)
     await this.reconcileChatReads(principal.userId)
-    const [rows, counts] = await Promise.all([
-      this.prisma.notification.findMany({
-        where: { recipientId: principal.userId, ...this.tabWhere(tab) },
-        orderBy: [{ readAt: 'asc' }, { createdAt: 'desc' }],
-        take: 100,
-      }),
-      this.summaryCounts(principal.userId),
-    ])
-    return { items: rows, counts }
+    const rows = await this.prisma.notification.findMany({
+      where: { recipientId: principal.userId, ...this.tabWhere(tab) },
+      orderBy: [{ readAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+      take: 100,
+    })
+    return { items: rows }
   }
 
   @Get('summary')
@@ -79,71 +69,6 @@ export class NotificationsController {
       }
     }
     return counts
-  }
-
-  @Post()
-  async send(
-    @Req() request: LankaDWSRequest,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') rawKey?: string,
-  ) {
-    const parsed = sendUserNotificationSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('notification_invalid')
-    const key = rawKey?.trim()
-    if (!key || key.length > 200) throw badRequest('idempotency_key_required')
-    const principal = principalFrom(request)
-    if (parsed.data.recipientId === principal.userId) throw badRequest('notification_recipient_invalid')
-    const recipient = await this.prisma.user.findFirst({
-      where: {
-        id: parsed.data.recipientId,
-        workspaceId: principal.workspaceId,
-        isActive: true,
-      },
-      select: { id: true, primaryCompanyId: true },
-    })
-    if (!recipient) throw notFound()
-
-    const notificationId = id('ntf')
-    const dedupeKey = `manual:${fingerprint(`${principal.userId}:${key}`, 'manual-notification')}`
-    const notification = await this.prisma.$transaction(async (tx) => {
-      const saved = await tx.notification.upsert({
-        where: { dedupeKey },
-        create: {
-          id: notificationId,
-          recipientId: recipient.id,
-          category: 'DIRECT',
-          safeTitle: parsed.data.title,
-          safeSnippet: `${principal.displayName}: ${parsed.data.body}`,
-          entityType: 'USER_NOTIFICATION',
-          entityId: notificationId,
-          requiresAction: false,
-          deliveredAt: new Date(),
-          dedupeKey,
-        },
-        update: {},
-      })
-      if (saved.id === notificationId) {
-        await tx.auditEvent.create({
-          data: {
-            id: id('aud'),
-            workspaceId: principal.workspaceId,
-            companyId: recipient.primaryCompanyId,
-            actorType: 'USER',
-            actorId: principal.userId,
-            action: 'notification.sent',
-            entityType: 'NOTIFICATION',
-            entityId: saved.id,
-            result: 'SUCCESS',
-            risk: 'NORMAL',
-            safeDiffJson: JSON.stringify({ recipientId: recipient.id, category: 'DIRECT' }),
-            correlationId: request.correlationId ?? id('corr'),
-          },
-        })
-      }
-      return saved
-    })
-    if (notification.id === notificationId) this.realtime?.publishSummary([recipient.id], ['notifications'])
-    return { id: notification.id, created: notification.id === notificationId }
   }
 
   @Patch('read-all')
@@ -265,10 +190,7 @@ export class NotificationsController {
   }
 
   private async summaryCounts(userId: string) {
-    const [action, unread, tasks] = await Promise.all([
-      this.prisma.notification.count({
-        where: { recipientId: userId, requiresAction: true, readAt: null },
-      }),
+    const [unread, tasks] = await Promise.all([
       this.prisma.notification.count({
         where: { recipientId: userId, readAt: null },
       }),
@@ -276,6 +198,6 @@ export class NotificationsController {
         where: { recipientId: userId, entityType: 'TASK', readAt: null },
       }),
     ])
-    return { action, unread, tasks }
+    return { unread, tasks }
   }
 }

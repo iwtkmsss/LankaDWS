@@ -69,7 +69,7 @@ describe('TaskCommandService', () => {
         create: vi.fn().mockResolvedValue({}),
       },
     }
-    Object.assign(tx, { user: { findMany: vi.fn().mockResolvedValue([{ id: 'usr_owner' }, { id: 'usr_reporter' }, { id: 'usr_watcher' }]) }, notification: { upsert: vi.fn().mockResolvedValue({}) } })
+    Object.assign(tx, { feedItem: { findUnique: vi.fn().mockResolvedValue({ id: 'existing_projection' }) }, user: { findMany: vi.fn().mockResolvedValue([{ id: 'usr_owner' }, { id: 'usr_reporter' }, { id: 'usr_watcher' }]) }, notification: { upsert: vi.fn().mockResolvedValue({}) } })
     const prisma = {
       idempotencyRecord: {
         findUnique: vi.fn().mockResolvedValue(null),

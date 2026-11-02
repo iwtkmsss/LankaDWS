@@ -2,6 +2,9 @@
 
 ## Production topology
 
+Розгортання ClamAV для Linux/Docker, smoke-test і пояснення файлових статусів:
+[Перевірка файлів](file-scanning.md).
+
 Запускайте один NestJS API/worker process за trusted TLS reverse proxy. React static build можна віддавати тим самим origin. SQLite DB, clean files, quarantine/temp і encrypted backups мають бути на окремо визначених persistent paths; backup destination — окремий volume або off-host sync. Не запускайте дві writable replicas над одним SQLite file.
 
 Production startup відхиляє localhost origins, development DB/storage paths, weak/default secrets, in-memory DB і `development-clean` scanner. Усі secret values надходять через environment/secret manager; `.env` не комітиться.

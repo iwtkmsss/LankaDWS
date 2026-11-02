@@ -304,8 +304,6 @@ Total operations: **212**
 | `PATCH` | `/api/v1/tasks/{id}/comments/{commentId}` | `TasksController_updateComment` |  |
 | `DELETE` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_removeCommentReaction` |  |
 | `POST` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_addCommentReaction` |  |
-| `POST` | `/api/v1/tasks/{id}/followers` | `TasksController_follow` |  |
-| `DELETE` | `/api/v1/tasks/{id}/followers/{userId}` | `TasksController_unfollow` |  |
 | `GET` | `/api/v1/tasks/{id}/hierarchy` | `TasksController_hierarchyTree` |  |
 | `GET` | `/api/v1/tasks/{id}/mention-candidates` | `TasksController_mentionCandidates` |  |
 | `DELETE` | `/api/v1/tasks/{id}/participants/{userId}` | `TasksController_removeParticipant` |  |

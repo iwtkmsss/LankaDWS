@@ -23,12 +23,11 @@ export function TaskStatusFilters({ selected, onChange }: {
         style={{ gridColumn: TASK_STATUS_GROUPS.indexOf(item) + 1 }}>
         <div className="task-status-filter__control">
           <button type="button" aria-pressed={active} onClick={() => {
-            const options = item.value === 'ALL' && allSelected ? TASK_STATUS_GROUPS[0]!.options : item.options
+            const options = (item.value === 'ALL' && allSelected ? TASK_STATUS_GROUPS[0]!.options : item.options).filter((option) => option.value !== 'ARCHIVED')
             const values = options.map((option) => option.value)
-            const current = allSelected ? [] : selected
-            onChange('ALL', item.value === 'ALL' ? values : active && !allSelected
-              ? current.filter((value) => !values.includes(value))
-              : [...current, ...values.filter((value) => !current.includes(value))])
+            onChange('ALL', item.value === 'ALL' ? values : active
+              ? selected.filter((value) => value !== 'ARCHIVED' && !values.includes(value))
+              : [...selected.filter((value) => value !== 'ARCHIVED'), ...values.filter((value) => !selected.includes(value))])
           }}>{item.label}</button>
           {item.value === 'ACTIVE' && <TaskActiveStatusAccordion selected={selected} onChange={(values) => onChange('ALL', values)} />}
         </div>

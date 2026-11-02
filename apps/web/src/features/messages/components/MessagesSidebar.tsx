@@ -268,7 +268,6 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                             ? <><span className="message-draft-label">Чернетка:</span> {props.drafts[thread.id]!.body}</>
                             : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} учасників`)}
                         </small>
-                        {thread.unreadCount > 0 && <b>{Math.min(thread.unreadCount, 99)}</b>}
                       </span>
                     </span>
                   </button>
@@ -276,9 +275,11 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                   <time>{props.drafts[thread.id]?.createdAt
                     ? formatChatTime(new Date(props.drafts[thread.id]!.createdAt).toISOString())
                     : thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time>
-                  <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
+                  {thread.unreadCount > 0 ? (
+                    <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>
+                  ) : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                     disabled={Boolean(props.pinPending) || !props.onPinThread}
-                    onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />
+                    onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
                   </div>
                   </div>
                 ))}

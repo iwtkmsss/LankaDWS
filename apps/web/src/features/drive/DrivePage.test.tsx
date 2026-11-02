@@ -178,7 +178,8 @@ describe('DrivePage', () => {
     if (layout === 'LIST') fireEvent.click(screen.getByRole('button', { name: 'Список' }))
     const tile = screen.getByText('Звіт').closest(layout === 'LIST' ? 'tr' : 'article')!
     expect(screen.getByText('Договори').closest(layout === 'LIST' ? 'tr' : 'article')!.querySelector('.drive-item__indicators')).toBeNull()
-    expect(within(tile as HTMLElement).getByRole('img', { name: accessRole === 'EDITOR' ? 'Доступно для редагування' : 'Доступно для перегляду' })).toBeVisible()
+    expect(within(tile as HTMLElement).queryByRole('img', { name: 'Доступно для редагування' })).toBeNull()
+    if (accessRole === 'VIEWER') expect(within(tile as HTMLElement).getByRole('img', { name: 'Доступно для перегляду' })).toBeVisible()
     expect(within(tile as HTMLElement).getByRole('img', { name: 'Спільний доступ' })).toBeVisible()
     fireEvent.click(within(tile as HTMLElement).getByRole('button', { name: 'Дії: Звіт' }))
     if (accessRole === 'EDITOR') expect(screen.getByRole('button', { name: 'Перейменувати' })).toBeVisible()
@@ -370,6 +371,28 @@ describe('DrivePage', () => {
     const trail = await screen.findByRole('navigation', { name: 'Шлях' })
     expect(within(trail).getByRole('button', { name: 'Мій диск' })).toBeVisible()
     expect(within(trail).getByRole('button', { name: 'Договори' })).toBeVisible()
+  })
+
+  it('goes up through parent folders to the Drive root while preserving filters', async () => {
+    vi.mocked(api).mockImplementation(async (path) => {
+      const currentFolder = new URLSearchParams(path.split('?')[1]).get('folderId')
+      return {
+        breadcrumbs: currentFolder === 'fol_nested'
+          ? [{ id: folder.id, name: folder.name }, { id: 'fol_nested', name: 'Вкладена' }]
+          : currentFolder ? [{ id: folder.id, name: folder.name }] : [],
+        folders: [], files: [], counts,
+      }
+    })
+    const router = mount('/drive?folder=fol_nested&type=IMAGE')
+    const up = screen.getByRole('button', { name: 'Назад' })
+    await waitFor(() => expect(up).toBeEnabled())
+    fireEvent.click(up)
+    await waitFor(() => expect(router.state.location.search).toBe('?folder=fol_contracts&type=IMAGE'))
+    await waitFor(() => expect(up).toBeEnabled())
+    fireEvent.click(up)
+    await waitFor(() => expect(router.state.location.search).toBe('?type=IMAGE'))
+    expect(router.state.location.pathname).toBe('/drive')
+    expect(up).toBeDisabled()
   })
 
   it('sends the chip filters to the API and marks the chip active', async () => {

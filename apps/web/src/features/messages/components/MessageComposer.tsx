@@ -1,6 +1,7 @@
+import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
 import { personName } from '../../../shared/lib/personName'
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
-import { FileText, HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
+import { HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
@@ -9,6 +10,7 @@ import { DrivePicker } from '../../drive/DrivePicker'
 import { useDiscardDraftAttachment } from '../../../shared/files/useDiscardDraftAttachment'
 import { replyPreviewText } from '../lib/replyPreview'
 import { setMessageDraft, useMessageDrafts } from '../lib/messageDrafts'
+import { isLocalAttachmentId } from '../lib/localAttachments'
 
 interface MessageComposerProps {
   currentUserId: string
@@ -79,7 +81,7 @@ export function MessageComposer(props: MessageComposerProps) {
 
   async function submit() {
     const value = trimMentionValue(body, mentions)
-    if ((!value.body && props.attachments.length === 0) || props.sending || submittingRef.current || removal.isPending()) return
+    if ((!value.body && props.attachments.length === 0) || props.sending || props.uploading || submittingRef.current || removal.isPending()) return
     submittingRef.current = true
     try {
       const sent = await props.onSend(value)
@@ -97,7 +99,7 @@ export function MessageComposer(props: MessageComposerProps) {
     if (!files.length) return
 
     event.preventDefault()
-    if (!props.uploading) props.onFiles(files)
+    if (!props.uploading && !props.sending) props.onFiles(files)
   }
 
   return (
@@ -114,18 +116,22 @@ export function MessageComposer(props: MessageComposerProps) {
           </button>
           </div>
         )}
-        attachments={props.attachments.length > 0 && (
+        attachments={!props.sending && props.attachments.length > 0 && (
           <div className="message-composer__attachments">
             <small className="message-composer__attachment-count">Додано файлів: {props.attachments.length}</small>
             {props.attachments.map((attachment) => (
               <span key={attachment.id}>
-                <FileText size={15} />
+                <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={15} />
                 <span className="message-composer__attachment-name" title={attachment.fileName}>{attachment.fileName}</span>
                 <button
                   type="button"
                   aria-label={`Прибрати ${attachment.fileName}`}
                   disabled={props.sending || removal.pending}
-                  onClick={() => { if (!submittingRef.current) void removal.discard(attachment.id) }}
+                  onClick={() => {
+                    if (submittingRef.current) return
+                    if (isLocalAttachmentId(attachment.id)) props.onRemoveAttachment(attachment.id)
+                    else void removal.discard(attachment.id)
+                  }}
                 >
                   <X size={14} />
                 </button>
@@ -140,7 +146,7 @@ export function MessageComposer(props: MessageComposerProps) {
               type="file"
               hidden
               multiple
-              disabled={props.uploading}
+              disabled={props.uploading || props.sending}
               onChange={(event) => {
                 props.onFiles([...event.target.files ?? []])
                 event.target.value = ''
@@ -150,7 +156,7 @@ export function MessageComposer(props: MessageComposerProps) {
               type="button"
               aria-label="Додати файли"
               title="Додати файли або перетягнути їх у поле вводу"
-              disabled={props.uploading}
+              disabled={props.uploading || props.sending}
               onClick={() => inputRef.current?.click()}
             >
               {props.uploading
@@ -162,7 +168,7 @@ export function MessageComposer(props: MessageComposerProps) {
                 type="button"
                 aria-label="Прикріпити з Диска"
                 title="Прикріпити файл із Диска"
-                disabled={props.uploading}
+                disabled={props.uploading || props.sending}
                 onClick={() => setDrivePickerOpen(true)}
               >
                 <HardDrive size={20} />

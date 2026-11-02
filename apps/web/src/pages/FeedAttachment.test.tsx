@@ -5,6 +5,16 @@ import { OverlayProvider } from '../shared/ui'
 import { FeedAttachment } from './FeedPage'
 
 describe('FeedAttachment', () => {
+  it.each(['INFECTED', 'UNSUPPORTED', 'FAILED'] as const)('does not expose a %s photo preview or download', (scanStatus) => {
+    render(<QueryClientProvider client={new QueryClient()}><FeedAttachment photoPreview attachment={{
+      id: 'blocked', fileName: 'blocked.png', bytes: 10, mimeType: 'image/png', scanStatus,
+    }} /></QueryClientProvider>)
+    expect(screen.getByText('blocked.png')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Переглянути blocked.png' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Завантажити blocked.png' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'blocked.png' })).not.toBeInTheDocument()
+  })
+
   it('opens an image over the CRM and keeps download as a separate action', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>

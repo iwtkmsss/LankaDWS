@@ -72,7 +72,7 @@ export function ConversationPane(props: ConversationPaneProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const { isDragging, dropTargetProps } = useFileDropTarget({
-    disabled: !props.thread?.canPost || props.uploading,
+    disabled: !props.thread?.canPost || props.uploading || props.sending,
     onFiles: props.onFiles,
   })
 

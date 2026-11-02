@@ -6,9 +6,9 @@ import {
   createFeedPostSchema,
   feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
+  FEED_PHOTO_MAX_BYTES,
   mentionSearchQuerySchema,
   markFeedReadSchema,
-  shareFileToFeedSchema,
   updateFeedPostSchema,
 } from '@lankadws/contracts'
 import { badRequest } from '../../common/errors.js'
@@ -85,19 +85,6 @@ export class FeedController {
     return this.feed.uploadAttachment(principalFrom(request), companyId, file)
   }
 
-  @Post('file-shares/:fileId')
-  shareFile(
-    @Req() request: LankaDWSRequest,
-    @Param('fileId') fileId: string,
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') idempotencyKey?: string,
-  ) {
-    const parsed = shareFileToFeedSchema.safeParse(rawBody)
-    if (!parsed.success) throw badRequest('feed_file_share_invalid')
-    if (!idempotencyKey) throw badRequest('idempotency_key_required')
-    return this.feed.shareFile(principalFrom(request), fileId, parsed.data, idempotencyKey)
-  }
-
   @Delete('file-shares/:shareId')
   revokeFileShare(
     @Req() request: LankaDWSRequest,
@@ -153,9 +140,29 @@ export class FeedController {
     return this.feed.comment(principalFrom(request), postId, parsed.data)
   }
 
+  @Post(':id/comment-attachments')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: FEED_PHOTO_MAX_BYTES, files: 1 } }))
+  uploadCommentAttachment(
+    @Req() request: LankaDWSRequest,
+    @Param('id') postId: string,
+    @UploadedFile() file: UploadedBinary,
+  ) {
+    return this.feed.uploadCommentAttachment(principalFrom(request), postId, file)
+  }
+
   @Post(':id/reactions/like')
   like(@Req() request: LankaDWSRequest, @Param('id') postId: string) {
     return this.feed.toggleLike(principalFrom(request), postId)
+  }
+
+  @Post('tasks/:id/pin')
+  pin(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
+    return this.feed.setTaskPinned(principalFrom(request), taskId, true)
+  }
+
+  @Delete('tasks/:id/pin')
+  unpin(@Req() request: LankaDWSRequest, @Param('id') taskId: string) {
+    return this.feed.setTaskPinned(principalFrom(request), taskId, false)
   }
 
   @Post(':id/acknowledge')

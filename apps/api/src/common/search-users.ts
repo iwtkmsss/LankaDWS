@@ -21,15 +21,15 @@ export function userSearchPredicate(query: string, { includeJobTitle = false } =
 
 /** Shared, bounded search. Callers resolve aggregate access and pass eligible-user scope. */
 export async function searchUsers(prisma: PrismaService, principal: AuthPrincipal, query: string, {
-  where = {}, excludeIds = [], limit = USER_SEARCH_LIMIT,
-}: { where?: Prisma.UserWhereInput; excludeIds?: string[]; limit?: number } = {}) {
+  where = {}, excludeIds = [], limit = USER_SEARCH_LIMIT, recommendations = false,
+}: { where?: Prisma.UserWhereInput; excludeIds?: string[]; limit?: number; recommendations?: boolean } = {}) {
   const normalized = normalizeUserSearchValue(query)
-  if (!normalized) return []
+  if (!normalized && !recommendations) return []
   if ([...normalized].length > USER_SEARCH_MAX_QUERY_LENGTH) throw badRequest('user_search_invalid')
   const take = Math.min(USER_SEARCH_LIMIT, Math.max(1, Math.floor(limit)))
   const select = { id: true, displayName: true, username: true, jobTitle: true,
     avatarAsset: true, accountType: true, primaryCompanyId: true } as const
-  const tiers: Prisma.UserWhereInput[] = [
+  const tiers: Prisma.UserWhereInput[] = !normalized ? [{}] : [
     { OR: [{ normalizedDisplayName: normalized }, { normalizedUsername: normalized }] },
     { OR: [{ normalizedDisplayName: { startsWith: normalized } }, { normalizedUsername: { startsWith: normalized } }] },
     userSearchPredicate(normalized),

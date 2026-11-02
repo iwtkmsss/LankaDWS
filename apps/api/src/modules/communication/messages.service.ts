@@ -35,6 +35,8 @@ import {
   type UpdateChatPreferenceInput,
 } from '@lankadws/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
+import { listReactionUsers } from '../../common/reaction-users.js'
+import type { ReactionUsersQuery } from '@lankadws/contracts'
 import { badRequest, conflict, DomainError, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { parseUserSearchExcludedIds, searchUsers } from '../../common/search-users.js'
@@ -1509,6 +1511,12 @@ export class MessagesService {
       editedAt: editedAt.toISOString(),
       version: input.expectedVersion + 1,
     }
+  }
+
+  async reactionUsers(principal: AuthPrincipal, messageId: string, query: ReactionUsersQuery) {
+    const message = await this.readableMessage(principal, messageId)
+    if (message.deletedAt) throw notFound()
+    return listReactionUsers(this.prisma, principal.workspaceId, { messageId: message.id }, query)
   }
 
   /**

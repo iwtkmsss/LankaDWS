@@ -3,7 +3,7 @@ import type { StructuredMentionView } from '@lankadws/contracts'
 import { UserProfileLink } from '../../features/employees/UserProfileDrawer'
 import { personName } from '../lib/personName'
 
-export function MentionText({ body, mentions, hideMentionPrefix = false }: { body: string; mentions: StructuredMentionView[]; hideMentionPrefix?: boolean }) {
+export function MentionText({ body, mentions }: { body: string; mentions: StructuredMentionView[]; hideMentionPrefix?: boolean }) {
   const ordered = mentions
     .filter((mention) => mention.start >= 0 && mention.end <= body.length && mention.end > mention.start)
     .toSorted((left, right) => left.start - right.start || left.end - right.end)
@@ -13,7 +13,7 @@ export function MentionText({ body, mentions, hideMentionPrefix = false }: { bod
     if (mention.start < cursor) continue
     if (mention.start > cursor) content.push(body.slice(cursor, mention.start))
     const label = body.slice(mention.start, mention.end)
-    const text = personName(hideMentionPrefix ? label.replace(/^@/, '') : label)
+    const text = personName(label.replace(/^[@+]/, ''))
     content.push(mention.active
       ? (
           <UserProfileLink className="structured-mention" userId={mention.userId} key={`${mention.start}:${mention.userId}`}>
