@@ -101,8 +101,44 @@ describe('FeedComposerForm', () => {
         requiresAcknowledgement: false,
         attachmentIds: [],
         mentions: [],
+        photoLayout: [],
       }),
     })))
+  })
+
+  it('places uploaded photos inside the text and publishes their layout', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:photo')
+    URL.revokeObjectURL = vi.fn()
+    vi.mocked(api).mockImplementation(async (path, options) => {
+      if (path === '/feed/audiences?company=all') return { items: [audience, secondAudience] }
+      if (path === '/feed/attachments?company=cmp_lankadws_ua' && options?.method === 'POST') {
+        return { id: 'photo_new', fileName: 'фото.png', bytes: 9, mimeType: 'image/png', scanStatus: 'QUARANTINED' }
+      }
+      if (path === '/feed' && options?.method === 'POST') return { id: 'feed_new', version: 1 }
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    mount()
+    await screen.findByRole('button', { name: 'Бачать: Lanka' })
+
+    fireEvent.change(screen.getByLabelText('Фото в публікацію'), {
+      target: { files: [new File(['png'], 'фото.png', { type: 'image/png' })] },
+    })
+    const photo = await screen.findByRole('button', { name: 'Перемістити фото.png' })
+    expect(screen.queryByRole('region', { name: 'Додані файли' })).not.toBeInTheDocument()
+    fireEvent.focus(photo)
+    expect(screen.getByRole('slider', { name: /Ширина фото/ })).toBeInTheDocument()
+
+    const editor = screen.getByRole('textbox', { name: 'Текст публікації' })
+    editor.textContent = 'Фото дня'
+    fireEvent.input(editor)
+    fireEvent.click(screen.getByRole('button', { name: 'Опублікувати' }))
+
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/feed', expect.objectContaining({ method: 'POST' })))
+    const request = vi.mocked(api).mock.calls.find(([path]) => path === '/feed')!
+    expect(JSON.parse(String(request[1]!.body))).toMatchObject({
+      attachmentIds: ['photo_new'],
+      photoLayout: [{ fileId: 'photo_new', x: 0.05, y: 0.03, width: 0.5, height: 0.375 }],
+    })
   })
 
   it('uploads attachments to the selected organization instead of the all scope', async () => {

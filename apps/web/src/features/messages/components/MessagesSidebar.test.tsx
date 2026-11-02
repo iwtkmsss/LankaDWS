@@ -1,7 +1,6 @@
 import type {
   ChatContactUser,
   ChatThreadListItem,
-  RecommendedChatUser,
 } from '@lankadws/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -50,11 +49,9 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
     debouncedQuery: '',
     isComposing: false,
     searchResults: [],
-    recommendations: [],
     loadingThreads: false,
     threadError: false,
     loadingSearch: false,
-    loadingRecommendations: false,
     startingUserId: null,
     hasMoreThreads: false,
     loadingMoreThreads: false,
@@ -144,12 +141,8 @@ describe('MessagesSidebar', () => {
     expect(onQueryChange).toHaveBeenCalledWith('')
   })
 
-  it('renders recommendations only when search is empty', () => {
-    const recommendation: RecommendedChatUser = { ...contact, reason: 'FREQUENT' }
-    const { rerender, props } = renderSidebar({ recommendations: [recommendation] })
-    expect(screen.getByRole('region', { name: 'Рекомендовані контакти' })).toBeInTheDocument()
-
-    rerender(<MessagesSidebar {...props} query="мар" debouncedQuery="мар" />)
+  it('does not render recommended contacts above the thread list', () => {
+    renderSidebar()
     expect(screen.queryByRole('region', { name: 'Рекомендовані контакти' })).not.toBeInTheDocument()
   })
 

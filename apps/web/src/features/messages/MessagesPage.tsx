@@ -30,7 +30,6 @@ import {
   getChatUser,
   getMessage,
   getMessagePage,
-  getRecommendedChatUsers,
   getThreadDetail,
   getThreadPage,
   sendMessage,
@@ -163,14 +162,6 @@ export function MessagesPage() {
   }, [threadPages.data, drafts])
   const counts = threadPages.data?.pages[0]?.counts ?? { all: 0, unread: 0 }
 
-  const canWrite = true
-
-  const recommendations = useQuery({
-    queryKey: messageKeys.recommended(companyId),
-    queryFn: ({ signal }) => getRecommendedChatUsers(companyId, signal),
-    enabled: Boolean(companyId && canWrite && !query),
-    staleTime: 60_000,
-  })
   const targetContact = useQuery({
     queryKey: [...messageKeys.users(companyId, ''), 'target', targetUserId],
     queryFn: ({ signal }) => getChatUser(companyId, targetUserId!, signal),
@@ -448,7 +439,7 @@ export function MessagesPage() {
       navigate(`/messages/${contact.directThreadId}`)
       return
     }
-    // Recommendations can omit the thread ID. Resolve the contact before
+    // Search results can omit the thread ID. Resolve the contact before
     // changing routes so an existing conversation never opens a draft first.
     if (contact.directThreadId === undefined) {
       setStartingUserId(contact.id)
@@ -520,11 +511,9 @@ export function MessagesPage() {
           debouncedQuery={debouncedQuery}
           isComposing={isSearchComposing}
         searchResults={searchResults}
-        recommendations={recommendations.data?.items ?? []}
         loadingThreads={threadPages.isLoading}
         threadError={threadPages.isError}
         loadingSearch={users.isLoading}
-        loadingRecommendations={recommendations.isLoading}
         startingUserId={startingUserId}
         hasMoreThreads={Boolean(threadPages.hasNextPage)}
         loadingMoreThreads={threadPages.isFetchingNextPage}

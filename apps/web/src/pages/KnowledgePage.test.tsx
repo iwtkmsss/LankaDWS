@@ -11,7 +11,16 @@ import { OverlayProvider } from '../shared/ui/Overlay'
 const auth = vi.hoisted(() => ({ accountType: 'ADMIN' }))
 vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: auth }) }))
 vi.mock('../shared/api/client', async (original) => ({ ...await original<typeof import('../shared/api/client')>(), api: vi.fn() }))
-const item = { id: 'article', slug: 'policy', title: 'Політика', changeSummary: 'Перша публікація', version: 2, updatedAt: '2026-09-04' }
+const item = {
+  id: 'article', slug: 'policy', title: 'Політика', changeSummary: 'Перша публікація', version: 2, reviewAt: null,
+  createdAt: '2026-09-01T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z', requiresAcknowledgement: false, hasAcknowledged: false,
+}
+
+// The material body is a contentEditable rich editor, not a textarea.
+function typeRich(element: HTMLElement, text: string) {
+  element.textContent = text
+  fireEvent.input(element)
+}
 
 function mount(path = '/knowledge') {
   const router = createMemoryRouter([{ path: '/knowledge/:articleSlug?', element: <OverlayProvider><TopbarContentProvider><TopbarContent /><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: [path] })
@@ -25,7 +34,11 @@ beforeEach(() => {
     if (path === '/files/file_new/status') return { scanStatus: 'CLEAN' }
     if (options?.method) return { id: 'article', slug: 'policy' }
     if (path.startsWith('/knowledge/articles?')) return { items: [item] }
-    if (path === '/knowledge/articles/policy') return { ...item, currentVersion: { title: 'Політика', body: 'Чинний текст', publishedAt: '2026-09-04T10:00:00.000Z' }, attachments: [{ id: 'file_image', safeFilename: 'guide.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' }], companyIds: ['company'] }
+    if (path === '/knowledge/articles/policy') return { ...item, currentVersion: { title: 'Політика', body: 'Чинний текст', publishedAt: '2026-09-04T10:00:00.000Z' }, attachments: [
+      { id: 'file_cover', safeFilename: 'cover.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' },
+      { id: 'file_image', safeFilename: 'guide.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' },
+    ], companyIds: ['company'] }
+    if (path === '/knowledge/tickets') return { items: [] }
     if (path === '/admin/companies') return { items: [{ id: 'company', name: 'Компанія', isActive: true }] }
     throw new Error(`Unexpected request: ${path}`)
   })
@@ -46,16 +59,16 @@ describe('knowledge management', () => {
   it('loads existing text and submits a version-checked update', async () => {
     mount('/knowledge?manage=1&edit=policy')
     const body = await screen.findByLabelText('Текст матеріалу')
-    expect(body).toHaveValue('Чинний текст')
-    fireEvent.change(body, { target: { value: 'Новий текст' } })
+    expect(body).toHaveTextContent('Чинний текст')
+    typeRich(body, 'Новий текст')
     fireEvent.click(screen.getByRole('button', { name: 'Зберегти зміни' }))
-    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Політика', body: 'Новий текст', changeSummary: '', attachmentIds: [], companyIds: ['company'], expectedVersion: 2 }) })))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Політика', body: 'Новий текст', changeSummary: '', attachmentIds: [], companyIds: ['company'], requiresAcknowledgement: false, expectedVersion: 2, removedAttachmentIds: [] }) })))
     await waitFor(() => expect(screen.queryByLabelText('Текст матеріалу')).not.toBeInTheDocument())
   })
   it('creates a material using the existing publication endpoint', async () => {
     mount('/knowledge?manage=1&edit=new')
     fireEvent.change(await screen.findByLabelText('Назва'), { target: { value: 'Інструкція' } })
-    fireEvent.change(screen.getByLabelText('Текст матеріалу'), { target: { value: 'Зміст' } })
+    typeRich(screen.getByLabelText('Текст матеріалу'), 'Зміст')
     fireEvent.click(screen.getByRole('button', { name: 'Опублікувати матеріал' }))
     await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles', expect.objectContaining({ method: 'POST' })))
     const call = vi.mocked(api).mock.calls.find(([, options]) => options?.method === 'POST')!
@@ -65,7 +78,7 @@ describe('knowledge management', () => {
   it('uploads selected files before attaching them to a new material', async () => {
     mount('/knowledge?manage=1&edit=new')
     fireEvent.change(await screen.findByLabelText('Назва'), { target: { value: 'Інструкція' } })
-    fireEvent.change(screen.getByLabelText('Текст матеріалу'), { target: { value: 'Зміст' } })
+    typeRich(screen.getByLabelText('Текст матеріалу'), 'Зміст')
     fireEvent.change(screen.getByLabelText('Додати файли'), { target: { files: [new File(['content'], 'guide.pdf', { type: 'application/pdf' })] } })
     fireEvent.click(screen.getByRole('button', { name: 'Опублікувати матеріал' }))
     await waitFor(() => expect(api).toHaveBeenCalledWith('/files?company=company', expect.objectContaining({ method: 'POST' })))

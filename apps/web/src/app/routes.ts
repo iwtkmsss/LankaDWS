@@ -43,7 +43,6 @@ const loadAdminOrganization = () => import('../pages/AdminOrganizationPage')
 const loadLegacyRedirect = () => import('../pages/LegacyRouteRedirectPage')
 
 const Feed = lazy(loadFeed)
-const FeedShowcase = lazy(() => import('../features/feed-showcase/FeedShowcasePage'))
 const Tasks = lazy(loadTasks)
 const TaskCreate = lazy(() => import('../pages/TaskCreatePage'))
 const Calendar = lazy(loadCalendar)
@@ -58,7 +57,6 @@ const AdminOrganization = lazy(loadAdminOrganization)
 const LegacyRedirect = lazy(loadLegacyRedirect)
 
 export const routes: RouteMeta[] = [
-  { path: '/feed-showcase', title: 'Галерея живої стрічки', component: FeedShowcase },
   {
     path: '/tasks',
     title: 'Завдання',

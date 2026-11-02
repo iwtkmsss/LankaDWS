@@ -44,6 +44,8 @@ export default defineConfig(({ mode }) => {
       setupFiles: './src/test/setup.ts',
       css: true,
       include: ['src/**/*.test.{ts,tsx}'],
+      // Must exceed the Testing Library wait budget in src/test/setup.ts.
+      testTimeout: 15_000,
     },
     server: {
       port: 5173,

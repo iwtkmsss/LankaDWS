@@ -70,6 +70,18 @@ it('rolls back text and attachments when the total photo limit is exceeded', asy
   expect(await prisma.fileLink.count()).toBe(1)
 })
 
+it('stores the inline photo layout only for attached photos and keeps it when omitted', async () => {
+  const placement = { fileId: 'photo_1', x: 0.1, y: 0.2, width: 0.5, height: 0.25 }
+  await service.update(author, 'post', updateFeedPostSchema.parse({ body: 'Placed', expectedVersion: 1,
+    attachmentIds: ['photo_1'], photoLayout: [placement] }))
+  expect(JSON.parse((await prisma.feedPost.findUniqueOrThrow({ where: { id: 'post' } })).photoLayout!)).toEqual([placement])
+  await service.update(author, 'post', updateFeedPostSchema.parse({ body: 'Text only', expectedVersion: 2 }))
+  expect(JSON.parse((await prisma.feedPost.findUniqueOrThrow({ where: { id: 'post' } })).photoLayout!)).toEqual([placement])
+  await expect(service.update(author, 'post', updateFeedPostSchema.parse({ body: 'Foreign', expectedVersion: 3,
+    photoLayout: [{ ...placement, fileId: 'photo_2' }] }))).rejects.toMatchObject({ code: 'feed_post_photo_layout_invalid' })
+  expect(await prisma.feedPost.findUniqueOrThrow({ where: { id: 'post' } })).toMatchObject({ body: 'Text only', version: 3 })
+})
+
 it('rejects non-authors, other owners files and disguised non-image files', async () => {
   const input = updateFeedPostSchema.parse({ body: 'Updated', expectedVersion: 1, attachmentIds: ['photo_1'] })
   await expect(service.update({ ...author, userId: 'reader' }, 'post', input)).rejects.toMatchObject({ status: 404 })

@@ -38,8 +38,8 @@
 .feed-page .feed-attention__actions a strong { font-size: 20px; font-weight: var(--weight-bold); }
 .feed-page .feed-attention__clear { padding-top: var(--space-3); margin: 0; border-top: 1px solid var(--line); }
 .feed-page .feed-birthday-highlight { padding: var(--space-6); border-radius: var(--radius-lg); }
-.feed-page .feed-birthday-highlight > header { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 0; border-radius: 12px; }
-.feed-page .feed-birthday-highlight > header h2 { text-align: center; }
+.feed-page .feed-birthday-highlight > header { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 0; border-radius: 12px; }
+.feed-page .feed-birthday-highlight > header h2 { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.02em; }
 .feed-page .feed-birthday-highlight__people > a { padding: var(--space-3) 0 0; margin-top: var(--space-3); border-radius: 0; border-top: 1px solid var(--line); background: transparent; }
 .feed-birthday-highlight__people > a > .stream-birthday-today { flex: 0 0 auto; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--violet) 25%, var(--line)); border-radius: 6px; color: var(--fg-body); background: color-mix(in srgb, var(--violet) 9%, var(--surface)); font-size: var(--text-label); font-weight: var(--weight-medium); }
 .feed-birthday-highlight__people > a:has(.stream-birthday-today) { flex-wrap: wrap; }

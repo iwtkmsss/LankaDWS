@@ -179,7 +179,12 @@ describe('task list defaults', () => {
     fireEvent.focus(screen.getByRole('combobox', { name: 'Відповідальний' }))
     fireEvent.change(screen.getByRole('combobox', { name: 'Відповідальний' }), { target: { value: '   ' } })
     await waitFor(() => expect(request).toHaveBeenCalledWith('/saved-views'))
-    expect(request.mock.calls.some(([url]) => url.startsWith('/employees'))).toBe(false)
+    // Focus may load the bounded recent-user suggestions; never the directory or a blank text search.
+    const userRequests = request.mock.calls.filter(([url]) => url.startsWith('/employees'))
+    for (const [url, init] of userRequests) {
+      expect(url).toBe('/employees/search')
+      expect(JSON.parse(String(init?.body))).toMatchObject({ q: '', limit: 5, recommendations: true })
+    }
     const clear = screen.getByRole('button', { name: 'Очисти фільтри' })
     expect(clear).toBeEnabled()
     expect(clear.closest('.task-advanced-filters__toolbar')).toBeInTheDocument()

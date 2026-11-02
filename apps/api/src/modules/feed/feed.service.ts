@@ -19,8 +19,10 @@ import {
   type UpdateFeedPostInput,
   type StructuredMentionInput,
   type StructuredMentionView,
+  type FeedPhotoPlacement,
   FEED_PHOTO_MAX_BYTES,
   FEED_PHOTO_MIME_TYPES,
+  feedPhotoPlacementSchema,
 } from '@lankadws/contracts';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { id } from '../../common/crypto.js';
@@ -703,11 +705,15 @@ export class FeedService {
       ]),
     ];
     await this.assertMentions(mentionedUserIds, audience.userIds, principal.userId, principal);
-    await this.files.assertAttachable(
+    const attachedFiles = await this.files.assertAttachable(
       principal,
       input.companyId,
       input.attachmentIds,
     );
+    const placedIds = new Set(input.photoLayout.map((placement) => placement.fileId));
+    if (attachedFiles.some((file) => placedIds.has(file.id) && !isFeedPhoto(file))) {
+      throw badRequest('feed_post_photo_layout_invalid');
+    }
     const postId = id('feed');
     const itemIds = audience.companyIds.map((companyId) => ({
       companyId,
@@ -732,6 +738,7 @@ export class FeedService {
           companyId: input.companyId,
           authorId: principal.userId,
           body: input.body,
+          photoLayout: serializePhotoLayout(input.photoLayout),
           requiresAcknowledgement: input.requiresAcknowledgement,
           acknowledgementVersion,
           publishedAt: now,
@@ -966,6 +973,7 @@ export class FeedService {
         },
         data: {
           body: input.body,
+          ...(input.photoLayout ? { photoLayout: serializePhotoLayout(input.photoLayout) } : {}),
           version: nextVersion,
           editedAt: now,
           acknowledgementVersion: nextAcknowledgementVersion,
@@ -991,6 +999,19 @@ export class FeedService {
           id: id('flink'), fileId, entityType: 'FEED_POST', entityId: postId,
           purpose: 'ATTACHMENT', aclMode: 'INHERIT',
         })) });
+      }
+      if (input.photoLayout?.length) {
+        const placedIds = input.photoLayout.map((placement) => placement.fileId);
+        const linkedPhotos = await tx.fileLink.findMany({ where: {
+          entityType: 'FEED_POST', entityId: postId, purpose: 'ATTACHMENT', fileId: { in: placedIds },
+        }, select: { fileId: true } });
+        const photoCount = await tx.fileObject.count({ where: {
+          id: { in: linkedPhotos.map((link) => link.fileId) }, OR: [
+            { detectedMime: { in: [...FEED_PHOTO_MIME_TYPES] } },
+            { detectedMime: null, declaredMime: { in: [...FEED_PHOTO_MIME_TYPES] } },
+          ],
+        } });
+        if (photoCount !== placedIds.length) throw badRequest('feed_post_photo_layout_invalid');
       }
       if (audienceUserIds.length > 0) {
         await tx.feedAcknowledgementRecipient.createMany({
@@ -2180,6 +2201,22 @@ export class FeedService {
       const postComments = comments.filter(
         (comment) => comment.entityId === post.id,
       );
+      const postAttachments = fileLinks
+        .filter((link) => link.entityId === post.id)
+        .flatMap((link) => {
+          const file = fileById.get(link.fileId);
+          return file
+            ? [
+                {
+                  id: file.id,
+                  fileName: file.safeFilename,
+                  bytes: file.bytes,
+                  mimeType: file.detectedMime ?? file.declaredMime,
+                  scanStatus: file.scanStatus,
+                },
+              ]
+            : [];
+        });
       return [
         {
           kind: 'POST',
@@ -2231,22 +2268,8 @@ export class FeedService {
               return file ? [{ id: file.id, fileName: file.safeFilename, bytes: file.bytes, mimeType: file.detectedMime ?? file.declaredMime, scanStatus: file.scanStatus }] : [];
             }),
           })),
-          attachments: fileLinks
-            .filter((link) => link.entityId === post.id)
-            .flatMap((link) => {
-              const file = fileById.get(link.fileId);
-              return file
-                ? [
-                    {
-                      id: file.id,
-                      fileName: file.safeFilename,
-                      bytes: file.bytes,
-                      mimeType: file.detectedMime ?? file.declaredMime,
-                      scanStatus: file.scanStatus,
-                    },
-                  ]
-                : [];
-            }),
+          attachments: postAttachments,
+          photoLayout: parsePhotoLayout(post.photoLayout, postAttachments),
           publishedAt: post.publishedAt.toISOString(),
           editedAt: post.editedAt?.toISOString() ?? null,
           version: post.version,
@@ -2678,4 +2701,37 @@ export class FeedService {
     const time = Date.parse(left.occurredAt) - Date.parse(right.occurredAt);
     return time === 0 ? left.id.localeCompare(right.id) : time;
   }
+}
+
+function isFeedPhoto(file: { detectedMime: string | null; declaredMime: string | null }): boolean {
+  const mime = file.detectedMime ?? file.declaredMime;
+  return FEED_PHOTO_MIME_TYPES.some((photoMime) => photoMime === mime);
+}
+
+function serializePhotoLayout(layout: FeedPhotoPlacement[]): string | null {
+  return layout.length ? JSON.stringify(layout) : null;
+}
+
+// Stored layout is trusted only for photos that are still attached.
+function parsePhotoLayout(
+  stored: string | null,
+  attachments: Array<{ id: string; mimeType: string }>,
+): FeedPhotoPlacement[] {
+  if (!stored) return [];
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stored);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  const photoIds = new Set(
+    attachments
+      .filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.mimeType))
+      .map((file) => file.id),
+  );
+  return raw.flatMap((entry) => {
+    const parsed = feedPhotoPlacementSchema.safeParse(entry);
+    return parsed.success && photoIds.has(parsed.data.fileId) ? [parsed.data] : [];
+  });
 }

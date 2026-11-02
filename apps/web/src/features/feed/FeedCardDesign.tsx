@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from 'react'
 import { Link } from 'react-router-dom'
-import type { FeedAttachmentView, FeedCommentView, StructuredMentionView } from '@lankadws/contracts'
+import type { FeedAttachmentView, FeedCommentView, FeedPhotoPlacement, StructuredMentionView } from '@lankadws/contracts'
 import {
   Archive, ArrowRight, CalendarClock, CalendarDays, Check, CheckCheck, CheckCircle2, Clock3,
   Download, Eye, FileText, Heart, LoaderCircle, MessageCircle, MoreHorizontal,
@@ -12,6 +12,8 @@ import { FileFormatIcon } from '../../shared/files/FileFormatIcon'
 import { FormattedText } from '../../shared/text/FormattedText'
 import { RichTextEditor } from '../../shared/text/RichTextEditor'
 import { formatDateTime } from '../../shared/lib/format'
+import { FileThumbnail } from '../../shared/files/FileThumbnail'
+import { FeedInlineCanvas, placedPhotos } from './FeedInlineCanvas'
 import './feed-card-design.css'
 
 export type AcknowledgementState = 'pending' | 'loading' | 'error' | 'done' | 'observer'
@@ -49,6 +51,7 @@ export interface FeedCardModel {
   comments?: FeedCommentView[]
   commentCount?: number
   attachments?: FeedAttachmentView[]
+  photoLayout?: FeedPhotoPlacement[]
   acknowledgement?: CardAcknowledgement
   metadata?: Array<{ label: string; value: string; person?: FeedMetadataPerson }>
   changes?: { messages: number; status: number; participants: number }
@@ -148,7 +151,7 @@ const kinds = {
 }
 
 // Shared presentation. Callers own data, mutations and attachment/editor lifecycles.
-export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, onReply, onFile, onProfile, renderPerson, renderAttachment, renderCommentExtra, renderCommentBody, editor, commentComposer, headerRef, headingLevel = 'h3', error }: {
+export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, onReply, onFile, onProfile, renderPerson, renderAttachment, renderInlinePhoto, renderCommentExtra, renderCommentBody, editor, commentComposer, headerRef, headingLevel = 'h3', error }: {
   item: FeedCardModel
   state: FeedCardViewState
   editorId: string
@@ -159,6 +162,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
   onFile: (file: FeedAttachmentView, action: 'preview' | 'download') => void
   renderPerson?: FeedPersonRenderer
   renderAttachment?: (file: FeedAttachmentView) => ReactNode
+  renderInlinePhoto?: (file: FeedAttachmentView) => ReactNode
   renderCommentExtra?: (comment: FeedCommentView) => ReactNode
   renderCommentBody?: (comment: FeedCommentView) => ReactNode
   editor?: ReactNode
@@ -176,6 +180,9 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
     ? [{ label: 'Автор', value: item.author.displayName, person: item.author }, ...item.metadata ?? []]
     : item.kind === 'TASK' ? item.metadata?.filter((entry) => entry.label !== 'Завдання') : item.metadata
   const editing = state.mode === 'edit' || state.mode === 'saving'
+  // While editing, placed photos fall back to the regular attachment list.
+  const inlinePhotos = editing ? [] : placedPhotos(item.photoLayout, item.attachments)
+  const listedAttachments = item.attachments?.filter((file) => !inlinePhotos.some((photo) => photo.file.id === file.id))
   const comments = item.comments ?? []
   const busy = ['saving', 'archiving'].includes(state.mode)
   const commentCount = item.commentCount ?? comments.length
@@ -254,7 +261,10 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
       <div className="stream-card__content">
         {item.title && !titleInHeader && <Heading>{item.title}</Heading>}
         {editing ? <form id={`${editorId}-edit-form`} onSubmit={(event) => { event.preventDefault(); if (!busy && item.body.trim()) onAction('save') }} className="stream-card__editor">{editor ?? <RichTextEditor id={`${editorId}-edit`} label="Текст публікації" value={item.body} onChange={(value) => onBodyChange?.(value)} rows={4} disabled={busy} maxLength={10000} />}</form>
-          : item.body && <div className="stream-card__text"><FormattedText body={item.body} mentions={item.mentions} /></div>}
+          : (item.body || inlinePhotos.length > 0) && <FeedInlineCanvas photos={inlinePhotos} renderPhoto={(file) => renderInlinePhoto ? renderInlinePhoto(file)
+            : <button type="button" aria-label={`Переглянути ${file.fileName}`} onClick={() => onFile(file, 'preview')}><FileThumbnail file={file} /></button>}>
+            {item.body && <div className="stream-card__text"><FormattedText body={item.body} mentions={item.mentions} /></div>}
+          </FeedInlineCanvas>}
         {item.kind === 'TASK' && <div className="stream-changes" aria-label="Непрочитані зміни завдання">{[
           { key: 'messages' as const, label: 'Нові повідомлення', Icon: MessageCircle },
           { key: 'status' as const, label: 'Зміни завдання', Icon: FileText },
@@ -267,7 +277,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
           {sourceAction}
         </div> : <FeedMetadata entries={item.metadata} onProfile={onProfile} renderPerson={renderPerson} />}
         {item.kind === 'TASK' && !renderPerson && sourceAuthor}
-        {item.attachments?.length ? <section className="stream-attachments" aria-label="Вкладення"><span className="stream-section-label">Вкладення · {item.attachments.length}</span>{item.attachments.map((file) => <div key={file.id}>{renderAttachment ? renderAttachment(file) : <FeedFileRow file={file} onPreview={() => onFile(file, 'preview')} onDownload={() => onFile(file, 'download')} />}</div>)}</section> : null}
+        {listedAttachments?.length ? <section className="stream-attachments" aria-label="Вкладення"><span className="stream-section-label">Вкладення · {listedAttachments.length}</span>{listedAttachments.map((file) => <div key={file.id}>{renderAttachment ? renderAttachment(file) : <FeedFileRow file={file} onPreview={() => onFile(file, 'preview')} onDownload={() => onFile(file, 'download')} />}</div>)}</section> : null}
       </div>
 
       {(state.mode === 'archive' || state.mode === 'archiving') && <div className="stream-card__confirm" role="alert"><TriangleAlert size={20} /><span><strong>Архівувати публікацію?</strong><small>Запис зникне зі стрічки для всіх одержувачів.</small></span><div><Button type="button" variant="secondary" disabled={busy} onClick={() => onAction('cancel-archive')}>Скасувати</Button><Button type="button" variant="danger" disabled={busy} onClick={() => onAction('confirm-archive')}>{busy ? 'Прибираємо…' : 'Підтвердити'}</Button></div></div>}

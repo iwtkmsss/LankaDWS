@@ -79,57 +79,6 @@
   text-transform: uppercase;
 }
 
-.messages-recommendations {
-  flex: 0 0 auto;
-  padding: var(--space-4) var(--space-4) var(--space-2);
-}
-
-.messages-recommendations > div:last-child {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(56px, 1fr));
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.messages-recommendations button {
-  display: grid;
-  min-width: 0;
-  justify-items: center;
-  gap: var(--space-1);
-  border: 0;
-  border-radius: 11px;
-  background: transparent;
-  color: var(--fg-body);
-  padding: var(--space-2) var(--space-1);
-}
-
-.messages-recommendations button:hover,
-.messages-recommendations button:focus-visible {
-  background: var(--cobalt-50);
-}
-
-.messages-recommendations .avatar {
-  width: 42px;
-  height: 42px;
-  font-size: 12px;
-  margin-bottom: var(--space-0_5);
-}
-
-.messages-recommendations strong,
-.messages-recommendations small {
-  width: 100%;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fg-strong);
-}
-
-.messages-recommendations strong { font-size: var(--text-person); font-weight: var(--weight-medium); color: var(--fg-strong); }
-.messages-recommendations strong + strong { margin-top: -7px; color: var(--fg-strong); }
-.messages-recommendations small { color: var(--fg-muted); font-size: var(--text-meta); font-weight: var(--weight-regular); }
-.messages-recommendations--loading { min-height: 98px; }
-
 .messages-tabs {
   display: grid;
   flex: 0 0 auto;
@@ -954,7 +903,6 @@
   .messages-workspace:not(.has-thread) .conversation-pane,
   .messages-workspace:not(.has-thread) .messages-no-thread { display: none; }
   .messages-sidebar__search { margin: var(--space-2) var(--space-3) 0; }
-  .messages-recommendations { padding-inline: var(--space-3); }
   .messages-thread-scroll { padding-inline: var(--space-1); }
   .messages-thread-list .message-thread-select { min-height: 72px; }
   .conversation-header { position: sticky; top: 0; height: 58px; padding: 0 var(--space-2); }

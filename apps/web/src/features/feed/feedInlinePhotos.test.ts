@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitPhoto, photoError, resizePhoto, SHOWCASE_PHOTO_MAX_BYTES } from './showcasePhotos'
-
-it('accepts supported photos within the limit and rejects oversized or other files', () => {
-  expect(photoError({ type: 'image/png', size: SHOWCASE_PHOTO_MAX_BYTES })).toBeNull()
-  expect(photoError({ type: 'image/jpeg', size: SHOWCASE_PHOTO_MAX_BYTES + 1 })).toContain('10 МБ')
-  expect(photoError({ type: 'image/svg+xml', size: 10 })).toContain('PNG')
-  expect(photoError({ type: 'application/pdf', size: 10 })).toContain('PNG')
-})
+import { fitPhoto, layoutDepth, rectToPlacement, resizePhoto, toPhotoLayout } from './feedInlinePhotos'
 
 it('keeps moved and responsive photos inside the text block without changing their proportions', () => {
   for (const bounds of [{ width: 900, height: 360 }, { width: 280, height: 360 }]) {
@@ -18,6 +11,14 @@ it('keeps moved and responsive photos inside the text block without changing the
       expect(rect.y + rect.height).toBeLessThanOrEqual(bounds.height)
       expect(rect.width / rect.height).toBeCloseTo(photo.ratio)
     }
+  }
+})
+
+it('stores positions relative to the block width so the layout scales', () => {
+  const placement = { x: .1, y: .2, width: .4, ratio: 2 }
+  for (const width of [300, 900]) {
+    const bounds = { width, height: width * 2 }
+    expect(rectToPlacement(fitPhoto(placement, bounds), bounds)).toEqual({ x: .1, y: .2, width: .4 })
   }
 })
 
@@ -35,4 +36,10 @@ describe.each(['top-left', 'top-right', 'bottom-left', 'bottom-right'])('resize 
       expect(corner.includes('top') ? next.y + next.height : next.y).toBe(corner.includes('top') ? original.y + original.height : original.y)
     }
   })
+})
+
+it('serializes a contract-valid layout and measures its depth', () => {
+  const layout = toPhotoLayout([{ id: 'photo', src: '', name: 'photo', ratio: 2, x: .9, y: -1, width: .5 }])
+  expect(layout).toEqual([{ fileId: 'photo', x: .5, y: 0, width: .5, height: .25 }])
+  expect(layoutDepth([...layout, { y: .5, height: .3 }])).toBeCloseTo(.8)
 })

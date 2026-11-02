@@ -30,8 +30,9 @@ describe('FeedBirthdayHighlight', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Дні народження' })).toBeVisible()
-    expect(screen.getByText('День народження · 12 травня')).toBeVisible()
-    expect(screen.getByText('День народження · 15 травня')).toBeVisible()
+    expect(screen.getByText('12 травня')).toBeVisible()
+    expect(screen.getByText('15 травня')).toBeVisible()
+    expect(screen.getAllByText('Сьогодні')).toHaveLength(1)
     expect(screen.getByRole('link', { name: /Марія Іваненко/ })).toHaveAttribute(
       'href',
       '/?employeeId=usr_maria',

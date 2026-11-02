@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type {
   FeedAttachmentView,
   FeedAudienceOption,
+  FeedPhotoPlacement,
   StructuredMentionInput,
 } from '@lankadws/contracts'
 import {
@@ -17,8 +18,9 @@ import {
   Send,
 } from 'lucide-react'
 import { FEED_COMMENT_PHOTO_LIMIT, FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
-import { FeedDraftPhotos } from '../features/feed/FeedDraftPhotos'
-import { feedPhotoError, type FeedDraftPhoto } from '../features/feed/useFeedCommentPhotos'
+import { FeedInlinePhotoEditor } from '../features/feed/FeedInlinePhotoEditor'
+import { initialPlacement, toPhotoLayout, type InlinePhoto } from '../features/feed/feedInlinePhotos'
+import { feedPhotoError } from '../features/feed/useFeedCommentPhotos'
 import { FeedFileRow } from '../features/feed/FeedCardDesign'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import '../features/feed/feed-composer.css'
@@ -56,7 +58,7 @@ export function FeedComposerForm({
   const uploadLock = useRef(false)
   const uploadRequest = useRef<AbortController | null>(null)
   const mounted = useRef(true)
-  const [photoPreviews, setPhotoPreviews] = useState<FeedDraftPhoto[]>([])
+  const [photoPreviews, setPhotoPreviews] = useState<InlinePhoto[]>([])
   const [preview, setPreview] = useState<FeedAttachmentView | null>(null)
   const previewUrls = useRef(new Set<string>())
   useEffect(() => {
@@ -78,6 +80,7 @@ export function FeedComposerForm({
       requiresAcknowledgement: boolean
       attachmentIds: string[]
       mentions: StructuredMentionInput[]
+      photoLayout: FeedPhotoPlacement[]
     }) => api('/feed', {
       method: 'POST',
       headers: { 'idempotency-key': idempotencyKey('feed-post') },
@@ -89,6 +92,7 @@ export function FeedComposerForm({
       setSelectedCompanyIds(null)
       setRequiresAcknowledgement(false)
       setAttachments([])
+      setPhotoPreviews([])
       setMessage('')
       onFeedChanged()
       onPostCreated()
@@ -144,6 +148,7 @@ export function FeedComposerForm({
       requiresAcknowledgement,
       attachmentIds: attachments.map((attachment) => attachment.id),
       mentions: prepared.mentions,
+      photoLayout: toPhotoLayout(photoPreviews),
     }).catch(() => {
       setMessage('Не вдалося опублікувати. Перевірте дані та спробуйте ще раз.')
     })
@@ -185,12 +190,16 @@ export function FeedComposerForm({
             { method: 'POST', body: form, signal: controller.signal },
           )
           if (!mounted.current) return
-          setAttachments((current) => [...current, attachment])
           if (FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.type)) {
             const src = URL.createObjectURL(file)
             previewUrls.current.add(src)
-            setPhotoPreviews((current) => [...current, { attachment, src }])
+            const ratio = await imageRatio(src)
+            if (!mounted.current) return
+            setPhotoPreviews((current) => [...current, {
+              id: attachment.id, src, name: attachment.fileName, ratio, ...initialPlacement(current.length),
+            }])
           }
+          setAttachments((current) => [...current, attachment])
         } catch { if (controller.signal.aborted) return; failures.push(file.name) }
       }
     } finally {
@@ -244,7 +253,7 @@ export function FeedComposerForm({
   function removeAttachment(id: string) {
     setAttachments((current) => current.filter((file) => file.id !== id))
     setPhotoPreviews((current) => current.filter((photo) => {
-      if (photo.attachment.id !== id) return true
+      if (photo.id !== id) return true
       URL.revokeObjectURL(photo.src)
       previewUrls.current.delete(photo.src)
       return false
@@ -254,17 +263,19 @@ export function FeedComposerForm({
   return (
     <form className="feed-composer stream-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
       <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити до публікації" />
-      <MentionTextarea formatting className="feed-composer__body" label="Текст публікації" value={body}
-        mentions={mentions} candidateUrl={mentionCandidateUrl} maxLength={10000} rows={5}
-        placeholder="Поділіться важливим оновленням…" disabled={busy} autoFocus
-        toolbarActions={<button type="button" className="stream-composer__insert-photo" aria-label="Вставити фото" title="Вставити фото · до 5 фото · до 10 МБ" disabled={busy || attachmentCount >= 10} onClick={() => photoInput.current?.click()}><ImagePlus size={16} /></button>}
-        onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); selectPhotos(files) } }}
-        onChange={(nextBody, nextMentions) => { setBody(nextBody); setMentions(nextMentions) }} />
+      <FeedInlinePhotoEditor photos={photoPreviews} disabled={busy} onRemove={removeAttachment}
+        onUpdate={(id, placement) => setPhotoPreviews((current) => current.map((photo) => photo.id === id ? { ...photo, ...placement } : photo))}>
+        <MentionTextarea formatting className="feed-composer__body" label="Текст публікації" value={body}
+          mentions={mentions} candidateUrl={mentionCandidateUrl} maxLength={10000} rows={5}
+          placeholder="Поділіться важливим оновленням…" disabled={busy} autoFocus
+          toolbarActions={<button type="button" className="stream-composer__insert-photo" aria-label="Вставити фото" title="Вставити фото · до 5 фото · до 10 МБ" disabled={busy || attachmentCount >= 10} onClick={() => photoInput.current?.click()}><ImagePlus size={16} /></button>}
+          onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); selectPhotos(files) } }}
+          onChange={(nextBody, nextMentions) => { setBody(nextBody); setMentions(nextMentions) }} />
+      </FeedInlinePhotoEditor>
       <input ref={photoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} disabled={busy || attachmentCount >= 10} aria-label="Фото в публікацію" onChange={(event) => { selectPhotos(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-      {photoPreviews.length > 0 && <FeedDraftPhotos photos={photoPreviews} onRemove={removeAttachment} disabled={busy} />}
-      {(pendingFiles.length > 0 || attachments.some((file) => !photoPreviews.some((photo) => photo.attachment.id === file.id))) && <section className="stream-composer__files" aria-label="Додані файли">
+      {(pendingFiles.length > 0 || attachments.some((file) => !photoPreviews.some((photo) => photo.id === file.id))) && <section className="stream-composer__files" aria-label="Додані файли">
         {pendingFiles.map((file, index) => <div key={index}><FileFormatIcon mimeType={file.type} fileName={file.name} size={24} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)} · очікує вибору аудиторії</small></span><IconButton label={'Прибрати ' + file.name} disabled={busy} onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}><X size={15} /></IconButton></div>)}
-        {attachments.filter((file) => !photoPreviews.some((photo) => photo.attachment.id === file.id)).map((file) => <div key={file.id}><FeedFileRow file={file} onPreview={() => setPreview(file)} downloadHref={'/api/v1/files/' + encodeURIComponent(file.id) + '/download'} /><IconButton label={'Прибрати ' + file.fileName} disabled={busy} onClick={() => removeAttachment(file.id)}><X size={15} /></IconButton></div>)}
+        {attachments.filter((file) => !photoPreviews.some((photo) => photo.id === file.id)).map((file) => <div key={file.id}><FeedFileRow file={file} onPreview={() => setPreview(file)} downloadHref={'/api/v1/files/' + encodeURIComponent(file.id) + '/download'} /><IconButton label={'Прибрати ' + file.fileName} disabled={busy} onClick={() => removeAttachment(file.id)}><X size={15} /></IconButton></div>)}
       </section>}
       <section className="stream-composer__audience">
         <button type="button" disabled={busy} aria-expanded={audienceOpen} onClick={() => setAudienceOpen((current) => !current)}><UsersRound size={16} /><span>Бачать: <strong>{audiences.isLoading ? 'завантаження…' : audienceSummary}</strong></span><ChevronDown size={15} /></button>
@@ -308,6 +319,17 @@ export function FeedComposerForm({
       )}
     </form>
   )
+}
+
+async function imageRatio(src: string): Promise<number> {
+  try {
+    const image = new Image()
+    image.src = src
+    await image.decode()
+    return image.naturalWidth && image.naturalHeight ? image.naturalWidth / image.naturalHeight : 4 / 3
+  } catch {
+    return 4 / 3
+  }
 }
 
 export function formatBytes(bytes: number): string {

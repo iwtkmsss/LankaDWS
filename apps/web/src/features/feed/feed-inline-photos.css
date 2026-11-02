@@ -1,0 +1,29 @@
+/* Composer: photos dragged and resized over the publication text. */
+.feed-inline-editor { display: grid; gap: var(--space-2); min-width: 0; }
+.feed-inline-editor__canvas { position: relative; min-width: 0; }
+.feed-inline-editor__canvas.has-photos .rich-editor__input { min-height: 360px; resize: none; max-height: none; overflow: auto; }
+.feed-inline-editor__images { position: absolute; overflow: hidden; pointer-events: none; border-radius: 9px; }
+.feed-inline-photo { position: absolute; pointer-events: auto; }
+.feed-inline-photo.is-selected { outline: 2px solid var(--cobalt-500); outline-offset: -2px; z-index: 1; }
+.feed-inline-photo__move { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: move; touch-action: none; }
+.feed-inline-photo__move img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.feed-inline-photo__handle { position: absolute; width: 14px; height: 14px; min-height: 0; padding: 0; border: 2px solid var(--cobalt-500); border-radius: 50%; background: var(--surface); touch-action: none; }
+.feed-inline-photo__handle.is-top-left { top: 0; left: 0; cursor: nwse-resize; }
+.feed-inline-photo__handle.is-top-right { top: 0; right: 0; cursor: nesw-resize; }
+.feed-inline-photo__handle.is-bottom-left { bottom: 0; left: 0; cursor: nesw-resize; }
+.feed-inline-photo__handle.is-bottom-right { bottom: 0; right: 0; cursor: nwse-resize; }
+.feed-inline-editor .feed-inline-editor__remove { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; width: 22px; height: 22px; min-height: 0; flex-basis: 22px; padding: 0; border-radius: 5px; color: #fff; background: color-mix(in srgb, var(--danger) 70%, black); border: 1px solid color-mix(in srgb, var(--danger) 65%, white); }
+.feed-inline-editor .feed-inline-editor__remove:hover:not(:disabled) { color: #fff; background: color-mix(in srgb, var(--danger) 60%, black); }
+.feed-inline-size { display: flex !important; flex-direction: row !important; align-items: center; gap: var(--space-3); color: var(--fg-muted); font-size: var(--text-meta); }
+.feed-inline-size input { flex: 1; min-width: 60px; width: auto; accent-color: var(--cobalt-600); }
+.feed-inline-size span { min-width: 36px; text-align: right; }
+.feed-inline-hint { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--text-meta); line-height: 1.6; }
+.feed-inline-hint svg { flex-shrink: 0; margin-top: var(--space-0_5); }
+
+/* Card: the stored layout scales with the text block width (cqw units). */
+.feed-inline-canvas { display: grid; min-width: 0; container-type: inline-size; }
+.feed-inline-canvas > * { grid-area: 1 / 1; min-width: 0; }
+.feed-inline-canvas__photos { position: relative; height: calc(var(--feed-inline-depth) * 100cqw); pointer-events: none; }
+.feed-inline-canvas__photo { position: absolute; left: calc(var(--x) * 100%); top: calc(var(--y) * 100cqw); width: calc(var(--w) * 100%); height: calc(var(--h) * 100cqw); pointer-events: auto; }
+.feed-inline-canvas__photo > button { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 9px; overflow: hidden; background: transparent; cursor: zoom-in; }
+.feed-inline-canvas__photo img, .feed-inline-canvas__photo .file-thumbnail__fallback { display: grid; width: 100%; height: 100%; place-items: center; object-fit: contain; }

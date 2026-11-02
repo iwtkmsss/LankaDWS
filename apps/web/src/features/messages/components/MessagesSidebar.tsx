@@ -3,7 +3,6 @@ import type {
   ChatContactUser,
   ChatThreadCounts,
   ChatThreadListItem,
-  RecommendedChatUser,
 } from '@lankadws/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -23,11 +22,9 @@ interface MessagesSidebarProps {
   debouncedQuery: string
   isComposing: boolean
   searchResults: ChatContactUser[]
-  recommendations: RecommendedChatUser[]
   loadingThreads: boolean
   threadError: boolean
   loadingSearch: boolean
-  loadingRecommendations: boolean
   startingUserId: string | null
   hasMoreThreads: boolean
   loadingMoreThreads: boolean
@@ -61,13 +58,6 @@ function ThreadAvatar({ thread }: { thread: ChatThreadListItem }) {
       {!thread.previewParticipants.length && <UsersRound size={21} />}
     </span>
   )
-}
-
-function reasonLabel(reason: RecommendedChatUser['reason']): string {
-  if (reason === 'RECENT') return 'Нещодавній діалог'
-  if (reason === 'FREQUENT') return 'Часто спілкуєтесь'
-  if (reason === 'SHARED_CONTEXT') return 'Спільна робота'
-  return 'Ваша команда'
 }
 
 export function MessagesSidebar(props: MessagesSidebarProps) {
@@ -185,35 +175,6 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         </section>
       ) : (
         <>
-          {props.recommendations.length > 0 && (
-            <section className="messages-recommendations" aria-label="Рекомендовані контакти">
-              <div className="messages-section-label">Рекомендовані</div>
-              <div>
-                {props.recommendations.map((contact) => {
-                  const [surname, givenName] = personName(contact.displayName).trim().split(/\s+/u)
-                  return (
-                    <button
-                      type="button"
-                      key={contact.id}
-                      disabled={Boolean(props.startingUserId)}
-                      onClick={() => props.onStartDirect(contact)}
-                      title={`${personName(contact.displayName)}: ${reasonLabel(contact.reason)}`}
-                    >
-                      <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
-                      <strong>{givenName || surname}</strong>
-                      {givenName && <strong>{surname}</strong>}
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          )}
-          {props.loadingRecommendations && (
-            <div className="messages-recommendations messages-recommendations--loading">
-              <Skeleton rows={1} />
-            </div>
-          )}
-
           <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів">
             <button
               type="button"

@@ -385,6 +385,7 @@ model FeedPost {
   companyId                 String
   authorId                  String
   body                      String
+  photoLayout               String?
   status                    FeedPostStatus                 @default(PUBLISHED)
   requiresAcknowledgement   Boolean                        @default(false)
   acknowledgementVersion    Int                            @default(0)

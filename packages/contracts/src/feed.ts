@@ -82,6 +82,20 @@ export const shareFileToFeedSchema = z.object({
 })
 export type ShareFileToFeedInput = z.infer<typeof shareFileToFeedSchema>
 
+// Inline photo placement inside the post text block. Every coordinate is a
+// fraction of the text block width, so the layout scales with the card.
+export const feedPhotoPlacementSchema = z.object({
+  fileId: z.string().trim().min(1).max(120),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(20),
+  width: z.number().min(0.05).max(1),
+  height: z.number().min(0.01).max(20),
+}).refine((value) => value.x + value.width <= 1.001, { path: ['x'], message: 'Photo must stay inside the text block.' })
+export type FeedPhotoPlacement = z.infer<typeof feedPhotoPlacementSchema>
+
+const feedPhotoLayoutSchema = z.array(feedPhotoPlacementSchema).max(5)
+  .refine((items) => new Set(items.map((item) => item.fileId)).size === items.length, { message: 'Each photo can be placed once.' })
+
 export const createFeedPostSchema = z
   .object({
     companyId: z.string().trim().min(1).max(120),
@@ -99,10 +113,14 @@ export const createFeedPostSchema = z
       .transform((items) => [...new Set(items)])
       .default([]),
     mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+    photoLayout: feedPhotoLayoutSchema.default([]),
   })
   .superRefine((value, context) => {
     if (!value.body && value.attachmentIds.length === 0) {
       context.addIssue({ code: 'custom', path: ['body'], message: 'Post requires text or an attachment.' })
+    }
+    if (value.photoLayout.some((placement) => !value.attachmentIds.includes(placement.fileId))) {
+      context.addIssue({ code: 'custom', path: ['photoLayout'], message: 'Placed photos must be attached.' })
     }
     if (value.audience.type === 'COMPANIES' && !value.audience.companyIds.includes(value.companyId)) {
       context.addIssue({ code: 'custom', path: ['companyId'], message: 'Primary company must be selected.' })
@@ -122,6 +140,8 @@ export const updateFeedPostSchema = z.object({
     .transform((items) => [...new Set(items)])
     .optional(),
   mentions: z.array(structuredMentionInputSchema).max(100).optional(),
+  // Replaces the stored inline layout when present; omitted keeps it.
+  photoLayout: feedPhotoLayoutSchema.optional(),
 })
 export type UpdateFeedPostInput = z.infer<typeof updateFeedPostSchema>
 
@@ -242,6 +262,7 @@ export interface FeedPostView {
   commentCount: number
   comments: FeedCommentView[]
   attachments: FeedAttachmentView[]
+  photoLayout?: FeedPhotoPlacement[]
   publishedAt: string
   editedAt: string | null
   version: number

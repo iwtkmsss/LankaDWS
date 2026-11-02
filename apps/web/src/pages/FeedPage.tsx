@@ -530,7 +530,7 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
     kind: 'POST', author: { ...item.author, displayName: personName(item.author.displayName) },
     date: formatDateTime(item.publishedAt), dateTime: item.publishedAt,
     audience: personNamesInLabel(item.audienceLabel), body: editing ? editBody : item.body,
-    mentions: item.mentions, attachments: item.attachments,
+    mentions: item.mentions, attachments: item.attachments, photoLayout: item.photoLayout,
     comments: item.comments.map((entry) => ({ ...entry, author: { ...entry.author, displayName: personName(entry.author.displayName) } })),
     commentCount: item.commentCount, likes: item.likeCount, liked: item.likedByMe,
     canManage: item.canEdit, isNew, edited: Boolean(item.editedAt),
@@ -549,6 +549,7 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
   return <FeedCardDesign item={model} state={state} editorId={editorId} headingLevel="h2"
     headerRef={notificationReadRef} renderPerson={renderFeedPerson}
     renderAttachment={(attachment) => <FeedAttachment attachment={attachment} photoPreview />}
+    renderInlinePhoto={(attachment) => <FeedInlinePhoto attachment={attachment} />}
     renderCommentExtra={(entry) => entry.attachments?.length ? <div className="stream-photo-previews">{entry.attachments.map((attachment) => <FeedAttachment key={attachment.id} attachment={attachment} photoPreview />)}</div> : null}
     onFile={() => {}}
     onReply={(id) => { setReplyTo(id); setComment(''); setCommentMentions([]) }}
@@ -621,6 +622,14 @@ export function FeedAttachment({ attachment, photoPreview = false }: { attachmen
       : <FeedFileRow file={{ ...attachment, scanStatus }} onPreview={() => setPreviewOpen(true)}
         downloadHref={'/api/v1/files/' + encodeURIComponent(attachment.id) + '/download'} />}
     {previewOpen && scanStatus === 'CLEAN' && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+  </>
+}
+
+function FeedInlinePhoto({ attachment }: { attachment: FeedAttachmentView }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return <>
+    <button type="button" aria-label={`Переглянути ${attachment.fileName}`} disabled={attachment.scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><FileThumbnail file={attachment} /></button>
+    {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
   </>
 }
 

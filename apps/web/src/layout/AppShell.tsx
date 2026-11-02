@@ -1,5 +1,4 @@
 import { personName } from '../shared/lib/personName'
-import { getRecommendedChatUsers } from '../features/messages/api/messageApi'
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,7 +8,6 @@ import {
   ArrowRight,
   ChevronDown,
   Ellipsis,
-  FlaskConical,
   Gauge,
   KeyRound,
   LogOut,
@@ -114,11 +112,6 @@ export function AppShell({ children }: PropsWithChildren) {
         queryKey: ['messages', 'threads', company, false],
         initialPageParam: null as string | null,
         queryFn: () => api(`/messages/threads?company=${encodeURIComponent(company)}&limit=30`),
-      })
-      void queryClient.prefetchQuery({
-        queryKey: ['messages', 'recommended', company],
-        queryFn: () => getRecommendedChatUsers(company),
-        staleTime: 60_000,
       })
     } else if (route.path === '/drive') {
       const driveQuery = {
@@ -567,14 +560,6 @@ export function AppShell({ children }: PropsWithChildren) {
             )} />
           </div>
           <div className="topbar__actions">
-            <Link
-              to="/feed-showcase"
-              className={`icon-button${location.pathname === '/feed-showcase' ? ' is-active' : ''}`}
-              aria-label="Галерея живої стрічки"
-              title="Галерея живої стрічки"
-            >
-              <FlaskConical size={19} />
-            </Link>
             <IconButton
               className={rightPanelOpen ? 'is-active' : ''}
               label={rightPanelOpen ? 'Закрити праву панель' : 'Відкрити чат і сповіщення'}

@@ -231,6 +231,15 @@ describe('transport schemas', () => {
     })).toMatchObject({
       audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws', 'cmp_other'] },
     })
+    const placedPost = {
+      companyId: 'cmp_lankadws', body: 'Фото', audience: { type: 'COMPANY' }, attachmentIds: ['file_one'],
+      photoLayout: [{ fileId: 'file_one', x: 0.1, y: 0.4, width: 0.5, height: 0.3 }],
+    }
+    expect(createFeedPostSchema.parse(placedPost).photoLayout).toHaveLength(1)
+    expect(createFeedPostSchema.parse({ ...placedPost, photoLayout: undefined }).photoLayout).toEqual([])
+    expect(createFeedPostSchema.safeParse({ ...placedPost, attachmentIds: ['file_two'] }).success).toBe(false)
+    expect(createFeedPostSchema.safeParse({ ...placedPost, photoLayout: [{ ...placedPost.photoLayout[0], x: 0.6 }] }).success).toBe(false)
+    expect(createFeedPostSchema.safeParse({ ...placedPost, photoLayout: [placedPost.photoLayout[0], placedPost.photoLayout[0]] }).success).toBe(false)
     expect(createFeedCommentSchema.parse({
       body: ' Відповідь ',
       replyToCommentId: 'cmt_parent',

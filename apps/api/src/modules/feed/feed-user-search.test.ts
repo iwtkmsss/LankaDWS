@@ -21,8 +21,9 @@ describe('feed adapters for shared user search', () => {
     await service.mentionCandidates(principal, { company: 'company', audienceType: 'COMPANY', q: 'а', limit: 1000 })
     expect(findMany).toHaveBeenCalledTimes(3)
     for (const [query] of findMany.mock.calls) {
+      // Audience members (or the author) plus active administrators, who may be mentioned anywhere.
       expect(query).toMatchObject({ where: { workspaceId: 'workspace', isActive: true, AND: [
-        { AND: [{ OR: [{ primaryCompanyId: 'company' }, { id: 'me' }] }, { OR: [{ primaryCompanyId: 'company' }, { accountType: 'ADMIN' }] }] },
+        { OR: [{ OR: [{ primaryCompanyId: { in: ['company'] } }, { id: 'me' }] }, { accountType: 'ADMIN' }] },
         expect.any(Object), expect.any(Object),
       ] }, take: 5, select: { avatarAsset: true } })
     }
@@ -32,9 +33,9 @@ describe('feed adapters for shared user search', () => {
     const { service, findMany, accessiblePost } = setup()
     await service.postMentionCandidates(principal, 'private-post', { q: 'а', limit: 5 })
     expect(accessiblePost).toHaveBeenCalledWith(principal, 'private-post')
-    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ where: { AND: [{ AND: [
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ where: { AND: [{ OR: [
       { OR: [{ primaryCompanyId: { in: ['company'] } }, { id: { in: ['author', 'explicit-recipient'] } }] },
-      { OR: [{ primaryCompanyId: 'company' }, { accountType: 'ADMIN' }] },
+      { accountType: 'ADMIN' },
     ] }, expect.any(Object), expect.any(Object)] }, take: 5 })
     findMany.mockClear()
     accessiblePost.mockRejectedValueOnce(new Error('Forbidden'))

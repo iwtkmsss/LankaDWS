@@ -65,6 +65,20 @@ describe('FeedCard production actions', () => {
     expect(screen.getByRole('button', { name: 'Вставити фото' })).toBeDisabled()
   })
 
+  it('renders placed photos inside the text block instead of the attachment list', () => {
+    const photo = { id: 'photo', fileName: 'схема.png', bytes: 5, mimeType: 'image/png', scanStatus: 'CLEAN' as const }
+    const file = { id: 'doc', fileName: 'план.pdf', bytes: 5, mimeType: 'application/pdf', scanStatus: 'CLEAN' as const }
+    const { container } = render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><OverlayProvider>
+      <FeedCard item={{ ...item, attachments: [photo, file], photoLayout: [{ fileId: 'photo', x: .25, y: .1, width: .5, height: .25 }] }} viewerId="reader" isNew={false} loadedAt={0} onChanged={vi.fn()} />
+    </OverlayProvider></MemoryRouter></QueryClientProvider>)
+    const placed = container.querySelector<HTMLElement>('.feed-inline-canvas__photo')!
+    expect(within(placed).getByRole('button', { name: 'Переглянути схема.png' })).toBeEnabled()
+    expect(placed.style.getPropertyValue('--x')).toBe('0.25')
+    const attachments = screen.getByRole('region', { name: 'Вкладення' })
+    expect(within(attachments).getByText('Вкладення · 1')).toBeInTheDocument()
+    expect(within(attachments).queryByText('схема.png')).not.toBeInTheDocument()
+  })
+
   it('does not offer personal pinning for publications', () => {
     mount()
     fireEvent.click(screen.getByRole('button', { name: 'Дії з записом' }))

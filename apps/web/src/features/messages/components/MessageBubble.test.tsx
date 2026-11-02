@@ -298,7 +298,8 @@ describe('MessageBubble', () => {
         { userId: 'user-2', start: prefix.length + 7, end: prefix.length + 13, active: false },
       ] })} />
     </MemoryRouter>)
-    expect(screen.getByText('@Марія')).toHaveClass('structured-mention')
+    // Mention chips drop the leading @; the shifted range must still cover the whole name.
+    expect(screen.getByText('Марія')).toHaveClass('structured-mention')
   })
 
   it('shows read status for an own message', () => {

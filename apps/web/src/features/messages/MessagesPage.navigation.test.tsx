@@ -5,7 +5,8 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { TopbarContentProvider } from '../../layout/TopbarContent'
 import { UserProfileProvider } from '../employees/UserProfileDrawer'
 import { MessagesPage } from './MessagesPage'
-import { getChatUser, getRecommendedChatUsers } from './api/messageApi'
+import { searchUsers } from '../../shared/api/user-search'
+import { getChatUser } from './api/messageApi'
 
 vi.mock('../../shared/auth/AuthProvider', () => ({
   useAuth: () => ({ user: { id: 'me', accountType: 'USER', company: { id: 'company-1' } } }),
@@ -15,12 +16,12 @@ vi.mock('./components/DirectDraftPane', () => ({ DirectDraftPane: () => <div>Н�
 vi.mock('./api/messageApi', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api/messageApi')>(),
   getThreadPage: vi.fn().mockResolvedValue({ items: [], counts: { all: 0, unread: 0 }, nextCursor: null }),
-  getRecommendedChatUsers: vi.fn(),
   getChatUser: vi.fn(),
   getThreadDetail: vi.fn().mockResolvedValue({ id: 'thread-1' }),
   getMessagePage: vi.fn().mockResolvedValue({ items: [], olderCursor: null, newerCursor: null }),
   searchChatUsers: vi.fn().mockResolvedValue({ items: [] }),
 }))
+vi.mock('../../shared/api/user-search', () => ({ searchUsers: vi.fn() }))
 
 const contact = {
   id: 'colleague', displayName: 'Колега', avatarAsset: null, username: 'colleague',
@@ -29,9 +30,11 @@ const contact = {
 }
 
 beforeEach(() => {
-  vi.mocked(getRecommendedChatUsers).mockResolvedValue({ items: [{ ...contact, reason: 'TEAM' }] })
+  vi.mocked(searchUsers).mockResolvedValue({ items: [contact] })
   vi.mocked(getChatUser).mockResolvedValue(contact)
 })
+
+const searchEntry = '/messages?q=Колега'
 
 function openPage(entry = '/messages') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -48,48 +51,42 @@ function openPage(entry = '/messages') {
   return { router, navigations }
 }
 
-it('opens a recommended contact without rewriting the destination URL', async () => {
-  const { router, navigations } = openPage()
-  fireEvent.click(await screen.findByRole('button', { name: /Колега/ }))
+it('opens a searched contact without rewriting the destination URL', async () => {
+  const { router, navigations } = openPage(searchEntry)
+  fireEvent.click(await screen.findByRole('option', { name: /Колега/ }))
   await screen.findByText('Новий діалог')
   expect(router.state.location.search).toBe('?to=colleague')
   expect(navigations).toEqual(['/messages?to=colleague'])
 })
 
 it('resolves an existing direct thread once without returning to the draft URL', async () => {
-  vi.mocked(getRecommendedChatUsers).mockResolvedValue({
-    items: [{ ...contact, directThreadId: undefined, reason: 'RECENT' }],
-  })
+  vi.mocked(searchUsers).mockResolvedValue({ items: [{ ...contact, directThreadId: undefined }] })
   vi.mocked(getChatUser).mockResolvedValue({ ...contact, directThreadId: 'thread-1' })
-  const { router, navigations } = openPage()
-  fireEvent.click(await screen.findByRole('button', { name: /Колега/ }))
+  const { router, navigations } = openPage(searchEntry)
+  fireEvent.click(await screen.findByRole('option', { name: /Колега/ }))
   await screen.findByText('Відкритий діалог')
   expect(router.state.location.pathname).toBe('/messages/thread-1')
   expect(navigations).toEqual(['/messages/thread-1'])
 })
 
-it('keeps the current screen while resolving a recommendation without a thread ID', async () => {
-  vi.mocked(getRecommendedChatUsers).mockResolvedValue({
-    items: [{ ...contact, directThreadId: undefined, reason: 'TEAM' }],
-  })
+it('keeps the current screen while resolving a search result without a thread ID', async () => {
+  vi.mocked(searchUsers).mockResolvedValue({ items: [{ ...contact, directThreadId: undefined }] })
   let resolveContact!: (value: typeof contact) => void
   vi.mocked(getChatUser).mockImplementation(() => new Promise((resolve) => { resolveContact = resolve }))
-  const { router, navigations } = openPage()
-  fireEvent.click(await screen.findByRole('button', { name: /Колега/ }))
+  const { router, navigations } = openPage(searchEntry)
+  fireEvent.click(await screen.findByRole('option', { name: /Колега/ }))
   expect(router.state.location.pathname).toBe('/messages')
-  expect(router.state.location.search).toBe('')
+  expect(router.state.location.search).toBe('?q=Колега')
   expect(navigations).toEqual([])
   await act(async () => { resolveContact(contact) })
   await screen.findByText('Новий діалог')
   expect(navigations).toEqual(['/messages?to=colleague'])
 })
 
-it('opens a known recommended thread in a single navigation', async () => {
-  vi.mocked(getRecommendedChatUsers).mockResolvedValue({
-    items: [{ ...contact, directThreadId: 'thread-1', reason: 'RECENT' }],
-  })
-  const { navigations } = openPage()
-  fireEvent.click(await screen.findByRole('button', { name: /Колега/ }))
+it('opens a known searched thread in a single navigation', async () => {
+  vi.mocked(searchUsers).mockResolvedValue({ items: [{ ...contact, directThreadId: 'thread-1' }] })
+  const { navigations } = openPage(searchEntry)
+  fireEvent.click(await screen.findByRole('option', { name: /Колега/ }))
   await screen.findByText('Відкритий діалог')
   expect(navigations).toEqual(['/messages/thread-1'])
 })
