@@ -1,5 +1,7 @@
 :root {
   color-scheme: light;
+  /* Minimum UI text size on desktop and mobile; file-icon artwork is separate. */
+  --text-min: 11px;
   --text-caption: 12px;
   --text-small: 14px;
   --text-body: 16px;
@@ -39,11 +41,30 @@
   --danger: #c43f4e;
   --danger-bg: #ffeaed;
   --violet: #7656d6;
+  --orange: #b85c05;
   --radius-sm: 9px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --shadow-sm: 0 1px 2px rgba(15, 24, 45, .04), 0 5px 18px rgba(24, 35, 62, .04);
   --shadow-lg: 0 18px 60px rgba(13, 22, 45, .18);
+  /* Spacing scale on a 4px grid; round odd values to the nearest step (ties go to the multiple of 8). */
+  --space-0_5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  /* Semantic spacing built on the scale. */
+  --space-icon: var(--space-2);
+  --space-field-y: var(--space-2);
+  --space-field-x: var(--space-3);
+  --space-card: var(--space-4);
+  --space-section: var(--space-6);
+  --space-page: var(--space-6);
   --sidebar: 258px;
   --topbar: 68px;
   --focus: 0 0 0 3px rgba(31, 94, 255, .24);
@@ -82,6 +103,7 @@
   --danger: #ff8793;
   --danger-bg: #43242c;
   --violet: #b09af5;
+  --orange: #ffae4a;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, .2), 0 5px 18px rgba(0, 0, 0, .16);
   --shadow-lg: 0 18px 60px rgba(0, 0, 0, .46);
   --focus: 0 0 0 3px rgba(113, 149, 255, .32);
