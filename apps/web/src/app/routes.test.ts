@@ -37,7 +37,7 @@ describe('canonical route registry', () => {
 
   it('keeps the approved mobile footer and overflow order explicit', () => {
     expect(mobileNavigation.primary).toEqual(['/feed', '/tasks', '/messages', '/drive'])
-    expect(mobileNavigation.more).toEqual(['/calendar', '/organization'])
+    expect(mobileNavigation.more).toEqual(['/calendar', '/organization', '/knowledge'])
     expect(mobileNavigationLabels['/organization']).toBe('Організація')
     const configuredRoutes = [...mobileNavigation.primary, ...mobileNavigation.more]
     expect(new Set(configuredRoutes).size).toBe(configuredRoutes.length)

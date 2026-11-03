@@ -313,3 +313,11 @@ Sharing a Drive file or folder uses the existing recipient notification and unre
 The production Feed and its laboratory share the same card presentation. Production actions retain the canonical API, source navigation, versioned acknowledgement, notification-read and audience boundaries; demonstration data and local mutations remain in the laboratory.
 
 Feed comments may contain text, up to five PNG/JPEG/WebP/GIF photos of at most 10 MB each, or both. Photos reuse staged `FileObject` uploads and transactional `FileLink` records with `entityType=FEED_COMMENT`; no new persistence aggregate is introduced. Upload and comment creation authorize the current post, attachment linking checks uploader/company/scan state, and recipient downloads require a live comment and the current published-post audience. Scanning still gates download and preview.
+
+## 2026-11-03 — Overview is retired; the Live Feed is the authenticated home
+
+This records the routing state shipped on 2026-09-04 and supersedes the 2026-07-28 decision that kept `/overview` as a separate CRM home. Login and the brand link resolve to `/feed` (`resolveHomePath`), whose summary header still reads the existing `GET /dashboard` contract. `/overview` is not a registered route and renders the not-found page; `apps/web/src/app/routes.test.ts` guards this. No redirect is added, so the route stays out of navigation, search shortcuts and document titles.
+
+## 2026-11-03 — Mobile «Ще» includes the Knowledge base
+
+The mobile bottom navigation keeps Feed, Tasks, Chat and Drive as primary items. Its «Ще» menu lists Calendar, Organization and Knowledge, so the Knowledge base and its required-acknowledgement records are reachable without the side menu. Administration stays in the side menu.

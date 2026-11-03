@@ -572,25 +572,25 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  text-transform: capitalize;
 }
 .calendar-card {
   overflow: hidden;
 }
+/* Flex-wrap instead of a 1fr/auto/1fr grid: the scope tabs are wider than a
+   third of the card on common desktop widths and used to slide under the
+   period navigation. When the row is too narrow they wrap to their own line. */
 .calendar-view-switch {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
   padding: var(--space-2) var(--space-3);
 }
-.calendar-view-switch > .tabs:first-child {
-  justify-self: start;
-}
 .calendar-view-switch > .calendar-scope-tabs {
-  justify-self: end;
   min-width: 0;
+  margin-left: auto;
 }
 .calendar-weekdays,
 .calendar-grid {
@@ -4016,12 +4016,16 @@ button.organization-unassigned__person:focus-visible strong {
     align-items: stretch;
     flex-direction: column;
   }
-  .calendar-view-switch > .tabs:first-child,
   .calendar-view-switch > .calendar-scope-tabs {
-    justify-self: auto;
+    margin-left: 0;
   }
   .calendar-view-switch .tabs {
     width: 100%;
+  }
+  /* Four scope tabs do not fit one phone row; a 2×2 grid keeps all visible. */
+  .calendar-scope-tabs .tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .calendar-view-switch .tabs button {
     flex: 1;

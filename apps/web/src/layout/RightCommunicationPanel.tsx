@@ -61,7 +61,7 @@ import { MessageBubble } from '../features/messages/components/MessageBubble'
 import { continuesMessageGroup } from '../shared/messages/messageGrouping'
 import { ForwardMessageDrawer } from '../features/messages/components/ForwardMessageDrawer'
 import { upsertMessageCache } from '../features/messages/lib/messageCache'
-import { formatChatTime } from '../features/messages/lib/chatDates'
+import { formatChatListTime } from '../features/messages/lib/chatDates'
 import { MessageComposer } from '../features/messages/components/MessageComposer'
 import { stageMessageFiles } from '../features/messages/lib/localAttachments'
 import { validMessageFiles } from '../shared/files/uploadValidation'
@@ -643,8 +643,8 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 </button>
                 <div className="message-thread-meta">
                 <time>{drafts[thread.id]?.createdAt
-                  ? formatChatTime(new Date(drafts[thread.id]!.createdAt).toISOString())
-                  : thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time>
+                  ? formatChatListTime(new Date(drafts[thread.id]!.createdAt).toISOString())
+                  : thread.lastMessageAt ? formatChatListTime(thread.lastMessageAt) : ''}</time>
                 {thread.unreadCount > 0
                   ? <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>
                   : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}

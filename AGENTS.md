@@ -21,7 +21,7 @@ Repo and packages are `lankadws` / `@lankadws/*`; the official product name is *
 
 Read `CODEX_CONTEXT_MAP.md` for targeted request flows.
 
-Canonical authenticated home is `/overview` (data from `GET /dashboard`); the Live Feed is `/feed`. Import-control has no production `APPLY` path.
+Canonical authenticated home is the Live Feed at `/feed`; its summary header reads `GET /dashboard`. `/overview` is retired and resolves to the not-found page (see `docs/decisions.md`, 2026-11-03). Import-control has no production `APPLY` path.
 
 There is currently large in-progress uncommitted work in `apps/*` messages, `feed`, and a new `apps/api/src/modules/realtime` module. Keep changes narrowly scoped and expect this area to move.
 

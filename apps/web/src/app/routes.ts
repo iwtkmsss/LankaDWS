@@ -181,7 +181,7 @@ export const routes: RouteMeta[] = [
 
 export const mobileNavigation = {
   primary: ['/feed', '/tasks', '/messages', '/drive'],
-  more: ['/calendar', '/organization'],
+  more: ['/calendar', '/organization', '/knowledge'],
 } as const
 
 export const mobileNavigationLabels: Record<string, string> = {

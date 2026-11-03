@@ -288,12 +288,12 @@ export default function CalendarPage() {
 
   const calendarTitle = useMemo(() => calendarHeading(view, date), [selectedDate, view])
   const calendarAction = useMemo(() => canCreate ? (
-    <Button className="calendar-create-action" onClick={() => {
+    <Button className="calendar-create-action" aria-label="Створити подію" onClick={() => {
       setCreateDate(null)
       setCreateTitle('')
       setCreateOpen(true)
     }}>
-      <CalendarPlus size={17} />
+      <CalendarPlus size={17} aria-hidden="true" />
       <span>Створити подію</span>
     </Button>
   ) : null, [canCreate])
@@ -1227,7 +1227,9 @@ function calendarHeading(view: CalendarView, value: Date): string {
     last.setDate(last.getDate() + 6)
     return `${new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short' }).format(first)} — ${new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'short', year: 'numeric' }).format(last)}`
   }
-  return new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric' }).format(value)
+  const month = new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric' }).format(value)
+  // Only the first letter: CSS capitalize would also turn the "р." year suffix into "Р.".
+  return month.charAt(0).toLocaleUpperCase('uk-UA') + month.slice(1)
 }
 
 function eventOverlapsDay(event: CalendarEvent, day: Date): boolean {

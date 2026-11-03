@@ -329,9 +329,14 @@ export function AppShell({ children }: PropsWithChildren) {
         setMobileMoreOpen(false)
         setPaletteOpen(true)
       } else if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
         setProfileOpen(false)
         setMoreOpen(false)
         setMobileMoreOpen(false)
+        // Escape inside a text field belongs to that field; closing the right
+        // panel here would discard what the user was typing in its search or composer.
+        const target = event.target
+        if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return
         setRightPanelOpen(false)
         closeUserProfile()
       }

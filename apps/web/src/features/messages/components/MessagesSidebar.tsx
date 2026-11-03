@@ -7,7 +7,7 @@ import type {
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
-import { formatChatTime } from '../lib/chatDates'
+import { formatChatListTime } from '../lib/chatDates'
 import type { MessageDrafts } from '../lib/messageDrafts'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
 import { ChatPinButton } from './ChatPinButton'
@@ -234,8 +234,8 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                   </button>
                   <div className="message-thread-meta">
                   <time>{props.drafts[thread.id]?.createdAt
-                    ? formatChatTime(new Date(props.drafts[thread.id]!.createdAt).toISOString())
-                    : thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time>
+                    ? formatChatListTime(new Date(props.drafts[thread.id]!.createdAt).toISOString())
+                    : thread.lastMessageAt ? formatChatListTime(thread.lastMessageAt) : ''}</time>
                   {thread.unreadCount > 0 ? (
                     <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>
                   ) : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
