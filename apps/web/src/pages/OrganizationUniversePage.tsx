@@ -3,7 +3,7 @@ import { personName } from '../shared/lib/personName'
 import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws/contracts'
 import { useQuery } from '@tanstack/react-query'
-import { Building2, ChevronDown, ChevronRight, List, MessageCircle, Network, PencilRuler, Search, Users, X } from 'lucide-react'
+import { Building2, ChevronDown, ChevronRight, FilterX, List, MessageCircle, Network, PencilRuler, Search, UserRoundX, Users, UsersRound, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
@@ -14,6 +14,7 @@ import { useTopbarContent } from '../layout/TopbarContent'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { Avatar, Card, EmptyState, ErrorState, Skeleton } from '../shared/ui'
+import '../features/organization/organization-people.css'
 
 interface Company { id: string; name: string; description: string | null; isActive: boolean; userCount: number }
 interface Employee {
@@ -117,8 +118,8 @@ export default function OrganizationUniversePage() {
   return (
     <div className="organization-universe-page">
       <Card className="organization-context-bar">
-        <label><span>Оберіть компанію</span><select value={companyId} onChange={(event) => update('companyId', event.target.value, ['unitId', 'orgUnit', 'manager', 'employeeId'])}>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
-        <div className="organization-heading-actions"><span className="organization-view-label">Оберіть вигляд</span>
+        <label className="organization-company-picker"><span className="sr-only">Оберіть компанію</span><Building2 size={18} aria-hidden="true" /><select value={companyId} onChange={(event) => update('companyId', event.target.value, ['unitId', 'orgUnit', 'manager', 'employeeId'])}>{companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></label>
+        <div className="organization-heading-actions">
           <div className="organization-view-switch" role="group" aria-label="Режим перегляду">
             <button type="button" className={view === 'people' ? 'is-active' : ''} onClick={() => chooseView('people')}><List size={16} />Працівники</button>
             <button type="button" className={view === 'structure' ? 'is-active' : ''} onClick={() => chooseView('structure')}><Network size={16} />Структура</button>
@@ -129,6 +130,7 @@ export default function OrganizationUniversePage() {
         <section className="organization-people-workspace" aria-label="Працівники організації">
           {unitsQuery.isLoading ? <Card className="organization-navigator"><Skeleton rows={7} /></Card> : unitsQuery.isError || !unitsQuery.data ? <Card className="organization-navigator"><ErrorState onRetry={() => void unitsQuery.refetch()} /></Card> : <OrganizationNavigator
             company={unitsQuery.data.company}
+            employeeCount={selectedCompany.userCount}
             units={units}
             selectedId={orgUnitId || null}
             allSelected={!orgUnitId}
@@ -204,8 +206,9 @@ function OrganizationStats({ label, employeeCount, childCount }: { label: string
   </dl>
 }
 
-function OrganizationNavigator({ company, units, selectedId, allSelected, onSelectAll, onSelect }: {
+function OrganizationNavigator({ company, employeeCount, units, selectedId, allSelected, onSelectAll, onSelect }: {
   company: OrgCompanyView
+  employeeCount: number
   units: OrgUnitView[]
   selectedId: string | null
   allSelected: boolean
@@ -231,10 +234,10 @@ function OrganizationNavigator({ company, units, selectedId, allSelected, onSele
 
   return <Card className="organization-navigator">
     <header>
-      <button type="button" className={allSelected ? 'is-selected' : ''} onClick={onSelectAll}><span className="organization-navigator__company-icon" aria-hidden><CompanyLogo src={company.logoAsset} size={28} /></span><span><small>Уся компанія</small><strong>{company.name}</strong></span></button>
-      <div className="organization-navigator__company-summary"><span>Структура компанії</span><small><strong>{units.length}</strong> підрозділів</small></div>
-      <button type="button" className={selectedId === 'unassigned' ? 'is-selected' : ''} onClick={() => onSelect('unassigned')}><span className="organization-navigator__company-icon" aria-hidden><List size={20} /></span><span><strong>{UNASSIGNED_DEPARTMENT_LABEL}</strong><small>{company.name}</small></span></button>
+      <button type="button" className={allSelected ? 'is-selected' : ''} aria-current={allSelected ? 'true' : undefined} onClick={onSelectAll}><span className="organization-navigator__company-icon" aria-hidden><CompanyLogo src={company.logoAsset} size={24} /></span><span><small>Уся компанія</small><strong>{company.name}</strong></span><em aria-label={`Працівників: ${employeeCount}`}>{employeeCount}</em></button>
+      <button type="button" className={`organization-navigator__unassigned ${selectedId === 'unassigned' ? 'is-selected' : ''}`} aria-current={selectedId === 'unassigned' ? 'true' : undefined} onClick={() => onSelect('unassigned')}><span className="organization-navigator__company-icon" aria-hidden><UserRoundX size={18} /></span><span><strong>{UNASSIGNED_DEPARTMENT_LABEL}</strong><small>Без призначеного відділу</small></span></button>
     </header>
+    <div className="organization-navigator__company-summary"><span>Підрозділи</span><small aria-label={`Підрозділів: ${units.length}`}>{units.length}</small></div>
     <div className="organization-navigator__tree" role="tree" aria-label="Компактна структура організації">
       {outline.map(({ unit, depth, hasChildren }) => {
         const expanded = expandedIds.has(unit.id)
@@ -255,8 +258,8 @@ function OrganizationNavigator({ company, units, selectedId, allSelected, onSele
             return next
           })}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button> : <span className="organization-navigator__spacer" aria-hidden />}
           <button className="organization-navigator__select" type="button" onClick={() => onSelect(unit.id)}>
-            <UnitIcon icon={unit.icon} size={18} /><span><strong>{unit.name}</strong><small>{personName(unit.manager?.displayName) ?? 'Керівника не призначено'}</small></span>
-            <em>{unit.activeEmployeeCount}</em>
+            <span className="organization-navigator__unit-icon"><UnitIcon icon={unit.icon} size={16} /></span><span><strong>{unit.name}</strong><small className={unit.manager ? undefined : 'is-missing'}>{personName(unit.manager?.displayName) ?? 'Керівника не призначено'}</small></span>
+            <em className={unit.activeEmployeeCount ? undefined : 'is-empty'} aria-label={`Працівників: ${unit.activeEmployeeCount}`}>{unit.activeEmployeeCount}</em>
           </button>
         </div>
       })}
@@ -281,30 +284,39 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
   return (
     <Card className="directory-card directory-card--people">
       <header className="directory-people-heading">
+        <span className="directory-people-heading__icon" aria-hidden="true">{scopeName ? <Building2 size={20} /> : <UsersRound size={20} />}</span>
         <div className="directory-people-title">
-          <div className="directory-people-title__summary">
-            <div>
-              <h2>{scopeName ?? 'Усі працівники'}: {query.data?.items.length ?? 0}</h2>
-              <p>{scopeName ? 'Працівники вибраного підрозділу.' : 'Каталог працівників вибраної компанії та її підрозділів.'}</p>
-            </div>
-          </div>
+          <h2>{scopeName ?? 'Усі працівники'}<span className="directory-people-count" aria-label={`Показано: ${query.data?.items.length ?? 0}`}>{query.data?.items.length ?? 0}</span></h2>
+          <p>{scopeName ? 'Працівники вибраного підрозділу.' : 'Каталог працівників вибраної компанії та її підрозділів.'}</p>
         </div>
       </header>
       <div className="directory-toolbar">
-        <label className="search-field"><span className="sr-only">Знайти працівника</span><Search size={17} /><input value={search} onChange={(event) => onUpdate('q', event.target.value)} placeholder="Ім’я, посада або нікнейм" type="search" /></label>
+        <label className="directory-filter directory-filter--search"><span>Пошук</span><span className="search-field"><Search size={16} aria-hidden="true" /><input aria-label="Знайти працівника" value={search} onChange={(event) => onUpdate('q', event.target.value)} placeholder="Ім’я, посада або нікнейм" type="search" /></span></label>
         <div className="directory-filter"><UserSearchCombobox label="Керівник" value={managerId} companyId={companyId} managersOnly
           defaultUser={query.data?.filters.managers.find((manager) => manager.id === managerId)}
           placeholder="Усі · введіть ім’я" onChange={(id) => onUpdate('manager', id)} /></div>
         <label className="directory-filter"><span>Доступність</span><select value={presence} onChange={(event) => onUpdate('presence', event.target.value)}><option value="">Усі</option><option value="AVAILABLE">Доступні</option><option value="AWAY">Відсутні</option></select></label>
       </div>
-      <div className="directory-summary">{scopeName && <span><Building2 size={13} />{scopeName}</span>}{query.data && <span>{query.data.counts.available} доступні · {query.data.counts.away} відсутні</span>}{hasFilters && <button type="button" onClick={onClear}>Очистити фільтри</button>}</div>
+      <div className="directory-summary">
+        {query.data && <>
+          <span className="directory-summary__stat is-available"><i aria-hidden="true" />Доступні: <strong>{query.data.counts.available}</strong></span>
+          <span className="directory-summary__stat is-away"><i aria-hidden="true" />Відсутні: <strong>{query.data.counts.away}</strong></span>
+        </>}
+        {hasFilters && <button type="button" onClick={onClear}><FilterX size={14} aria-hidden="true" />Очистити фільтри</button>}
+      </div>
       {query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : query.data?.items.length ? (
-        <div className="directory-people-list">{query.data.items.map((employee) => <article className="directory-person" key={employee.id}>
-          <button type="button" className="directory-person__profile" onClick={() => onOpen(employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle || employee.jobTitle}</small></span></button>
-          <span className="directory-person__unit employee-org"><Building2 size={13} />{employee.orgUnit ? employee.orgUnit.parent ? `${employee.orgUnit.parent.name} → ${employee.orgUnit.name}` : employee.orgUnit.name : UNASSIGNED_DEPARTMENT_LABEL}</span>
-          <span className="directory-person__presence"><i className={`presence presence--${employee.presence.toLowerCase()}`} />{employee.presence === 'AVAILABLE' ? 'Доступний' : 'Відсутній'}</span>
-          {employee.id !== user?.id ? <Link className="directory-person__chat" aria-label={`Написати ${personName(employee.displayName)}`} to={`/messages?new=1&to=${encodeURIComponent(employee.id)}`}><MessageCircle size={17} /></Link> : <span className="directory-person__self">Ви</span>}
-        </article>)}</div>
+        <div className="directory-people-list">
+          <div className="directory-people-list__head" aria-hidden="true"><span>Працівник</span><span>Підрозділ</span><span>Статус</span><span /></div>
+          {query.data.items.map((employee) => {
+            const away = employee.presence !== 'AVAILABLE'
+            return <article className="directory-person" key={employee.id}>
+              <button type="button" className="directory-person__profile" onClick={() => onOpen(employee.id)}><span className="directory-person__avatar"><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><i className={`presence presence--${employee.presence.toLowerCase()}`} aria-hidden="true" /></span><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle || employee.jobTitle || 'Посаду не вказано'}</small></span></button>
+              <span className={`directory-person__unit employee-org ${employee.orgUnit ? '' : 'is-unassigned'}`}>{employee.orgUnit ? <Building2 size={14} aria-hidden="true" /> : <UserRoundX size={14} aria-hidden="true" />}<span>{employee.orgUnit ? employee.orgUnit.parent ? <>{employee.orgUnit.parent.name}<ChevronRight size={12} aria-hidden="true" /><span className="sr-only"> → </span>{employee.orgUnit.name}</> : employee.orgUnit.name : UNASSIGNED_DEPARTMENT_LABEL}</span></span>
+              <span className={`directory-person__presence ${away ? 'is-away' : 'is-available'}`}>{away ? 'Відсутній' : 'Доступний'}</span>
+              {employee.id !== user?.id ? <Link className="directory-person__chat" aria-label={`Написати ${personName(employee.displayName)}`} title="Написати" to={`/messages?new=1&to=${encodeURIComponent(employee.id)}`}><MessageCircle size={17} aria-hidden="true" /></Link> : <span className="directory-person__self">Ви</span>}
+            </article>
+          })}
+        </div>
       ) : <OrganizationSearchEmptyState />}
     </Card>
   )

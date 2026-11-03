@@ -1,0 +1,700 @@
+/* Organization page (/organization): «Працівники» view plus small structure-view fixes.
+   Scoped to .organization-universe-page so the admin structure page and other
+   directory-card users keep their own look. Colours come only from tokens so the
+   dark theme follows automatically. */
+
+/* Context bar: one compact row — company picker on the left, view switch on the right. */
+.organization-universe-page .organization-context-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+}
+.organization-universe-page .organization-context-bar > .organization-company-picker {
+  position: relative;
+  display: flex;
+  width: min(360px, 100%);
+  align-items: center;
+  color: var(--fg-link);
+}
+.organization-universe-page .organization-company-picker > svg {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.organization-universe-page .organization-company-picker > svg:first-of-type {
+  left: var(--space-3);
+}
+.organization-universe-page .organization-company-picker > svg:last-of-type {
+  right: var(--space-3);
+  color: var(--fg-muted);
+}
+.organization-universe-page .organization-context-bar > .organization-company-picker select {
+  width: 100%;
+  min-height: 42px;
+  appearance: none;
+  border-color: transparent;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  background-image: none;
+  color: var(--fg-strong);
+  padding: var(--space-2) var(--space-10) var(--space-2) 42px;
+  font-size: var(--text-body);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.organization-universe-page .organization-company-picker select:hover {
+  background-color: var(--surface-hover);
+}
+.organization-universe-page .organization-company-picker select:focus-visible {
+  border-color: var(--cobalt-500);
+  outline: none;
+  box-shadow: var(--focus);
+}
+.organization-universe-page .organization-context-bar .organization-heading-actions {
+  display: flex;
+  align-self: center;
+}
+.organization-universe-page .organization-view-switch {
+  border: 0;
+  background: var(--surface-soft);
+}
+
+/* Workspace columns. */
+.organization-universe-page .organization-people-workspace {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+/* Navigator: company root, «Не у підрозділі» and a flat, quiet tree. */
+.organization-universe-page .organization-navigator {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.organization-universe-page .organization-navigator > header {
+  gap: var(--space-1);
+  border-bottom: 0;
+  background: none;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+.organization-universe-page .organization-navigator > header > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  border-radius: 10px;
+  padding: var(--space-2);
+}
+.organization-universe-page .organization-navigator > header > button:hover {
+  border-color: transparent;
+  background: var(--surface-hover);
+}
+.organization-universe-page .organization-navigator > header > button.is-selected {
+  border-color: transparent;
+  background: var(--cobalt-50);
+  box-shadow: inset 3px 0 0 var(--accent-solid);
+}
+.organization-universe-page .organization-navigator > header > button > .organization-navigator__company-icon {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--cobalt-50);
+}
+.organization-universe-page .organization-navigator > header > button.is-selected > .organization-navigator__company-icon {
+  background: var(--surface);
+}
+.organization-universe-page .organization-navigator__unassigned > .organization-navigator__company-icon {
+  color: var(--warning);
+}
+.organization-universe-page .organization-navigator__unassigned > .organization-navigator__company-icon,
+.organization-universe-page .organization-navigator > header > button.organization-navigator__unassigned.is-selected > .organization-navigator__company-icon {
+  background: var(--warning-bg);
+}
+.organization-universe-page .organization-navigator > header > button > span {
+  gap: var(--space-0_5);
+}
+.organization-universe-page .organization-navigator > header > button strong {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.organization-universe-page .organization-navigator > header > button.is-selected strong {
+  color: var(--fg-link);
+}
+.organization-universe-page .organization-navigator > header > button em,
+.organization-universe-page .organization-navigator__select em,
+.organization-universe-page .organization-navigator__company-summary small {
+  display: inline-grid;
+  min-width: 26px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--fg-body);
+  padding-inline: var(--space-2);
+  font-size: var(--text-label);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+.organization-universe-page .organization-navigator > header > button.is-selected em,
+.organization-universe-page .organization-navigator__row.is-selected .organization-navigator__select em {
+  background: var(--accent-solid);
+  color: #fff;
+}
+.organization-universe-page .organization-navigator__select em.is-empty {
+  background: transparent;
+  color: var(--fg-muted);
+}
+.organization-universe-page .organization-navigator__company-summary {
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  margin: 0 var(--space-3);
+  padding: var(--space-3) var(--space-2) 0;
+  color: var(--fg-muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.organization-universe-page .organization-navigator__company-summary small {
+  letter-spacing: 0;
+}
+.organization-universe-page .organization-navigator__tree {
+  padding: var(--space-1) var(--space-3) var(--space-3);
+}
+.organization-universe-page .organization-navigator__row {
+  grid-template-columns: 22px minmax(0, 1fr);
+  margin-block: var(--space-0_5);
+  padding-left: calc(var(--navigator-depth, 0) * var(--space-5));
+}
+.organization-universe-page .organization-navigator__row::before {
+  left: calc(11px + var(--navigator-depth, 0) * var(--space-5));
+  border-left-color: var(--line);
+}
+.organization-universe-page .organization-navigator__row[aria-level='1']::before {
+  display: none;
+}
+.organization-universe-page .organization-navigator__toggle,
+.organization-universe-page .organization-navigator__spacer {
+  width: 22px;
+  min-height: 48px;
+}
+.organization-universe-page .organization-navigator__toggle {
+  background: transparent;
+}
+.organization-universe-page .organization-navigator__row[aria-level='1'] .organization-navigator__spacer::after {
+  display: none;
+}
+.organization-universe-page .organization-navigator__spacer::after {
+  top: 24px;
+}
+.organization-universe-page .organization-navigator__select,
+.organization-universe-page .organization-navigator__row[aria-level='1'] .organization-navigator__select {
+  min-height: 48px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  padding: var(--space-1) var(--space-2);
+}
+.organization-universe-page .organization-navigator__select:hover {
+  border-color: transparent;
+  background: var(--surface-hover);
+}
+.organization-universe-page .organization-navigator__row.is-selected .organization-navigator__select {
+  border-color: transparent;
+  background: var(--cobalt-50);
+  box-shadow: inset 3px 0 0 var(--accent-solid);
+}
+.organization-universe-page .organization-navigator__unit-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--fg-link);
+}
+.organization-universe-page .organization-navigator__row.is-selected .organization-navigator__unit-icon {
+  background: var(--surface);
+}
+.organization-universe-page .organization-navigator__select > span:not(.organization-navigator__unit-icon) {
+  gap: 0;
+}
+.organization-universe-page .organization-navigator__select strong {
+  font-size: var(--text-ui);
+}
+.organization-universe-page .organization-navigator__row.is-selected .organization-navigator__select strong {
+  color: var(--fg-link);
+}
+.organization-universe-page .organization-navigator__select small.is-missing {
+  font-style: italic;
+}
+
+/* Directory card. */
+.organization-universe-page .directory-people-heading {
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.organization-universe-page .directory-people-heading__icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--cobalt-50);
+  color: var(--fg-link);
+}
+.organization-universe-page .directory-people-title {
+  gap: var(--space-0_5);
+}
+.organization-universe-page .directory-people-heading h2 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 22px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -.01em;
+  line-height: 1.25;
+}
+.organization-universe-page .directory-people-count {
+  display: inline-grid;
+  min-width: 28px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--cobalt-50);
+  color: var(--fg-link);
+  padding-inline: var(--space-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0;
+}
+.organization-universe-page .directory-people-heading p {
+  font-size: var(--text-meta);
+}
+
+/* Filters: three labelled controls of equal height on one row. */
+.organization-universe-page .directory-card--people .directory-toolbar {
+  grid-template-columns: minmax(220px, 1.5fr) minmax(170px, 1fr) minmax(140px, .7fr);
+  align-items: end;
+  gap: var(--space-3);
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  background: var(--surface-soft);
+  padding: var(--space-3) var(--space-5);
+}
+.organization-universe-page .directory-toolbar .directory-filter,
+.organization-universe-page .directory-toolbar .async-task-combobox {
+  display: grid;
+  gap: var(--space-1);
+}
+.organization-universe-page .directory-toolbar .directory-filter > span:first-child,
+.organization-universe-page .directory-toolbar .async-task-combobox > label {
+  margin: 0;
+  padding: 0;
+  line-height: 16px;
+  color: var(--fg-muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.organization-universe-page .directory-toolbar .search-field,
+.organization-universe-page .directory-toolbar select {
+  width: 100%;
+  min-height: 40px;
+  border-color: var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.organization-universe-page .directory-toolbar .search-field {
+  color: var(--fg-muted);
+}
+.organization-universe-page .directory-toolbar .search-field:focus-within,
+.organization-universe-page .directory-toolbar select:focus-visible {
+  border-color: var(--cobalt-500);
+  outline: none;
+  box-shadow: var(--focus);
+}
+.organization-universe-page .directory-toolbar .search-field input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Summary chips. */
+.organization-universe-page .directory-summary {
+  min-height: 0;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border-top: 1px solid var(--line);
+  padding: var(--space-2) var(--space-5);
+}
+.organization-universe-page .directory-summary__stat {
+  gap: var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--fg-body);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+}
+.organization-universe-page .directory-summary__stat i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.organization-universe-page .directory-summary__stat.is-away i {
+  background: var(--warning);
+}
+.organization-universe-page .directory-summary__stat strong {
+  color: var(--fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+.organization-universe-page .directory-summary button {
+  margin: 0 0 0 auto;
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-link);
+  padding: 0 var(--space-2);
+  font-size: var(--text-meta);
+  cursor: pointer;
+}
+.organization-universe-page .directory-summary button:hover {
+  background: var(--cobalt-50);
+}
+
+/* People list. */
+.organization-universe-page .directory-people-list {
+  border-top: 1px solid var(--line);
+  padding: 0 0 var(--space-2);
+}
+.organization-universe-page .directory-people-list__head,
+.organization-universe-page .directory-person {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.3fr) minmax(160px, 1fr) 112px 40px;
+  align-items: center;
+  gap: var(--space-4);
+  padding-inline: var(--space-5);
+}
+.organization-universe-page .directory-people-list__head {
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.organization-universe-page .directory-person {
+  min-height: 64px;
+  border-bottom: 1px solid var(--line);
+  transition: background-color .12s ease;
+}
+.organization-universe-page .directory-person:last-child {
+  border-bottom: 0;
+}
+.organization-universe-page .directory-person:hover {
+  background: var(--surface-soft);
+}
+.organization-universe-page .directory-person__profile {
+  gap: var(--space-3);
+  border-radius: 8px;
+}
+.organization-universe-page .directory-person__profile:focus-visible {
+  outline: 2px solid var(--cobalt-500);
+  outline-offset: 2px;
+}
+.organization-universe-page .directory-person__profile:hover strong {
+  color: var(--fg-link);
+}
+.organization-universe-page .directory-person__avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.organization-universe-page .directory-person__avatar .presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--surface);
+}
+.organization-universe-page .directory-person__profile strong {
+  font-size: var(--text-ui);
+}
+.organization-universe-page .directory-person__unit {
+  justify-self: start;
+  max-width: 100%;
+  gap: var(--space-2);
+  color: var(--fg-body);
+}
+.organization-universe-page .directory-person__unit > svg {
+  color: var(--fg-link);
+}
+.organization-universe-page .directory-person__unit > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.organization-universe-page .directory-person__unit > span > svg {
+  flex: none;
+  color: var(--fg-muted);
+}
+.organization-universe-page .directory-person__unit.is-unassigned {
+  color: var(--fg-muted);
+}
+.organization-universe-page .directory-person__unit.is-unassigned > svg {
+  color: var(--warning);
+}
+.organization-universe-page .directory-person__presence {
+  justify-self: start;
+  gap: var(--space-1);
+  border-radius: 999px;
+  background: var(--success-bg);
+  color: var(--success);
+  padding: var(--space-0_5) var(--space-2);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.organization-universe-page .directory-person__presence.is-away {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.organization-universe-page .directory-person__chat {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg-muted);
+  transition: background-color .12s ease, color .12s ease;
+}
+.organization-universe-page .directory-person:hover .directory-person__chat {
+  color: var(--fg-link);
+}
+.organization-universe-page .directory-person__chat:hover,
+.organization-universe-page .directory-person__chat:focus-visible {
+  background: var(--cobalt-50);
+  color: var(--fg-link);
+}
+.organization-universe-page .directory-person__self {
+  justify-self: center;
+  border-radius: 999px;
+  background: var(--cobalt-50);
+  color: var(--fg-link);
+  padding: var(--space-0_5) var(--space-2);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+}
+.organization-universe-page .directory-card--people > .empty-state {
+  margin: var(--space-6) var(--space-4);
+}
+
+/* «Не у підрозділі» selected in the navigator: same card language as the directory. */
+.organization-universe-page .organization-people-workspace > .organization-unassigned {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 0;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-4) var(--space-5);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > header h3 {
+  margin: 0;
+  color: var(--fg-strong);
+  font-size: 22px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -.01em;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > header > span {
+  display: inline-grid;
+  min-width: 28px;
+  height: 24px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  padding-inline: var(--space-2);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > ul {
+  display: block;
+  margin: 0;
+  padding: 0 0 var(--space-2);
+  list-style: none;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned li {
+  display: flex;
+  min-height: 64px;
+  align-items: center;
+  border-top: 0;
+  border-bottom: 1px solid var(--line);
+  padding-block: var(--space-2);
+  padding-inline: var(--space-5);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned li:last-child {
+  border-bottom: 0;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned li:hover {
+  background: var(--surface-soft);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned .organization-unassigned__person {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned .organization-unassigned__person > span:not(.avatar) {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-0_5);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned .organization-unassigned__person strong {
+  color: var(--fg-strong);
+  font-size: var(--text-ui);
+  font-weight: var(--weight-medium);
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned .organization-unassigned__person:focus-visible {
+  outline: 2px solid var(--cobalt-500);
+  outline-offset: 2px;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > p {
+  margin: 0;
+  padding: var(--space-6) var(--space-5);
+  color: var(--fg-muted);
+  text-align: center;
+}
+.organization-universe-page .organization-people-workspace > .organization-unassigned > nav {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  padding: var(--space-3) var(--space-5);
+}
+
+/* Narrow desktop / tablet. */
+@media (max-width: 1180px) {
+  .organization-universe-page .organization-people-workspace {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+  .organization-universe-page .directory-people-list__head,
+  .organization-universe-page .directory-person {
+    grid-template-columns: minmax(200px, 1.2fr) minmax(140px, 1fr) 40px;
+  }
+  .organization-universe-page .directory-people-list__head > span:nth-child(3),
+  .organization-universe-page .directory-person__presence {
+    display: none;
+  }
+  .organization-universe-page .directory-card--people .directory-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .organization-universe-page .directory-toolbar .directory-filter--search {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 780px) {
+  .organization-universe-page .organization-people-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .organization-universe-page .organization-context-bar {
+    padding: var(--space-2);
+  }
+  .organization-universe-page .organization-context-bar > .organization-company-picker,
+  .organization-universe-page .organization-context-bar .organization-heading-actions,
+  .organization-universe-page .organization-view-switch {
+    width: 100%;
+  }
+  .organization-universe-page .organization-view-switch button {
+    flex: 1;
+    justify-content: center;
+  }
+  .organization-universe-page .directory-people-heading,
+  .organization-universe-page .directory-card--people .directory-toolbar,
+  .organization-universe-page .directory-summary,
+  .organization-universe-page .organization-people-workspace > .organization-unassigned > header {
+    padding-inline: var(--space-4);
+  }
+  .organization-universe-page .directory-card--people .directory-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .organization-universe-page .directory-people-heading h2,
+  .organization-universe-page .organization-people-workspace > .organization-unassigned > header h3 {
+    font-size: 19px;
+  }
+  .organization-universe-page .directory-people-list__head {
+    display: none;
+  }
+  .organization-universe-page .directory-person {
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 0 var(--space-2);
+    padding: var(--space-2) var(--space-4);
+  }
+  .organization-universe-page .directory-person__profile {
+    padding-bottom: var(--space-1);
+  }
+  .organization-universe-page .directory-person__unit {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 0 0 var(--space-1) 50px;
+    font-size: var(--text-meta);
+  }
+  .organization-universe-page .directory-person__chat,
+  .organization-universe-page .directory-person__self {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .organization-universe-page .organization-people-workspace > .organization-unassigned li {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* Structure view: readable selected node and side panel on the read-only map. */
+.organization-universe-page .organization-map__node.is-selected small {
+  color: var(--fg-body);
+}
+.organization-universe-page .organization-map__panel .organization-panel-heading .organization-panel-title {
+  font-size: 22px;
+  letter-spacing: -.01em;
+  line-height: 1.25;
+}
+:root[data-theme='dark'] .organization-universe-page .organization-panel-kind {
+  color: var(--fg-link);
+}
