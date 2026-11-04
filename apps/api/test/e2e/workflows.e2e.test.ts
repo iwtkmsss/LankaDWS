@@ -1037,7 +1037,8 @@ describe('LankaDWS API workflows', () => {
       .get('/api/v1/org/units?company=cmp_lankadws_ua&parentId=')
       .expect(200);
     expect(units.body.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'org_e2e_product', activeEmployeeCount: 1, childCount: 0 }),
+      // Maria plus the manager (docs/decisions.md 2026-11-04).
+      expect.objectContaining({ id: 'org_e2e_product', activeEmployeeCount: 2, childCount: 0 }),
     ]));
     const employees = await maria.agent
       .get('/api/v1/org/units/org_e2e_product/employees?company=cmp_lankadws_ua')
@@ -1045,6 +1046,8 @@ describe('LankaDWS API workflows', () => {
     expect(employees.body.items).toEqual([
       expect.objectContaining({ id: 'usr_maria', positionTitle: 'Продуктова дизайнерка', isPrimary: true }),
     ]);
+    expect(employees.body).toMatchObject({ total: 1, nextCursor: null });
+    expect(JSON.stringify(employees.body)).not.toContain('orgAssignments');
     expect(JSON.stringify(employees.body)).not.toContain('contactEmail');
     expect(JSON.stringify(employees.body)).not.toContain('username');
   });
