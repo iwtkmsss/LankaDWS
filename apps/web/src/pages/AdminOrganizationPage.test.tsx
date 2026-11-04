@@ -417,6 +417,24 @@ it('shows department employees once and retains drag data', async () => {
 
 })
 
+it('pages department employees in the editor without submitting the form', async () => {
+  const fallback = api.getMockImplementation()!
+  api.mockImplementation((path: string, options) => path.startsWith('/org/units/root/employees')
+    ? Promise.resolve(path.includes('cursor=usr_a')
+      ? { items: [{ id: 'usr_b', displayName: 'Марія Іваненко', positionTitle: '', jobTitle: 'Дизайнерка' }], total: 21, nextCursor: null }
+      : { items: [{ id: 'usr_a', displayName: 'Андрій Коваль', positionTitle: '', jobTitle: 'Керівник' }], total: 21, nextCursor: 'usr_a' })
+    : fallback(path, options))
+  openSettings()
+  fireEvent.click(await screen.findByRole('button', { name: 'Вибрати підрозділ' }))
+  await screen.findByText('Андрій Коваль')
+  fireEvent.click(screen.getByRole('button', { name: 'Далі' }))
+  await screen.findByText('Марія Іваненко')
+  expect(screen.queryByText('Андрій Коваль')).not.toBeInTheDocument()
+  expect(api.mock.calls.some(([path, options]) => String(path).includes('/org-units/') && options?.method === 'PATCH')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
+  await screen.findByText('Андрій Коваль')
+})
+
 
 
 it('submits the new company with its manager and selected employees', async () => {

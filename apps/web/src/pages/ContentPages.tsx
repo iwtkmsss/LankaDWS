@@ -13,6 +13,7 @@ import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
+import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
 import { FileDropzone } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
@@ -49,6 +50,8 @@ interface Employee {
 }
 interface EmployeeDirectory {
   items: Employee[]
+  total: number
+  nextCursor: string | null
   counts: { all: number; available: number; away: number }
   filters: {
     orgUnits: Array<{ id: string; name: string }>
@@ -388,8 +391,10 @@ function EmployeesPage() {
   if (orgUnitId) requestQuery.set('orgUnit', orgUnitId)
   if (managerId) requestQuery.set('manager', managerId)
   if (presence) requestQuery.set('presence', presence)
+  const pages = useCursorPages(requestQuery.toString())
+  if (pages.cursor) requestQuery.set('cursor', pages.cursor)
   const query = useQuery({
-    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence],
+    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence, pages.cursor ?? ''],
     queryFn: () => api<EmployeeDirectory>(`/employees?${requestQuery.toString()}`),
   })
   const updateFilter = (name: string, value: string) => {
@@ -459,7 +464,7 @@ function EmployeesPage() {
           </label>
         </div>
         <div className="directory-summary" aria-live="polite">
-          <span><strong>{query.data?.items.length ?? 0}</strong> знайдено</span>
+          <span><strong>{query.data?.total ?? 0}</strong> знайдено</span>
           {query.data && <span>{query.data.counts.available} доступні · {query.data.counts.away} відсутні</span>}
           {hasFilters && <button type="button" onClick={clearFilters}><X size={14} />Очистити</button>}
         </div>
@@ -505,6 +510,7 @@ function EmployeesPage() {
             action={hasFilters && <Button variant="secondary" onClick={clearFilters}>Очистити фільтри</Button>}
           />
         )}
+        <CursorPager label="Сторінки працівників" hasPrevious={pages.hasPrevious} nextCursor={query.data?.nextCursor} onPrevious={pages.previous} onNext={pages.next} />
       </Card>
     </div>
   )

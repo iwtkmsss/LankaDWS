@@ -18,8 +18,15 @@ export class OrgController {
   }
 
   @Get('units/:id/employees')
-  listEmployees(@Req() request: LankaDWSRequest, @Param('id') unitId: string, @Query('company') company?: string) {
-    return this.org.listEmployees(principalFrom(request), unitId, company)
+  listEmployees(
+    @Req() request: LankaDWSRequest,
+    @Param('id') unitId: string,
+    @Query('company') company?: string,
+    @Query('cursor') cursor?: string,
+    @Query('excludeManager') excludeManager?: string,
+  ) {
+    if ((cursor && cursor.length > 120) || (excludeManager !== undefined && excludeManager !== 'true')) throw badRequest('org_query_invalid')
+    return this.org.listEmployees(principalFrom(request), unitId, company, { cursor, excludeManager: excludeManager === 'true' })
   }
 
   @Get('companies/:id/unassigned-employees')

@@ -13,6 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
 type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null; accountType?: string }
+const EMPLOYEE_PAGE_SIZE = 20
 const normalizeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 const normalizedName = (value: string) => normalizeName(value).toLocaleLowerCase('uk')
 const archivedStructureSchema = z.object({ structure: z.array(z.object({
@@ -441,17 +442,32 @@ export class OrgService {
     return { items, total, nextCursor: rows.length > 20 ? items.at(-1)!.id : null }
   }
 
-  async listEmployees(principal: AuthPrincipal, unitId: string, company?: string): Promise<{ items: OrgUnitEmployeeView[] }> {
+  async listEmployees(principal: AuthPrincipal, unitId: string, company?: string, { cursor, excludeManager = false }: { cursor?: string; excludeManager?: boolean } = {}): Promise<{ items: OrgUnitEmployeeView[]; total: number; nextCursor: string | null }> {
     const companyIds = company ? [this.scope.assertCompany(principal, company)] : principal.allowedCompanyIds
     const unit = await this.prisma.orgUnit.findFirst({
-      where: { id: unitId, workspaceId: principal.workspaceId, companyId: { in: companyIds }, status: 'ACTIVE' }, select: { id: true, companyId: true },
+      where: { id: unitId, workspaceId: principal.workspaceId, companyId: { in: companyIds }, status: 'ACTIVE' }, select: { id: true, companyId: true, managerId: true },
     })
     if (!unit) throw notFound()
-    const assignments = await this.prisma.userOrgAssignment.findMany({
-      where: { orgUnitId: unit.id, companyId: unit.companyId, endedAt: null, isPrimary: true, user: { isActive: true, accountType: 'USER', primaryCompanyId: unit.companyId } },
-      select: { isPrimary: true, positionTitle: true, user: { select: { id: true, displayName: true, jobTitle: true, avatarAsset: true } } },
-      orderBy: { user: { displayName: 'asc' } },
-    })
-    return { items: assignments.map((assignment) => ({ ...assignment.user, positionTitle: assignment.positionTitle, isPrimary: assignment.isPrimary })) }
+    const assignment = { orgUnitId: unit.id, companyId: unit.companyId, endedAt: null, isPrimary: true }
+    const where = {
+      workspaceId: principal.workspaceId, isActive: true, accountType: 'USER' as const, primaryCompanyId: unit.companyId,
+      orgAssignments: { some: assignment },
+      ...(excludeManager && unit.managerId ? { id: { not: unit.managerId } } : {}),
+    }
+    const [rows, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        select: { id: true, displayName: true, jobTitle: true, avatarAsset: true,
+          orgAssignments: { where: assignment, select: { isPrimary: true, positionTitle: true }, orderBy: { startedAt: 'asc' }, take: 1 } },
+        orderBy: [{ displayName: 'asc' }, { id: 'asc' }],
+        take: EMPLOYEE_PAGE_SIZE + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      }),
+      this.prisma.user.count({ where }),
+    ])
+    const items = rows.slice(0, EMPLOYEE_PAGE_SIZE).map(({ orgAssignments, ...user }) => ({
+      ...user, positionTitle: orgAssignments[0]?.positionTitle ?? null, isPrimary: orgAssignments[0]?.isPrimary ?? true,
+    }))
+    return { items, total, nextCursor: rows.length > EMPLOYEE_PAGE_SIZE ? items.at(-1)!.id : null }
   }
 }

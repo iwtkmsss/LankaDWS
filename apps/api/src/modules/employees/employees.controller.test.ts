@@ -95,7 +95,8 @@ describe('employee department projection', () => {
     findMany.mockResolvedValueOnce([employee])
     const presence = { findMany: vi.fn().mockResolvedValue([]) }
     // The directory's presence query is independent of department membership.
-    const prisma = { user: { findMany }, presenceRecord: presence }
+    const count = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    const prisma = { user: { findMany, count }, presenceRecord: presence, orgUnit: { findMany: vi.fn().mockResolvedValue([]) } }
     const directory = new EmployeesController(prisma as unknown as PrismaService, { allowedCompanies: () => ['company-a'] } as unknown as ScopeService)
     const result = await directory.list(request, 'company-a')
     expect(result.items).toEqual([expect.objectContaining({ primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', positionTitle: 'Дизайнерка', orgUnit: null })])
@@ -114,8 +115,13 @@ describe('employee department projection', () => {
     const manager = { id: 'manager', displayName: 'Марко', primaryCompanyId: 'company-a', jobTitle: 'Керівник', orgAssignments: [], approver: null,
       managedOrgUnits: [managed('first'), managed('second'), { ...managed('foreign'), companyId: 'company-b' }] }
     const colleague = { id: 'colleague', displayName: 'Олена', primaryCompanyId: 'company-a', jobTitle: 'HR', orgAssignments: [], managedOrgUnits: [], approver: null }
+    // Which rows match is covered against SQLite in employee-pagination.persistence.test.ts.
     findMany.mockResolvedValue([manager, colleague])
-    const directory = new EmployeesController({ user: { findMany }, presenceRecord: { findMany: vi.fn().mockResolvedValue([]) } } as unknown as PrismaService, { allowedCompanies: () => ['company-a', 'company-b'] } as unknown as ScopeService)
+    const directory = new EmployeesController({
+      user: { findMany, count: vi.fn().mockResolvedValue(2) },
+      presenceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+      orgUnit: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService, { allowedCompanies: () => ['company-a', 'company-b'] } as unknown as ScopeService)
     const list = (orgUnit?: string) => directory.list(request, 'company-a', undefined, orgUnit)
 
     const everyone = await list()
@@ -124,8 +130,9 @@ describe('employee department projection', () => {
       expect.objectContaining({ id: 'colleague', orgUnit: null }),
     ])
     expect(everyone.items[0]).not.toHaveProperty('managedOrgUnits')
+    findMany.mockResolvedValue([manager])
     expect((await list('second')).items).toEqual([expect.objectContaining({ id: 'manager', orgUnit: { id: 'second', name: 'second', parent: null } })])
-    expect((await list('foreign')).items).toEqual([])
+    expect((await list('foreign')).items).toEqual([expect.objectContaining({ id: 'manager', orgUnit: { id: 'first', name: 'first', parent: null } })])
   })
 
   it('shows a managed unit in the profile of a manager without an assignment', async () => {

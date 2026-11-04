@@ -124,7 +124,7 @@ export function AppShell({ children }: PropsWithChildren) {
       })
     } else if (route.path === '/organization') {
       void queryClient.prefetchQuery({
-        queryKey: ['employees', '', company, '', '', ''],
+        queryKey: ['employees', '', company, '', '', '', ''],
         queryFn: () => api(`/employees?company=${encodeURIComponent(company)}`),
       })
     }

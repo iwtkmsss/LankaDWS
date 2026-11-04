@@ -3057,12 +3057,15 @@ button.organization-unassigned__person:focus-visible strong {
   margin-block: 0;
 }
 .organization-unassigned header,
-.organization-unassigned nav {
+.organization-unassigned nav,
+.cursor-pager {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
+.cursor-pager { margin-top: var(--space-3); }
+.cursor-pager [aria-disabled="true"] { opacity: .5; cursor: default; }
 .organization-unassigned h3,
 .organization-unassigned p {
   margin: 0;

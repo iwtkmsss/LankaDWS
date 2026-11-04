@@ -13,6 +13,7 @@ import { OrganizationMap } from '../features/organization/OrganizationMap'
 import { useTopbarContent } from '../layout/TopbarContent'
 import { CompanyCreateForm } from '../features/organization/CompanyCreateForm'
 import { UnassignedEmployees } from '../features/organization/UnassignedEmployees'
+import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
 import { api, jsonBody } from '../shared/api/client'
 import { Avatar, Button, Card, ConfirmationDialog, EmptyState, ErrorState, Skeleton, StatusBadge } from '../shared/ui'
 
@@ -360,9 +361,10 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
   const [description, setDescription] = useState(unit?.description ?? '')
   const [icon, setIcon] = useState<OrgUnitIcon | null>(unit?.icon ?? null)
   const [addedEmployeeIds, setAddedEmployeeIds] = useState<string[]>([])
+  const employeePages = useCursorPages(`${companyId}:${unit?.id ?? ''}`)
   const employees = useQuery({
-    queryKey: ['admin-org-unit-employees', companyId, unit?.id],
-    queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${unit!.id}/employees?company=${encodeURIComponent(companyId)}`),
+    queryKey: ['admin-org-unit-employees', companyId, unit?.id, employeePages.cursor ?? ''],
+    queryFn: () => api<{ items: OrgUnitEmployeeView[]; total: number; nextCursor: string | null }>(`/org/units/${unit!.id}/employees?company=${encodeURIComponent(companyId)}${employeePages.cursor ? `&cursor=${encodeURIComponent(employeePages.cursor)}` : ''}`),
     enabled: Boolean(unit?.id),
   })
   const [addedPeople, setAddedPeople] = useState<UserSearchOption[]>([])
@@ -427,6 +429,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
         {employees.isLoading ? <small>Завантажуємо працівників…</small> : selectedEmployees.length ? <div className="admin-org-employees-picker__list">
           {selectedEmployees.map((employee) => <article key={employee.id} draggable={currentEmployeeIds.has(employee.id)} tabIndex={currentEmployeeIds.has(employee.id) ? 0 : undefined} aria-label={personName(employee.displayName)} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-lankadws-employee', employee.id); event.dataTransfer.setData('text/plain', employee.id) }}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} size="sm" /><div><strong title={personName(employee.displayName)}>{personName(employee.displayName)}</strong><small>{employee.jobTitle || 'Без посади'}</small></div></article>)}
         </div> : <small>{unit?.manager ? 'Інших працівників немає.' : 'У підрозділі ще немає працівників.'}</small>}
+        <CursorPager label="Сторінки працівників підрозділу" hasPrevious={employeePages.hasPrevious} nextCursor={employees.data?.nextCursor} onPrevious={employeePages.previous} onNext={employeePages.next} />
       </section>
       {mutation.isError && <p className="span-2" role="alert">Не вдалося зберегти. Перевірте назву, вибраних працівників і актуальність даних.</p>}
       <Button className="span-2" disabled={mutation.isPending}>{unit ? 'Зберегти зміни' : 'Створити підрозділ'}</Button>

@@ -5,7 +5,8 @@ import type { OrgCompanyView, OrgUnitEmployeeView, OrgUnitView } from '@lankadws
 import { useQuery } from '@tanstack/react-query'
 import { Building2, ChevronDown, ChevronRight, FilterX, List, MessageCircle, Network, PencilRuler, Search, UserRoundX, Users, UsersRound, X } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
 import { createOrganizationOutline, OrganizationMap } from '../features/organization/OrganizationMap'
 import { OrganizationSearchEmptyState } from '../features/organization/OrganizationSearchEmptyState'
 import { UnassignedEmployees } from '../features/organization/UnassignedEmployees'
@@ -31,12 +32,18 @@ interface Employee {
 }
 interface EmployeeDirectory {
   items: Employee[]
+  total: number
+  nextCursor: string | null
   counts: { all: number; available: number; away: number }
   filters: { orgUnits: Array<{ id: string; name: string }>; managers: Array<{ id: string; displayName: string }> }
 }
 
+// Changing any of these changes the result set, so a page cursor no longer applies.
+const DIRECTORY_SCOPE_PARAMS = new Set(['companyId', 'q', 'orgUnit', 'manager', 'presence'])
+
 export default function OrganizationUniversePage() {
   const { user } = useAuth()
+  const location = useLocation()
   const [params, setParams] = useSearchParams()
   const requestedView = params.get('view')
   const view = requestedView === 'structure' ? 'structure' : 'people'
@@ -46,6 +53,7 @@ export default function OrganizationUniversePage() {
   const orgUnitId = params.get('orgUnit') ?? ''
   const managerId = params.get('manager') ?? ''
   const presence = params.get('presence') ?? ''
+  const directoryCursor = params.get('cursor') ?? ''
   const editStructureAction = useMemo(() => user?.accountType === 'ADMIN' && companyId
     ? <Link className="button button--secondary topbar-action" to={`/admin/companies/${encodeURIComponent(companyId)}/structure${selectedUnitId ? `?unit=${encodeURIComponent(selectedUnitId)}` : ''}`}><PencilRuler size={16} />Редагувати структуру</Link>
     : null, [companyId, selectedUnitId, user?.accountType])
@@ -61,7 +69,7 @@ export default function OrganizationUniversePage() {
     const preferred = companies.find((company) => company.id === user?.company?.id) ?? companies[0]
     const next = new URLSearchParams(params)
     next.set('companyId', preferred!.id)
-    for (const key of ['unitId', 'orgUnit', 'manager', 'employeeId']) next.delete(key)
+    for (const key of ['unitId', 'orgUnit', 'manager', 'employeeId', 'cursor']) next.delete(key)
     setParams(next, { replace: true })
   }, [companies, companyAvailable, params, setParams, user?.company?.id])
 
@@ -75,8 +83,9 @@ export default function OrganizationUniversePage() {
   if (orgUnitId) request.set('orgUnit', orgUnitId)
   if (managerId) request.set('manager', managerId)
   if (presence) request.set('presence', presence)
+  if (directoryCursor) request.set('cursor', directoryCursor)
   const directoryQuery = useQuery({
-    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence],
+    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence, directoryCursor],
     queryFn: () => api<EmployeeDirectory>(`/employees?${request.toString()}`),
     enabled: companyAvailable && view === 'people' && orgUnitId !== 'unassigned',
   })
@@ -84,27 +93,36 @@ export default function OrganizationUniversePage() {
   const unitById = useMemo(() => new Map(units.map((unit) => [unit.id, unit])), [units])
   const selectedUnit = selectedUnitId ? unitById.get(selectedUnitId) ?? null : null
   const selectedDirectoryUnit = orgUnitId ? unitById.get(orgUnitId) ?? null : null
+  const unitPages = useCursorPages(`${companyId}:${selectedUnitId ?? ''}`)
   const unitEmployees = useQuery({
-    queryKey: ['org-unit-employees', selectedUnitId, companyId],
-    queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${selectedUnitId}/employees?company=${encodeURIComponent(companyId)}`),
+    queryKey: ['org-unit-employees', selectedUnitId, companyId, unitPages.cursor ?? ''],
+    // The panel shows the manager in their own section, so the list leaves them out.
+    queryFn: () => api<{ items: OrgUnitEmployeeView[]; total: number; nextCursor: string | null }>(`/org/units/${selectedUnitId}/employees?company=${encodeURIComponent(companyId)}&excludeManager=true${unitPages.cursor ? `&cursor=${encodeURIComponent(unitPages.cursor)}` : ''}`),
     enabled: Boolean(companyAvailable && view === 'structure' && selectedUnitId && selectedUnit),
   })
-  // The panel shows the manager in their own section, so never list them twice.
-  const unitMembers = unitEmployees.data?.items.filter((employee) => employee.id !== selectedUnit?.manager?.id)
+  // Earlier cursors live in the history entry so a shared link needs only `cursor`.
+  const previousCursors = (location.state as { directoryCursors?: string[] } | null)?.directoryCursors ?? []
 
   function update(name: string, value: string, clear: string[] = []) {
     const next = new URLSearchParams(params)
     if (value) next.set(name, value)
     else next.delete(name)
     clear.forEach((key) => next.delete(key))
-    setParams(next, { replace: true })
+    if (DIRECTORY_SCOPE_PARAMS.has(name)) next.delete('cursor')
+    setParams(next, { replace: true, state: next.has('cursor') ? location.state : null })
+  }
+  function openDirectoryPage(cursor: string, directoryCursors: string[]) {
+    const next = new URLSearchParams(params)
+    if (cursor) next.set('cursor', cursor)
+    else next.delete('cursor')
+    setParams(next, { state: { directoryCursors } })
   }
   function chooseView(nextView: 'people' | 'structure') {
     update('view', nextView)
   }
   function clearDirectoryFilters() {
     const next = new URLSearchParams(params)
-    const directoryFilterKeys = ['q', 'orgUnit', 'manager', 'presence']
+    const directoryFilterKeys = ['q', 'orgUnit', 'manager', 'presence', 'cursor']
     directoryFilterKeys.forEach((key) => next.delete(key))
     setParams(next, { replace: true })
   }
@@ -150,6 +168,9 @@ export default function OrganizationUniversePage() {
             onUpdate={update}
             onClear={clearDirectoryFilters}
             onOpen={(id) => update('employeeId', id)}
+            hasPreviousPage={Boolean(directoryCursor)}
+            onPreviousPage={() => openDirectoryPage(previousCursors.at(-1) ?? '', previousCursors.slice(0, -1))}
+            onNextPage={(cursor) => openDirectoryPage(cursor, [...previousCursors, directoryCursor])}
           />}
         </section>
       ) : unitsQuery.isLoading ? <Skeleton rows={8} /> : unitsQuery.isError || !unitsQuery.data ? <ErrorState onRetry={() => void unitsQuery.refetch()} /> : (
@@ -181,9 +202,10 @@ export default function OrganizationUniversePage() {
               <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>
               {selectedUnit.manager ? <div className="org-people org-people--manager"><button type="button" onClick={() => update('employeeId', selectedUnit.manager!.id)}><Avatar name={personName(selectedUnit.manager.displayName)} src={selectedUnit.manager.avatarAsset} /><span><strong>{personName(selectedUnit.manager.displayName)}</strong><small>Керівник{selectedUnit.manager.jobTitle ? ` · ${selectedUnit.manager.jobTitle}` : ''}</small></span></button></div> : <p>Без керівника</p>}</section>
               <section className="organization-unassigned organization-panel-employees"><h3>Працівники</h3>
-              {unitEmployees.isLoading ? <Skeleton rows={4} /> : unitEmployees.isError ? <ErrorState onRetry={() => void unitEmployees.refetch()} /> : unitMembers?.length ? (
-                <div className="org-people">{unitMembers.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span></button>)}</div>
+              {unitEmployees.isLoading ? <Skeleton rows={4} /> : unitEmployees.isError ? <ErrorState onRetry={() => void unitEmployees.refetch()} /> : unitEmployees.data?.items.length ? (
+                <div className="org-people">{unitEmployees.data.items.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span></button>)}</div>
               ) : <p>{selectedUnit.manager ? 'Інших працівників немає.' : 'У підрозділі ще немає працівників.'}</p>}
+              <CursorPager label="Сторінки працівників підрозділу" hasPrevious={unitPages.hasPrevious} nextCursor={unitEmployees.data?.nextCursor} onPrevious={unitPages.previous} onNext={unitPages.next} />
               </section>
             </> : undefined}
           />
@@ -269,7 +291,7 @@ function OrganizationNavigator({ company, employeeCount, units, selectedId, allS
   </Card>
 }
 
-function DirectoryView({ query, search, orgUnitId, scopeName, managerId, companyId, presence, onUpdate, onClear, onOpen }: {
+function DirectoryView({ query, search, orgUnitId, scopeName, managerId, companyId, presence, onUpdate, onClear, onOpen, hasPreviousPage, onPreviousPage, onNextPage }: {
   query: ReturnType<typeof useQuery<EmployeeDirectory>>
   search: string
   orgUnitId: string
@@ -280,6 +302,9 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
   onUpdate: (name: string, value: string, clear?: string[]) => void
   onClear: () => void
   onOpen: (id: string) => void
+  hasPreviousPage: boolean
+  onPreviousPage: () => void
+  onNextPage: (cursor: string) => void
 }) {
   const { user } = useAuth()
   const hasFilters = Boolean(search || orgUnitId || managerId || presence)
@@ -289,7 +314,7 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
         <span className="directory-people-heading__icon" aria-hidden="true">{scopeName ? <Building2 size={20} /> : <UsersRound size={20} />}</span>
         <div className="directory-people-title">
           <h2>{scopeName ?? 'Уся компанія'}</h2>
-          <p className="directory-people-count">{query.data && <>{search || managerId || presence ? 'Знайдено' : scopeName ? 'Працівників у підрозділі' : 'Усього працівників'}: <strong>{query.data.items.length}</strong></>}</p>
+          <p className="directory-people-count">{query.data && <>{search || managerId || presence ? 'Знайдено' : scopeName ? 'Працівників у підрозділі' : 'Усього працівників'}: <strong>{query.data.total}</strong></>}</p>
           <p>{scopeName ? 'Працівники вибраного підрозділу.' : 'Каталог працівників вибраної компанії та її підрозділів.'}</p>
         </div>
       </header>
@@ -320,7 +345,8 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
             </article>
           })}
         </div>
-      ) : <OrganizationSearchEmptyState />}
+      ) : query.data?.total ? <p>На цій сторінці більше немає працівників.</p> : <OrganizationSearchEmptyState />}
+      <CursorPager label="Сторінки працівників" hasPrevious={hasPreviousPage} nextCursor={query.data?.nextCursor} onPrevious={onPreviousPage} onNext={onNextPage} />
     </Card>
   )
 }
