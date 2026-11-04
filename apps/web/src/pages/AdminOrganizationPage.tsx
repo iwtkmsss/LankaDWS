@@ -426,7 +426,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
           onSelect={(person) => { setAddedEmployeeIds((ids) => [...ids, person.id]); setAddedPeople((people) => [...people, person]) }} />
         {employees.isLoading ? <small>Завантажуємо працівників…</small> : selectedEmployees.length ? <div className="admin-org-employees-picker__list">
           {selectedEmployees.map((employee) => <article key={employee.id} draggable={currentEmployeeIds.has(employee.id)} tabIndex={currentEmployeeIds.has(employee.id) ? 0 : undefined} aria-label={personName(employee.displayName)} onDragStart={(event) => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('application/x-lankadws-employee', employee.id); event.dataTransfer.setData('text/plain', employee.id) }}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} size="sm" /><div><strong title={personName(employee.displayName)}>{personName(employee.displayName)}</strong><small>{employee.jobTitle || 'Без посади'}</small></div></article>)}
-        </div> : <small>У підрозділі ще немає працівників.</small>}
+        </div> : <small>{unit?.manager ? 'Інших працівників немає.' : 'У підрозділі ще немає працівників.'}</small>}
       </section>
       {mutation.isError && <p className="span-2" role="alert">Не вдалося зберегти. Перевірте назву, вибраних працівників і актуальність даних.</p>}
       <Button className="span-2" disabled={mutation.isPending}>{unit ? 'Зберегти зміни' : 'Створити підрозділ'}</Button>

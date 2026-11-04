@@ -93,6 +93,7 @@ describe('company users without a department', () => {
     expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 21, where: {
       workspaceId: 'workspace', primaryCompanyId: 'company', accountType: 'USER', isActive: true, id: { gt: 'previous' },
       orgAssignments: { none: { companyId: 'company', endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } } },
+      managedOrgUnits: { none: { companyId: 'company', status: 'ACTIVE' } },
     } }))
   })
 

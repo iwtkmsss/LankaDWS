@@ -20,9 +20,9 @@ function Location() {
   return <output data-testid="location">{location.search}</output>
 }
 
-function openPage() {
+function openPage(url = '/organization?companyId=archived&orgUnit=old&manager=old&unitId=old&employeeId=old') {
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <MemoryRouter initialEntries={['/organization?companyId=archived&orgUnit=old&manager=old&unitId=old&employeeId=old']}>
+    <MemoryRouter initialEntries={[url]}>
       <TopbarContentProvider><OrganizationUniversePage /><Location /></TopbarContentProvider>
     </MemoryRouter>
   </QueryClientProvider>)
@@ -44,6 +44,21 @@ it('replaces an archived company URL before requesting directory data and clears
   await waitFor(() => expect(api).toHaveBeenCalledWith('/employees?company=active'))
   expect(screen.queryByRole('option', { name: 'Архівована' })).not.toBeInTheDocument()
   expect(api.mock.calls.some(([path]) => path.includes('company=archived'))).toBe(false)
+})
+
+it.each([
+  ['the whole company', '', 'Уся компанія', 'Усього працівників: 2'],
+  ['a department', '&orgUnit=unit_one', 'IT', 'Працівників у підрозділі: 2'],
+  ['a search', '&q=Анна', 'Уся компанія', 'Знайдено: 2'],
+])('labels the directory count for %s', async (_scope, filters, title, count) => {
+  api.mockImplementation(async (path: string) => {
+    if (path === '/companies') return { items: [active] }
+    if (path.startsWith('/org/units')) return { company: active, items: [{ id: 'unit_one', companyId: active.id, parentId: null, name: 'IT', description: null, manager: null, activeEmployeeCount: 2, childCount: 0, sortOrder: 0, version: 1 }] }
+    return { items: [{ id: 'one', displayName: 'Анна Бойко', jobTitle: 'QA', avatarAsset: null, presence: 'AVAILABLE' }, { id: 'two', displayName: 'Анна Гнатюк', jobTitle: 'QA', avatarAsset: null, presence: 'AVAILABLE' }], counts: { all: 2, available: 2, away: 0 }, filters: { orgUnits: [], managers: [] } }
+  })
+  openPage(`/organization?companyId=active${filters}`)
+  expect(await screen.findByRole('heading', { level: 2, name: title })).toBeInTheDocument()
+  await waitFor(() => expect(document.querySelector('.directory-people-count')).toHaveTextContent(count))
 })
 
 it('shows restoration when all companies are archived without making forbidden requests', async () => {
@@ -74,4 +89,16 @@ it('shows the department manager with their avatar and job title', async () => {
   expect(stats.querySelectorAll('dt')[1]).toHaveTextContent('Підрозділи')
   expect(stats.querySelectorAll('dd')[0]).toHaveTextContent('0')
   expect(stats.querySelectorAll('dd')[1]).toHaveTextContent('0')
+})
+
+it('lists an assigned manager once and says when nobody else is in the department', async () => {
+  const manager = { id: 'manager', displayName: 'Андрій Коваль', jobTitle: 'Керівник', avatarAsset: null }
+  api.mockImplementation(async (path: string) => {
+    if (path === '/companies') return { items: [active] }
+    if (path.includes('/employees')) return { items: [manager] }
+    return { company: active, items: [{ id: 'unit_one', companyId: active.id, parentId: null, name: 'IT', description: null, manager, activeEmployeeCount: 1, childCount: 0, sortOrder: 0, version: 1 }] }
+  })
+  openPage('/organization?companyId=active&view=structure&unitId=unit_one')
+  expect(await screen.findByText('Інших працівників немає.')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /Андрій Коваль/ })).toHaveLength(1)
 })

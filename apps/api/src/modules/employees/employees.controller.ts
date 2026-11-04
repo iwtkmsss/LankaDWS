@@ -101,9 +101,16 @@ export class EmployeesController {
           },
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
         },
+        managedOrgUnits: {
+          where: { companyId: { in: companyIds }, status: 'ACTIVE' },
+          select: { id: true, name: true, companyId: true, parent: { select: { id: true, name: true } } },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
       },
       orderBy: { displayName: 'asc' },
     })
+    // A manager belongs to the units they manage (docs/decisions.md 2026-11-04).
+    const managedUnits = new Map(users.map((user) => [user.id, user.managedOrgUnits.filter((unit) => unit.companyId === user.primaryCompanyId)]))
     const now = new Date()
     const activePresence = await this.prisma.presenceRecord.findMany({
       where: {
@@ -119,27 +126,33 @@ export class EmployeesController {
     for (const item of activePresence) {
       if (!state.has(item.userId)) state.set(item.userId, item.state)
     }
-    const directory = users.map(({ orgAssignments, approver, ...user }) => {
+    const directory = users.map(({ orgAssignments, approver, managedOrgUnits, ...user }) => {
       const assignment = includeOrg ? orgAssignments.find((item) => item.orgUnit.companyId === user.primaryCompanyId) : undefined
       const manager = assignment?.orgUnit.manager ?? approver
+      const unit = assignment?.orgUnit ?? managedOrgUnits.find((item) => item.companyId === user.primaryCompanyId)
       return {
         ...user,
         presence: state.get(user.id) ?? 'AVAILABLE',
         positionTitle: assignment?.positionTitle ?? user.jobTitle,
-        orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name, parent: assignment.orgUnit.parent } : null,
+        orgUnit: unit ? { id: unit.id, name: unit.name, parent: unit.parent } : null,
         manager,
       }
     })
     const rows = directory.filter((user) =>
-      (!orgUnitId || user.orgUnit?.id === orgUnitId)
+      (!orgUnitId || user.orgUnit?.id === orgUnitId || managedUnits.get(user.id)?.some((unit) => unit.id === orgUnitId))
       && (!managerId || user.manager?.id === managerId)
       && (!presenceFilter || (presenceFilter === 'AVAILABLE' ? user.presence === 'AVAILABLE' : user.presence !== 'AVAILABLE')),
-    )
+    ).map((user) => {
+      // In a unit's own list, show that unit for the person who manages it.
+      const managedHere = orgUnitId ? managedUnits.get(user.id)?.find((unit) => unit.id === orgUnitId) : undefined
+      return managedHere ? { ...user, orgUnit: { id: managedHere.id, name: managedHere.name, parent: managedHere.parent } } : user
+    })
     const orgUnits = new Map<string, string>()
     const managers = new Map<string, string>()
     for (const user of directory) {
       if (user.orgUnit) orgUnits.set(user.orgUnit.id, user.orgUnit.name)
       if (user.manager) managers.set(user.manager.id, user.manager.displayName)
+      for (const unit of managedUnits.get(user.id) ?? []) orgUnits.set(unit.id, unit.name)
     }
     return {
       items: rows,
@@ -190,6 +203,11 @@ export class EmployeesController {
           },
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
         },
+        managedOrgUnits: {
+          where: { companyId: { in: companyIds }, status: 'ACTIVE' },
+          select: { id: true, name: true, companyId: true, parent: { select: { id: true, name: true } } },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        },
       },
     })
     if (!user) throw notFound()
@@ -202,12 +220,13 @@ export class EmployeesController {
         take: 3,
       }),
     ])
-    const { orgAssignments, ...safeUser } = user
+    const { orgAssignments, managedOrgUnits, ...safeUser } = user
     const assignment = includeOrg ? orgAssignments.find((item) => item.orgUnit.companyId === user.primaryCompanyId) : undefined
+    const unit = assignment?.orgUnit ?? managedOrgUnits.find((item) => item.companyId === user.primaryCompanyId)
     return {
       ...safeUser,
       positionTitle: assignment?.positionTitle ?? user.jobTitle,
-      orgUnit: assignment ? { id: assignment.orgUnit.id, name: assignment.orgUnit.name, parent: assignment.orgUnit.parent } : null,
+      orgUnit: unit ? { id: unit.id, name: unit.name, parent: unit.parent } : null,
       approver: assignment?.orgUnit.manager ?? approver,
       upcomingPresence: upcomingPresence.map((row) => ({
         state: row.state,

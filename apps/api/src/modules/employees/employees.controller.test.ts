@@ -91,7 +91,7 @@ describe('bounded employee selector search', () => {
 describe('employee department projection', () => {
   it('reads only active primary assignments and keeps users without a department in their company', async () => {
     const { request, findMany } = setup()
-    const employee = { id: 'employee', displayName: 'Марія', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', orgAssignments: [], approver: null }
+    const employee = { id: 'employee', displayName: 'Марія', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', orgAssignments: [], managedOrgUnits: [], approver: null }
     findMany.mockResolvedValueOnce([employee])
     const presence = { findMany: vi.fn().mockResolvedValue([]) }
     // The directory's presence query is independent of department membership.
@@ -108,8 +108,38 @@ describe('employee department projection', () => {
     })
   })
 
+  it('treats a manager without an assignment as a member of the units they manage', async () => {
+    const { request, findMany } = setup()
+    const managed = (id: string) => ({ id, name: id, companyId: 'company-a', parent: null })
+    const manager = { id: 'manager', displayName: 'Марко', primaryCompanyId: 'company-a', jobTitle: 'Керівник', orgAssignments: [], approver: null,
+      managedOrgUnits: [managed('first'), managed('second'), { ...managed('foreign'), companyId: 'company-b' }] }
+    const colleague = { id: 'colleague', displayName: 'Олена', primaryCompanyId: 'company-a', jobTitle: 'HR', orgAssignments: [], managedOrgUnits: [], approver: null }
+    findMany.mockResolvedValue([manager, colleague])
+    const directory = new EmployeesController({ user: { findMany }, presenceRecord: { findMany: vi.fn().mockResolvedValue([]) } } as unknown as PrismaService, { allowedCompanies: () => ['company-a', 'company-b'] } as unknown as ScopeService)
+    const list = (orgUnit?: string) => directory.list(request, 'company-a', undefined, orgUnit)
+
+    const everyone = await list()
+    expect(everyone.items).toEqual([
+      expect.objectContaining({ id: 'manager', orgUnit: { id: 'first', name: 'first', parent: null } }),
+      expect.objectContaining({ id: 'colleague', orgUnit: null }),
+    ])
+    expect(everyone.items[0]).not.toHaveProperty('managedOrgUnits')
+    expect((await list('second')).items).toEqual([expect.objectContaining({ id: 'manager', orgUnit: { id: 'second', name: 'second', parent: null } })])
+    expect((await list('foreign')).items).toEqual([])
+  })
+
+  it('shows a managed unit in the profile of a manager without an assignment', async () => {
+    const user = { id: 'manager', primaryCompanyId: 'company-a', jobTitle: 'Керівник', orgAssignments: [], managedOrgUnits: [{ id: 'unit', name: 'Відділ', companyId: 'company-a', parent: null }] }
+    const controller = new EmployeesController({ user: { findFirst: vi.fn().mockResolvedValue(user) }, presenceRecord: { findMany: vi.fn().mockResolvedValue([]) } } as unknown as PrismaService,
+      { allowedCompanies: () => ['company-a'] } as unknown as ScopeService)
+    const { request } = setup()
+    const result = await controller.detail(request, user.id)
+    expect(result).toMatchObject({ orgUnit: { id: 'unit', name: 'Відділ', parent: null } })
+    expect(result).not.toHaveProperty('managedOrgUnits')
+  })
+
   it('does not show an assignment from another company in the employee profile', async () => {
-    const user = { id: 'employee', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', orgAssignments: [
+    const user = { id: 'employee', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', managedOrgUnits: [], orgAssignments: [
       { positionTitle: 'Інша посада', orgUnit: { id: 'other-unit', companyId: 'company-b', name: 'Інший відділ', parent: null, manager: null } },
     ] }
     const findFirst = vi.fn().mockResolvedValue(user)

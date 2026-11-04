@@ -220,15 +220,22 @@ export class AuthService {
           orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
           select: { companyId: true, orgUnitId: true, positionTitle: true },
         },
+        managedOrgUnits: {
+          where: { status: 'ACTIVE' },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, companyId: true },
+        },
       },
     })
     if (!user) throw notFound()
     const assignment = user.primaryCompanyId
       ? user.orgAssignments.find((item) => item.companyId === user.primaryCompanyId)
       : undefined
+    // A manager belongs to the units they manage (docs/decisions.md 2026-11-04).
+    const homeUnitId = assignment?.orgUnitId ?? user.managedOrgUnits.find((unit) => unit.companyId === user.primaryCompanyId)?.id
     const [capabilities, orgUnits] = await Promise.all([
       this.capabilities.forOrganizations(principal.allowedCompanyIds),
-      assignment && user.primaryCompanyId
+      homeUnitId && user.primaryCompanyId
         ? this.prisma.orgUnit.findMany({
             where: { workspaceId: principal.workspaceId, companyId: user.primaryCompanyId },
             select: { id: true, name: true, parentId: true },
@@ -238,7 +245,7 @@ export class AuthService {
     const unitsById = new Map(orgUnits.map((unit) => [unit.id, unit]))
     const orgUnitPath: Array<{ id: string; name: string }> = []
     const visited = new Set<string>()
-    let currentUnit = assignment ? unitsById.get(assignment.orgUnitId) : undefined
+    let currentUnit = homeUnitId ? unitsById.get(homeUnitId) : undefined
     while (currentUnit && !visited.has(currentUnit.id)) {
       visited.add(currentUnit.id)
       orgUnitPath.unshift({ id: currentUnit.id, name: currentUnit.name })

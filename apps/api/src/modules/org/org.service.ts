@@ -12,7 +12,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 
-type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null }
+type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null; accountType?: string }
 const normalizeName = (value: string) => value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 const normalizedName = (value: string) => normalizeName(value).toLocaleLowerCase('uk')
 const archivedStructureSchema = z.object({ structure: z.array(z.object({
@@ -114,7 +114,7 @@ export class OrgService {
   private unitSelect(companyId: string) {
     return {
       id: true, companyId: true, parentId: true, name: true, icon: true, description: true, status: true, sortOrder: true, version: true,
-      manager: { select: { id: true, displayName: true, jobTitle: true, avatarAsset: true, isActive: true, primaryCompanyId: true } },
+      manager: { select: { id: true, displayName: true, jobTitle: true, avatarAsset: true, isActive: true, primaryCompanyId: true, accountType: true } },
       _count: { select: {
         children: { where: { status: 'ACTIVE' as const } },
         assignments: { where: { endedAt: null, isPrimary: true, user: { isActive: true, accountType: 'USER' as const, primaryCompanyId: companyId } } },
@@ -126,12 +126,26 @@ export class OrgService {
     id: string; companyId: string; parentId: string | null; name: string; icon?: string | null; description: string | null; manager: ManagerRow | null
     status: 'ACTIVE' | 'ARCHIVED' | 'INACTIVE'; sortOrder: number; version: number
     _count: { children: number; assignments: number }
-  }): OrgUnitView {
+  }, unassignedManagerUnitIds: ReadonlySet<string>): OrgUnitView {
     return {
       id: unit.id, companyId: unit.companyId, parentId: unit.parentId, name: unit.name, icon: orgUnitIconSchema.safeParse(unit.icon).data ?? null, description: unit.description,
-      manager: this.managerView(unit.manager, unit.companyId), activeEmployeeCount: unit._count.assignments,
+      manager: this.managerView(unit.manager, unit.companyId), activeEmployeeCount: unit._count.assignments + (unassignedManagerUnitIds.has(unit.id) ? 1 : 0),
       childCount: unit._count.children, sortOrder: unit.sortOrder, version: unit.version,
     }
+  }
+
+  // A unit's manager is one of its members (docs/decisions.md 2026-11-04). The
+  // assignment count already includes a manager who is also assigned there, so
+  // only units whose manager has no such assignment need adding to.
+  private async unassignedManagerUnitIds(units: Array<{ id: string; companyId: string; manager: ManagerRow | null }>) {
+    const managed = units.filter((unit) => unit.manager?.accountType === 'USER' && this.managerView(unit.manager, unit.companyId))
+    if (!managed.length) return new Set<string>()
+    const assigned = await this.prisma.userOrgAssignment.findMany({
+      where: { orgUnitId: { in: managed.map((unit) => unit.id) }, userId: { in: managed.map((unit) => unit.manager!.id) }, endedAt: null, isPrimary: true },
+      select: { orgUnitId: true, userId: true },
+    })
+    const assignedPairs = new Set(assigned.map((item) => `${item.orgUnitId}:${item.userId}`))
+    return new Set(managed.filter((unit) => !assignedPairs.has(`${unit.id}:${unit.manager!.id}`)).map((unit) => unit.id))
   }
 
   async listUnits(principal: AuthPrincipal, query: OrgUnitListQuery): Promise<{ company: OrgCompanyView; items: OrgUnitView[] }> {
@@ -145,9 +159,10 @@ export class OrgService {
       },
       select: this.unitSelect(companyId), orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
+    const unassignedManagerUnitIds = await this.unassignedManagerUnitIds(units)
     return {
       company: { logoAsset: company.logoFileId ? `/api/v1/companies/${company.id}/logo/${company.logoFileId}` : null, id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
-      items: units.map((unit) => this.unitView(unit)),
+      items: units.map((unit) => this.unitView(unit, unassignedManagerUnitIds)),
     }
   }
 
@@ -160,9 +175,10 @@ export class OrgService {
       },
       select: this.unitSelect(companyId), orderBy: [{ status: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }, { id: 'asc' }],
     })
+    const unassignedManagerUnitIds = await this.unassignedManagerUnitIds(units)
     return {
       company: { logoAsset: company.logoFileId ? `/api/v1/companies/${company.id}/logo/${company.logoFileId}` : null, id: company.id, name: company.displayName, description: company.description, manager: this.managerView(company.manager, company.id), version: company.version },
-      items: units.map((unit) => ({ ...this.unitView(unit), status: unit.status as 'ACTIVE' | 'ARCHIVED' })),
+      items: units.map((unit) => ({ ...this.unitView(unit, unassignedManagerUnitIds), status: unit.status as 'ACTIVE' | 'ARCHIVED' })),
     }
   }
 
@@ -414,7 +430,8 @@ export class OrgService {
   async listUnassignedEmployees(principal: AuthPrincipal, companyId: string, cursor?: string) {
     await this.company(principal, this.scope.assertCompany(principal, companyId))
     const where = { workspaceId: principal.workspaceId, primaryCompanyId: companyId, accountType: 'USER' as const, isActive: true,
-      orgAssignments: { none: { companyId, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' as const } } } }
+      orgAssignments: { none: { companyId, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' as const } } },
+      managedOrgUnits: { none: { companyId, status: 'ACTIVE' as const } } }
     const [rows, total] = await Promise.all([
       this.prisma.user.findMany({ where: { ...where, ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 21,
         select: { id: true, displayName: true, jobTitle: true, avatarAsset: true } }),

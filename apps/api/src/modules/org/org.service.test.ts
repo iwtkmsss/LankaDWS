@@ -182,4 +182,31 @@ describe('organization company projection', () => {
       id: 'unit_sales', name: 'Продажі', description: 'Робота з клієнтами', activeEmployeeCount: 4,
     })
   })
+
+  it('counts each unit manager once, whether or not they are also assigned there', async () => {
+    const person = (id: string, overrides = {}) => ({ id, displayName: id, jobTitle: '', isActive: true, primaryCompanyId: 'cmp_one', accountType: 'USER', ...overrides })
+    const unit = (id: string, manager: object | null, assignments: number) => ({
+      id, companyId: 'cmp_one', parentId: null, name: id, description: null, status: 'ACTIVE', sortOrder: 10, version: 1, manager, _count: { children: 0, assignments },
+    })
+    const assignmentLookup = vi.fn().mockResolvedValue([{ orgUnitId: 'also_assigned', userId: 'both' }])
+    const prisma = {
+      company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp_one', displayName: 'Компанія', description: null, version: 3, manager: null }) },
+      orgUnit: { findMany: vi.fn().mockResolvedValue([
+        unit('manager_only', person('solo'), 1),
+        unit('also_assigned', person('both'), 2),
+        unit('no_manager', null, 3),
+        unit('foreign_manager', person('foreign', { primaryCompanyId: 'cmp_two' }), 1),
+        unit('inactive_manager', person('gone', { isActive: false }), 1),
+        unit('admin_manager', person('admin', { accountType: 'ADMIN' }), 1),
+      ]) },
+      userOrgAssignment: { findMany: assignmentLookup },
+    }
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+
+    const response = await service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })
+
+    expect(Object.fromEntries(response.items.map((item) => [item.id, item.activeEmployeeCount]))).toEqual({
+      manager_only: 2, also_assigned: 2, no_manager: 3, foreign_manager: 1, inactive_manager: 1, admin_manager: 1,
+    })
+  })
 })

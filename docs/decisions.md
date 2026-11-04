@@ -321,3 +321,7 @@ This records the routing state shipped on 2026-09-04 and supersedes the 2026-07-
 ## 2026-11-03 — Mobile «Ще» includes the Knowledge base
 
 The mobile bottom navigation keeps Feed, Tasks, Chat and Drive as primary items. Its «Ще» menu lists Calendar, Organization and Knowledge, so the Knowledge base and its required-acknowledgement records are reachable without the side menu. Administration stays in the side menu.
+
+## 2026-11-04 — A unit manager is a member of the units they manage
+
+`OrgUnit.managerId` and `UserOrgAssignment` stay independent, and no assignment is created when a manager is set. On reads, a person belongs to a unit if they have an active primary assignment there or they are its valid manager (active `USER` whose primary company is that company), and each person counts once per unit. So `activeEmployeeCount` includes the manager, the `orgUnit` filter on `GET /employees` matches them, and "Не у підрозділі" lists only people with no assignment who also manage no active unit in their company. A person with no assignment shows their first managed unit in the directory, the employee profile and their own profile; a unit's own directory list shows that unit for its manager. Because one person can manage several units, unit counts may add up to more than the company headcount. `GET /org/units/:id/employees` still returns assignments only; panels show the manager separately. Chat recommendations (`sharedOrgUnit`) still use assignments only.

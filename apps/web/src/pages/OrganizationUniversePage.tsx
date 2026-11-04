@@ -89,6 +89,8 @@ export default function OrganizationUniversePage() {
     queryFn: () => api<{ items: OrgUnitEmployeeView[] }>(`/org/units/${selectedUnitId}/employees?company=${encodeURIComponent(companyId)}`),
     enabled: Boolean(companyAvailable && view === 'structure' && selectedUnitId && selectedUnit),
   })
+  // The panel shows the manager in their own section, so never list them twice.
+  const unitMembers = unitEmployees.data?.items.filter((employee) => employee.id !== selectedUnit?.manager?.id)
 
   function update(name: string, value: string, clear: string[] = []) {
     const next = new URLSearchParams(params)
@@ -179,9 +181,9 @@ export default function OrganizationUniversePage() {
               <section className="organization-panel-section organization-panel-manager"><h3>Керівник</h3>
               {selectedUnit.manager ? <div className="org-people org-people--manager"><button type="button" onClick={() => update('employeeId', selectedUnit.manager!.id)}><Avatar name={personName(selectedUnit.manager.displayName)} src={selectedUnit.manager.avatarAsset} /><span><strong>{personName(selectedUnit.manager.displayName)}</strong><small>Керівник{selectedUnit.manager.jobTitle ? ` · ${selectedUnit.manager.jobTitle}` : ''}</small></span></button></div> : <p>Без керівника</p>}</section>
               <section className="organization-unassigned organization-panel-employees"><h3>Працівники</h3>
-              {unitEmployees.isLoading ? <Skeleton rows={4} /> : unitEmployees.isError ? <ErrorState onRetry={() => void unitEmployees.refetch()} /> : unitEmployees.data?.items.length ? (
-                <div className="org-people">{unitEmployees.data.items.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span></button>)}</div>
-              ) : <p>У підрозділі ще немає працівників.</p>}
+              {unitEmployees.isLoading ? <Skeleton rows={4} /> : unitEmployees.isError ? <ErrorState onRetry={() => void unitEmployees.refetch()} /> : unitMembers?.length ? (
+                <div className="org-people">{unitMembers.map((employee) => <button type="button" key={employee.id} onClick={() => update('employeeId', employee.id)}><Avatar name={personName(employee.displayName)} src={employee.avatarAsset} /><span><strong>{personName(employee.displayName)}</strong><small>{employee.positionTitle ?? employee.jobTitle}</small></span></button>)}</div>
+              ) : <p>{selectedUnit.manager ? 'Інших працівників немає.' : 'У підрозділі ще немає працівників.'}</p>}
               </section>
             </> : undefined}
           />
@@ -286,7 +288,8 @@ function DirectoryView({ query, search, orgUnitId, scopeName, managerId, company
       <header className="directory-people-heading">
         <span className="directory-people-heading__icon" aria-hidden="true">{scopeName ? <Building2 size={20} /> : <UsersRound size={20} />}</span>
         <div className="directory-people-title">
-          <h2>{scopeName ?? 'Усі працівники'}<span className="directory-people-count" aria-label={`Показано: ${query.data?.items.length ?? 0}`}>{query.data?.items.length ?? 0}</span></h2>
+          <h2>{scopeName ?? 'Уся компанія'}</h2>
+          <p className="directory-people-count">{query.data && <>{search || managerId || presence ? 'Знайдено' : scopeName ? 'Працівників у підрозділі' : 'Усього працівників'}: <strong>{query.data.items.length}</strong></>}</p>
           <p>{scopeName ? 'Працівники вибраного підрозділу.' : 'Каталог працівників вибраної компанії та її підрозділів.'}</p>
         </div>
       </header>
