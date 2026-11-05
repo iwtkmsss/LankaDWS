@@ -28,6 +28,7 @@ output/
 .env
 .env.*
 !.env.example
+!.env.public.example
 
 # Logs
 *.log

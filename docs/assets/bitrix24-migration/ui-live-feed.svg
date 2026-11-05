@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
-  <title id="title">Макет Живої стрічки BERT CRM</title>
+  <title id="title">Макет Живої стрічки LankaDWS</title>
   <desc id="desc">Desktop wireframe with sidebar, composer, activity feed and attention rail.</desc>
   <rect width="1440" height="900" fill="#f4f7fb"/>
   <rect width="248" height="900" fill="#0c1d33"/>
-  <text x="32" y="52" fill="#ffffff" font-family="Arial" font-size="24" font-weight="700">BERT</text>
+  <text x="32" y="52" fill="#ffffff" font-family="Arial" font-size="24" font-weight="700">LankaDWS</text>
   <text x="32" y="75" fill="#9db2ca" font-family="Arial" font-size="12">CRM workspace</text>
   <rect x="16" y="112" width="216" height="44" rx="10" fill="#1f5f9b"/>
   <text x="34" y="140" fill="#ffffff" font-family="Arial" font-size="15" font-weight="700">▣  Жива стрічка</text>
@@ -16,8 +16,8 @@
   <line x1="24" y1="760" x2="224" y2="760" stroke="#29405a"/>
   <circle cx="48" cy="812" r="18" fill="#4f8ac4"/><text x="76" y="808" fill="#fff" font-family="Arial" font-size="14">Марія Іваненко</text><text x="76" y="828" fill="#9db2ca" font-family="Arial" font-size="12">Працівник</text>
   <rect x="248" width="1192" height="76" fill="#ffffff"/>
-  <text x="282" y="45" fill="#12243b" font-family="Arial" font-size="14" font-weight="700">BERT Україна⌄</text>
-  <rect x="520" y="20" width="370" height="36" rx="8" fill="#f2f5f9"/><text x="544" y="43" fill="#8293a8" font-family="Arial" font-size="14">Пошук у BERT CRM</text><text x="844" y="43" fill="#8293a8" font-family="Arial" font-size="12">Ctrl K</text>
+  <text x="282" y="45" fill="#12243b" font-family="Arial" font-size="14" font-weight="700">LankaDWS Україна⌄</text>
+  <rect x="520" y="20" width="370" height="36" rx="8" fill="#f2f5f9"/><text x="544" y="43" fill="#8293a8" font-family="Arial" font-size="14">Пошук у LankaDWS</text><text x="844" y="43" fill="#8293a8" font-family="Arial" font-size="12">Ctrl K</text>
   <text x="1130" y="44" fill="#1f5f9b" font-family="Arial" font-size="14">Повідомлення</text><text x="1290" y="44" fill="#1f5f9b" font-family="Arial" font-size="14">Сповіщення 3</text>
   <g>
     <text x="282" y="130" fill="#12243b" font-family="Arial" font-size="28" font-weight="700">Жива стрічка</text>

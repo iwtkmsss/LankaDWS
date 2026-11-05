@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { feedPhotoPlacementSchema } from './feed.js'
+import { structuredMentionInputSchema } from './mentions.js'
 
 const entityIdSchema = z.string().trim().min(1).max(120)
 const isoDateTimeSchema = z.string().datetime({ offset: true })
@@ -36,6 +38,29 @@ export const taskParticipantInputSchema = z.object({
   role: taskParticipantRoleV2Schema,
 })
 export type TaskParticipantInput = z.infer<typeof taskParticipantInputSchema>
+
+export const taskCommentInputSchema = z.object({
+  body: z.string().max(4_000),
+  replyToCommentId: entityIdSchema.nullable().optional(),
+  attachmentIds: z.array(entityIdSchema).max(5).default([]),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).refine((value) => value.body.trim().length > 0 || value.attachmentIds.length > 0, {
+  message: 'Comment text or an attachment is required',
+  path: ['body'],
+})
+export type TaskCommentInput = z.infer<typeof taskCommentInputSchema>
+
+export const updateTaskCommentSchema = z.object({
+  body: z.string().min(1).max(4_000),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+  expectedVersion: z.number().int().positive(),
+})
+export type UpdateTaskCommentInput = z.infer<typeof updateTaskCommentSchema>
+
+export const deleteTaskCommentSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+})
+export type DeleteTaskCommentInput = z.infer<typeof deleteTaskCommentSchema>
 
 export const taskChecklistItemInputSchema = z.object({
   clientId: entityIdSchema,
@@ -146,14 +171,18 @@ export const taskRecurrenceInputSchema = z.object({
 })
 export type TaskRecurrenceInput = z.infer<typeof taskRecurrenceInputSchema>
 
+// Photos placed over the task description; each one is also a task attachment.
+export const taskPhotoLayoutSchema = z.array(feedPhotoPlacementSchema).max(20)
+  .refine((items) => new Set(items.map((item) => item.fileId)).size === items.length, { message: 'Each photo can be placed once.' })
+
 const createTaskBaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(20_000).default(''),
-  groupId: entityIdSchema.nullable().optional(),
   projectId: entityIdSchema.nullable().optional(),
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
   priority: taskPriorityV2Schema.default('MEDIUM'),
+  requiresAcceptance: z.boolean().optional(),
   startsAt: isoDateTimeSchema.nullable().optional(),
   dueAt: isoDateTimeSchema.nullable().optional(),
   estimatedMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
@@ -164,9 +193,17 @@ const createTaskBaseSchema = z.object({
   reminders: z.array(taskReminderInputSchema).max(20).default([]),
   recurrence: taskRecurrenceInputSchema.nullable().optional(),
   attachmentIds: z.array(entityIdSchema).max(10).default([]),
+  photoLayout: taskPhotoLayoutSchema.default([]),
 })
 
 export const createTaskSchema = createTaskBaseSchema.superRefine((value, context) => {
+  if (value.photoLayout.some((placement) => !value.attachmentIds.includes(placement.fileId))) {
+    context.addIssue({
+      code: 'custom',
+      path: ['photoLayout'],
+      message: 'Placed photos must be attached.',
+    })
+  }
   const participantIds = value.participants.map((participant) => participant.userId)
   if (new Set(participantIds).size !== participantIds.length) {
     context.addIssue({
@@ -175,11 +212,14 @@ export const createTaskSchema = createTaskBaseSchema.superRefine((value, context
       message: 'A user can have only one participant role.',
     })
   }
-  if (!value.participants.some((participant) => participant.role === 'RESPONSIBLE')) {
+  const responsibleCount = value.participants.filter((participant) => (
+    participant.role === 'RESPONSIBLE'
+  )).length
+  if (responsibleCount !== 1) {
     context.addIssue({
       code: 'custom',
       path: ['participants'],
-      message: 'At least one responsible participant is required.',
+      message: 'Exactly one responsible participant is required.',
     })
   }
   if (value.startsAt && value.dueAt && Date.parse(value.startsAt) > Date.parse(value.dueAt)) {
@@ -229,16 +269,28 @@ export const updateTaskSchema = z.object({
   expectedVersion: z.number().int().positive(),
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().trim().max(20_000).optional(),
-  groupId: entityIdSchema.nullable().optional(),
   projectId: entityIdSchema.nullable().optional(),
   parentTaskId: entityIdSchema.nullable().optional(),
   reporterId: entityIdSchema.optional(),
   priority: taskPriorityV2Schema.optional(),
+  requiresAcceptance: z.boolean().optional(),
   startsAt: isoDateTimeSchema.nullable().optional(),
   dueAt: isoDateTimeSchema.nullable().optional(),
   estimatedMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
 })
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>
+
+export const taskStatusTransitionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('START'), expectedVersion: z.number().int().positive() }),
+  z.object({ action: z.literal('COMPLETE'), expectedVersion: z.number().int().positive() }),
+  z.object({ action: z.literal('APPROVE'), expectedVersion: z.number().int().positive() }),
+  z.object({
+    action: z.literal('RETURN_TO_WORK'),
+    expectedVersion: z.number().int().positive(),
+    note: z.string().trim().max(1_000).optional(),
+  }),
+])
+export type TaskStatusTransitionInput = z.infer<typeof taskStatusTransitionSchema>
 
 export const manualTimeEntrySchema = z.object({
   startedAt: isoDateTimeSchema,
@@ -271,10 +323,9 @@ export type TagOption = z.infer<typeof tagOptionSchema>
 
 export const taskOptionSchema = z.object({
   id: entityIdSchema,
-  number: z.string().min(1).max(80),
+  number: z.string().regex(/^\d+$/).max(80),
   title: z.string().min(1).max(200),
   status: z.string().min(1).max(40),
-  groupId: entityIdSchema.nullable(),
   projectId: entityIdSchema.nullable(),
   parentTaskId: entityIdSchema.nullable(),
 })

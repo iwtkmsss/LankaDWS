@@ -1,4 +1,4 @@
-import type { ChatMessagePage, ChatMessageView, ChatThreadPage, ChatThreadPreview } from '@bert-crm/contracts'
+import type { ChatMessagePage, ChatMessageView, ChatThreadPage, ChatThreadPreview } from '@lankadws/contracts'
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 import { messageKeys } from '../api/messageKeys'
 
@@ -14,6 +14,8 @@ function isMatchingOptimisticMessage(
   return candidate.authorId === serverMessage.authorId
     && candidate.body === serverMessage.body
     && candidate.replyToId === serverMessage.replyToId
+    && candidate.mentions.map((mention) => `${mention.userId}:${mention.start}:${mention.end}`).join('|')
+      === serverMessage.mentions.map((mention) => `${mention.userId}:${mention.start}:${mention.end}`).join('|')
     && candidate.attachments.map((attachment) => attachment.id).join(':')
       === serverMessage.attachments.map((attachment) => attachment.id).join(':')
     && Number.isFinite(candidateCreatedAt)
@@ -116,14 +118,16 @@ export function upsertThreadPreview(
       }))
       if (!found) pages[0] = {
         ...pages[0]!,
-        items: [preview.item, ...pages[0]!.items].slice(0, 30),
+        items: [preview.item, ...pages[0]!.items],
       }
+      let unpinnedCount = 0
       pages[0] = {
         ...pages[0]!,
         items: [...pages[0]!.items].sort((left, right) =>
-          (right.lastMessageAt ?? '').localeCompare(left.lastMessageAt ?? '')
+          Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
+          || (right.lastMessageAt ?? '').localeCompare(left.lastMessageAt ?? '')
           || right.id.localeCompare(left.id),
-        ),
+        ).filter((item) => item.pinned || unpinnedCount++ < 30),
       }
       return { ...current, pages }
     },

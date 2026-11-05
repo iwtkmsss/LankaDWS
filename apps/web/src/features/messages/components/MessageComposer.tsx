@@ -1,124 +1,227 @@
-import type { ChatAttachmentView, ChatMessageView } from '@bert-crm/contracts'
-import { FileText, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
+import { personName } from '../../../shared/lib/personName'
+import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
+import { HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
+import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
+import { trimMentionValue } from '../../../shared/mentions/mentionText'
+import { MessageComposerFrame } from '../../../shared/messages/MessageComposerFrame'
+import { DrivePicker } from '../../drive/DrivePicker'
+import { useDiscardDraftAttachment } from '../../../shared/files/useDiscardDraftAttachment'
+import { replyPreviewText } from '../lib/replyPreview'
+import { setMessageDraft, useMessageDrafts } from '../lib/messageDrafts'
+import { isLocalAttachmentId } from '../lib/localAttachments'
 
 interface MessageComposerProps {
+  currentUserId: string
+  threadId: string
+  initialBody?: string
+  onInitialBodyConsumed?: () => void
   replyTo: ChatMessageView | null
   attachments: ChatAttachmentView[]
   sending: boolean
   uploading: boolean
-  error: string
   onReplyCancel: () => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
-  onSend: (body: string) => Promise<boolean>
+  onDriveAttachment?: (attachment: ChatAttachmentView) => void
+  onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
 }
 
 export function MessageComposer(props: MessageComposerProps) {
-  const [body, setBody] = useState('')
+  const draft = useMessageDrafts(props.currentUserId)[props.threadId]
+  const body = draft?.body ?? ''
+  const mentions = draft?.mentions ?? []
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false)
+  const removal = useDiscardDraftAttachment(props.onRemoveAttachment)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const composingRef = useRef(false)
+  const submittingRef = useRef(false)
+  const focusAfterSendRef = useRef(false)
+
+  useEffect(() => {
+    if (props.initialBody) {
+      setMessageDraft(props.currentUserId, props.threadId, props.initialBody)
+      props.onInitialBodyConsumed?.()
+    } else if (!draft) {
+      // Preserve drafts written by the previous composer storage format.
+      try {
+        const key = `lankadws:message-draft:${props.threadId}`
+        const legacyBody = window.sessionStorage.getItem(key)
+        if (legacyBody) {
+          setMessageDraft(props.currentUserId, props.threadId, legacyBody)
+          window.sessionStorage.removeItem(key)
+        }
+      } catch {
+        // Browser storage may be unavailable.
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+  }, [props.threadId])
 
   useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = '0'
-    textarea.style.height = `${Math.min(144, textarea.scrollHeight)}px`
+    const style = getComputedStyle(textarea)
+    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
+    textarea.style.height = `${Math.min(144, textarea.scrollHeight + borders)}px`
   }, [body])
 
+  useEffect(() => {
+    if (props.sending || !focusAfterSendRef.current) return
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus())
+    focusAfterSendRef.current = false
+    return () => cancelAnimationFrame(frame)
+  }, [body, props.sending])
+
   async function submit() {
-    if (!body.trim() || props.sending) return
-    const sent = await props.onSend(body.trim())
-    if (sent) {
-      setBody('')
-      requestAnimationFrame(() => textareaRef.current?.focus())
+    const value = trimMentionValue(body, mentions)
+    if ((!value.body && props.attachments.length === 0) || props.sending || props.uploading || submittingRef.current || removal.isPending()) return
+    submittingRef.current = true
+    try {
+      const sent = await props.onSend(value)
+      if (sent) {
+        focusAfterSendRef.current = true
+        setMessageDraft(props.currentUserId, props.threadId, '')
+      }
+    } finally {
+      submittingRef.current = false
     }
   }
 
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files]
+    if (!files.length) return
+
+    event.preventDefault()
+    if (!props.uploading && !props.sending) props.onFiles(files)
+  }
+
   return (
-    <div className="message-composer">
-      {props.replyTo && (
-        <div className="message-composer__reply">
+    <>
+      <MessageComposerFrame
+        reply={props.replyTo && (
+          <div className="message-composer__reply">
           <span>
-            <strong>Відповідь: {props.replyTo.author.displayName}</strong>
-            <small>{props.replyTo.body}</small>
+            <strong>Відповідь: {personName(props.replyTo.author.displayName)}</strong>
+            <small>{replyPreviewText(props.replyTo)}</small>
           </span>
           <button type="button" aria-label="Скасувати відповідь" onClick={props.onReplyCancel}>
             <X size={17} />
           </button>
-        </div>
-      )}
-      {props.attachments.length > 0 && (
-        <div className="message-composer__attachments">
-          {props.attachments.map((attachment) => (
-            <span key={attachment.id}>
-              <FileText size={15} />
-              {attachment.fileName}
+          </div>
+        )}
+        attachments={!props.sending && props.attachments.length > 0 && (
+          <div className="message-composer__attachments">
+            <small className="message-composer__attachment-count">Додано файлів: {props.attachments.length}</small>
+            {props.attachments.map((attachment) => (
+              <span key={attachment.id}>
+                <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={15} />
+                <span className="message-composer__attachment-name" title={attachment.fileName}>{attachment.fileName}</span>
+                <button
+                  type="button"
+                  aria-label={`Прибрати ${attachment.fileName}`}
+                  disabled={props.sending || removal.pending}
+                  onClick={() => {
+                    if (submittingRef.current) return
+                    if (isLocalAttachmentId(attachment.id)) props.onRemoveAttachment(attachment.id)
+                    else void removal.discard(attachment.id)
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        leadingActions={(
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              hidden
+              multiple
+              disabled={props.uploading || props.sending}
+              onChange={(event) => {
+                props.onFiles([...event.target.files ?? []])
+                event.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              aria-label="Додати файли"
+              title="Додати файли або перетягнути їх у поле вводу"
+              disabled={props.uploading || props.sending}
+              onClick={() => inputRef.current?.click()}
+            >
+              {props.uploading
+                ? <LoaderCircle className="is-spinning" size={20} />
+                : <Paperclip size={21} />}
+            </button>
+            {props.onDriveAttachment && (
               <button
                 type="button"
-                aria-label={`Прибрати ${attachment.fileName}`}
-                onClick={() => props.onRemoveAttachment(attachment.id)}
+                aria-label="Прикріпити з Диска"
+                title="Прикріпити файл із Диска"
+                disabled={props.uploading || props.sending}
+                onClick={() => setDrivePickerOpen(true)}
               >
-                <X size={14} />
+                <HardDrive size={20} />
               </button>
-            </span>
-          ))}
-        </div>
+            )}
+          </>
+        )}
+        input={(
+          <MentionTextarea
+            className="message-composer__input"
+            label="Повідомлення"
+            visuallyHiddenLabel
+            autoFocus
+            value={body}
+            mentions={mentions}
+            candidateUrl={`/messages/threads/${encodeURIComponent(props.threadId)}/mention-candidates`}
+            rows={1}
+            maxLength={8_000}
+            placeholder="Напишіть повідомлення…"
+            disabled={props.sending}
+            onTextareaRef={(element) => { textareaRef.current = element }}
+            onChange={(nextBody, nextMentions) => {
+              setMessageDraft(props.currentUserId, props.threadId, nextBody, nextMentions)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              event.preventDefault()
+              void submit()
+            }}
+            onPaste={handlePaste}
+          />
+        )}
+        sendAction={(
+          <button
+            type="button"
+            className="message-composer__send"
+            aria-label="Надіслати"
+            disabled={(!body.trim() && props.attachments.length === 0) || props.sending || removal.pending}
+            onClick={() => void submit()}
+          >
+            {props.sending
+              ? <LoaderCircle className="is-spinning" size={20} />
+              : <Send size={20} />}
+          </button>
+        )}
+      />
+      {removal.error && <div className="form-error" role="alert">{removal.error}</div>}
+      {drivePickerOpen && props.onDriveAttachment && (
+        <DrivePicker
+          onPick={(attachment) => props.onDriveAttachment?.(attachment)}
+          onClose={() => setDrivePickerOpen(false)}
+        />
       )}
-      <div className="message-composer__row">
-        <input
-          ref={inputRef}
-          type="file"
-          hidden
-          multiple
-          disabled={props.uploading || props.attachments.length >= 5}
-          onChange={(event) => {
-            props.onFiles([...event.target.files ?? []].slice(0, 5 - props.attachments.length))
-            event.target.value = ''
-          }}
-        />
-        <button
-          type="button"
-          aria-label="Додати файли"
-          disabled={props.uploading || props.attachments.length >= 5}
-          onClick={() => inputRef.current?.click()}
-        >
-          {props.uploading
-            ? <LoaderCircle className="is-spinning" size={20} />
-            : <Paperclip size={21} />}
-        </button>
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          maxLength={8_000}
-          value={body}
-          aria-label="Повідомлення"
-          placeholder="Напишіть повідомлення…"
-          onChange={(event) => setBody(event.target.value)}
-          onCompositionStart={() => { composingRef.current = true }}
-          onCompositionEnd={() => { composingRef.current = false }}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || composingRef.current || event.nativeEvent.isComposing) return
-            event.preventDefault()
-            void submit()
-          }}
-        />
-        <button
-          type="button"
-          className="message-composer__send"
-          aria-label="Надіслати"
-          disabled={!body.trim() || props.sending}
-          onClick={() => void submit()}
-        >
-          {props.sending
-            ? <LoaderCircle className="is-spinning" size={20} />
-            : <Send size={20} />}
-        </button>
-      </div>
-      <div className="message-composer__status" role="status" aria-live="polite">
-        {props.error}
-      </div>
-    </div>
+    </>
   )
 }

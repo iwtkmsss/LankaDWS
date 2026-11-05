@@ -35,8 +35,8 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: workspaceRoot,
     define: {
-      __BERT_DEMO_MODE__: JSON.stringify(demoMode),
-      __BERT_DEMO_PASSWORD__: JSON.stringify(demoMode ? demoPassword : ''),
+      __LANKADWS_DEMO_MODE__: JSON.stringify(demoMode),
+      __LANKADWS_DEMO_PASSWORD__: JSON.stringify(demoMode ? demoPassword : ''),
     },
     plugins: [react(), faviconVersionPlugin()],
     test: {
@@ -44,6 +44,8 @@ export default defineConfig(({ mode }) => {
       setupFiles: './src/test/setup.ts',
       css: true,
       include: ['src/**/*.test.{ts,tsx}'],
+      // Must exceed the Testing Library wait budget in src/test/setup.ts.
+      testTimeout: 15_000,
     },
     server: {
       port: 5173,

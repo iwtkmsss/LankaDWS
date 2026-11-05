@@ -1,0 +1,29 @@
+/* Photos dragged and resized over rich text (publications, task descriptions). */
+.inline-photos-editor { display: grid; gap: var(--space-2); min-width: 0; }
+.inline-photos-editor__canvas { position: relative; min-width: 0; }
+.inline-photos-editor__canvas.has-photos .rich-editor__input { min-height: 360px; resize: none; max-height: none; overflow: auto; }
+.inline-photos-editor__images { position: absolute; overflow: hidden; pointer-events: none; border-radius: 9px; }
+.inline-photos-photo { position: absolute; pointer-events: auto; }
+.inline-photos-photo.is-selected { outline: 2px solid var(--cobalt-500); outline-offset: -2px; z-index: 1; }
+.inline-photos-photo__move { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: move; touch-action: none; }
+.inline-photos-photo__move img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; }
+.inline-photos-photo__handle { position: absolute; width: 14px; height: 14px; min-height: 0; padding: 0; border: 2px solid var(--cobalt-500); border-radius: 50%; background: var(--surface); touch-action: none; }
+.inline-photos-photo__handle.is-top-left { top: 0; left: 0; cursor: nwse-resize; }
+.inline-photos-photo__handle.is-top-right { top: 0; right: 0; cursor: nesw-resize; }
+.inline-photos-photo__handle.is-bottom-left { bottom: 0; left: 0; cursor: nesw-resize; }
+.inline-photos-photo__handle.is-bottom-right { bottom: 0; right: 0; cursor: nwse-resize; }
+.inline-photos-editor .inline-photos-editor__remove { position: absolute; top: var(--space-2); right: var(--space-2); z-index: 2; width: 22px; height: 22px; min-height: 0; flex-basis: 22px; padding: 0; border-radius: 5px; color: #fff; background: color-mix(in srgb, var(--danger) 70%, black); border: 1px solid color-mix(in srgb, var(--danger) 65%, white); }
+.inline-photos-editor .inline-photos-editor__remove:hover:not(:disabled) { color: #fff; background: color-mix(in srgb, var(--danger) 60%, black); }
+.inline-photos-size { display: flex !important; flex-direction: row !important; align-items: center; gap: var(--space-3); color: var(--fg-muted); font-size: var(--text-meta); }
+.inline-photos-size input { flex: 1; min-width: 60px; width: auto; accent-color: var(--cobalt-600); }
+.inline-photos-size span { min-width: 36px; text-align: right; }
+.inline-photos-hint { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; color: var(--fg-muted); font-size: var(--text-meta); line-height: 1.6; }
+.inline-photos-hint svg { flex-shrink: 0; margin-top: var(--space-0_5); }
+
+/* Card: the stored layout scales with the text block width (cqw units). */
+.inline-photos-canvas { display: grid; min-width: 0; container-type: inline-size; }
+.inline-photos-canvas > * { grid-area: 1 / 1; min-width: 0; }
+.inline-photos-canvas__photos { position: relative; height: calc(var(--inline-photos-depth) * 100cqw); pointer-events: none; }
+.inline-photos-canvas__photo { position: absolute; left: calc(var(--x) * 100%); top: calc(var(--y) * 100cqw); width: calc(var(--w) * 100%); height: calc(var(--h) * 100cqw); pointer-events: auto; }
+.inline-photos-canvas__photo > button { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 9px; overflow: hidden; background: transparent; cursor: zoom-in; }
+.inline-photos-canvas__photo img, .inline-photos-canvas__photo .file-thumbnail__fallback { display: grid; width: 100%; height: 100%; place-items: center; object-fit: contain; }

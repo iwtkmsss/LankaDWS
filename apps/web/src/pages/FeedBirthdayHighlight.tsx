@@ -1,0 +1,41 @@
+import { personName } from '../shared/lib/personName'
+import type { FeedBirthdayView } from '@lankadws/contracts'
+import { CakeSlice, ChevronRight } from 'lucide-react'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { Avatar, Card } from '../shared/ui'
+
+export function FeedBirthdayHighlight({ birthdays }: { birthdays: FeedBirthdayView[] }) {
+  if (birthdays.length === 0) return null
+  return (
+    <Card className="feed-birthday-highlight">
+      <header>
+        <span className="feed-birthday-highlight__icon" aria-hidden>
+          <CakeSlice size={17} />
+        </span>
+        <h2>Дні народження</h2>
+      </header>
+      <div className="feed-birthday-highlight__people">
+        {birthdays.map((birthday) => (
+          <UserProfileLink
+            key={birthday.id}
+            className={birthday.isToday ? 'is-today' : undefined}
+            userId={birthday.id}
+          >
+            <Avatar name={personName(birthday.displayName)} src={birthday.avatarAsset} />
+            <span>
+              <strong>{personName(birthday.displayName)}</strong>
+              <small>{formatBirthdayDate(birthday.birthdayDate)}</small>
+            </span>
+            {birthday.isToday && <span className="stream-birthday-today">Сьогодні</span>}
+            <ChevronRight size={17} aria-hidden />
+          </UserProfileLink>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function formatBirthdayDate({ month, day }: FeedBirthdayView['birthdayDate']): string {
+  return new Intl.DateTimeFormat('uk-UA', { day: 'numeric', month: 'long' })
+    .format(new Date(Date.UTC(2024, month - 1, day)))
+}

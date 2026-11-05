@@ -1,55 +1,51 @@
+import { personName } from '../shared/lib/personName'
 import type { PropsWithChildren } from 'react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { OrganizationCapability } from '@bert-crm/contracts'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { FeedSummary } from '@lankadws/contracts'
 import {
-  Bell,
-  BookOpen,
-  Building2,
-  CalendarDays,
-  CheckSquare2,
+  ArrowLeft,
+  ArrowRight,
   ChevronDown,
   Ellipsis,
-  FileText,
   Gauge,
   KeyRound,
   LogOut,
-  Megaphone,
   Menu,
-  MessageCircle,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
+  Moon,
+  PanelRightClose,
+  PanelRightOpen,
   Search,
   ShieldCheck,
+  Sun,
   Users,
   X,
 } from 'lucide-react'
-import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { RouteMeta } from '../app/routes'
-import { navigationRoutes, routes } from '../app/routes'
+import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes, routeTitle } from '../app/routes'
+import { CommandPalette } from '../features/search/CommandPalette'
+import { useUserProfile } from '../features/employees/UserProfileDrawer'
 import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { Avatar, BrandMark, DialogBase, IconButton } from '../shared/ui'
-
-interface QuickCreateAction {
-  path: string
-  title: string
-  description: string
-  icon: typeof Gauge
-}
+import { resolveHomePath } from '../shared/auth/home'
+import { applyTheme, getStoredTheme, storeTheme } from '../shared/theme'
+import { Avatar, BrandMark, IconButton } from '../shared/ui'
+import { RightCommunicationPanel } from './RightCommunicationPanel'
+import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
+import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
+import { useMessageSoundActivation } from '../features/messages/lib/messageSound'
+import { useDocumentTitle } from '../shared/lib/useDocumentTitle'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
   label: string
   items: RouteMeta[]
 }
-
 const sidebarNavGroups = [
-  { key: 'primary', label: 'Основне' },
-  { key: 'communication', label: 'Комунікації' },
-  { key: 'company', label: 'Компанія' },
-  { key: 'management', label: 'Управління' },
+  { key: 'primary', label: 'Щоденна робота' },
+  { key: 'company', label: 'Співпраця' },
+  { key: 'management', label: 'Знання' },
   { key: 'administration', label: 'Адміністрування' },
 ] as const
 
@@ -68,18 +64,71 @@ function sidebarSectionsHeight(sections: SidebarNavSection[]) {
 
 export function AppShell({ children }: PropsWithChildren) {
   const { user, canUseCapability, logout } = useAuth()
+  const { requestedUserId, closeUserProfile } = useUserProfile()
   const location = useLocation()
-  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [mobileNav, setMobileNav] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() =>
-    window.localStorage.getItem('bertcrm.sidebar.collapsed') === 'true')
+    window.localStorage.getItem('lankadws.sidebar.collapsed') === 'true')
+  const [rightPanelOpen, setRightPanelOpen] = useState(false)
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('panel') === 'notifications') setRightPanelOpen(true)
+  }, [location.key, location.search])
   const [profileOpen, setProfileOpen] = useState(false)
+  const [theme, setTheme] = useState(getStoredTheme)
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
   const sidebarNavRef = useRef<HTMLElement>(null)
+  const sidebarMoreTriggerRef = useRef<HTMLButtonElement>(null)
+  const sidebarMoreMenuRef = useRef<HTMLDivElement>(null)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
+  const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
+  const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
+  const feedCompanyScope = user?.company?.id ?? 'all'
+  useMessageRealtime(Boolean(user), user?.id)
+  useMessageSoundActivation(user?.id)
+  const prefetchNavigationRoute = (route: RouteMeta) => {
+    void route.preload?.()
+    if (!user?.company?.id) return
+
+    const company = user.company.id
+    if (route.path === '/tasks') {
+      void queryClient.prefetchQuery({
+        queryKey: ['tasks', 'RESPONSIBLE', 1, null, '', '', '', '', '', false, '', '', '', '', '', '', '', ''],
+        queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&assigneeId=&creatorId=&coExecutorId=&observerId='),
+      })
+    } else if (route.path === '/feed') {
+      void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
+      void queryClient.prefetchInfiniteQuery({
+        queryKey: ['feed', company, 'ALL', 'ALL', null, null, null, null, null, false, false, false],
+        initialPageParam: null as string | null,
+        queryFn: () => api(`/feed?company=${encodeURIComponent(company)}&filter=ALL&type=ALL&limit=20`),
+      })
+    } else if (route.path === '/messages') {
+      void queryClient.prefetchInfiniteQuery({
+        queryKey: ['messages', 'threads', company, false],
+        initialPageParam: null as string | null,
+        queryFn: () => api(`/messages/threads?company=${encodeURIComponent(company)}&limit=30`),
+      })
+    } else if (route.path === '/drive') {
+      const driveQuery = {
+        view: 'MY_DRIVE', folderId: undefined, type: 'ALL',
+        people: 'ANYONE', modified: 'ANY', sort: 'MODIFIED', direction: 'DESC',
+      }
+      void queryClient.prefetchQuery({
+        queryKey: ['drive', driveQuery],
+        queryFn: () => api('/drive?view=MY_DRIVE&type=ALL&people=ANYONE&modified=ANY&sort=MODIFIED&direction=DESC'),
+      })
+    } else if (route.path === '/organization') {
+      void queryClient.prefetchQuery({
+        queryKey: ['employees', '', company, '', '', ''],
+        queryFn: () => api(`/employees?company=${encodeURIComponent(company)}`),
+      })
+    }
+  }
   const nav = useMemo(
     () => navigationRoutes(user?.accountType === 'ADMIN', canUseCapability),
     [user?.accountType, canUseCapability],
@@ -94,6 +143,12 @@ export function AppShell({ children }: PropsWithChildren) {
       .filter((section) => section.items.length > 0),
     [nav],
   )
+  const paletteShortcuts = useMemo(() => nav
+    .map((route) => ({
+      path: route.path,
+      title: route.title,
+      safeSnippet: 'Відкрити розділ',
+    })), [nav])
   const desktopNavRoutes = navSections.flatMap((section) => section.items)
   let visibleRouteCount = desktopNavRoutes.length
   if (desktopNavHeight !== null) {
@@ -133,97 +188,68 @@ export function AppShell({ children }: PropsWithChildren) {
     .filter((section) => section.items.length > 0)
   const overflowHasActiveRoute = overflowRoutes.some((route) =>
     location.pathname === route.path
-    || (route.path !== '/admin' && location.pathname.startsWith(`${route.path}/`)))
-  const mobileNavRoutes = nav
-    .filter((route) => route.mobileOrder !== undefined)
-    .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
+    || location.pathname.startsWith(`${route.path}/`))
+  const mobilePrimaryRoutes = mobileNavigation.primary.flatMap((path) => {
+    const route = nav.find((candidate) => candidate.path === path)
+    return route ? [route] : []
+  })
+  const mobileMoreRoutes = mobileNavigation.more.flatMap((path) => {
+    const route = nav.find((candidate) => candidate.path === path)
+    return route ? [route] : []
+  })
+  const mobileMoreHasActiveRoute = mobileMoreRoutes.some((route) =>
+    location.pathname === route.path || location.pathname.startsWith(`${route.path}/`))
   const isMessagesRoute = location.pathname === '/messages'
     || location.pathname.startsWith('/messages/')
   const isMessageThreadRoute = location.pathname.startsWith('/messages/')
-  const quickCreateActions: QuickCreateAction[] = [
-    {
-      path: '/tasks/new',
-      title: 'Нове завдання',
-      description: 'Поставити роботу собі або колезі',
-      icon: CheckSquare2,
-    },
-    {
-      path: '/messages?new=1',
-      title: 'Новий діалог',
-      description: 'Написати людині або команді',
-      icon: MessageCircle,
-    },
-    ...(canUseCapability(OrganizationCapability.CalendarWrite) ? [{
-      path: '/calendar?new=1',
-      title: 'Нова подія',
-      description: 'Додати зустріч або робочу подію',
-      icon: CalendarDays,
-    }] : []),
-    ...(canUseCapability(OrganizationCapability.GroupsUi) ? [{
-      path: '/groups?new=1',
-      title: 'Нова група',
-      description: 'Створити простір команди або проєкту',
-      icon: Building2,
-    }] : []),
-    ...(canUseCapability(OrganizationCapability.Drive) ? [{
-      path: '/drive?new=1',
-      title: 'Завантажити файл',
-      description: 'Додати робочий файл на Диск',
-      icon: FileText,
-    }] : []),
-    {
-      path: '/announcements/new',
-      title: 'Нове оголошення',
-      description: 'Повідомити команді важливе',
-      icon: Megaphone,
-    },
-  ]
-  const paletteShortcuts = [
-    ...quickCreateActions.map((action) => ({
-      path: action.path,
-      title: action.title,
-      type: 'CREATE',
-      safeSnippet: action.description,
-    })),
-    ...nav
-      .filter((route) => route.path !== '/admin')
-      .map((route) => ({
-        path: route.path,
-        title: route.title,
-        type: 'QUICK',
-        safeSnippet: 'Відкрити розділ',
-      })),
-  ]
+  // Realtime `summary` SSE events (useMessageRealtime) are the primary refresh
+  // path for these badges. This slow fallback poll bounds staleness for
+  // notifications created without any realtime signal — job-worker task
+  // reminders (jobs.service), task participation/approval changes,
+  // admin credential resets — and for SSE connections dropped by a proxy,
+  // which EventSource reconnects but does not replay.
+  const summaryBadgeFallback = {
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+  } as const
   const notificationSummary = useQuery({
     queryKey: ['notifications', 'summary'],
-    queryFn: () => api<{ action: number; unread: number }>('/notifications/summary'),
+    queryFn: () => api<{ unread: number; tasks: number }>('/notifications/summary'),
     enabled: Boolean(user),
-    refetchInterval: 60_000,
+    ...summaryBadgeFallback,
   })
   const chatSummary = useQuery({
     queryKey: ['threads', 'summary', companyId],
     queryFn: () => api<{ all: number; unread: number }>('/messages/summary'),
     enabled: Boolean(user),
-    refetchInterval: location.pathname.startsWith('/messages') ? false : 30_000,
-    refetchIntervalInBackground: false,
+    ...summaryBadgeFallback,
   })
+  const feedSummary = useQuery({
+    queryKey: ['feed', 'summary', feedCompanyScope],
+    queryFn: () => api<FeedSummary>(`/feed/summary?company=${encodeURIComponent(feedCompanyScope)}`),
+    enabled: Boolean(user),
+    ...summaryBadgeFallback,
+  })
+  const knowledgeSummary = useQuery({
+    queryKey: ['knowledge', 'summary', 'unread'],
+    queryFn: () => api<{ unreadCount: number; requiredUnreadCount: number }>('/knowledge/articles/summary'),
+    enabled: Boolean(user),
+    ...summaryBadgeFallback,
+  })
+  const knowledgePending = knowledgeSummary.data?.unreadCount ?? 0
   const chatUnread = chatSummary.data?.unread ?? 0
-  const adminCompanies = useQuery({
-    queryKey: ['admin-companies'],
-    queryFn: () => api<{ items: Array<{ id: string; name: string; isActive: boolean }> }>('/admin/companies'),
-    enabled: user?.accountType === 'ADMIN',
-    staleTime: 30_000,
-  })
-  const selectedAdminCompanyId = useMemo(() => {
-    const queryCompanyId = new URLSearchParams(location.search).get('companyId')
-    if (queryCompanyId) return queryCompanyId
-    const detailMatch = location.pathname.match(/^\/admin\/companies\/([^/]+)$/)
-    return detailMatch?.[1] ?? ''
-  }, [location.pathname, location.search])
+  useDocumentTitle(routeTitle(location.pathname), chatUnread + (notificationSummary.data?.unread ?? 0))
+  const taskUnread = notificationSummary.data?.tasks ?? 0
+  const feedUnread = feedSummary.data?.unreadCount ?? 0
+  useEffect(() => {
+    window.localStorage.setItem('lankadws.sidebar.collapsed', String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   useEffect(() => {
-    window.localStorage.setItem('bertcrm.sidebar.collapsed', String(sidebarCollapsed))
-  }, [sidebarCollapsed])
+    applyTheme(theme)
+    storeTheme(theme)
+  }, [theme])
 
   useLayoutEffect(() => {
     const navElement = sidebarNavRef.current
@@ -247,30 +273,81 @@ export function AppShell({ children }: PropsWithChildren) {
   }, [overflowRoutes.length])
 
   useEffect(() => {
+    if (!requestedUserId) return
+    setProfileOpen(false)
     setMoreOpen(false)
+    setMobileNav(false)
+    setRightPanelOpen(true)
+    setSidebarCollapsed(true)
+  }, [requestedUserId])
+
+  useEffect(() => {
+    setMoreOpen(false)
+    setMobileMoreOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return
+    const frame = window.requestAnimationFrame(() => {
+      mobileMoreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    })
+    return () => { window.cancelAnimationFrame(frame) }
+  }, [mobileMoreOpen])
+
+  useEffect(() => {
+    if (!profileOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !profileMenuRef.current?.contains(event.target)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [profileOpen])
+
+  useEffect(() => {
+    if (!moreOpen) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node
+        && !sidebarMoreTriggerRef.current?.contains(event.target)
+        && !sidebarMoreMenuRef.current?.contains(event.target)
+      ) {
+        setMoreOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [moreOpen])
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
+        setProfileOpen(false)
+        setMoreOpen(false)
+        setMobileMoreOpen(false)
         setPaletteOpen(true)
       } else if (event.key === 'Escape') {
+        if (event.defaultPrevented) return
         setProfileOpen(false)
-        setCreateOpen(false)
         setMoreOpen(false)
+        setMobileMoreOpen(false)
+        // Escape inside a text field belongs to that field; closing the right
+        // panel here would discard what the user was typing in its search or composer.
+        const target = event.target
+        if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable="true"]')) return
+        setRightPanelOpen(false)
+        closeUserProfile()
       }
     }
     window.addEventListener('keydown', handle)
     return () => window.removeEventListener('keydown', handle)
-  }, [])
+  }, [closeUserProfile])
 
   if (!user) return null
+  const homePath = resolveHomePath(user)
   const scopedPath = (path: string) => path
-  function quickCreate(path: string) {
-    navigate(path)
-    setCreateOpen(false)
-  }
   function renderNavRoute(route: (typeof routes)[number], menuItem = false) {
     const Icon = route.navIcon ?? Gauge
     const title = route.title
@@ -278,20 +355,37 @@ export function AppShell({ children }: PropsWithChildren) {
       <NavLink
         key={route.path}
         to={scopedPath(route.path)}
-        end={route.path === '/admin'}
+        end={false}
         role={menuItem ? 'menuitem' : undefined}
-        aria-label={sidebarCollapsed ? title : undefined}
-        title={sidebarCollapsed ? title : undefined}
+        aria-label={sidebarCollapsed ? `${title}${route.path === '/knowledge' && knowledgePending > 0 ? ` · ${knowledgePending} неознайомлених записів` : ''}` : undefined}
+        title={sidebarCollapsed ? `${title}${route.path === '/knowledge' && knowledgePending > 0 ? ` · ${knowledgePending} неознайомлених записів` : ''}` : undefined}
         onClick={() => {
           setMobileNav(false)
           setMoreOpen(false)
         }}
+        onPointerEnter={() => prefetchNavigationRoute(route)}
+        onFocus={() => prefetchNavigationRoute(route)}
       >
         <Icon size={18} />
         <span>{title}</span>
+        {route.path === '/tasks' && taskUnread > 0 && (
+          <b className="nav-unread-badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
+            {taskUnread > 99 ? '99+' : taskUnread}
+          </b>
+        )}
         {route.path === '/messages' && chatUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${chatUnread} непрочитаних діалогів`}>
             {chatUnread > 99 ? '99+' : chatUnread}
+          </b>
+        )}
+        {route.path === '/feed' && feedUnread > 0 && (
+          <b className="nav-unread-badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
+            {feedUnread > 99 ? '99+' : feedUnread}
+          </b>
+        )}
+        {route.path === '/knowledge' && knowledgePending > 0 && (
+          <b className={`nav-unread-badge nav-knowledge-badge ${(knowledgeSummary.data?.requiredUnreadCount ?? 0) > 0 ? 'is-required' : ''}`} aria-label={`${knowledgePending} неознайомлених записів`}>
+            {sidebarCollapsed ? '!' : knowledgePending > 99 ? '99+' : knowledgePending}
           </b>
         )}
       </NavLink>
@@ -312,9 +406,11 @@ export function AppShell({ children }: PropsWithChildren) {
     )
   }
   return (
-    <div className={[
+    <TopbarContentProvider>
+      <div className={[
       'app-frame',
       sidebarCollapsed ? 'sidebar-collapsed' : '',
+      rightPanelOpen ? 'right-panel-open' : '',
       isMessagesRoute ? 'app-frame--messages' : '',
       isMessageThreadRoute ? 'app-frame--messages-thread' : '',
     ].filter(Boolean).join(' ')}>
@@ -324,20 +420,37 @@ export function AppShell({ children }: PropsWithChildren) {
       {mobileNav && <button className="nav-scrim" aria-label="Закрити меню" onClick={() => setMobileNav(false)} />}
       <aside className={`sidebar ${mobileNav ? 'is-open' : ''}`}>
         <div className="sidebar__brand">
-          <BrandMark />
-          <span className="sidebar__brand-copy">
-            <strong>BERT</strong>
-            <small>CRM workspace</small>
-          </span>
+          <Link
+            className="sidebar__brand-home"
+            to={homePath}
+            aria-label="На головну сторінку"
+            onClick={(event) => {
+              if (location.pathname === homePath) {
+                event.preventDefault()
+                return
+              }
+              setMobileNav(false)
+              setMoreOpen(false)
+            }}
+          >
+            <BrandMark />
+            <span className="sidebar__brand-copy">
+              <strong>Lanka</strong>
+              <small>CORPORATE WORKSPACE</small>
+            </span>
+          </Link>
           <IconButton
             className="sidebar__collapse"
             label={sidebarCollapsed ? 'Розгорнути бічну панель' : 'Згорнути бічну панель'}
             onClick={() => {
               setMoreOpen(false)
-              setSidebarCollapsed((value) => !value)
+              setSidebarCollapsed((value) => {
+                if (value) setRightPanelOpen(false)
+                return !value
+              })
             }}
           >
-            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            {sidebarCollapsed ? <ArrowRight size={14} strokeWidth={1.5} aria-hidden="true" /> : <ArrowLeft size={14} strokeWidth={1.5} aria-hidden="true" />}
           </IconButton>
           <IconButton label="Закрити меню" onClick={() => setMobileNav(false)}>
             <X size={18} />
@@ -349,6 +462,7 @@ export function AppShell({ children }: PropsWithChildren) {
           {overflowRoutes.length > 0 && (
             <div className="sidebar-more">
               <button
+                ref={sidebarMoreTriggerRef}
                 type="button"
                 className={`sidebar-more__trigger ${overflowHasActiveRoute ? 'active' : ''}`}
                 aria-label="Ще"
@@ -367,15 +481,15 @@ export function AppShell({ children }: PropsWithChildren) {
           )}
         </nav>
         {moreOpen && overflowRoutes.length > 0 && (
-          <div className="sidebar-more__menu" role="menu" aria-label="Додаткові розділи">
+          <div ref={sidebarMoreMenuRef} className="sidebar-more__menu" role="menu" aria-label="Додаткові розділи">
             {overflowNavSections.map((section) =>
               renderNavSection(section.label, section.items, section.key, true))}
           </div>
         )}
-        <div className="sidebar__profile">
+        <div ref={profileMenuRef} className="sidebar__profile">
           {profileOpen && (
             <div className="profile-popover">
-              <strong>{user.displayName}</strong>
+              <strong>{personName(user.displayName)}</strong>
               <small>
                 @{user.username}
               </small>
@@ -391,6 +505,17 @@ export function AppShell({ children }: PropsWithChildren) {
                 <ShieldCheck size={15} />
                 Сесії
               </Link>
+              <button
+                type="button"
+                className="profile-theme-toggle"
+                role="switch"
+                aria-checked={theme === 'dark'}
+                onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+              >
+                {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+                <span>Темна тема</span>
+                <span className="theme-switch" aria-hidden="true"><i /></span>
+              </button>
               <button onClick={() => void logout()}>
                 <LogOut size={15} />
                 Вийти
@@ -399,18 +524,17 @@ export function AppShell({ children }: PropsWithChildren) {
           )}
           <button
             className="profile-button"
-            aria-label={sidebarCollapsed ? `Профіль: ${user.displayName}` : undefined}
-            title={sidebarCollapsed ? user.displayName : undefined}
+            aria-label={sidebarCollapsed ? `Профіль: ${personName(user.displayName)}` : undefined}
+            title={sidebarCollapsed ? personName(user.displayName) : undefined}
             onClick={() => {
-              setCreateOpen(false)
               setMoreOpen(false)
               setProfileOpen((value) => !value)
             }}
             aria-expanded={profileOpen}
           >
-            <Avatar name={user.displayName} src={user.avatarAsset} />
+            <Avatar name={personName(user.displayName)} src={user.avatarAsset} />
             <span>
-              <strong>{user.displayName}</strong>
+              <strong>{personName(user.displayName)}</strong>
               <small>{user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : user.company?.name ?? 'Користувач'}</small>
             </span>
             <ChevronDown size={15} />
@@ -419,97 +543,50 @@ export function AppShell({ children }: PropsWithChildren) {
       </aside>
       <div className="workspace">
         <header className="topbar">
-          <IconButton label="Відкрити меню" onClick={() => setMobileNav(true)}>
+          <IconButton className="topbar__menu" label="Відкрити меню" onClick={() => {
+            setRightPanelOpen(false)
+            setMobileNav(true)
+          }}>
             <Menu size={21} />
           </IconButton>
-          <button className="search-trigger" aria-label="Пошук у BERT CRM" onClick={() => {
-            setCreateOpen(false)
-            setPaletteOpen(true)
-          }}>
-            <Search size={17} />
-            <span>Пошук у BERT CRM</span>
-            <kbd>Ctrl K</kbd>
-          </button>
-          {user.accountType === 'ADMIN' && (
-            <label className="admin-company-context">
-              <Building2 size={16} aria-hidden="true" />
-              <span>Компанія</span>
-              <select
-                aria-label="Company selector глобального адміністратора"
-                value={selectedAdminCompanyId}
-                onChange={(event) => {
-                  const companyId = event.target.value
-                  if (!companyId) {
-                    navigate('/admin/companies')
-                    return
-                  }
-                  if (location.pathname.startsWith('/admin/users')) {
-                    const params = new URLSearchParams(location.search)
-                    params.set('companyId', companyId)
-                    navigate(`${location.pathname}?${params.toString()}`)
-                    return
-                  }
-                  navigate(`/admin/companies/${companyId}`)
-                }}
-              >
-                <option value="">Усі компанії</option>
-                {adminCompanies.data?.items.map((company) => (
-                  <option key={company.id} value={company.id}>
-                    {company.name}{company.isActive ? '' : ' · неактивна'}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {!isMessagesRoute && !location.pathname.startsWith('/admin') && quickCreateActions.length > 0 && (
-            <div className="quick-create">
-              <button
-                className="quick-create__trigger"
-                aria-label="Швидке створення"
-                aria-haspopup="menu"
-                aria-expanded={createOpen}
-                onClick={() => {
-                  setProfileOpen(false)
-                  setCreateOpen((value) => !value)
-                }}
-              >
-                <Plus size={17} />
-                <span>Створити</span>
-                <ChevronDown size={14} />
+          <div className="topbar__route-content" role="group" aria-label="Дії поточного розділу">
+            <TopbarContent />
+          </div>
+          <div className="topbar__center-content">
+            <TopbarCenterContent fallback={(
+              <button className="search-trigger" aria-label="Пошук у Lanka" onClick={() => {
+                setProfileOpen(false)
+                setMoreOpen(false)
+                setPaletteOpen(true)
+              }}>
+                <Search size={17} />
+                <span>Пошук у Lanka</span>
               </button>
-              {createOpen && (
-                <div className="quick-create__menu" role="menu" aria-label="Створити">
-                  <strong>Що створити?</strong>
-                  {quickCreateActions.map((action) => {
-                    const Icon = action.icon
-                    return (
-                      <button key={action.path} role="menuitem" onClick={() => quickCreate(action.path)}>
-                        <i><Icon size={18} /></i>
-                        <span><b>{action.title}</b><small>{action.description}</small></span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+            )} />
+          </div>
           <div className="topbar__actions">
             <IconButton
-              label={chatUnread ? `Повідомлення: ${chatUnread} непрочитаних` : 'Повідомлення'}
-              onClick={() => navigate(scopedPath('/messages'))}
+              className={rightPanelOpen ? 'is-active' : ''}
+              label={rightPanelOpen ? 'Закрити праву панель' : 'Відкрити чат і сповіщення'}
+              aria-expanded={rightPanelOpen}
+              aria-controls="right-communication-panel"
+              onClick={() => {
+                setProfileOpen(false)
+                setMoreOpen(false)
+                setMobileNav(false)
+                setRightPanelOpen((value) => {
+                  if (value) closeUserProfile()
+                  if (!value) setSidebarCollapsed(true)
+                  return !value
+                })
+              }}
             >
-              <MessageCircle size={19} />
-              {chatUnread > 0 && (
-                <b className="topbar-badge" aria-hidden="true">
-                  {chatUnread > 99 ? '99+' : chatUnread}
-                </b>
-              )}
-            </IconButton>
-            <IconButton label="Сповіщення" onClick={() => navigate(scopedPath('/notifications'))}>
-              <Bell size={19} />
-              {Boolean(notificationSummary.data?.unread) && (
-                <b className="topbar-badge" aria-label={`${notificationSummary.data?.unread} непрочитаних`}>
-                  {notificationSummary.data!.unread > 99 ? '99+' : notificationSummary.data!.unread}
+              {rightPanelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}
+              {(chatUnread + (notificationSummary.data?.unread ?? 0)) > 0 && (
+                <b className="topbar-badge" aria-label={`${chatUnread + (notificationSummary.data?.unread ?? 0)} непрочитаних подій`}>
+                  {chatUnread + (notificationSummary.data?.unread ?? 0) > 99
+                    ? '99+'
+                    : chatUnread + (notificationSummary.data?.unread ?? 0)}
                 </b>
               )}
             </IconButton>
@@ -519,221 +596,96 @@ export function AppShell({ children }: PropsWithChildren) {
           {children}
         </main>
       </div>
-      {paletteOpen && (
-        <CommandPalette
-          shortcuts={paletteShortcuts}
-          onClose={() => setPaletteOpen(false)}
-        />
+      {rightPanelOpen && (
+        <div id="right-communication-panel">
+          <RightCommunicationPanel
+            chatUnread={chatUnread}
+            notificationUnread={notificationSummary.data?.unread ?? 0}
+            targetUserId={requestedUserId}
+            onClearTarget={closeUserProfile}
+            onClose={() => {
+              setRightPanelOpen(false)
+              closeUserProfile()
+            }}
+          />
+        </div>
       )}
+      {paletteOpen && <CommandPalette shortcuts={paletteShortcuts} onClose={() => setPaletteOpen(false)} />}
+      {mobileMoreOpen && <button className="bottom-nav__scrim" aria-label="Закрити додаткову навігацію" onClick={() => setMobileMoreOpen(false)} />}
       <nav className="bottom-nav" aria-label="Мобільна навігація">
-        {mobileNavRoutes.map((route) => {
+        {mobilePrimaryRoutes.map((route) => {
           const Icon = route.navIcon ?? Gauge
-          const title = route.title
+          const title = mobileNavigationLabels[route.path] ?? route.title
           return (
             <NavLink key={route.path} to={scopedPath(route.path)}>
               <Icon size={19} />
               <span>{title}</span>
+              {route.path === '/tasks' && taskUnread > 0 && (
+                <b className="bottom-nav__badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
+                  {taskUnread > 99 ? '99+' : taskUnread}
+                </b>
+              )}
               {route.path === '/messages' && chatUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${chatUnread} непрочитаних`}>
                   {chatUnread > 99 ? '99+' : chatUnread}
                 </b>
               )}
+              {route.path === '/feed' && feedUnread > 0 && (
+                <b className="bottom-nav__badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
+                  {feedUnread > 99 ? '99+' : feedUnread}
+                </b>
+              )}
             </NavLink>
           )
         })}
-        <button onClick={() => setMobileNav(true)}>
+        <button
+          ref={mobileMoreTriggerRef}
+          type="button"
+          className={mobileMoreHasActiveRoute ? 'active' : ''}
+          aria-haspopup="menu"
+          aria-expanded={mobileMoreOpen}
+          aria-controls="mobile-more-menu"
+          onClick={() => setMobileMoreOpen((value) => !value)}
+        >
           <Menu size={19} />
           <span>Ще</span>
         </button>
-      </nav>
-    </div>
-  )
-}
-
-interface PaletteItem {
-  id: string
-  title: string
-  safeSnippet: string
-  type: string
-  route: string
-  companyId: string | null
-}
-
-const paletteTypeLabels: Record<string, string> = {
-  CREATE: 'Створити',
-  QUICK: 'Швидкі переходи',
-  TASK: 'Завдання',
-  GROUP: 'Групи',
-  CHAT: 'Чати',
-  DOCUMENT: 'Файли',
-  EMPLOYEE: 'Працівники',
-  EVENT: 'Календар',
-  ARTICLE: 'База знань',
-}
-
-function paletteSnippet(item: PaletteItem) {
-  if (item.type !== 'EVENT' || !item.safeSnippet) return item.safeSnippet
-  const date = new Date(item.safeSnippet)
-  return Number.isNaN(date.getTime())
-    ? item.safeSnippet
-    : new Intl.DateTimeFormat('uk-UA', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-}
-
-function CommandPalette({
-  onClose,
-  shortcuts,
-}: {
-  onClose: () => void
-  shortcuts: Array<{ path: string; title: string; type: string; safeSnippet: string }>
-}) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<PaletteItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [activeIndex, setActiveIndex] = useState(0)
-  const paletteRef = useRef<HTMLDivElement>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const navigate = useNavigate()
-
-  useEffect(() => {
-    const value = query.trim()
-    setActiveIndex(0)
-    if (value.length < 2) {
-      setResults([])
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    const timeout = window.setTimeout(async () => {
-      const data = await api<{ items: PaletteItem[] }>(
-        `/search?q=${encodeURIComponent(value)}`,
-      ).catch(() => ({ items: [] }))
-      if (!cancelled) {
-        setResults(data.items)
-        setLoading(false)
-      }
-    }, 220)
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeout)
-    }
-  }, [query])
-
-  useEffect(() => {
-    paletteRef.current?.querySelector<HTMLElement>('button.is-active')?.scrollIntoView({ block: 'nearest' })
-  }, [activeIndex])
-
-  const shortcutItems: PaletteItem[] = shortcuts.map((shortcut) => ({
-        id: shortcut.path,
-        title: shortcut.title,
-        safeSnippet: shortcut.safeSnippet,
-        type: shortcut.type,
-        route: shortcut.path,
-        companyId: null,
-      }))
-  const normalizedQuery = query.trim().toLocaleLowerCase('uk')
-  const createItems = shortcutItems.filter((item) => item.type === 'CREATE' && (
-    item.title.toLocaleLowerCase('uk').includes(normalizedQuery)
-    || item.safeSnippet.toLocaleLowerCase('uk').includes(normalizedQuery)
-  ))
-  const items: PaletteItem[] = query.trim().length < 2 ? shortcutItems : [...createItems, ...results]
-
-  function open(item: PaletteItem) {
-    navigate(item.route)
-    onClose()
-  }
-
-  function itemIcon(type: string, route: string) {
-    const baseRoute = route.split('?')[0]
-    if (type === 'TASK' || baseRoute.startsWith('/tasks')) return <CheckSquare2 size={18} />
-    if (type === 'GROUP' || baseRoute.startsWith('/groups')) return <Building2 size={18} />
-    if (type === 'CHAT' || baseRoute.startsWith('/messages')) return <MessageCircle size={18} />
-    if (type === 'DOCUMENT' || baseRoute === '/drive' || baseRoute.startsWith('/documents')) return <FileText size={18} />
-    if (type === 'EMPLOYEE' || baseRoute.startsWith('/employees')) return <Users size={18} />
-    if (type === 'EVENT' || baseRoute.startsWith('/calendar')) return <CalendarDays size={18} />
-    if (type === 'ARTICLE' || baseRoute.startsWith('/knowledge')) return <BookOpen size={18} />
-    if (baseRoute.startsWith('/announcements')) return <Megaphone size={18} />
-    const RouteIcon = routes.find((candidate) => candidate.path === baseRoute)?.navIcon
-    if (RouteIcon) return <RouteIcon size={18} />
-    return <Gauge size={18} />
-  }
-
-  return (
-    <DialogBase
-      title="Глобальний пошук"
-      variant="palette"
-      size="lg"
-      titleVisibility="sr-only"
-      showClose={false}
-      initialFocusRef={searchInputRef}
-      onRequestClose={() => onClose()}
-      bodyClassName="palette__body"
-      headerClassName="palette__header"
-      footerClassName="palette__footer"
-      header={(
-        <>
-          <Search size={20} />
-          <input
-            ref={searchInputRef}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+        {mobileMoreOpen && (
+          <div
+            ref={mobileMoreMenuRef}
+            id="mobile-more-menu"
+            className="bottom-nav__menu"
+            role="menu"
+            aria-label="Ще"
             onKeyDown={(event) => {
-              if (event.key === 'ArrowDown' && items.length) {
+              const items = Array.from(mobileMoreMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
+              const index = items.indexOf(document.activeElement as HTMLElement)
+              if (event.key === 'Escape') {
                 event.preventDefault()
-                setActiveIndex((index) => (index + 1) % items.length)
-              } else if (event.key === 'ArrowUp' && items.length) {
+                setMobileMoreOpen(false)
+                mobileMoreTriggerRef.current?.focus()
+              } else if (items.length > 0 && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
                 event.preventDefault()
-                setActiveIndex((index) => (index - 1 + items.length) % items.length)
-              } else if (event.key === 'Enter' && items[activeIndex]) {
-                event.preventDefault()
-                open(items[activeIndex])
+                const nextIndex = event.key === 'Home' ? 0
+                  : event.key === 'End' ? items.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+                items[nextIndex]?.focus()
               }
             }}
-            placeholder="Завдання, люди, групи, чати, файли…"
-            aria-label="Знайти або перейти"
-          />
-          <IconButton label="Закрити пошук" onClick={onClose}>
-            <X size={18} />
-          </IconButton>
-        </>
-      )}
-      footer={(
-        <>
-          <span><kbd>↑</kbd><kbd>↓</kbd> вибір · <kbd>Enter</kbd> відкрити</span>
-          <span><kbd>Esc</kbd> закрити</span>
-        </>
-      )}
-    >
-      <div className="palette__results" ref={paletteRef}>
-        {loading ? (
-          <p>Шукаємо у доступних розділах…</p>
-        ) : items.length ? (
-          <ul role="listbox" aria-label={query.trim().length < 2 ? 'Швидкі переходи' : 'Результати пошуку'}>
-            {items.map((item, index) => {
-              const previous = items[index - 1]
+          >
+            {mobileMoreRoutes.map((route) => {
+              const Icon = route.navIcon ?? Gauge
               return (
-                <li key={`${item.type}:${item.id}`} role="presentation">
-                  {(!previous || previous.type !== item.type) && (
-                    <span className="palette__group">{paletteTypeLabels[item.type] ?? item.type}</span>
-                  )}
-                  <button
-                    role="option"
-                    aria-selected={activeIndex === index}
-                    className={activeIndex === index ? 'is-active' : ''}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    onClick={() => open(item)}
-                  >
-                    <i>{itemIcon(item.type, item.route)}</i>
-                    <span><strong>{item.title}</strong><small>{paletteSnippet(item)}</small></span>
-                  </button>
-                </li>
+                <NavLink key={route.path} to={scopedPath(route.path)} role="menuitem" onClick={() => setMobileMoreOpen(false)}>
+                  <Icon size={18} />
+                  <span>{mobileNavigationLabels[route.path] ?? route.title}</span>
+                </NavLink>
               )
             })}
-          </ul>
-        ) : (
-          <p>Нічого не знайдено</p>
+          </div>
         )}
+      </nav>
       </div>
-    </DialogBase>
+    </TopbarContentProvider>
   )
 }

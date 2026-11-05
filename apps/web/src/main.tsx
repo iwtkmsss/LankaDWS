@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import { AppProviders } from './app/providers'
 import { router } from './app/router'
+import { installLabelClickGuard } from './shared/lib/labelClickGuard'
+import { initializeTheme } from './shared/theme'
 import '@fontsource-variable/roboto/index.css'
 import './styles/tokens.css'
 import './styles/global.css'
@@ -10,8 +12,11 @@ import './styles/components.css'
 import './styles/layout.css'
 import './styles/pages.css'
 
+initializeTheme()
+installLabelClickGuard()
+
 const root = document.getElementById('root')
-if (!root) throw new Error('BERT CRM root element is missing')
+if (!root) throw new Error('LankaDWS root element is missing')
 
 createRoot(root).render(
   <StrictMode>

@@ -8,12 +8,13 @@ describe('password policy', () => {
 
   it('rejects short, product-related and username-related secrets', () => {
     expect(() => assertPasswordPolicy('short', 'maria')).toThrow()
-    expect(() => assertPasswordPolicy('Bert CRM is my password 2026', 'maria')).toThrow()
+    expect(() => assertPasswordPolicy('LankaDWS is my password 2026', 'maria')).toThrow()
     expect(() => assertPasswordPolicy('maria has a very long password', 'maria')).toThrow()
   })
 
-  it('permits the shorter NIST-aligned floor only when 2FA is required', () => {
-    expect(() => assertPasswordPolicy('Lake-49!', 'admin', true)).not.toThrow()
-    expect(() => assertPasswordPolicy('Lake-49!', 'admin', false)).toThrow()
+  it('accepts exactly eight characters and rejects seven or more than 128', () => {
+    expect(() => assertPasswordPolicy('Lake-49!', 'admin')).not.toThrow()
+    expect(() => assertPasswordPolicy('Lake-49', 'admin')).toThrow()
+    expect(() => assertPasswordPolicy('x'.repeat(129), 'admin')).toThrow()
   })
 })

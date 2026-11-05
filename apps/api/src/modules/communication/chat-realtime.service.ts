@@ -1,7 +1,9 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
-import { Observable, Subject } from 'rxjs'
-import type { ChatRealtimeEvent } from '@bert-crm/contracts'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { concatMap, Observable, Subject } from 'rxjs'
+import type { ChatRealtimeEvent, RealtimeSummaryChanged } from '@lankadws/contracts'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { unauthorized } from '../../common/errors.js'
+import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
@@ -13,6 +15,12 @@ export class ChatRealtimeService {
   constructor(private readonly prisma: PrismaService) {}
 
   async canAccess(principal: AuthPrincipal, threadId: string): Promise<boolean> {
+    if (isGlobalAdmin(principal)) {
+      return Boolean(await this.prisma.messageThread.findFirst({
+        where: { id: threadId, workspaceId: principal.workspaceId },
+        select: { id: true },
+      }))
+    }
     const participant = await this.prisma.threadParticipant.findFirst({
       where: {
         threadId,
@@ -28,23 +36,7 @@ export class ChatRealtimeService {
         thread: { select: { entityType: true, entityId: true } },
       },
     })
-    if (!participant) return false
-    if (participant.thread.entityType !== 'GROUP') return true
-    if (!participant.thread.entityId) return false
-    const membership = await this.prisma.groupMember.findFirst({
-      where: {
-        groupId: participant.thread.entityId,
-        userId: principal.userId,
-        leftAt: null,
-        group: {
-          workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
-          status: 'ACTIVE',
-        },
-      },
-      select: { id: true },
-    })
-    return Boolean(membership)
+    return Boolean(participant)
   }
 
   stream(principal: AuthPrincipal, threadId: string): Observable<MessageEvent> {
@@ -84,7 +76,10 @@ export class ChatRealtimeService {
         subscription.unsubscribe()
         if (!source.observed) this.threadStreams.delete(threadId)
       }
-    })
+    }).pipe(concatMap(async (event) => {
+      await this.assertSession(principal)
+      return event
+    }))
   }
 
   userStream(principal: AuthPrincipal): Observable<MessageEvent> {
@@ -106,7 +101,25 @@ export class ChatRealtimeService {
         subscription.unsubscribe()
         if (!source.observed) this.userStreams.delete(principal.userId)
       }
+    }).pipe(concatMap(async (event) => {
+      await this.assertSession(principal)
+      return event
+    }))
+  }
+
+  private async assertSession(principal: AuthPrincipal): Promise<void> {
+    const session = await this.prisma.userSession.findUnique({
+      where: { id: principal.sessionId },
+      include: { user: { include: { primaryCompany: true } } },
     })
+    const now = Date.now()
+    if (!session || session.userId !== principal.userId || session.revokedAt || !session.user.isActive
+      || session.expiresAt.getTime() <= now
+      || session.lastSeenAt.getTime() + getConfig().SESSION_IDLE_MINUTES * 60_000 <= now
+      || session.authorizationVersion !== session.user.authorizationVersion
+      || (session.user.accountType === 'USER' && !session.user.primaryCompany?.isActive)) {
+      throw unauthorized()
+    }
   }
 
   async publish(
@@ -130,6 +143,7 @@ export class ChatRealtimeService {
     const thread = await this.prisma.messageThread.findUnique({
       where: { id: threadId },
       select: {
+        workspaceId: true,
         companyId: true,
         entityType: true,
         entityId: true,
@@ -143,24 +157,26 @@ export class ChatRealtimeService {
     const activeUsers = await this.prisma.user.findMany({
       where: {
         id: { in: thread.participants.map((participant) => participant.userId) },
+        workspaceId: thread.workspaceId,
         isActive: true,
-        OR: [{ primaryCompanyId: thread.companyId }, { accountType: 'ADMIN' }],
       },
       select: { id: true },
     })
-    let recipientIds = activeUsers.map((user) => user.id)
-    if (thread.entityType === 'GROUP') {
-      if (!thread.entityId) return
-      const memberships = await this.prisma.groupMember.findMany({
-        where: {
-          groupId: thread.entityId,
-          userId: { in: recipientIds },
-          leftAt: null,
-          group: { companyId: thread.companyId, status: 'ACTIVE' },
-        },
-        select: { userId: true },
-      })
-      recipientIds = memberships.map((membership) => membership.userId)
+    const recipientIds = activeUsers.map((user) => user.id)
+    for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
+  }
+
+  publishSummary(userIds: Iterable<string>, kinds: RealtimeSummaryChanged['kinds']): void {
+    const recipientIds = new Set(userIds)
+    if (!recipientIds.size) return
+    this.sequence += 1
+    const event: MessageEvent = {
+      id: `${Date.now()}-${this.sequence}`,
+      type: 'summary',
+      data: {
+        kinds,
+        occurredAt: new Date().toISOString(),
+      } satisfies RealtimeSummaryChanged,
     }
     for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
   }

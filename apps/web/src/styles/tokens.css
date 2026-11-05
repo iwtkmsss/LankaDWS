@@ -1,5 +1,23 @@
 :root {
   color-scheme: light;
+  /* Minimum UI text size on desktop and mobile; file-icon artwork is separate. */
+  --text-min: 12px;
+  --text-caption: 12px;
+  --text-small: 14px;
+  --text-body: 16px;
+  /* Type roles (docs/typography-color-plan.md): pick by role, not by look. */
+  --text-title: 24px;
+  --text-heading: 14px;
+  --text-reading: 14px;
+  /* Authored rich text: the editor's «12 pt» default, identical in reading and editing. */
+  --text-rich: 12pt;
+  --text-ui: 14px;
+  --text-person: 13px;
+  --text-meta: 12px;
+  --text-label: 12px;
+  --weight-regular: 400;
+  --weight-medium: 600;
+  --weight-bold: 700;
   --font: 'Roboto Variable', 'Roboto', system-ui, sans-serif;
   --cobalt-700: #1746c9;
   --cobalt-600: #1f5eff;
@@ -7,6 +25,8 @@
   --cobalt-300: #9db7ff;
   --cobalt-100: #e8efff;
   --cobalt-50: #f1f5ff;
+  --accent-solid: var(--cobalt-600);
+  --accent-solid-hover: var(--cobalt-700);
   --navy-950: #0b1020;
   --navy-900: #10182d;
   --navy-800: #17223d;
@@ -20,6 +40,10 @@
   --surface: #ffffff;
   --surface-soft: #f8f9fc;
   --surface-subtle: var(--surface-soft);
+  --surface-raised: #ffffff;
+  --surface-hover: #f1f4fa;
+  --surface-glass: rgba(255, 255, 255, .92);
+  --surface-glass-strong: rgba(255, 255, 255, .98);
   --line: #e3e6ee;
   --line-strong: #d4d8e3;
   --success: #13734d;
@@ -29,12 +53,83 @@
   --danger: #c43f4e;
   --danger-bg: #ffeaed;
   --violet: #7656d6;
+  --orange: #b85c05;
   --radius-sm: 9px;
   --radius-md: 14px;
   --radius-lg: 20px;
   --shadow-sm: 0 1px 2px rgba(15, 24, 45, .04), 0 5px 18px rgba(24, 35, 62, .04);
+  --shadow-md: 0 2px 4px rgba(15, 24, 45, .05), 0 10px 28px rgba(24, 35, 62, .1);
   --shadow-lg: 0 18px 60px rgba(13, 22, 45, .18);
+  /* Text colour roles: strong = headings and names, reading = long text, body = UI text, muted = meta and labels. */
+  --fg-strong: var(--ink-900);
+  --fg-reading: var(--ink-800);
+  --fg-body: var(--ink-700);
+  --fg-muted: var(--ink-500);
+  --fg-link: var(--cobalt-700);
+  /* One canvas for every conversation surface (chat page, right panel, empty state). */
+  --chat-canvas: #f5f8ff;
+  --chat-canvas-image: linear-gradient(rgba(246, 249, 255, .9), rgba(246, 249, 255, .9)), url("/assets/messages/pattern.svg");
+  /* Spacing scale on a 4px grid; round odd values to the nearest step (ties go to the multiple of 8). */
+  --space-0_5: 2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  /* Semantic spacing built on the scale. */
+  --space-icon: var(--space-2);
+  --space-field-y: var(--space-2);
+  --space-field-x: var(--space-3);
+  --space-card: var(--space-4);
+  --space-section: var(--space-6);
+  --space-page: var(--space-6);
   --sidebar: 258px;
   --topbar: 68px;
   --focus: 0 0 0 3px rgba(31, 94, 255, .24);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --cobalt-700: #9bb2ff;
+  --cobalt-600: #5878e8;
+  --cobalt-500: #6f8ff3;
+  --cobalt-300: #455c94;
+  --cobalt-100: #263655;
+  --cobalt-50: #1c2941;
+  --accent-solid: #405fc7;
+  --accent-solid-hover: #4c6edc;
+  --ink-900: #f5f7fb;
+  --ink-800: #e5e9f1;
+  --ink-700: #cbd2df;
+  --ink-600: #b3bdcc;
+  --ink-500: #96a2b5;
+  --ink-400: #8390a5;
+  --canvas: #090e17;
+  --surface: #111925;
+  --surface-soft: #172231;
+  --surface-subtle: var(--surface-soft);
+  --surface-raised: #1d2939;
+  --surface-hover: #253348;
+  --surface-glass: rgba(17, 25, 37, .92);
+  --surface-glass-strong: rgba(29, 41, 57, .96);
+  --line: #283649;
+  --line-strong: #3a4a61;
+  --success: #5dd3a5;
+  --success-bg: #173b32;
+  --warning: #f1bb63;
+  --warning-bg: #3d2d16;
+  --danger: #ff8793;
+  --danger-bg: #43242c;
+  --violet: #b09af5;
+  --orange: #ffae4a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .2), 0 5px 18px rgba(0, 0, 0, .16);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, .22), 0 10px 28px rgba(0, 0, 0, .3);
+  --shadow-lg: 0 18px 60px rgba(0, 0, 0, .46);
+  --chat-canvas: var(--canvas);
+  --chat-canvas-image: none;
+  --focus: 0 0 0 3px rgba(113, 149, 255, .32);
 }

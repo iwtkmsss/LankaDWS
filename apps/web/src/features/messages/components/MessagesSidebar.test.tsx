@@ -1,8 +1,7 @@
 import type {
   ChatContactUser,
   ChatThreadListItem,
-  RecommendedChatUser,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MessagesSidebar } from './MessagesSidebar'
@@ -41,26 +40,27 @@ const thread: ChatThreadListItem = {
 
 function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSidebar>> = {}) {
   const props: React.ComponentProps<typeof MessagesSidebar> = {
+    drafts: {},
     threads: [thread],
     counts: { all: 8, unread: 3 },
     selectedThreadId: undefined,
     unreadOnly: false,
     query: '',
     debouncedQuery: '',
+    isComposing: false,
     searchResults: [],
-    recommendations: [],
     loadingThreads: false,
     threadError: false,
     loadingSearch: false,
-    loadingRecommendations: false,
     startingUserId: null,
     hasMoreThreads: false,
     loadingMoreThreads: false,
     onQueryChange: vi.fn(),
+    onSearchCompositionStart: vi.fn(),
+    onSearchCompositionEnd: vi.fn(),
     onUnreadChange: vi.fn(),
     onSelectThread: vi.fn(),
     onStartDirect: vi.fn(),
-    onOpenGroup: vi.fn(),
     onLoadMore: vi.fn(),
     onRetryThreads: vi.fn(),
     ...overrides,
@@ -69,24 +69,58 @@ function renderSidebar(overrides: Partial<React.ComponentProps<typeof MessagesSi
 }
 
 describe('MessagesSidebar', () => {
-  it('keeps the local group action icon-only and renders only real tabs', () => {
-    const { props } = renderSidebar()
+  it('pins without opening the conversation and exposes the unpin action', () => {
+    const onPinThread = vi.fn()
+    const { props, rerender } = renderSidebar({ onPinThread, threads: [{ ...thread, unread: false, unreadCount: 0 }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Закріпити чат: Марко Литвин' }))
+    expect(onPinThread).toHaveBeenCalledWith('thread-1', true)
+    expect(props.onSelectThread).not.toHaveBeenCalled()
+    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toHaveAttribute('aria-pressed', 'true')
+  })
+  it('hides the pin action behind the unread count only while the chat is not pinned', () => {
+    renderSidebar({ threads: [{ ...thread, pinned: false }] })
+    expect(document.querySelector('.message-thread-meta .message-thread-unread')).toHaveTextContent('2')
+    expect(screen.queryByRole('button', { name: 'Закріпити чат: Марко Литвин' })).not.toBeInTheDocument()
+  })
+  it('keeps the pin of a pinned chat next to the unread count', () => {
+    const { props, rerender, container } = renderSidebar({ threads: [{ ...thread, pinned: true }] })
+    expect(container.querySelector('.message-thread-meta .message-thread-unread')).toHaveTextContent('2')
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Марко Литвин, 2 непрочитаних' }))
+    expect(props.onSelectThread).toHaveBeenCalledWith('thread-1')
+    rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)
+    expect(container.querySelector('.message-thread-unread')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toBeInTheDocument()
+  })
+  it('replaces the last-message preview with the draft and restores it on clearing', () => {
+    const { props, rerender } = renderSidebar({
+      drafts: { 'thread-1': { body: 'Невідправлений текст', createdAt: 1, mentions: [] } },
+    })
+    expect(screen.getByText('Чернетка:')).toHaveClass('message-draft-label')
+    expect(screen.getByText(/Невідправлений текст/)).toBeInTheDocument()
+    expect(screen.queryByText('Останнє повідомлення')).not.toBeInTheDocument()
+    rerender(<MessagesSidebar {...props} drafts={{}} />)
+    expect(screen.queryByText('Чернетка:')).not.toBeInTheDocument()
+    expect(screen.getByText('Останнє повідомлення')).toBeInTheDocument()
+  })
+  it('starts with search and renders only real tabs', () => {
+    renderSidebar()
 
-    const groupButton = screen.getByRole('button', { name: 'Нова група' })
-    expect(groupButton).toHaveTextContent('')
-    fireEvent.click(groupButton)
-    expect(props.onOpenGroup).toHaveBeenCalledOnce()
+    expect(screen.getByRole('combobox', { name: 'Пошук користувачів' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Повідомлення' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Новий чат' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('tab')).toHaveLength(2)
     expect(screen.queryByRole('tab', { name: /Згадки/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /дзвін/i })).not.toBeInTheDocument()
   })
 
-  it('shows the two-character hint without entering the results-only state', () => {
+  it('enters the results-only state for one Unicode character', () => {
     renderSidebar({ query: 'м', debouncedQuery: 'м' })
 
-    expect(screen.getByRole('status')).toHaveTextContent('щонайменше 2 символи')
-    expect(screen.getByRole('button', { name: /Марко Литвин/ })).toBeInTheDocument()
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Марко Литвин/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Результати пошуку' })).toBeInTheDocument()
   })
 
   it('supports keyboard selection and Escape in the user-only results state', () => {
@@ -106,18 +140,19 @@ describe('MessagesSidebar', () => {
 
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     fireEvent.keyDown(input, { key: 'Enter' })
-    expect(onStartDirect).toHaveBeenCalledWith('usr_maria')
+    expect(onStartDirect).toHaveBeenCalledWith(expect.objectContaining({ id: 'usr_maria' }))
 
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onQueryChange).toHaveBeenCalledWith('')
   })
 
-  it('renders recommendations only when search is empty', () => {
-    const recommendation: RecommendedChatUser = { ...contact, reason: 'FREQUENT' }
-    const { rerender, props } = renderSidebar({ recommendations: [recommendation] })
-    expect(screen.getByRole('region', { name: 'Рекомендовані контакти' })).toBeInTheDocument()
-
-    rerender(<MessagesSidebar {...props} query="мар" debouncedQuery="мар" />)
+  it('does not render recommended contacts above the thread list', () => {
+    renderSidebar()
     expect(screen.queryByRole('region', { name: 'Рекомендовані контакти' })).not.toBeInTheDocument()
+  })
+
+  it('shows a file label when the latest message only contains an attachment', () => {
+    renderSidebar({ threads: [{ ...thread, lastMessage: 'Файл' }] })
+    expect(screen.getByText('Файл')).toBeInTheDocument()
   })
 })

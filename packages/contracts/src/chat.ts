@@ -1,5 +1,7 @@
+import { USER_SEARCH_MAX_QUERY_LENGTH, userSearchLimitSchema } from './user-search.js'
 import { z } from 'zod'
 import { companyScopeSchema } from './domain.js'
+import { mentionSearchQuerySchema, structuredMentionInputSchema } from './mentions.js'
 
 export const chatThreadKindSchema = z.enum(['DIRECT', 'GROUP', 'CONTEXTUAL', 'COMPANY'])
 export type ChatThreadKind = z.infer<typeof chatThreadKindSchema>
@@ -32,7 +34,9 @@ export const chatMessagePageQuerySchema = z.object({
 export type ChatMessagePageQuery = z.infer<typeof chatMessagePageQuerySchema>
 
 export const chatMessageSearchQuerySchema = z.object({
-  q: z.string().trim().min(2).max(100),
+  q: z.string().trim().max(100).refine((value) => [...value].length >= 1, {
+    message: 'Search query must contain at least one Unicode character.',
+  }),
   cursor: z.string().trim().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
@@ -40,14 +44,15 @@ export type ChatMessageSearchQuery = z.infer<typeof chatMessageSearchQuerySchema
 
 export const chatUserSearchQuerySchema = z.object({
   company: z.string().trim().min(1).max(120),
-  q: z.string().max(100),
-  limit: z.coerce.number().int().min(1).max(30).default(20),
+  q: z.string().max(USER_SEARCH_MAX_QUERY_LENGTH),
+  limit: userSearchLimitSchema,
+  exclude: z.string().max(24_200).optional(),
 })
 export type ChatUserSearchQuery = z.infer<typeof chatUserSearchQuerySchema>
 
 export const recommendedChatUsersQuerySchema = z.object({
   company: z.string().trim().min(1).max(120),
-  limit: z.coerce.number().int().min(1).max(12).default(6),
+  limit: userSearchLimitSchema,
 })
 export type RecommendedChatUsersQuery = z.infer<typeof recommendedChatUsersQuerySchema>
 
@@ -83,38 +88,71 @@ export const createChatThreadSchema = z.object({
 export type CreateChatThreadInput = z.infer<typeof createChatThreadSchema>
 
 export const sendChatMessageSchema = z.object({
-  body: z.string().trim().min(1).max(8_000),
+  body: z.string().trim().max(8_000).default(''),
   replyToId: z.string().trim().min(1).max(120).nullable().optional(),
-  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5).default([])
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).default([])
     .transform((items) => [...new Set(items)].sort()),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).superRefine((value, context) => {
+  if (!value.body && value.attachmentIds.length === 0) {
+    context.addIssue({
+      code: 'custom',
+      path: ['body'],
+      message: 'A message requires text or an attachment.',
+    })
+  }
 })
 export type SendChatMessageInput = z.infer<typeof sendChatMessageSchema>
 
 export const editChatMessageSchema = z.object({
-  body: z.string().trim().min(1).max(8_000),
+  body: z.string().trim().max(8_000),
   expectedVersion: z.number().int().positive(),
+  mentions: z.array(structuredMentionInputSchema).max(100).optional(),
+  attachmentIds: z.array(z.string().trim().min(1).max(120))
+    .transform((items) => [...new Set(items)]).optional(),
 })
 export type EditChatMessageInput = z.infer<typeof editChatMessageSchema>
+
+export const chatMentionCandidatesQuerySchema = mentionSearchQuerySchema
+export type ChatMentionCandidatesQuery = z.infer<typeof chatMentionCandidatesQuerySchema>
 
 export const deleteChatMessageSchema = z.object({
   expectedVersion: z.number().int().positive(),
 })
 export type DeleteChatMessageInput = z.infer<typeof deleteChatMessageSchema>
 
-export const convertChatMessageToTaskSchema = z.object({
-  title: z.string().trim().min(2).max(180),
-  assigneeId: z.string().trim().min(1).max(120),
-  deadline: z.string().datetime().optional(),
+export const calendarRecurrenceSchema = z.object({
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+  interval: z.number().int().min(1).max(365).default(1),
+  until: z.string().datetime().nullable().default(null),
 })
-export type ConvertChatMessageToTaskInput = z.infer<typeof convertChatMessageToTaskSchema>
+export type CalendarRecurrenceInput = z.infer<typeof calendarRecurrenceSchema>
 
-export const convertChatMessageToEventSchema = z.object({
+const calendarEventFields = {
   title: z.string().trim().min(2).max(180),
+  description: z.string().trim().max(4_000).optional(),
   startAt: z.string().datetime(),
   endAt: z.string().datetime(),
   sourceTimezone: z.string().trim().min(1).max(80).default('Europe/Kyiv'),
   allDay: z.boolean().default(false),
-}).superRefine((value, context) => {
+  requiresAcknowledgement: z.boolean().optional(),
+  recurrence: calendarRecurrenceSchema.nullable().optional(),
+  reminderMinutes: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(15), z.literal(30), z.literal(60), z.literal(120), z.literal(1440)]).nullable().optional(),
+}
+
+function assertEventWindow(
+  value: { startAt: string; endAt: string; recurrence?: CalendarRecurrenceInput | null; reminderMinutes?: number | null; requiresAcknowledgement?: boolean; audience: CalendarEventAudienceInput },
+  context: z.core.$RefinementCtx,
+): void {
+  if (value.requiresAcknowledgement && value.audience.type === 'PRIVATE') {
+    context.addIssue({ code: 'custom', path: ['requiresAcknowledgement'], message: 'Acknowledgement requires a shared event.' })
+  }
+  if (value.reminderMinutes != null && value.audience.type !== 'PRIVATE') {
+    context.addIssue({ code: 'custom', path: ['reminderMinutes'], message: 'Reminders are only available for private events.' })
+  }
+  if (value.recurrence?.until && Date.parse(value.recurrence.until) < Date.parse(value.startAt)) {
+    context.addIssue({ code: 'custom', path: ['recurrence', 'until'], message: 'Repeat end must not precede event start.' })
+  }
   if (Date.parse(value.endAt) <= Date.parse(value.startAt)) {
     context.addIssue({
       code: 'custom',
@@ -122,20 +160,49 @@ export const convertChatMessageToEventSchema = z.object({
       message: 'Event end must be after its start.',
     })
   }
-})
-export type ConvertChatMessageToEventInput = z.infer<typeof convertChatMessageToEventSchema>
+}
 
-export const createCalendarEventSchema = z.intersection(
-  z.object({ companyId: z.string().trim().min(1).max(120) }),
-  convertChatMessageToEventSchema,
-)
+// PRIVATE keeps an event visible to its owner alone; COMPANIES names every
+// organization whose members may see it.
+export const calendarEventAudienceSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('PRIVATE') }),
+  z.object({
+    type: z.literal('COMPANIES'),
+    companyIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+      .transform((items) => [...new Set(items)]),
+  }),
+])
+export type CalendarEventAudienceInput = z.infer<typeof calendarEventAudienceSchema>
+
+export const createCalendarEventSchema = z.object({
+  ...calendarEventFields,
+  companyId: z.string().trim().min(1).max(120),
+  audience: calendarEventAudienceSchema,
+}).superRefine(assertEventWindow)
 export type CreateCalendarEventInput = z.infer<typeof createCalendarEventSchema>
 
-export const updateCalendarEventSchema = z.intersection(
-  z.object({ expectedVersion: z.number().int().positive() }),
-  convertChatMessageToEventSchema,
-)
+export const updateCalendarEventSchema = z.object({
+  ...calendarEventFields,
+  expectedVersion: z.number().int().positive(),
+  audience: calendarEventAudienceSchema,
+}).superRefine(assertEventWindow)
 export type UpdateCalendarEventInput = z.infer<typeof updateCalendarEventSchema>
+
+export const acknowledgeCalendarEventSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+})
+
+export interface CalendarAcknowledgementView {
+  requiredForMe: boolean
+  acknowledgedAt: string | null
+  recipientCount: number
+  acknowledgedCount: number
+}
+
+export interface CalendarAudienceOption {
+  companyId: string
+  label: string
+}
 
 export const markChatReadSchema = z.object({
   lastReadMessageId: z.string().trim().min(1).max(120),
@@ -174,6 +241,7 @@ export const chatContactUserSchema = z.object({
   username: z.string(),
   jobTitle: z.string(),
   avatarAsset: z.string().nullable(),
+  directThreadId: z.string().nullable().optional(),
 })
 export type ChatContactUser = z.infer<typeof chatContactUserSchema>
 
@@ -217,6 +285,7 @@ export type ChatAttachmentView = z.infer<typeof chatAttachmentViewSchema>
 
 export const chatThreadListItemSchema = z.object({
   id: z.string(),
+  pinned: z.boolean().optional(),
   companyId: z.string(),
   title: z.string(),
   kind: chatThreadKindSchema,
@@ -231,6 +300,8 @@ export const chatThreadListItemSchema = z.object({
   notificationMode: chatNotificationModeSchema,
 })
 export type ChatThreadListItem = z.infer<typeof chatThreadListItemSchema>
+
+export const setChatPinSchema = z.object({ pinned: z.boolean() }).strict()
 
 export const chatThreadCountsSchema = z.object({
   all: z.number().int().nonnegative(),
@@ -251,6 +322,22 @@ export const chatThreadPreviewSchema = z.object({
 })
 export type ChatThreadPreview = z.infer<typeof chatThreadPreviewSchema>
 
+// A like is a reaction on the message itself. It reaches the author through a
+// notification instead of appearing as a separate reply in the conversation.
+export const chatReactionKindSchema = z.enum(['LIKE'])
+export type ChatReactionKind = z.infer<typeof chatReactionKindSchema>
+
+export const chatMessageReactionsSchema = z.object({
+  likeCount: z.number().int().nonnegative(),
+  likedByMe: z.boolean(),
+})
+export type ChatMessageReactions = z.infer<typeof chatMessageReactionsSchema>
+
+export const chatReactionSchema = z.object({
+  kind: chatReactionKindSchema.default('LIKE'),
+})
+export type ChatReactionInput = z.infer<typeof chatReactionSchema>
+
 export const chatMessageViewSchema = z.object({
   id: z.string(),
   authorId: z.string(),
@@ -260,6 +347,12 @@ export const chatMessageViewSchema = z.object({
   deletedAt: z.string().datetime().nullable(),
   version: z.number().int().positive(),
   replyToId: z.string().nullable(),
+  mentions: z.array(z.object({
+    userId: z.string(),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+    active: z.boolean(),
+  })),
   replyPreview: z.object({
     id: z.string(),
     authorName: z.string(),
@@ -271,6 +364,8 @@ export const chatMessageViewSchema = z.object({
     avatarAsset: true,
   }),
   attachments: z.array(chatAttachmentViewSchema),
+  readByCount: z.number().int().nonnegative(),
+  reactions: chatMessageReactionsSchema,
   canEdit: z.boolean(),
   canDelete: z.boolean(),
 })

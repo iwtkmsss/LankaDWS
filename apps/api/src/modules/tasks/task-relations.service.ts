@@ -1,5 +1,6 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
-import type { TaskRelationInput } from '@bert-crm/contracts'
+import type { TaskRelationInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -58,6 +59,7 @@ export class TaskRelationsService {
           createdById: principal.userId,
         },
       })
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { id: relationId, version: expectedVersion + 1 }
     })
   }
@@ -79,6 +81,7 @@ export class TaskRelationsService {
         },
       })
       if (!removed.count) throw badRequest('task_relation')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { version: expectedVersion + 1 }
     })
   }
@@ -99,7 +102,6 @@ export class TaskRelationsService {
     task: {
       id: string
       companyId: string
-      groupId: string | null
       projectId: string | null
     },
     targetTaskId: string,
@@ -109,7 +111,6 @@ export class TaskRelationsService {
         id: targetTaskId,
         workspaceId: principal.workspaceId,
         companyId: task.companyId,
-        groupId: task.groupId,
         projectId: task.projectId,
         archivedAt: null,
       },

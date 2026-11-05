@@ -1,74 +1,137 @@
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
+import { personName } from '../shared/lib/personName'
+import { FormattedTextarea } from '../shared/text/FormattedTextarea'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { TaskUnreadBadge, useUnreadTaskCounts } from '../features/notifications/TaskUnreadBadge'
+import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
 import type {
-  GroupListResult,
   PageResult,
+  StructuredMentionInput,
   TaskActivityPage,
   TaskAttachmentView,
   TaskDetailView,
   TaskListItem,
   TaskParticipantRole,
   TaskViewRole,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import {
   AlertTriangle,
+  Archive,
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   Bell,
   Bookmark,
+  CalendarDays,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   CirclePlus,
+  Copy,
   Download,
   Eye,
-  FileText,
-  Filter,
   Flag,
-  History,
+  HardDrive,
+  Heart,
   Link2,
-  ListTree,
+  ListChecks,
   MessageCircle,
+  ChevronUp,
+  MoreHorizontal,
   Paperclip,
   Pencil,
   Plus,
+  Play,
   Reply,
   Search,
-  Star,
+  Send,
   Trash2,
-  UserPlus,
+  RotateCcw,
+  UserRoundPen,
+  UserRoundCheck,
+  Users,
   X,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
+import { api, ApiProblem, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
-import { TaskCreateModal } from '../features/tasks/create/TaskCreateModal'
+import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
+import { DrivePicker } from '../features/drive/DrivePicker'
+import { useDiscardDraftAttachment } from '../shared/files/useDiscardDraftAttachment'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { TaskListColumnsControl, useTaskListColumnsPreference } from '../features/tasks/list/TaskListColumns'
+import { TaskStatusPicker } from '../features/tasks/list/TaskStatusPicker'
+import { TaskStatusFilters } from '../features/tasks/list/TaskStatusFilters'
+import { readTaskStatusFilter, writeTaskStatusFilter } from '../features/tasks/list/task-status-filters'
+import { FormattedText } from '../shared/text/FormattedText'
+import { MentionTextarea } from '../shared/mentions/MentionTextarea'
+import { trimMentionValue } from '../shared/mentions/mentionText'
+import { MessageComposerFrame } from '../shared/messages/MessageComposerFrame'
+import { MessageLikeButton } from '../shared/messages/MessageLikeButton'
+import { formatChatTime } from '../features/messages/lib/chatDates'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import { InlinePhotoButton, useObjectUrls } from '../shared/inline-photos/InlinePhotoButton'
+import { InlinePhotoCanvas, placedPhotos } from '../shared/inline-photos/InlinePhotoCanvas'
+import { InlinePhotoEditor } from '../shared/inline-photos/InlinePhotoEditor'
+import { imageRatio, initialPlacement, placementToPhoto, toPhotoLayout, type InlinePhoto } from '../shared/inline-photos/inlinePhotos'
+import { FileThumbnail } from '../shared/files/FileThumbnail'
+import { isPreviewableImage } from '../shared/files/filePreview'
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
+import { SaveToDriveButton } from '../shared/files/SaveToDriveButton'
 import {
   Avatar,
   Button,
   Card,
-  Drawer,
   EmptyState,
+  ConfirmationDialog,
   ErrorState,
+  PageDataLoader,
   PageHeader,
   Skeleton,
   StatusBadge,
-  Tabs,
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
+import '../features/tasks/detail/task-detail.css'
 
-interface Employee {
-  id: string
-  displayName: string
-  jobTitle: string
-  avatarAsset?: string | null
+type TaskRolePerson = { id: string; displayName: string }
+type TaskPersonAction =
+  | { kind: 'assign'; person: TaskRolePerson }
+  | { kind: 'add' | 'remove'; person: TaskRolePerson; role: TaskParticipantRole }
+
+function taskPersonActionCopy(action: TaskPersonAction, assigneeName: string) {
+  const name = personName(action.person.displayName)
+  if (action.kind === 'assign') {
+    return { title: 'Змінити відповідального?', description: `Відповідальним за завдання стане ${name} замість ${assigneeName}.`, confirmLabel: 'Змінити', confirmVariant: 'primary' as const }
+  }
+  const [accusative, instrumental] = action.role === 'CO_EXECUTOR' ? ['співвиконавця', 'співвиконавцем'] : ['спостерігача', 'спостерігачем']
+  return action.kind === 'add'
+    ? { title: `Додати ${accusative}?`, description: `${name} стане ${instrumental} цього завдання.`, confirmLabel: 'Додати', confirmVariant: 'primary' as const }
+    : { title: `Вилучити ${accusative}?`, description: `${name} більше не буде ${instrumental} цього завдання.`, confirmLabel: 'Вилучити', confirmVariant: 'danger' as const }
 }
+
+function contextMenuPosition(x: number, y: number): { left: number; top: number } {
+  const menuWidth = 248
+  const menuHeight = 260
+  const inset = 8
+  return {
+    left: Math.max(inset, Math.min(x, window.innerWidth - menuWidth - inset)),
+    top: Math.max(inset, Math.min(y, window.innerHeight - menuHeight - inset)),
+  }
+}
+
 
 export default function TasksPage() {
   const { taskId } = useParams()
-  const location = useLocation()
-  const navigate = useNavigate()
-  const client = useQueryClient()
+  return taskId ? <TaskDetailPage id={taskId} /> : <TasksListPage />
+}
+
+function TasksListPage() {
+  const unreadTaskCounts = useUnreadTaskCounts()
   const [params, setParams] = useSearchParams()
   const pendingParams = useRef(new URLSearchParams(params))
   useEffect(() => {
@@ -85,38 +148,35 @@ export default function TasksPage() {
     setParams(next)
   }
   const { user } = useAuth()
-  const [filtersOpen, setFiltersOpen] = useState(
-    Boolean(
-      params.get('search')
-      || params.get('status')
-      || params.get('priority')
-      || params.get('favorite')
-      || params.get('important')
-      || params.get('overdue')
-      || params.get('preset')
-      || params.get('dueFrom')
-      || params.get('dueTo')
-      || params.get('groupId')
-      || params.get('assigneeId')
-      || params.get('creatorId')
-      || params.get('coExecutorId')
-      || params.get('observerId'),
-    ),
-  )
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const legacyTab = params.get('tab')
-  const role = (params.get('role')
-    ?? (legacyTab === 'created' ? 'CREATOR' : legacyTab === 'all' ? 'ALL' : 'RESPONSIBLE')) as TaskViewRole
+  const personalRoles: TaskViewRole[] = ['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER']
+  const requestedRoles = (params.get('role')
+    ?? (legacyTab === 'created' ? 'CREATOR' : legacyTab === 'all' ? 'ALL' : 'RESPONSIBLE'))
+    .split(',').filter((value): value is TaskViewRole => personalRoles.includes(value as TaskViewRole)
+      || value === 'ALL')
+  const selectedRoles: TaskViewRole[] = !requestedRoles.length || requestedRoles.includes('ALL') ? ['ALL'] : requestedRoles
+  const selectedRoleKey = selectedRoles.join(',')
+  const role = selectedRoleKey === 'ALL' && user?.accountType !== 'ADMIN' ? personalRoles.join(',') : selectedRoleKey
+  const roleButtons = useRef(new Map<TaskViewRole, HTMLButtonElement>())
+  const pendingRoleFocus = useRef<TaskViewRole | null>(null)
+  useEffect(() => {
+    if (pendingRoleFocus.current) roleButtons.current.get(pendingRoleFocus.current)?.focus()
+    pendingRoleFocus.current = null
+  }, [selectedRoleKey])
+  const sort = params.get('sort') ?? ''
+  const direction = params.get('direction') === 'desc' ? 'desc' : 'asc'
   const page = Number(params.get('page') ?? 1)
   const search = params.get('search') ?? ''
-  const status = params.get('status') ?? ''
+  const statusFilter = readTaskStatusFilter(params)
+  const { status, preset } = statusFilter
+  const archiveActive = statusFilter.selected.length === 1 && statusFilter.selected[0] === 'ARCHIVED'
   const priority = params.get('priority') ?? ''
   const favorite = params.get('favorite') ?? ''
   const important = params.get('important') ?? ''
   const overdue = params.get('overdue') === 'true'
-  const preset = params.get('preset') ?? (overdue ? 'OVERDUE' : '')
   const dueFrom = params.get('dueFrom') ?? ''
   const dueTo = params.get('dueTo') ?? ''
-  const groupId = params.get('groupId') ?? ''
   const assigneeId = params.get('assigneeId') ?? ''
   const creatorId = params.get('creatorId') ?? ''
   const coExecutorId = params.get('coExecutorId') ?? ''
@@ -132,19 +192,7 @@ export default function TasksPage() {
     queryFn: () => api<Array<{ id: string; module: string; name: string; queryState: string }>>('/saved-views'),
     enabled: filtersOpen,
   })
-  const filterEmployees = useQuery({
-    queryKey: ['task-filter-employees'],
-    queryFn: () => api<{ items: Employee[] }>('/employees'),
-    enabled: filtersOpen,
-  })
-  const filterGroups = useQuery({
-    queryKey: ['task-filter-groups', params.get('company')],
-    queryFn: () => api<GroupListResult>(
-      `/groups?limit=50${params.get('company') ? `&company=${encodeURIComponent(params.get('company')!)}` : ''}`,
-    ),
-    enabled: filtersOpen,
-    retry: false,
-  })
+
   const saveView = useMutation({
     mutationFn: (name: string) =>
       api('/saved-views', {
@@ -170,18 +218,22 @@ export default function TasksPage() {
     favorite,
     important,
     overdue: overdue ? 'true' : '',
-    preset,
+    preset: preset === 'ALL' ? '' : preset,
     dueFrom,
     dueTo,
-    groupId,
     assigneeId,
     creatorId,
     coExecutorId,
     observerId,
+    sort,
+    direction,
   })
   const query = useQuery({
     queryKey: [
       'tasks',
+      user?.id,
+      sort,
+      direction,
       role,
       page,
       params.get('company'),
@@ -194,136 +246,262 @@ export default function TasksPage() {
       preset,
       dueFrom,
       dueTo,
-      groupId,
       assigneeId,
       creatorId,
       coExecutorId,
       observerId,
     ],
     queryFn: () => api<PageResult<TaskListItem>>(`/tasks?${queryString.toString()}`),
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === user?.id ? previous : undefined,
   })
-  const quickComplete = useMutation({
-    mutationFn: (task: TaskListItem) =>
-      api(`/tasks/${task.id}/status`, {
-        method: 'PATCH',
-        body: jsonBody({ status: 'DONE', expectedVersion: task.version }),
-      }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['tasks'] }),
+  const countFilters = new URLSearchParams(queryString)
+  countFilters.delete('sort')
+  countFilters.delete('direction')
+  countFilters.delete('role')
+  countFilters.set('page', '1')
+  const countRoles: TaskViewRole[] = [...personalRoles, 'ALL']
+  const roleCounts = useQueries({
+    queries: countRoles.map((countRole) => ({
+      queryKey: ['tasks', 'role-count', user?.id, countRole, countFilters.toString()],
+      queryFn: () => {
+        const filters = new URLSearchParams(countFilters)
+        filters.set('role', countRole === 'ALL' && user?.accountType !== 'ADMIN' ? personalRoles.join(',') : countRole)
+        return api<PageResult<TaskListItem>>(`/tasks?${filters}`)
+      },
+      enabled: Boolean(user) && countRole !== role,
+    })),
   })
-  const canQuickComplete = role === 'RESPONSIBLE'
-    || role === 'CO_EXECUTOR'
-    || (role === 'ALL' && user?.accountType === 'ADMIN')
-  const isCreating = location.pathname === '/tasks/new'
+  const liveCountForRole = (countRole: TaskViewRole) => countRole === role
+    ? query.data?.total ?? roleCounts[countRoles.indexOf(countRole)]?.data?.total
+    : roleCounts[countRoles.indexOf(countRole)]?.data?.total
+  const [lastRoleCounts, setLastRoleCounts] = useState<{
+    userId: string | undefined
+    values: Partial<Record<TaskViewRole, number>>
+  }>({ userId: user?.id, values: {} })
+  useEffect(() => {
+    setLastRoleCounts((previous) => {
+      const values = previous.userId === user?.id ? { ...previous.values } : {}
+      countRoles.forEach((countRole) => {
+        const count = liveCountForRole(countRole)
+        if (count !== undefined) values[countRole] = count
+      })
+      return previous.userId === user?.id && countRoles.every((countRole) => previous.values[countRole] === values[countRole])
+        ? previous : { userId: user?.id, values }
+    })
+  }, [roleCounts, query.data?.total, role, user?.id])
+  const countForRole = (countRole: TaskViewRole) => liveCountForRole(countRole)
+    ?? (lastRoleCounts.userId === user?.id ? lastRoleCounts.values[countRole] : undefined)
+  const taskListColumns = useTaskListColumnsPreference()
+  const columnWidths = { reporter: 200, responsibles: 220, dueDate: 140, status: 150, priority: 120, subtaskProgress: 110, activity: 120 }
+  const orderedColumns = (['reporter', 'responsibles', 'dueDate', 'status', 'priority', 'subtaskProgress', 'activity'] as const)
+    .filter((column) => taskListColumns.visible.includes(column))
+  const activeFilterCount = [search.trim(), status, priority, personalFilter,
+    preset !== 'ALL' ? preset : '', dueFrom, dueTo, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length
+  const listHasFilters = activeFilterCount > 0
+  const emptyState = listHasFilters ? {
+    title: status === 'DONE' ? 'Виконаних завдань за цими фільтрами немає' : 'За вибраними фільтрами завдань немає',
+    description: 'Оберіть «Усі статуси», «Виконані» або змініть додаткові фільтри.',
+  } : taskRoleEmptyState(selectedRoles.length === 1 ? selectedRoles[0]! : 'ALL')
+  const roleItems = [
+    { value: 'RESPONSIBLE', label: 'Відповідальний' },
+    { value: 'CO_EXECUTOR', label: 'Співвиконавець' },
+    { value: 'OBSERVER', label: 'Спостерігач' },
+    { value: 'CREATOR', label: 'Постановник' },
+    { value: 'ALL', label: 'Усі доступні' },
+  ] as Array<{ value: TaskViewRole; label: string }>
+  const renderRole = (item: typeof roleItems[number]) => {
+    const count = countForRole(item.value)
+    const selected = selectedRoles.includes(item.value)
+    return <button key={item.value} type="button" aria-pressed={selected}
+      ref={(node) => { if (node) roleButtons.current.set(item.value, node); else roleButtons.current.delete(item.value) }}
+      onClick={() => {
+        pendingRoleFocus.current = item.value
+        updateParams((current) => {
+          const currentRoles = (current.get('role') ?? selectedRoleKey).split(',').filter((value) => value && value !== 'ALL')
+          const nextRoles = item.value === 'ALL' ? ['ALL'] : currentRoles.includes(item.value)
+            ? currentRoles.filter((value) => value !== item.value) : [...currentRoles, item.value]
+          current.set('role', nextRoles.length ? nextRoles.join(',') : 'ALL')
+          current.delete('tab')
+          current.delete('page')
+        })
+      }}>
+      {item.label}{count !== undefined && <span className="task-role-count">{count}</span>}
+    </button>
+  }
+  const renderSortHeader = (key: string, label: string) => <th aria-sort={sort === key ? direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
+    <button type="button" onClick={() => updateParams((current) => {
+      current.set('sort', key)
+      current.set('direction', sort === key && direction === 'asc' ? 'desc' : 'asc')
+      current.delete('page')
+    })}>{label}{sort === key && (direction === 'asc' ? <ArrowUp size={13} aria-hidden="true" /> : <ArrowDown size={13} aria-hidden="true" />)}</button>
+  </th>
   return (
     <div>
       <PageHeader
         title="Завдання"
-        description="Окремі робочі списки за вашою роллю в кожному завданні"
-        action={
-          (
-            <Link className="button button--primary" to={`/tasks/new${location.search}`}>
-              <Plus size={17} />
-              Нове завдання
-            </Link>
-          )
-        }
+        description="Завдання за вибраними ролями. Найближчі строки — першими."
+        action={(
+          <Link className="button button--primary" to="/tasks/new">
+            <Plus size={17} />
+            Створити завдання
+          </Link>
+        )}
       />
-      <Card className="list-card">
+      <Card className="list-card task-list-card">
         <div className="list-toolbar">
-          <Tabs
-            value={role}
-            onChange={(value) =>
-              updateParams((current) => {
-                current.set('role', value)
-                current.delete('tab')
-                current.delete('page')
-              })
-            }
-            items={[
-              { value: 'RESPONSIBLE', label: 'Мої', count: role === 'RESPONSIBLE' ? query.data?.total : undefined },
-              { value: 'CO_EXECUTOR', label: 'Допомагаю', count: role === 'CO_EXECUTOR' ? query.data?.total : undefined },
-              { value: 'CREATOR', label: 'Доручив', count: role === 'CREATOR' ? query.data?.total : undefined },
-              { value: 'OBSERVER', label: 'Спостерігаю', count: role === 'OBSERVER' ? query.data?.total : undefined },
-              ...(user?.accountType === 'ADMIN' ? [{ value: 'ALL', label: 'Усі доступні', count: role === 'ALL' ? query.data?.total : undefined }] : []),
-            ]}
-          />
+          <div className="task-role-filters" role="group" aria-label="Мої ролі в завданнях">
+            <span className="task-filter-selection__label">Я:</span>
+            <div className="task-filter-selection" role="group" aria-label="Вибрані ролі">
+              {roleItems.filter((item) => selectedRoles.includes(item.value)).map(renderRole)}
+            </div>
+            {roleItems.filter((item) => !selectedRoles.includes(item.value)).map(renderRole)}
+          </div>
           <div className="toolbar-actions">
-            <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen(true)}>
+            <button className="task-search-toggle" aria-expanded={filtersOpen} aria-label={`Пошук і фільтри${activeFilterCount ? ` · ${activeFilterCount}` : ''}`}
+              onClick={() => setFiltersOpen((value) => !value)}>
               <Search size={17} />
-              Пошук
+              Пошук і фільтри
+              <span className="task-filter-count">{activeFilterCount ? ` · ${activeFilterCount}` : ''}</span>
             </button>
-            <button aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>
-              <Filter size={17} />
-              Фільтри
-              {[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length
-                ? ` · ${[search, status, priority, personalFilter, preset, dueFrom, dueTo, groupId, assigneeId, creatorId, coExecutorId, observerId].filter(Boolean).length}`
-                : ''}
-            </button>
+            <TaskListColumnsControl controller={taskListColumns} />
           </div>
         </div>
-        <div className="task-presets" aria-label="Швидкі режими завдань">
-          {[
-            ['ACTIVE', 'В роботі'],
-            ['DEFERRED', 'Відкладені'],
-            ['OVERDUE', 'Прострочені'],
-            ['DUE_SOON', 'Скоро строк'],
-          ].map(([value, label]) => (
-            <button
-              type="button"
-              className={preset === value ? 'is-active' : ''}
-              key={value}
-              onClick={() => updateParams((current) => {
-                current.delete('overdue')
-                if (preset === value) current.delete('preset')
-                else current.set('preset', value)
-                current.delete('page')
-              })}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="task-preset-toolbar">
+          <TaskStatusFilters group={statusFilter.group} selected={statusFilter.selected}
+            onChange={(group, selected) => updateParams((current) => writeTaskStatusFilter(current, group, selected))} />
+          <button type="button" className={`task-archive-filter${archiveActive ? ' is-active' : ''}`}
+            aria-label="Архівовані завдання" title="Архівовані завдання" aria-pressed={archiveActive}
+            onClick={() => updateParams((current) => {
+              const active = archiveActive
+              for (const key of Array.from(current.keys())) current.delete(key)
+              if (!active) {
+                current.set('role', 'ALL')
+                writeTaskStatusFilter(current, 'ALL', ['ARCHIVED'])
+              }
+            })}><Archive size={19} aria-hidden="true" /></button>
         </div>
         {filtersOpen && (
-          <div className="filter-panel">
-            <label className="search-field">
-              <Search size={16} />
-              <input
-                aria-label="Пошук завдань"
-                autoFocus
-                placeholder="Назва або номер"
-                value={search}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    if (event.target.value) current.set('search', event.target.value)
-                    else current.delete('search')
-                    current.delete('page')
-                  })
-                }
+          <div className="filter-panel task-advanced-filters">
+            <div className="task-advanced-filters__toolbar">
+              <label className="task-advanced-filters__field">
+                <span className="task-filter-field-label"><Search size={14} aria-hidden="true" />Пошук завдання</span>
+                <span className="search-field">
+                  <Search size={16} />
+                  <input
+                    aria-label="Пошук завдань"
+                    autoFocus
+                    placeholder="Назва або номер завдання"
+                    value={search}
+                    onChange={(event) =>
+                      updateParams((current) => {
+                        if (event.target.value) current.set('search', event.target.value)
+                        else current.delete('search')
+                        current.delete('page')
+                      })
+                    }
+                  />
+                </span>
+              </label>
+              <label>
+                <span className="task-filter-field-label"><Bookmark size={14} aria-hidden="true" />Збережені фільтри</span>
+                <select
+                  defaultValue=""
+                  onChange={(event) => {
+                    const view = savedViews.data?.find((item) => item.id === event.target.value)
+                    if (view) replaceParams(new URLSearchParams(JSON.parse(view.queryState) as Record<string, string>))
+                  }}
+                >
+                  <option value="">Оберіть</option>
+                  {savedViews.data
+                    ?.filter((item) => item.module === 'TASKS')
+                    .map((item) => (
+                      <option value={item.id} key={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="task-advanced-filters__field">
+                <span className="task-filter-field-label"><CirclePlus size={14} aria-hidden="true" />Додати фільтр</span>
+                <input
+                  aria-label="Назва фільтра"
+                  value={viewName}
+                  maxLength={80}
+                  onChange={(event) => setViewName(event.target.value)}
+                  placeholder="Назва фільтра"
+                />
+              </label>
+              <div className="task-advanced-filters__actions">
+                <Button
+                  variant="secondary"
+                  disabled={!viewName.trim() || saveView.isPending}
+                  onClick={() => saveView.mutate(viewName.trim())}
+                >
+                  <Bookmark size={15} />
+                  Зберегти
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="task-filters-clear"
+                  disabled={!listHasFilters && selectedRoleKey === 'RESPONSIBLE'}
+                  onClick={() =>
+                    updateParams((current) => {
+                      current.delete('role')
+                      current.delete('tab')
+                      current.delete('search')
+                      current.delete('status')
+                      current.delete('priority')
+                      current.delete('favorite')
+                      current.delete('important')
+                      current.delete('overdue')
+                      current.delete('preset')
+                      current.delete('statusGroup')
+                      current.delete('dueFrom')
+                      current.delete('dueTo')
+                      current.delete('assigneeId')
+                      current.delete('creatorId')
+                      current.delete('coExecutorId')
+                      current.delete('observerId')
+                      current.delete('page')
+                    })
+                  }
+                >
+                  <Trash2 size={15} aria-hidden="true" />
+                  Очисти фільтри
+                </Button>
+              </div>
+            </div>
+            <label>
+              <span className="task-filter-field-label"><CalendarDays size={14} aria-hidden="true" />Від дати</span>
+              <DateTimePicker
+                type="date"
+                value={dueFrom}
+                onChange={(event) => updateParams((current) => {
+                  if (event.target.value) current.set('dueFrom', event.target.value)
+                  else current.delete('dueFrom')
+                  current.delete('page')
+                })}
               />
             </label>
             <label>
-              Статус
-              <select
-                value={status}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    if (event.target.value) current.set('status', event.target.value)
-                    else current.delete('status')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="NEW">Нове</option>
-                <option value="PLANNED">Заплановано</option>
-                <option value="IN_PROGRESS">В роботі</option>
-                <option value="IN_REVIEW">На перевірці</option>
-                <option value="DONE">Виконано</option>
-                <option value="BLOCKED">Заблоковано</option>
-              </select>
+              <span className="task-filter-field-label"><CalendarDays size={14} aria-hidden="true" />До дати</span>
+              <DateTimePicker
+                type="date"
+                value={dueTo}
+                onChange={(event) => updateParams((current) => {
+                  if (event.target.value) current.set('dueTo', event.target.value)
+                  else current.delete('dueTo')
+                  current.delete('page')
+                })}
+              />
             </label>
+            <div className="task-status-picker">
+              <span className="task-status-picker__label task-filter-field-label"><CheckCircle2 size={14} aria-hidden="true" />Статус</span>
+              <TaskStatusPicker selected={statusFilter.selected}
+                onChange={(selected) => updateParams((current) => writeTaskStatusFilter(current, 'ALL', selected))} />
+            </div>
             <label>
-              Пріоритет
+              <span className="task-filter-field-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
               <select
                 value={priority}
                 onChange={(event) =>
@@ -341,207 +519,76 @@ export default function TasksPage() {
                 <option value="CRITICAL">Терміновий</option>
               </select>
             </label>
-            <label>
-              Особисте
-              <select
-                value={personalFilter}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    current.delete('favorite')
-                    current.delete('important')
-                    if (event.target.value === 'favorite') current.set('favorite', 'true')
-                    if (event.target.value === 'important') current.set('important', 'true')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="favorite">Обрані</option>
-                <option value="important">Важливі для мене</option>
-              </select>
-            </label>
-            <label>
-              Строк
-              <select
-                value={preset}
-                onChange={(event) =>
-                  updateParams((current) => {
-                    current.delete('overdue')
-                    if (event.target.value) current.set('preset', event.target.value)
-                    else current.delete('preset')
-                    current.delete('page')
-                  })
-                }
-              >
-                <option value="">Усі</option>
-                <option value="ACTIVE">В роботі</option>
-                <option value="DEFERRED">Відкладені</option>
-                <option value="OVERDUE">Прострочені</option>
-                <option value="DUE_SOON">Скоро строк</option>
-              </select>
-            </label>
-            <label>
-              Від дати
-              <input
-                type="date"
-                value={dueFrom}
-                onChange={(event) => updateParams((current) => {
-                  if (event.target.value) current.set('dueFrom', event.target.value)
-                  else current.delete('dueFrom')
-                  current.delete('page')
-                })}
-              />
-            </label>
-            <label>
-              До дати
-              <input
-                type="date"
-                value={dueTo}
-                onChange={(event) => updateParams((current) => {
-                  if (event.target.value) current.set('dueTo', event.target.value)
-                  else current.delete('dueTo')
-                  current.delete('page')
-                })}
-              />
-            </label>
-            <TaskFilterSelect
-              label="Група"
-              value={groupId}
-              options={(filterGroups.data?.items ?? []).map((group) => ({ id: group.id, label: group.name }))}
-              onChange={(value) => updateParams((current) => {
-                if (value) current.set('groupId', value)
-                else current.delete('groupId')
-                current.delete('page')
-              })}
-            />
-            <TaskFilterSelect
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Відповідальний"
               value={assigneeId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('assigneeId', value)
                 else current.delete('assigneeId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Постановник"
               value={creatorId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('creatorId', value)
                 else current.delete('creatorId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Співвиконавець"
               value={coExecutorId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('coExecutorId', value)
                 else current.delete('coExecutorId')
                 current.delete('page')
               })}
-            />
-            <TaskFilterSelect
+            /></div>
+            <div className="task-filter-user-field"><Users size={14} aria-hidden="true" /><UserSearchCombobox
               label="Спостерігач"
               value={observerId}
-              options={(filterEmployees.data?.items ?? []).map((employee) => ({ id: employee.id, label: employee.displayName }))}
               onChange={(value) => updateParams((current) => {
                 if (value) current.set('observerId', value)
                 else current.delete('observerId')
                 current.delete('page')
               })}
-            />
-            <label>
-              Збережений вигляд
-              <select
-                defaultValue=""
-                onChange={(event) => {
-                  const view = savedViews.data?.find((item) => item.id === event.target.value)
-                  if (view) replaceParams(new URLSearchParams(JSON.parse(view.queryState) as Record<string, string>))
-                }}
-              >
-                <option value="">Оберіть</option>
-                {savedViews.data
-                  ?.filter((item) => item.module === 'TASKS')
-                  .map((item) => (
-                    <option value={item.id} key={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <div className="save-view">
-              <input
-                aria-label="Назва вигляду"
-                value={viewName}
-                maxLength={80}
-                onChange={(event) => setViewName(event.target.value)}
-                placeholder="Назва вигляду"
-              />
-              <Button
-                variant="secondary"
-                disabled={!viewName.trim() || saveView.isPending}
-                onClick={() => saveView.mutate(viewName.trim())}
-              >
-                <Bookmark size={15} />
-                Зберегти
-              </Button>
-            </div>
-            {(search || status || priority || personalFilter || preset || dueFrom || dueTo || groupId || assigneeId || creatorId || coExecutorId || observerId) && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  updateParams((current) => {
-                    current.delete('search')
-                    current.delete('status')
-                    current.delete('priority')
-                    current.delete('favorite')
-                    current.delete('important')
-                    current.delete('overdue')
-                    current.delete('preset')
-                    current.delete('dueFrom')
-                    current.delete('dueTo')
-                    current.delete('groupId')
-                    current.delete('assigneeId')
-                    current.delete('creatorId')
-                    current.delete('coExecutorId')
-                    current.delete('observerId')
-                    current.delete('page')
-                  })
-                }
-              >
-                Очистити
-              </Button>
-            )}
+            /></div>
+
           </div>
         )}
         {query.isLoading ? (
-          <Skeleton rows={7} />
+          <PageDataLoader />
         ) : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
-          <div className="responsive-table">
-            <table>
+          <div className="responsive-table task-list-table-wrap">
+            <table className="task-list-table" aria-busy={query.isFetching}
+              style={{ minWidth: 320 + orderedColumns.reduce((sum, column) => sum + columnWidths[column], 0) }}>
+              <colgroup>
+                <col />
+                {orderedColumns.map((column) => <col key={column} style={{ width: columnWidths[column] }} />)}
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Завдання</th>
-                  <th>Виконавець</th>
-                  <th>Строк</th>
-                  <th>Статус</th>
-                  <th><span className="sr-only">Активність</span></th>
+                  {renderSortHeader('title', 'Завдання')}
+                  {taskListColumns.visible.includes('reporter') && renderSortHeader('reporter', 'Постановник')}
+                  {taskListColumns.visible.includes('responsibles') && renderSortHeader('responsibles', 'Відповідальні')}
+                  {taskListColumns.visible.includes('dueDate') && renderSortHeader('dueDate', 'Строк')}
+                  {taskListColumns.visible.includes('status') && renderSortHeader('status', 'Статус')}
+                  {taskListColumns.visible.includes('priority') && renderSortHeader('priority', 'Пріоритет')}
+                  {taskListColumns.visible.includes('subtaskProgress') && renderSortHeader('subtaskProgress', 'Підзадачі')}
+                  {taskListColumns.visible.includes('activity') && renderSortHeader('activity', 'Активність')}
                 </tr>
               </thead>
               <tbody>
                 {query.data.items.map((task) => (
                   <tr key={task.id}>
-                    <td>
+                    <td data-label="Завдання">
                       <Link to={`/tasks/${task.id}${location.search}`}>
-                        <span className={`priority-dot priority-dot--${task.priority.toLowerCase()}`} />
                         <span>
-                          <strong>{task.title}</strong>
+                          <strong>{task.title}<TaskUnreadBadge count={unreadTaskCounts.get(task.id) ?? 0} /></strong>
                           <small>
                             {task.number}
                             {task.parentTaskId ? ' · Підзадача' : ''}
@@ -549,15 +596,26 @@ export default function TasksPage() {
                         </span>
                       </Link>
                     </td>
-                    <td>
-                      <span className="person-cell">
-                        <Avatar size="sm" name={task.assignee.displayName} src={task.assignee.avatarAsset} />
-                        {task.assignee.displayName}
-                      </span>
-                    </td>
-                    <td>
+                    {taskListColumns.visible.includes('reporter') && <td data-label="Постановник"><UserProfileLink className="person-cell" userId={task.reporter.id}><Avatar size="sm" name={personName(task.reporter.displayName)} src={task.reporter.avatarAsset} />{personName(task.reporter.displayName)}</UserProfileLink></td>}
+                    {taskListColumns.visible.includes('responsibles') && <td data-label="Відповідальні">
+                      {task.responsibles.length ? (
+                        <span className="person-cell task-responsibles">
+                          {task.responsibles.map((responsible) => (
+                            <UserProfileLink
+                              className="task-list-person"
+                              key={responsible.id}
+                              userId={responsible.id}
+                            >
+                              <Avatar size="sm" name={personName(responsible.displayName)} src={responsible.avatarAsset} />
+                              {personName(responsible.displayName)}
+                            </UserProfileLink>
+                          ))}
+                        </span>
+                      ) : '—'}
+                    </td>}
+                    {taskListColumns.visible.includes('dueDate') && <td data-label="Строк">
                       {task.deadline ? (
-                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : ''}`}>
+                        <span className={`task-deadline ${isTaskOverdue(task) ? 'is-overdue' : isTaskDueSoon(task) ? 'is-due-soon' : ''}`}>
                           {isTaskOverdue(task) && <AlertTriangle size={14} />}
                           <span>
                             {formatDate(task.deadline)}
@@ -565,52 +623,18 @@ export default function TasksPage() {
                           </span>
                         </span>
                       ) : '—'}
-                    </td>
-                    <td>
-                      <StatusBadge status={task.status} />
-                    </td>
-                    <td>
-                      <span className="task-row-actions">
-                        {canQuickComplete && !['DONE', 'CANCELLED', 'ARCHIVED'].includes(task.status) && (
-                          <button
-                            type="button"
-                            className="task-quick-complete"
-                            aria-label={`Завершити «${task.title}»`}
-                            title="Завершити завдання"
-                            disabled={quickComplete.isPending && quickComplete.variables?.id === task.id}
-                            onClick={() => quickComplete.mutate(task)}
-                          >
-                            <CheckCircle2 size={17} />
-                          </button>
-                        )}
-                        {quickComplete.isError && quickComplete.variables?.id === task.id && (
-                          <Link
-                            className="task-quick-complete-error"
-                            to={`/tasks/${task.id}${location.search}`}
-                            title={
-                              quickComplete.error instanceof ApiProblem
-                                && quickComplete.error.problem.code === 'task_completion_blocked'
-                                ? 'Спочатку завершіть активні підзадачі'
-                                : 'Відкрийте завдання та спробуйте ще раз'
-                            }
-                          >
-                            Потрібна увага
-                          </Link>
-                        )}
-                        <span className="activity-count">
-                          {task.subtaskProgress.total > 0 && (
-                            <>
-                              <ListTree size={14} />
-                              {task.subtaskProgress.done}/{task.subtaskProgress.total}
-                            </>
-                          )}
+                    </td>}
+                    {taskListColumns.visible.includes('status') && <td data-label="Статус"><StatusBadge status={task.status} /></td>}
+                    {taskListColumns.visible.includes('priority') && <td data-label="Пріоритет">{taskPriorityLabel(task.priority)}</td>}
+                    {taskListColumns.visible.includes('subtaskProgress') && <td data-label="Підзадачі">{task.subtaskProgress.total ? 'Так' : 'Ні'}</td>}
+                    {taskListColumns.visible.includes('activity') && <td data-label="Активність">
+                      <span className="activity-count">
                           <MessageCircle size={14} />
                           {task.commentCount}
                           <Paperclip size={14} />
                           {task.attachmentCount}
-                        </span>
                       </span>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>
@@ -618,15 +642,8 @@ export default function TasksPage() {
           </div>
         ) : (
           <EmptyState
-            title={taskRoleEmptyState(role).title}
-            description={taskRoleEmptyState(role).description}
-            action={
-              (
-                <Link className="button button--primary" to="/tasks/new">
-                  Створити завдання
-                </Link>
-              )
-            }
+            title={emptyState.title}
+            description={emptyState.description}
           />
         )}
         {query.data && query.data.total > query.data.pageSize && (
@@ -657,42 +674,118 @@ export default function TasksPage() {
           </footer>
         )}
       </Card>
-      {isCreating && (
-        <TaskCreateModal
-          groupId={params.get('groupId') ?? ''}
-          initialResponsibleId={params.get('assigneeId') ?? ''}
-          onClose={() => navigate(`/tasks${location.search}`, { replace: true })}
-          onDone={(id) => navigate(`/tasks/${id}`, { replace: true })}
-        />
-      )}
-      {taskId && <TaskDrawer key={taskId} id={taskId} onClose={() => navigate(`/tasks${location.search}`)} />}
     </div>
   )
 }
 
-function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+function TaskDetailPage({ id }: { id: string }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  return <TaskDetailSurface id={id} onBack={() => navigate(`/tasks${location.search}`)} />
+}
+
+function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const client = useQueryClient()
   const location = useLocation()
+  const navigate = useNavigate()
   const { user } = useAuth()
+  const [personAction, setPersonAction] = useState<TaskPersonAction | null>(null)
+  const [editPhotos, setEditPhotos] = useState<InlinePhoto[]>([])
+  const objectUrl = useObjectUrls()
+  const [discussionExpanded, setDiscussionExpanded] = useState(false)
+  const [showDiscussionTop, setShowDiscussionTop] = useState(false)
+  const discussionRef = useRef<HTMLElement>(null)
+  const discussionBodyRef = useRef<HTMLDivElement>(null)
+  const discussionContentRef = useRef<HTMLDivElement>(null)
+  const [delegateOpen, setDelegateOpen] = useState(false)
+  const [delegateId, setDelegateId] = useState('')
+  const [delegateError, setDelegateError] = useState('')
   const [comment, setComment] = useState('')
+  const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
+  const [editingComment, setEditingComment] = useState<{
+    id: string
+    body: string
+    mentions: StructuredMentionInput[]
+  } | null>(null)
+  const [openCommentMenu, setOpenCommentMenu] = useState<{
+    id: string
+    left: number
+    top: number
+  } | null>(null)
+  const commentMenuCloseTimerRef = useRef<number | null>(null)
+  const commentAttemptRef = useRef({ signature: '', key: '' })
+  const commentFileInputRef = useRef<HTMLInputElement>(null)
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null)
   const [replyTo, setReplyTo] = useState<{
     id: string
     authorName: string
     body: string
   } | null>(null)
-  const [commentAttachmentIds, setCommentAttachmentIds] = useState<string[]>([])
+  const [commentAttachments, setCommentAttachments] = useState<TaskAttachmentView[]>([])
+  const commentAttachmentIds = commentAttachments.map((attachment) => attachment.id)
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false)
+  const commentFileRemoval = useDiscardDraftAttachment((fileId) => {
+    setCommentAttachments((current) => current.filter((item) => item.id !== fileId))
+  })
+  const closeCommentMenu = () => {
+    if (commentMenuCloseTimerRef.current !== null) window.clearTimeout(commentMenuCloseTimerRef.current)
+    setOpenCommentMenu(null)
+  }
+  const delayCommentMenuClose = () => {
+    commentMenuCloseTimerRef.current = window.setTimeout(closeCommentMenu, 120)
+  }
+  const keepCommentMenuOpen = () => {
+    if (commentMenuCloseTimerRef.current !== null) window.clearTimeout(commentMenuCloseTimerRef.current)
+  }
+  useEffect(() => {
+    const closeOnOtherMenu = () => closeCommentMenu()
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement).closest('.task-comment-action-menu')) closeCommentMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeCommentMenu() }
+    window.addEventListener('lanka:context-menu-open', closeOnOtherMenu)
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('lanka:context-menu-open', closeOnOtherMenu)
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
   const [contentMessage, setContentMessage] = useState('')
   const [newItem, setNewItem] = useState('')
   const [editOpen, setEditOpen] = useState(false)
+  const [editCreatorId, setEditCreatorId] = useState('')
   const [editMessage, setEditMessage] = useState('')
   const [subtaskFormOpen, setSubtaskFormOpen] = useState(false)
   const [subtaskError, setSubtaskError] = useState('')
-  const [participantsOpen, setParticipantsOpen] = useState(false)
   const [participantMessage, setParticipantMessage] = useState('')
   const [statusError, setStatusError] = useState('')
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
-  const [personalMessage, setPersonalMessage] = useState('')
-  const [activityOpen, setActivityOpen] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsMenuRef = useRef<HTMLDetailsElement>(null)
+  useEffect(() => {
+    const closeMenu = () => {
+      if (actionsMenuRef.current) actionsMenuRef.current.open = false
+      setActionsOpen(false)
+    }
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !actionsMenuRef.current?.contains(event.target)) closeMenu()
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !actionsMenuRef.current?.open) return
+      closeMenu()
+      actionsMenuRef.current?.querySelector('summary')?.focus()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
+  const [linksOpen, setLinksOpen] = useState(false)
   const [dirtyForms, setDirtyForms] = useState<string[]>([])
   const markDirty = (form: string) => {
     setDirtyForms((current) => current.includes(form) ? current : [...current, form])
@@ -706,9 +799,10 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       || comment.trim()
       || replyTo
       || commentAttachmentIds.length
+      || editingComment
       || newItem.trim(),
     ),
-    onRequestClose: () => onClose(),
+    onRequestClose: onBack,
   })
   const statusErrorRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -720,11 +814,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     queryKey: ['task', id],
     queryFn: () => api<TaskDetailView>(`/tasks/${id}`),
   })
-  const employees = useQuery({
-    queryKey: ['employees', 'task-form'],
-    queryFn: () => api<{ items: Employee[] }>('/employees'),
-    enabled: editOpen || subtaskFormOpen || participantsOpen,
-  })
+  useEntityNotificationRead('TASK', query.isSuccess ? id : undefined, query.dataUpdatedAt)
+
   const activity = useInfiniteQuery({
     queryKey: ['task-activity', id],
     queryFn: ({ pageParam }) =>
@@ -733,17 +824,19 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       ),
     initialPageParam: '',
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: activityOpen,
+    enabled: query.isSuccess,
   })
   const updateTask = useMutation({
     mutationFn: (input: {
       title: string
       description: string
+      photoLayout: ReturnType<typeof toPhotoLayout>
       assigneeId: string
       creatorId?: string
       deadline: string | null
       priority: string
       blockReason: string | null
+      requiresAcceptance: boolean
       expectedVersion: number
     }) => api<{ version: number }>(`/tasks/${id}`, {
       method: 'PATCH',
@@ -765,37 +858,50 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       )
     },
   })
-  const setUserState = useMutation({
-    mutationFn: (input: { favorited?: boolean; important?: boolean }) =>
-      api(`/tasks/${id}/user-state`, {
-        method: 'PUT',
-        headers: { 'idempotency-key': idempotencyKey('task-state') },
-        body: jsonBody(input),
-      }),
+  const closeDelegate = () => {
+    setDelegateOpen(false)
+    setDelegateId('')
+    setDelegateError('')
+  }
+  const delegateTask = useMutation({
+    mutationFn: () => api(`/tasks/${id}/delegate`, { method: 'POST', body: jsonBody({ userId: delegateId, expectedVersion: query.data?.version }) }),
     onSuccess: () => {
-      setPersonalMessage('Особисті позначки оновлено.')
+      closeDelegate()
       void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
     },
-    onError: () => setPersonalMessage('Не вдалося оновити особисті позначки.'),
+    onError: () => setDelegateError('Не вдалося делегувати завдання. Оновіть сторінку та перевірте доступ.'),
   })
-  const follow = useMutation({
-    mutationFn: (following: boolean) => {
-      if (!user) throw new Error('principal_missing')
-      return following
-        ? api(`/tasks/${id}/followers`, {
-            method: 'POST',
-            headers: { 'idempotency-key': idempotencyKey('task-follow') },
-            body: jsonBody({}),
-          })
-        : api(`/tasks/${id}/followers/${encodeURIComponent(user.id)}`, {
-            method: 'DELETE',
-          })
+  const reassignResponsible = useMutation({
+    mutationFn: (assigneeId: string) => {
+      if (!query.data) throw new Error('task_reassign_context')
+      return api<{ version: number }>(`/tasks/${id}`, {
+        method: 'PATCH',
+        body: jsonBody({
+          title: query.data.title,
+          description: query.data.description,
+          assigneeId,
+          deadline: query.data.deadline,
+          priority: query.data.priority,
+          blockReason: query.data.blockReason,
+          expectedVersion: query.data.version,
+        }),
+      })
     },
-    onSuccess: (_result, following) => {
-      setPersonalMessage(following ? 'Ви стежите за новими коментарями.' : 'Стеження вимкнено.')
+    onSuccess: () => {
+      setParticipantMessage('Відповідального змінено.')
       void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
     },
-    onError: () => setPersonalMessage('Не вдалося змінити стеження.'),
+    onError: (error) => {
+      setParticipantMessage(
+        error instanceof ApiProblem && error.problem.status === 409
+          ? 'Завдання вже змінилося. Оновіть його та повторіть зміну відповідального.'
+          : 'Не вдалося змінити відповідального.',
+      )
+    },
   })
   const createReminder = useMutation({
     mutationFn: (remindAt: string) => {
@@ -812,11 +918,11 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       })
     },
     onSuccess: () => {
-      setPersonalMessage('Нагадування заплановано.')
+      setRecurrenceMessage('Нагадування заплановано.')
       clearDirty('reminder')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
-    onError: () => setPersonalMessage('Оберіть майбутні дату й час для нагадування.'),
+    onError: () => setRecurrenceMessage('Оберіть майбутні дату й час для нагадування.'),
   })
   const cancelReminder = useMutation({
     mutationFn: (reminderId: string) =>
@@ -824,14 +930,14 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
         method: 'DELETE',
       }),
     onSuccess: () => {
-      setPersonalMessage('Нагадування скасовано.')
+      setRecurrenceMessage('Нагадування скасовано.')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
-    onError: () => setPersonalMessage('Не вдалося скасувати нагадування.'),
+    onError: () => setRecurrenceMessage('Не вдалося скасувати нагадування.'),
   })
   const status = useMutation({
-    mutationFn: (input: { status: string; expectedVersion: number }) =>
-      api(`/tasks/${id}/status`, { method: 'PATCH', body: jsonBody(input) }),
+    mutationFn: (input: { action: 'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'; expectedVersion: number; note?: string }) =>
+      api(`/tasks/${id}/transitions`, { method: 'POST', body: jsonBody(input) }),
     onSuccess: () => {
       setStatusError('')
       void client.invalidateQueries({ queryKey: ['task', id] })
@@ -872,7 +978,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       setSubtaskError(
         error instanceof ApiProblem && error.problem.status === 409
           ? 'Завдання вже змінилося. Оновіть його перед додаванням підзадачі.'
-          : 'Не вдалося додати підзадачу. Перевірте поля та доступ виконавця.',
+          : 'Не вдалося додати підзадачу. Перевірте поля та доступ відповідального.',
       )
     },
   })
@@ -880,25 +986,34 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
     mutationFn: async (input: { file: File; selectForComment: boolean }) => {
       const body = new FormData()
       body.append('file', input.file)
-      return api<TaskAttachmentView>(`/tasks/${id}/attachments`, {
+      return api<TaskAttachmentView>(`/tasks/${id}/attachments${input.selectForComment ? '?draft=true' : ''}`, {
         method: 'POST',
         body,
       })
     },
     onSuccess: (attachment, input) => {
-      setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
       if (input.selectForComment) {
-        setCommentAttachmentIds((current) => (
-          current.includes(attachment.id)
+        setCommentAttachments((current) => (
+          current.some((item) => item.id === attachment.id)
             ? current
-            : [...current, attachment.id].slice(0, 5)
+            : [...current, attachment].slice(0, 5)
         ))
+        return
       }
+      setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
     },
     onError: () => setContentMessage('Не вдалося додати файл. Перевірте формат, розмір або ліміт.'),
+  })
+  const stageEditPhoto = useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData()
+      body.append('file', file)
+      return api<TaskAttachmentView>(`/tasks/${id}/attachments?draft=true`, { method: 'POST', body })
+    },
+    onError: () => setEditMessage('Не вдалося додати фото. Перевірте формат, розмір або ліміт.'),
   })
   const removeAttachment = useMutation({
     mutationFn: (fileId: string) =>
@@ -907,7 +1022,8 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       }),
     onSuccess: (_result, fileId) => {
       setContentMessage('Файл вилучено із завдання та коментарів.')
-      setCommentAttachmentIds((current) => current.filter((idValue) => idValue !== fileId))
+      setEditPhotos((current) => current.filter((photo) => photo.id !== fileId))
+      setCommentAttachments((current) => current.filter((attachment) => attachment.id !== fileId))
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
@@ -919,21 +1035,99 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       body: string
       replyToCommentId: string | null
       attachmentIds: string[]
-    }) =>
-      api(`/tasks/${id}/comments`, {
+      mentions: StructuredMentionInput[]
+      key: string
+      keepDraft?: boolean
+    }) => {
+      const { key, keepDraft: _keepDraft, ...body } = input
+      return api(`/tasks/${id}/comments`, {
         method: 'POST',
-        body: jsonBody(input),
-      }),
-    onSuccess: () => {
-      setComment('')
-      setReplyTo(null)
-      setCommentAttachmentIds([])
+        headers: { 'idempotency-key': key },
+        body: jsonBody(body),
+      })
+    },
+    onSuccess: (_result, input) => {
+      if (!input.keepDraft) {
+        setComment('')
+        setCommentMentions([])
+        commentAttemptRef.current = { signature: '', key: '' }
+        setReplyTo(null)
+        setCommentAttachments([])
+        window.requestAnimationFrame(() => commentTextareaRef.current?.focus())
+      }
       setContentMessage('')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
     },
     onError: () => setContentMessage('Не вдалося надіслати коментар. Перевірте текст і вкладення.'),
+  })
+  const archiveTask = useMutation({
+    mutationFn: () => api(`/tasks/${id}/archive`, {
+      method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }),
+    }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+    },
+  })
+  const updateComment = useMutation({
+    mutationFn: (input: {
+      commentId: string
+      body: string
+      mentions: StructuredMentionInput[]
+      expectedVersion: number
+    }) => api(`/tasks/${id}/comments/${encodeURIComponent(input.commentId)}`, {
+      method: 'PATCH',
+      body: jsonBody({
+        body: input.body,
+        mentions: input.mentions,
+        expectedVersion: input.expectedVersion,
+      }),
+    }),
+    onSuccess: () => {
+      setEditingComment(null)
+      setContentMessage('Повідомлення відредаговано.')
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+    },
+    onError: (error) => setContentMessage(
+      error instanceof ApiProblem && error.problem.status === 409
+        ? 'Повідомлення вже змінилося. Оновіть завдання та повторіть дію.'
+        : 'Не вдалося відредагувати повідомлення.',
+    ),
+  })
+  const deleteComment = useMutation({
+    mutationFn: (input: { commentId: string; expectedVersion: number }) =>
+      api(`/tasks/${id}/comments/${encodeURIComponent(input.commentId)}`, {
+        method: 'DELETE',
+        body: jsonBody({ expectedVersion: input.expectedVersion }),
+      }),
+    onSuccess: (_result, input) => {
+      setEditingComment((current) => current?.id === input.commentId ? null : current)
+      setContentMessage('Повідомлення видалено.')
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      void client.invalidateQueries({ queryKey: ['tasks'] })
+      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+    },
+    onError: (error) => setContentMessage(
+      error instanceof ApiProblem && error.problem.status === 409
+        ? 'Повідомлення вже змінилося. Оновіть завдання та повторіть дію.'
+        : 'Не вдалося видалити повідомлення.',
+    ),
+  })
+  const reactToComment = useMutation({
+    mutationFn: (item: TaskDetailView['comments'][number]) => api(
+      `/tasks/${id}/comments/${encodeURIComponent(item.id)}/reactions`,
+      {
+        method: item.reactions.likedByMe ? 'DELETE' : 'POST',
+        body: jsonBody({ kind: 'LIKE' }),
+      },
+    ),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['task', id] }),
+    onError: () => setContentMessage('Не вдалося змінити вподобання повідомлення.'),
   })
   const addItem = useMutation({
     mutationFn: (text: string) => {
@@ -947,6 +1141,18 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       setNewItem('')
       void client.invalidateQueries({ queryKey: ['task', id] })
     },
+  })
+  const attachDriveFile = useMutation({
+    mutationFn: (fileId: string) => api<TaskAttachmentView>(`/tasks/${id}/attachments/from-drive?draft=true`, {
+      method: 'POST',
+      body: jsonBody({ fileId }),
+    }),
+    onSuccess: (attachment) => {
+      setCommentAttachments((current) => (
+        current.some((item) => item.id === attachment.id) ? current : [...current, attachment].slice(0, 5)
+      ))
+    },
+    onError: () => setContentMessage('Не вдалося додати файл із Диска.'),
   })
   const updateItem = useMutation({
     mutationFn: (item: { id: string; isDone: boolean }) => {
@@ -1031,76 +1237,261 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       )
     },
   })
+  const canAttachFiles = Boolean(query.data?.canAttachFiles)
+    && !uploadAttachment.isPending
+    && !attachDriveFile.isPending
+  // Photos stay staged until the edit is saved: no attachment, no notification before that.
+  async function placeEditPhotos(files: File[]) {
+    for (const file of files.filter((item) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === item.type))) {
+      const attachment = await stageEditPhoto.mutateAsync(file).catch(() => null)
+      if (!attachment) continue
+      const src = objectUrl(file)
+      const ratio = await imageRatio(src)
+      setEditPhotos((current) => [...current, { id: attachment.id, name: attachment.fileName, src, ratio, ...initialPlacement(current.length) }])
+      markDirty('edit')
+    }
+  }
+  async function uploadFiles(files: File[], selectForComment: boolean) {
+    for (const file of files) {
+      await uploadAttachment.mutateAsync({ file, selectForComment }).catch(() => undefined)
+    }
+  }
+  const materialsDrop = useFileDropTarget({
+    disabled: !canAttachFiles,
+    onFiles: (files) => void uploadFiles(files, false),
+  })
+  const commentFilesDrop = useFileDropTarget({
+    disabled: !canAttachFiles || commentAttachmentIds.length >= 5,
+    onFiles: (files) => void uploadFiles(files.slice(0, 5 - commentAttachmentIds.length), true),
+  })
+  const discussionEntries = [
+    ...(query.data?.comments.map((item) => ({
+      kind: 'comment' as const,
+      id: item.id,
+      createdAt: item.createdAt,
+      item,
+    })) ?? []),
+    ...(activity.data?.pages
+      .flatMap((pageResult) => pageResult.items)
+      .filter((item) => item.action !== 'task.comment_created')
+      .map((item) => ({
+        kind: 'activity' as const,
+        id: item.id,
+        createdAt: item.createdAt,
+        item,
+      })) ?? []),
+  ].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+  const visibleDiscussionEntries = discussionExpanded
+    ? discussionEntries
+    : discussionEntries.slice(-11)
+
+  useEffect(() => {
+    setDiscussionExpanded(false)
+    setShowDiscussionTop(false)
+  }, [id])
+
+  // Reserve a clipped older message above the complete recent messages as a history cue.
+  useLayoutEffect(() => {
+    const body = discussionBodyRef.current
+    const content = discussionContentRef.current
+    if (!body || !content) return
+    const measure = () => {
+      const children = Array.from(content.children) as HTMLElement[]
+      const bodyStyle = getComputedStyle(body)
+      const available = body.clientHeight - parseFloat(bodyStyle.paddingTop || '0') - parseFloat(bodyStyle.paddingBottom || '0')
+      const gap = parseFloat(getComputedStyle(content).rowGap || '0') || 0
+      for (const child of children) child.classList.remove('is-history-peek')
+      const heights = children.map((child) => child.getBoundingClientRect().height)
+      const budget = available
+      let used = 0
+      let fullCount = 0
+      let peekShown = false
+      for (let index = children.length - 1; index >= 0; index--) {
+        const child = children[index]
+        const fits = discussionExpanded || (!peekShown && fullCount < 10 && used + heights[index] <= budget)
+        const peek = !discussionExpanded && !fits && !peekShown
+        if (peek) child.style.setProperty('--history-peek-height', `${Math.max(0, available - used)}px`)
+        if (peek) peekShown = true
+        child.classList.toggle('is-history-peek', peek)
+        child.style.visibility = fits || peek ? '' : 'hidden'
+        child.inert = !fits
+        if (fits) {
+          used += heights[index] + gap
+          fullCount++
+        }
+      }
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    observer.observe(content)
+    for (const child of content.children) observer.observe(child)
+    return () => observer.disconnect()
+  }, [discussionExpanded, query.data, activity.data])
+
+  useEffect(() => {
+    if (discussionExpanded && activity.hasNextPage && !activity.isFetchingNextPage && !activity.isFetchNextPageError) {
+      void activity.fetchNextPage().catch(() => undefined)
+    }
+  }, [discussionExpanded, activity.hasNextPage, activity.isFetchingNextPage, activity.isFetchNextPageError, activity.fetchNextPage])
+
+  useEffect(() => {
+    const update = () => setShowDiscussionTop(
+      discussionExpanded && (discussionRef.current?.getBoundingClientRect().top ?? 0) < -80,
+    )
+    update()
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [discussionExpanded])
+
+  const scrollToDiscussion = () => {
+    discussionRef.current?.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+  }
+  const canManageTask = Boolean(
+    query.data
+    && user
+    && query.data.canEdit
+    && (user.accountType === 'ADMIN' || user.id === query.data.reporter.id),
+  )
   return (
     <>
-      <Drawer
+      <TaskDetailLayout
         title={query.data?.number ?? 'Завдання'}
-        onRequestClose={closeGuard.requestClose}
-        footer={
-          query.data?.canEdit && (
-            <div className="drawer-actions">
-              <select
-                aria-label="Змінити статус"
-                aria-describedby={statusError ? 'task-status-error' : undefined}
-                disabled={status.isPending}
-                value={query.data.status}
-                onChange={(event) =>
-                  status.mutate({
-                    status: event.target.value,
-                    expectedVersion: query.data.version,
-                  })
-                }
-              >
-                <option value="NEW">Нове</option>
-                <option value="IN_PROGRESS">В роботі</option>
-                <option value="IN_REVIEW">На перевірці</option>
-                <option value="DONE">Виконано</option>
-                <option value="BLOCKED">Заблоковано</option>
-              </select>
-            </div>
-          )
-        }
       >
       {query.isLoading ? (
-        <Skeleton rows={6} />
+        <PageDataLoader />
       ) : query.isError || !query.data ? (
         <ErrorState onRetry={() => void query.refetch()} />
       ) : (
         <div className="detail-stack">
-          {query.data.parent && (
-            <Link
-              className="task-parent-link"
-              to={`/tasks/${query.data.parent.id}${location.search}`}
-            >
-              <ArrowLeft size={15} />
-              До батьківського завдання · {query.data.parent.number}
-            </Link>
-          )}
+          <div className="task-detail-main">
+          <section className="task-detail-overview">
           <div className="task-detail-heading">
-            <div>
-              <StatusBadge status={query.data.status} />
-              <h3>{query.data.title}</h3>
-              <p>{query.data.description || 'Опис не додано.'}</p>
-            </div>
-            {query.data.canEdit && (
-              <Button
-                type="button"
-                variant={editOpen ? 'ghost' : 'secondary'}
-                aria-expanded={editOpen}
-                onClick={() => {
-                  setEditMessage('')
-                  if (editOpen) clearDirty('edit')
-                  setEditOpen((value) => !value)
-                }}
+            <div className="task-detail-heading__bar">
+            <span className="task-detail-number">Завдання {query.data.number}</span>
+            <div className="task-detail-heading-actions">
+              {!editOpen && query.data.availableStatusActions.length > 0 && (
+                <div className="task-detail-status-actions">
+                  {query.data.availableStatusActions.includes('START') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'START', expectedVersion: query.data.version })}><Play size={16} />Почати роботу</Button>}
+                  {query.data.availableStatusActions.includes('COMPLETE') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'COMPLETE', expectedVersion: query.data.version })}><CheckCircle2 size={16} />Завершити</Button>}
+                  {query.data.availableStatusActions.includes('APPROVE') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'APPROVE', expectedVersion: query.data.version })}><CheckCircle2 size={16} />Прийняти</Button>}
+                  {query.data.status !== 'DONE' && query.data.availableStatusActions.includes('RETURN_TO_WORK') && <Button type="button" variant="secondary" disabled={status.isPending} onClick={() => {
+                    const note = window.prompt('Коментар для відповідального (необов’язково):')
+                    if (note !== null) status.mutate({ action: 'RETURN_TO_WORK', expectedVersion: query.data.version, note })
+                  }}><RotateCcw size={16} />Повернути в роботу</Button>}
+                </div>
+              )}
+              <details
+                ref={actionsMenuRef}
+                className="task-detail-actions-menu"
+                open={actionsOpen}
+                onToggle={(event) => setActionsOpen(event.currentTarget.open)}
               >
-                {editOpen ? <X size={16} /> : <Pencil size={16} />}
-                {editOpen ? 'Закрити' : 'Редагувати'}
-              </Button>
-            )}
+                <summary aria-label="Дії із завданням">
+                  <MoreHorizontal size={20} />
+                </summary>
+                <div role="menu">
+                <button type="button" role="menuitem" onClick={() => navigate(`/tasks/new?copyFrom=${encodeURIComponent(id)}`)}><Copy size={16} />Копіювати задачу</button>
+                {query.data.status === 'DONE' && query.data.availableStatusActions.includes('RETURN_TO_WORK') && <button type="button" role="menuitem" disabled={status.isPending} onClick={() => { setActionsOpen(false); status.mutate({ action: 'RETURN_TO_WORK', expectedVersion: query.data.version }) }}><RotateCcw size={16} />Відновити завдання</button>}
+                {!editOpen && (query.data.canReassign || query.data.assignee.id === user?.id) && <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setDelegateError(''); setDelegateOpen(true) }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 13h7m-3-3 3 3-3 3" /><circle cx="16" cy="6" r="3" /><path d="M11 21v-2a5 5 0 0 1 10 0v2" /></svg>Делегувати</button>}
+                {canManageTask && query.data.status !== 'IN_REVIEW' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setActionsOpen(false)
+                      closeDelegate()
+                      setEditMessage('')
+                      setEditCreatorId(query.data.creator.id)
+                      if (editOpen) clearDirty('edit')
+                      else setEditPhotos(placedPhotos(query.data.photoLayout, query.data.attachments).map(({ placement, file }) => (
+                        placementToPhoto(placement, file, apiUrl(`/files/${encodeURIComponent(file.id)}/download?inline=true`))
+                      )))
+                      setEditOpen((value) => !value)
+                    }}
+                  >
+                    {editOpen ? <X size={16} /> : <Pencil size={16} />}
+                    {editOpen ? 'Закрити редагування' : 'Редагувати'}
+                  </button>
+                )}
+                {canManageTask && query.data.canCreateSubtask && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setActionsOpen(false)
+                      setLinksOpen(true)
+                      setSubtaskFormOpen(true)
+                    }}
+                  >
+                    <CirclePlus size={16} />
+                    Створити підзавдання
+                  </button>
+                )}
+                {canManageTask && query.data.status !== 'ARCHIVED' && (
+                  <button type="button" role="menuitem" disabled={archiveTask.isPending} onClick={() => {
+                    setActionsOpen(false)
+                    if (window.confirm('Архівувати це завдання?')) archiveTask.mutate()
+                  }}><Archive size={16} />Архівувати</button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setActionsOpen(false)
+                    closeGuard.requestClose('close-button')
+                  }}
+                >
+                  <ArrowLeft size={16} />
+                  До списку
+                </button>
+                </div>
+              </details>
+            </div>
+            </div>
+            <div className="task-detail-heading__body">
+              <h2 className={editOpen ? 'sr-only' : undefined}>{query.data.title}</h2>
+              {editOpen ? <label className="task-detail-title-field">
+                <span className="sr-only">Назва</span>
+                <textarea
+                  form="task-edit-form"
+                  name="title"
+                  rows={1}
+                  defaultValue={query.data.title}
+                  maxLength={180}
+                  required
+                  onChange={(event) => {
+                    const singleLine = event.currentTarget.value.replace(/\r?\n/g, ' ')
+                    if (singleLine !== event.currentTarget.value) event.currentTarget.value = singleLine
+                    markDirty('edit')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }}
+                />
+              </label> : <InlinePhotoCanvas photos={placedPhotos(query.data.photoLayout, query.data.attachments)} renderPhoto={(file) => <TaskInlinePhoto attachment={file} />}>
+                <FormattedText body={query.data.description || (query.data.photoLayout?.length ? '' : 'Опис не додано.')} />
+              </InlinePhotoCanvas>}
+            </div>
           </div>
+          {delegateOpen && <form className="task-delegate-form" onSubmit={(event) => { event.preventDefault(); delegateTask.mutate() }}>
+            <div className="task-delegate-form__row">
+              <UserSearchCombobox label="Новий відповідальний" value={delegateId} onChange={setDelegateId} excludeIds={[query.data.assignee.id]} />
+              <div className="form-actions"><Button type="button" variant="ghost" onClick={closeDelegate}>Скасувати</Button><Button disabled={!delegateId || delegateTask.isPending}>Делегувати</Button></div>
+            </div>
+            {delegateError && <div className="form-error" role="alert">{delegateError}</div>}
+          </form>}
           {editOpen && (
             <form
-              className="task-edit-form"
+              id="task-edit-form"
+              className="task-edit-form task-edit-form--inline"
               onChange={() => markDirty('edit')}
               onSubmit={(event) => {
                 event.preventDefault()
@@ -1110,110 +1501,64 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 updateTask.mutate({
                   title: String(form.get('title') ?? ''),
                   description: String(form.get('description') ?? ''),
+                  photoLayout: toPhotoLayout(editPhotos),
                   assigneeId: String(form.get('assigneeId') ?? query.data.assignee.id),
                   creatorId: creatorId || undefined,
                   deadline: deadline ? new Date(deadline).toISOString() : null,
                   priority: String(form.get('priority') ?? query.data.priority),
                   blockReason: String(form.get('blockReason') ?? '') || null,
+                  requiresAcceptance: form.get('requiresAcceptance') === 'on',
                   expectedVersion: query.data.version,
                 })
               }}
             >
-              <div className="task-edit-form__intro">
-                <strong>Редагування завдання</strong>
-                <small>Зміни зберігаються з перевіркою актуальної версії.</small>
-              </div>
-              <label className="span-2">
-                <span>
-                  Назва <span aria-hidden="true">*</span>
-                </span>
-                <input
-                  name="title"
-                  defaultValue={query.data.title}
-                  maxLength={180}
-                  required
-                  autoFocus
-                />
-              </label>
-              <label className="span-2">
-                Опис
-                <textarea
+              <div className="span-2"><InlinePhotoEditor photos={editPhotos} disabled={updateTask.isPending}
+                onRemove={(photoId) => { setEditPhotos((current) => current.filter((photo) => photo.id !== photoId)); markDirty('edit') }}
+                onUpdate={(photoId, placement) => { setEditPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, ...placement } : photo)); markDirty('edit') }}
+              ><FormattedTextarea label="Опис"
+                  candidateUrl={`/tasks/${id}/mention-candidates`}
+                  toolbarActions={<InlinePhotoButton disabled={!canAttachFiles || stageEditPhoto.isPending || updateTask.isPending} onFiles={(files) => void placeEditPhotos(files)} />}
+                  onPasteImages={(files) => { if (canAttachFiles && !stageEditPhoto.isPending && !updateTask.isPending) void placeEditPhotos(files) }}
                   name="description"
                   defaultValue={query.data.description}
-                  rows={4}
+                  rows={3}
                   maxLength={20000}
-                  placeholder="Контекст і критерій готовності"
-                />
-              </label>
-              {query.data.canReassign ? (
-                <label>
-                  <span>
-                    Відповідальний <span aria-hidden="true">*</span>
-                  </span>
-                  <select
-                    name="assigneeId"
-                    defaultValue={query.data.assignee.id}
-                    required
-                  >
-                    {employees.data?.items.map((employee) => (
-                      <option value={employee.id} key={employee.id}>
-                        {employee.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <div className="task-edit-form__readonly">
-                  <span>Відповідальний</span>
-                  <strong>{query.data.assignee.displayName}</strong>
-                  <input type="hidden" name="assigneeId" value={query.data.assignee.id} />
-                </div>
-              )}
-              {query.data.canTransferCreator && (
-                <label>
-                  Постановник
-                  <select name="creatorId" defaultValue={query.data.creator.id}>
-                    {employees.data?.items.map((employee) => (
-                      <option value={employee.id} key={employee.id}>
-                        {employee.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label>
-                Пріоритет
-                <select name="priority" defaultValue={query.data.priority}>
-                  <option value="LOW">Низький</option>
-                  <option value="MEDIUM">Середній</option>
-                  <option value="HIGH">Високий</option>
-                  <option value="CRITICAL">Терміновий</option>
-                </select>
-              </label>
-              <label>
-                Строк
-                <input
-                  name="deadline"
-                  type="datetime-local"
-                  defaultValue={toLocalDateTimeInput(query.data.deadline)}
-                />
-              </label>
-              {query.data.status === 'BLOCKED' && (
-                <label className="span-2">
-                  Причина блокування
-                  <textarea
-                    name="blockReason"
-                    defaultValue={query.data.blockReason ?? ''}
-                    rows={2}
-                    maxLength={1000}
-                    placeholder="Що саме заважає продовжити роботу?"
-                  />
-                </label>
-              )}
+                  placeholder="Опис завдання"
+                /></InlinePhotoEditor>
+              </div>
+              <input type="hidden" name="assigneeId" value={query.data.assignee.id} />
+              {query.data.canTransferCreator && <input type="hidden" name="creatorId" value={editCreatorId} />}
               {editMessage && (
                 <div className="form-error span-2" role="alert">{editMessage}</div>
               )}
-              <div className="form-actions span-2">
+              <div className="task-edit-form__footer span-2">
+              <div className="task-edit-form__workflow">
+                <label>
+                  <span className="task-edit-field-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
+                  <select name="priority" defaultValue={query.data.priority}>
+                    <option value="LOW">Низький</option>
+                    <option value="MEDIUM">Середній</option>
+                    <option value="HIGH">Високий</option>
+                    <option value="CRITICAL">Терміновий</option>
+                  </select>
+                </label>
+                <label>
+                  <span className="task-edit-field-label"><CalendarDays size={14} aria-hidden="true" />Строк</span>
+                  <DateTimePicker
+                    name="deadline"
+                    type="datetime-local"
+                    defaultValue={toLocalDateTimeInput(query.data.deadline)}
+                  />
+                </label>
+                <label
+                  className="task-create-acceptance"
+                  title="Після завершення відповідальним задача перейде постановнику на перевірку."
+                >
+                  <span><strong>Прийняти після завершення</strong></span>
+                  <input name="requiresAcceptance" type="checkbox" defaultChecked={query.data.requiresAcceptance} />
+                </label>
+              </div>
+              <div className="form-actions">
                 <Button
                   type="button"
                   variant="ghost"
@@ -1224,12 +1569,14 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 >
                   Скасувати
                 </Button>
-                <Button disabled={updateTask.isPending || employees.isLoading}>
+                <Button disabled={updateTask.isPending || stageEditPhoto.isPending}>
                   Зберегти зміни
                 </Button>
               </div>
+              </div>
             </form>
           )}
+          </section>
           {statusError && (
             <div
               className="task-blocker"
@@ -1260,84 +1607,579 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               </span>
             </div>
           )}
-          <dl className="detail-grid">
-            <div>
-              <dt>Виконавець</dt>
-              <dd>
-                <Avatar size="sm" name={query.data.assignee.displayName} />
-                {query.data.assignee.displayName}
-              </dd>
-            </div>
-            <div>
-              <dt>Строк</dt>
-              <dd>{query.data.deadline ? formatDateTime(query.data.deadline) : 'Без строку'}</dd>
-            </div>
-            <div>
-              <dt>Пріоритет</dt>
-              <dd>{query.data.priority}</dd>
-            </div>
-            <div>
-              <dt>Автор</dt>
-              <dd>{query.data.creator?.displayName}</dd>
-            </div>
-          </dl>
-          <section className="task-personal" aria-labelledby={`task-personal-${id}`}>
-            <header>
-              <div>
-                <h4 id={`task-personal-${id}`}>Для мене</h4>
-                <p>Особисті позначки не змінюють доступ інших людей.</p>
-              </div>
-              {query.data.personalState.followerCount > 0 && (
-                <small>
-                  {query.data.personalState.followerCount} стежать
+          <details
+            className="task-detail-materials is-file-drop-target"
+            data-task-section="materials"
+            {...materialsDrop.dropTargetProps}
+          >
+              <FileDropOverlay active={materialsDrop.isDragging} label="Відпустіть файли, щоб додати до завдання" />
+              <summary aria-label="Матеріали">
+                <span className="task-detail-card-icon"><Paperclip size={18} /></span>
+                <span>
+                  <strong>Матеріали</strong>
+                  <small>Файли й пов’язані джерела</small>
+                </span>
+                <small className="task-detail-count">
+                  {query.data.attachments.length + query.data.sourceLinks.length || 'Немає'}
                 </small>
-              )}
-            </header>
-            <div className="task-personal-actions">
-              <button
-                type="button"
-                className={query.data.personalState.favorited ? 'is-active' : ''}
-                aria-pressed={query.data.personalState.favorited}
-                disabled={setUserState.isPending}
-                onClick={() => setUserState.mutate({
-                  favorited: !query.data.personalState.favorited,
-                })}
-              >
-                <Star size={17} />
-                {query.data.personalState.favorited ? 'В обраному' : 'До обраного'}
-              </button>
-              <button
-                type="button"
-                className={query.data.personalState.important ? 'is-active is-important' : ''}
-                aria-pressed={query.data.personalState.important}
-                disabled={setUserState.isPending}
-                onClick={() => setUserState.mutate({
-                  important: !query.data.personalState.important,
-                })}
-              >
-                <Flag size={17} />
-                {query.data.personalState.important ? 'Важливе' : 'Позначити важливим'}
-              </button>
-              <button
-                type="button"
-                className={query.data.personalState.following ? 'is-active' : ''}
-                aria-pressed={query.data.personalState.following}
-                disabled={follow.isPending || !user}
-                onClick={() => follow.mutate(!query.data.personalState.following)}
-              >
-                <Eye size={17} />
-                {query.data.personalState.following ? 'Стежу' : 'Стежити'}
-              </button>
-            </div>
-            <details className="task-reminders">
-              <summary>
-                <Bell size={16} />
-                Нагадування
-                {query.data.personalState.reminders.length > 0
-                  ? ` · ${query.data.personalState.reminders.length}`
-                  : ''}
+                <ChevronDown size={18} />
               </summary>
+              <div className="task-materials__body">
+                {query.data.sourceLinks.length > 0 && (
+                  <div className="task-source-links">
+                    <span>Джерело</span>
+                    {query.data.sourceLinks.map((source) => (
+                      <Link key={source.id} to={source.href}>
+                        <Link2 size={16} />
+                        <span>
+                          <strong>{source.label}</strong>
+                          <small>{formatDateTime(source.createdAt)}</small>
+                        </span>
+                        <ChevronRight size={15} />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {query.data.attachments.length > 0 && (
+                  <div className="task-attachment-list" aria-label="Файли завдання">
+                    <span>Файли</span>
+                    {query.data.attachments.map((attachment) => (
+                      <div className="task-attachment-row" key={attachment.id}>
+                        <TaskAttachment attachment={attachment} actions />
+                        {attachment.canRemove && (
+                          <button
+                            type="button"
+                            aria-label={`Вилучити ${attachment.fileName}`}
+                            title="Вилучити"
+                            className="task-attachment-action task-attachment-action--remove"
+                            disabled={removeAttachment.isPending}
+                            onClick={() => removeAttachment.mutate(attachment.id)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <TaskFilesArchive attachments={query.data.attachments} />
+                  </div>
+                )}
+                {query.data.canAttachFiles && (
+                  <label className="task-file-picker">
+                    <Paperclip size={16} />
+                    <span>
+                      <strong>{uploadAttachment.isPending ? 'Додаємо…' : 'Додати файл'}</strong>
+                      <small>Перетягніть файли сюди · до 20 файлів у завданні</small>
+                    </span>
+                    <input
+                      type="file"
+                      multiple
+                      aria-label="Додати файл"
+                      disabled={uploadAttachment.isPending}
+                      onChange={(event) => {
+                        void uploadFiles([...event.target.files ?? []], false)
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                  </label>
+                )}
+                {contentMessage && (
+                  <p className="task-content-message" aria-live="polite">{contentMessage}</p>
+                )}
+              </div>
+          </details>
+          <section
+            ref={discussionRef}
+            className={`task-discussion is-file-drop-target${discussionExpanded ? ' is-expanded' : ''}`}
+            data-task-section="discussion"
+            aria-labelledby={`task-discussion-${id}`}
+            {...commentFilesDrop.dropTargetProps}
+          >
+            <FileDropOverlay active={commentFilesDrop.isDragging} label="Відпустіть файли, щоб додати до коментаря" />
+            <header>
+              <span className="task-discussion__title">
+                <span className="task-detail-card-icon"><MessageCircle size={18} /></span>
+                <h3 id={`task-discussion-${id}`}>Обговорення</h3>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                className="task-discussion__expand"
+                aria-expanded={discussionExpanded}
+                aria-controls={`task-discussion-body-${id}`}
+                onClick={() => {
+                  if (discussionExpanded) scrollToDiscussion()
+                  setDiscussionExpanded((expanded) => !expanded)
+                }}
+              >
+                <ArrowDown size={16} aria-hidden="true" />
+                {discussionExpanded ? 'Згорнути чат' : 'Розгорнути чат'}
+              </Button>
+            </header>
+            <div
+              id={`task-discussion-body-${id}`}
+              ref={discussionBodyRef}
+              className="task-discussion__body"
+              aria-label="Повідомлення та історія обговорення"
+            >
+            {visibleDiscussionEntries.length > 0 ? (
+              <div ref={discussionContentRef} className="task-comments">
+                {visibleDiscussionEntries.map((entry) => {
+                  if (entry.kind === 'activity') {
+                    return (
+                      <div className="task-system-event" key={entry.id}>
+                        <time dateTime={entry.item.createdAt}>{formatDateTime(entry.item.createdAt)}</time>
+                        <span>
+                          {entry.item.actor?.displayName
+                            ? `${personName(entry.item.actor.displayName)} · ${entry.item.label}`
+                            : entry.item.label}
+                        </span>
+                      </div>
+                    )
+                  }
+                  const item = entry.item
+                  const ownComment = item.author.id === user?.id
+                  return (
+                    <div className="task-comment-row" key={item.id}>
+                    <article
+                      className={`task-comment ${ownComment ? 'is-own' : 'is-other'}${item.replyToCommentId ? ' is-reply' : ''}`}
+                      onContextMenu={(event) => {
+                        if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+                        event.preventDefault()
+                        window.dispatchEvent(new CustomEvent('lanka:context-menu-open'))
+                        setOpenCommentMenu({ id: item.id, ...contextMenuPosition(event.clientX, event.clientY) })
+                      }}
+                    >
+                      <UserProfileLink
+                        className="task-comment__author-avatar"
+                        userId={item.author.id}
+                        aria-label={`Відкрити профіль ${personName(item.author.displayName)}`}
+                      >
+                        <Avatar
+                          size="sm"
+                          name={personName(item.author.displayName)}
+                          src={item.author.avatarAsset}
+                        />
+                      </UserProfileLink>
+                      <div className="task-comment__bubble">
+                        <div className="task-comment__heading">
+                          <UserProfileLink className="task-comment__author" userId={item.author.id}>
+                            {personName(item.author.displayName)}
+                          </UserProfileLink>
+                          <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
+                            {new Date(item.createdAt).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' })} {formatChatTime(item.createdAt)}
+                          </time>
+                        </div>
+                        {item.replyPreview && (
+                          <blockquote>
+                            <strong>{personName(item.replyPreview.authorName)}</strong>
+                            <span>{item.replyPreview.body}</span>
+                          </blockquote>
+                        )}
+                        {editingComment?.id === item.id ? (
+                          <form
+                            className="task-comment-edit-form"
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              const trimmed = trimMentionValue(
+                                editingComment.body,
+                                editingComment.mentions,
+                              )
+                              if (!trimmed.body) return
+                              updateComment.mutate({
+                                commentId: item.id,
+                                body: trimmed.body,
+                                mentions: trimmed.mentions,
+                                expectedVersion: item.version,
+                              })
+                            }}
+                          >
+                            <MentionTextarea
+                              label="Редагувати повідомлення"
+                              value={editingComment.body}
+                              mentions={editingComment.mentions}
+                              candidateUrl={`/tasks/${id}/mention-candidates`}
+                              onChange={(body, mentions) => setEditingComment({
+                                id: item.id,
+                                body,
+                                mentions,
+                              })}
+                              rows={3}
+                              maxLength={4000}
+                              autoFocus
+                              visuallyHiddenLabel
+                            />
+                            <div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => setEditingComment(null)}
+                              >
+                                Скасувати
+                              </Button>
+                              <Button disabled={!editingComment.body.trim() || updateComment.isPending}>
+                                Зберегти
+                              </Button>
+                            </div>
+                          </form>
+                        ) : item.body.trim() ? (
+                          <FormattedText body={item.body} mentions={item.mentions} hideMentionPrefix />
+                        ) : null}
+                        {editingComment?.id !== item.id && item.attachments.length > 0 && (
+                          <div className="task-comment-attachments">
+                            {item.attachments.map((attachment) => (
+                              <TaskAttachment key={attachment.id} attachment={attachment} compact />
+                            ))}
+                            <TaskFilesArchive attachments={item.attachments} />
+                          </div>
+                        )}
+                        {editingComment?.id !== item.id && (
+                          <footer className="task-comment__meta">
+                            {item.editedAt && <span>змінено</span>}
+                          </footer>
+                        )}
+                        {editingComment?.id !== item.id && (
+                          openCommentMenu?.id === item.id && (
+                              <div
+                                className="task-comment-action-menu"
+                                role="menu"
+                                aria-label="Дії з повідомленням"
+                                style={{ left: openCommentMenu.left, top: openCommentMenu.top }}
+                                onMouseEnter={keepCommentMenuOpen}
+                                onMouseLeave={delayCommentMenuClose}
+                              >
+                                <button
+                                  type="button"
+                                  disabled={reactToComment.isPending}
+                                  onClick={() => {
+                                    closeCommentMenu()
+                                    reactToComment.mutate(item)
+                                  }}
+                                >
+                                  <Heart size={14} /> {item.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    closeCommentMenu()
+                                    setReplyTo({
+                                      id: item.id,
+                                      authorName: personName(item.author.displayName),
+                                      body: item.body,
+                                    })
+                                  }}
+                                >
+                                  <Reply size={14} /> Відповісти
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    closeCommentMenu()
+                                    void navigator.clipboard.writeText(item.body)
+                                      .then(() => setContentMessage('Текст повідомлення скопійовано.'))
+                                      .catch(() => setContentMessage('Не вдалося скопіювати текст повідомлення.'))
+                                  }}
+                                >
+                                  <Copy size={14} /> Копіювати текст
+                                </button>
+                                {item.canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      closeCommentMenu()
+                                      setEditingComment({
+                                        id: item.id,
+                                        body: item.body,
+                                        mentions: item.mentions.map((mention) => ({
+                                          userId: mention.userId,
+                                          start: mention.start,
+                                          end: mention.end,
+                                          label: item.body.slice(mention.start + 1, mention.end),
+                                        })),
+                                      })
+                                    }}
+                                  >
+                                    <Pencil size={14} /> Редагувати
+                                  </button>
+                                )}
+                                {item.canDelete && (
+                                  <button
+                                    type="button"
+                                    className="is-danger"
+                                    disabled={deleteComment.isPending}
+                                    onClick={() => {
+                                      if (!window.confirm('Видалити це повідомлення?')) return
+                                      closeCommentMenu()
+                                      deleteComment.mutate({ commentId: item.id, expectedVersion: item.version })
+                                    }}
+                                  >
+                                    <Trash2 size={14} /> Видалити
+                                  </button>
+                                )}
+                              </div>
+                            )
+                        )}
+                      </div>
+                      {editingComment?.id !== item.id && (
+                        <div className="task-comment__side-actions" aria-label="Швидкі дії з повідомленням">
+                          {item.reactions.likeCount > 0 ? (
+                            <MessageLikeButton
+                              previewPlacement="right"
+                              reactionsUrl={`/tasks/${encodeURIComponent(id)}/comments/${encodeURIComponent(item.id)}/reactions`}
+                              count={item.reactions.likeCount}
+                              liked={item.reactions.likedByMe}
+                              onClick={() => { if (!reactToComment.isPending) reactToComment.mutate(item) }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="message-like-button task-comment__reveal-action"
+                              aria-label="Подобається"
+                              aria-pressed={false}
+                              disabled={reactToComment.isPending}
+                              onClick={() => reactToComment.mutate(item)}
+                            >
+                              <Heart size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="task-comment__reply-action task-comment__reveal-action"
+                            aria-label="Відповісти"
+                            title="Відповісти"
+                            onClick={() => {
+                              setReplyTo({ id: item.id, authorName: personName(item.author.displayName), body: item.body })
+                              commentTextareaRef.current?.focus()
+                            }}
+                          >
+                            <Reply size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : activity.isLoading ? (
+              <Skeleton rows={2} />
+            ) : (
+              <p className="muted">Ще немає повідомлень. Додайте перше корисне уточнення.</p>
+            )}
+            {discussionExpanded && activity.isFetchingNextPage && <div className="task-discussion__older">Завантажуємо давнішу історію…</div>}
+            </div>
+            {discussionExpanded && activity.isFetchNextPageError && (
+              <Button type="button" variant="ghost" onClick={() => void activity.fetchNextPage()}>
+                Повторити завантаження історії
+              </Button>
+            )}
+            {showDiscussionTop && (
+              <button type="button" className="task-discussion__to-top" aria-label="До початку чату" title="До початку чату" onClick={scrollToDiscussion}>
+                <ChevronUp size={24} />
+              </button>
+            )}
+            <form
+              className="task-comment-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (post.isPending || commentFileRemoval.isPending()) return
+                const trimmed = trimMentionValue(comment, commentMentions)
+                if (trimmed.body || commentAttachmentIds.length > 0) {
+                  const signature = JSON.stringify({
+                    taskId: id,
+                    body: trimmed.body,
+                    mentions: trimmed.mentions,
+                    replyToCommentId: replyTo?.id ?? null,
+                    attachmentIds: commentAttachmentIds,
+                  })
+                  if (commentAttemptRef.current.signature !== signature) {
+                    commentAttemptRef.current = {
+                      signature,
+                      key: idempotencyKey('task-comment'),
+                    }
+                  }
+                  post.mutate({
+                    body: trimmed.body,
+                    mentions: trimmed.mentions,
+                    replyToCommentId: replyTo?.id ?? null,
+                    attachmentIds: commentAttachmentIds,
+                    key: commentAttemptRef.current.key,
+                  })
+                }
+              }}
+            >
+              <MessageComposerFrame
+                className="task-comment-composer"
+                reply={replyTo && (
+                  <div className="message-composer__reply">
+                    <span>
+                      <strong>Відповідь: {personName(replyTo.authorName)}</strong>
+                      <small>{replyTo.body.slice(0, 120)}</small>
+                    </span>
+                    <button type="button" aria-label="Скасувати відповідь" onClick={() => setReplyTo(null)}>
+                      <X size={17} />
+                    </button>
+                  </div>
+                )}
+                attachments={commentAttachmentIds.length > 0 && (
+                  <div className="message-composer__attachments" aria-label="Файли коментаря">
+                    {commentAttachments.map((attachment) => {
+                      const fileId = attachment.id
+                      const fileName = attachment.fileName
+                      return (
+                        <span key={fileId}>
+                          <TaskAttachment attachment={attachment} composer />
+                          <button
+                            type="button"
+                            aria-label={`Прибрати ${fileName} з коментаря`}
+                            disabled={post.isPending || commentFileRemoval.pending}
+                            onClick={() => void commentFileRemoval.discard(fileId)}
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                leadingActions={(
+                  <>
+                    <input
+                      ref={commentFileInputRef}
+                      type="file"
+                      hidden
+                      multiple
+                      disabled={!canAttachFiles || commentAttachmentIds.length >= 5}
+                      onChange={(event) => {
+                        void uploadFiles(
+                          [...event.target.files ?? []].slice(0, 5 - commentAttachmentIds.length),
+                          true,
+                        )
+                        event.currentTarget.value = ''
+                      }}
+                    />
+                    <button
+                      type="button"
+                      aria-label="Додати файли"
+                      title="Додати файли або перетягнути їх у поле вводу"
+                      disabled={!canAttachFiles || commentAttachmentIds.length >= 5}
+                      onClick={() => commentFileInputRef.current?.click()}
+                    >
+                      <Paperclip size={21} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Прикріпити з Диска"
+                      title="Прикріпити файл із Диска"
+                      disabled={!canAttachFiles || commentAttachmentIds.length >= 5}
+                      onClick={() => setDrivePickerOpen(true)}
+                    >
+                      <HardDrive size={20} />
+                    </button>
+                  </>
+                )}
+                input={(
+                  <MentionTextarea
+                    className="message-composer__input"
+                    label="Коментар до завдання"
+                    value={comment}
+                    mentions={commentMentions}
+                    candidateUrl={`/tasks/${id}/mention-candidates`}
+                    onTextareaRef={(element) => { commentTextareaRef.current = element }}
+                    onChange={(value, mentions) => {
+                      setComment(value)
+                      setCommentMentions(mentions)
+                    }}
+                    rows={1}
+                    maxLength={4000}
+                    visuallyHiddenLabel
+                    placeholder={replyTo ? 'Напишіть коротку відповідь…' : 'Напишіть повідомлення…'}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                      event.preventDefault()
+                      event.currentTarget.closest('form')?.requestSubmit()
+                    }}
+                    onPaste={(event) => {
+                      const files = [...event.clipboardData.files]
+                      if (!files.length) return
+                      event.preventDefault()
+                      if (!canAttachFiles || post.isPending || commentFileRemoval.pending) return
+                      void uploadFiles(files.slice(0, 5 - commentAttachmentIds.length), true)
+                    }}
+                  />
+                )}
+                sendAction={(
+                  <button
+                    type="submit"
+                    className="message-composer__send"
+                    aria-label="Надіслати"
+                    disabled={(
+                      (!comment.trim() && commentAttachmentIds.length === 0)
+                      || post.isPending
+                      || uploadAttachment.isPending
+                      || attachDriveFile.isPending
+                      || commentFileRemoval.pending
+                    )}
+                  >
+                    <Send size={20} />
+                  </button>
+                )}
+              />
+              {commentFileRemoval.error && <div className="form-error" role="alert">{commentFileRemoval.error}</div>}
+              {drivePickerOpen && (
+                <DrivePicker
+                  onPick={(attachment) => attachDriveFile.mutateAsync(attachment.id)}
+                  maxSelection={5 - commentAttachments.length}
+                  onClose={() => setDrivePickerOpen(false)}
+                />
+              )}
+            </form>
+          </section>
+          </div>
+          <aside className="task-detail-sidebar" aria-label="Керування завданням">
+          <section className="task-detail-status-card" aria-labelledby={`task-status-${id}`}>
+            <header>
+              <span className="task-detail-card-icon"><CalendarDays size={18} /></span>
+              <h3 id={`task-status-${id}`}>Статус і строки</h3>
+              <div className="task-detail-status-card__accent">
+                <StatusBadge status={query.data.status} />
+              </div>
+            </header>
+            <dl>
               <div>
+                <dt>Створено</dt>
+                <dd>{formatDateTime(query.data.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>Строк</dt>
+                <dd>{query.data.deadline ? formatDateTime(query.data.deadline) : 'Без строку'}</dd>
+              </div>
+              <div>
+                <dt>Оновлено</dt>
+                <dd>{formatDateTime(query.data.updatedAt)}</dd>
+              </div>
+              <div>
+                <dt>Пріоритет</dt>
+                <dd>{taskPriorityLabel(query.data.priority)}</dd>
+              </div>
+            </dl>
+          </section>
+          <details className="task-detail-disclosure" data-task-section="recurrence">
+            <summary aria-label="Планування">
+              <span className="task-detail-card-icon"><Bell size={18} /></span>
+              <span>
+                <strong>Планування</strong>
+                <small>Нагадування та повторення</small>
+              </span>
+              <ChevronDown size={18} />
+            </summary>
+            <div className="task-detail-disclosure__body task-planning">
+              <section className="task-reminders" aria-labelledby={`task-reminders-${id}`}>
+                <header>
+                  <h3 id={`task-reminders-${id}`}>Нагадування</h3>
+                  {query.data.personalState.reminders.length > 0 && (
+                    <small>{query.data.personalState.reminders.length}</small>
+                  )}
+                </header>
                 {query.data.personalState.reminders.length > 0 && (
                   <ul>
                     {query.data.personalState.reminders.map((reminder) => (
@@ -1369,142 +2211,143 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 >
                   <label>
                     Дата й час
-                    <input name="remindAt" type="datetime-local" required />
+                    <DateTimePicker name="remindAt" type="datetime-local" required />
                   </label>
                   <Button variant="secondary" disabled={createReminder.isPending}>
-                    <Bell size={16} />
-                    Запланувати нагадування
+                    Запланувати
                   </Button>
                 </form>
-              </div>
-            </details>
-            {personalMessage && (
-              <p className="task-personal-message" aria-live="polite">{personalMessage}</p>
-            )}
-          </section>
-          <section className="task-participants" aria-labelledby={`task-participants-${id}`}>
-            <header>
-              <div>
-                <h4 id={`task-participants-${id}`}>Учасники</h4>
-                <p>Роль визначає робочий список і доступні дії для кожної людини.</p>
-              </div>
-              {query.data.canManageParticipants && (
-                <Button
-                  type="button"
-                  variant={participantsOpen ? 'ghost' : 'secondary'}
-                  aria-expanded={participantsOpen}
-                  onClick={() => {
-                    setParticipantMessage('')
-                    if (participantsOpen) clearDirty('participant')
-                    setParticipantsOpen((value) => !value)
-                  }}
-                >
-                  {participantsOpen ? <X size={16} /> : <UserPlus size={16} />}
-                  {participantsOpen ? 'Закрити' : 'Керувати'}
-                </Button>
-              )}
-            </header>
-            <div className="task-role-grid">
-              <div className="task-role-group">
-                <span>Відповідальний</span>
-                <div className="task-person-chip">
-                  <Avatar
-                    size="sm"
-                    name={query.data.assignee.displayName}
-                    src={query.data.assignee.avatarAsset}
-                  />
-                  <strong>{query.data.assignee.displayName}</strong>
-                </div>
-              </div>
-              <div className="task-role-group">
-                <span>Постановник</span>
-                <div className="task-person-chip">
-                  <Avatar size="sm" name={query.data.creator.displayName} />
-                  <strong>{query.data.creator.displayName}</strong>
-                </div>
-              </div>
-              <TaskParticipantGroup
-                label="Співвиконавці"
-                emptyLabel="Ніхто не допомагає"
-                participants={query.data.coExecutors}
-                canRemove={query.data.canManageParticipants}
-                pending={removeParticipant.isPending}
-                onRemove={(userId) => removeParticipant.mutate({
-                  userId,
-                  role: 'CO_EXECUTOR',
-                  expectedVersion: query.data.version,
-                })}
-              />
-              <TaskParticipantGroup
-                label="Спостерігачі"
-                emptyLabel="Ніхто не спостерігає"
-                participants={query.data.observers}
-                canRemove={query.data.canManageParticipants}
-                pending={removeParticipant.isPending}
-                onRemove={(userId) => removeParticipant.mutate({
-                  userId,
-                  role: 'OBSERVER',
-                  expectedVersion: query.data.version,
-                })}
-              />
-            </div>
-            {participantsOpen && (
+              </section>
+              {canManageTask && !query.data.parentTaskId && <section className="task-recurrence">
+              <h3>Повторення завдання</h3>
               <form
-                className="task-participant-form"
-                onChange={() => markDirty('participant')}
+                className="recurrence-form"
+                onChange={() => markDirty('recurrence')}
                 onSubmit={(event) => {
                   event.preventDefault()
                   const form = new FormData(event.currentTarget)
-                  setParticipantMessage('')
-                  addParticipant.mutate({
-                    userId: String(form.get('userId') ?? ''),
-                    role: String(form.get('role')) as TaskParticipantRole,
-                    expectedVersion: query.data.version,
+                  recurrence.mutate({
+                    frequency: String(form.get('frequency')),
+                    interval: Number(form.get('interval')),
+                    firstOccurrenceAt: new Date(String(form.get('firstOccurrenceAt'))).toISOString(),
+                    until: form.get('until') ? new Date(String(form.get('until'))).toISOString() : undefined,
                   })
                 }}
               >
                 <label>
-                  Людина
-                  <select name="userId" required defaultValue="">
-                    <option value="" disabled>Оберіть людину</option>
-                    {employees.data?.items
-                      .filter((employee) => employee.id !== query.data.assignee.id)
-                      .map((employee) => (
-                        <option value={employee.id} key={employee.id}>
-                          {employee.displayName}
-                        </option>
-                      ))}
+                  Період
+                  <select name="frequency" defaultValue="WEEKLY">
+                    <option value="DAILY">Щодня</option>
+                    <option value="WEEKLY">Щотижня</option>
+                    <option value="MONTHLY">Щомісяця</option>
                   </select>
                 </label>
                 <label>
-                  Роль у завданні
-                  <select name="role" defaultValue="CO_EXECUTOR">
-                    <option value="CO_EXECUTOR">Співвиконавець — може працювати</option>
-                    <option value="OBSERVER">Спостерігач — читає та стежить</option>
-                  </select>
+                  Інтервал
+                  <input name="interval" type="number" min="1" max="365" defaultValue="1" required />
                 </label>
-                <Button disabled={addParticipant.isPending || employees.isLoading}>
-                  <UserPlus size={16} />
-                  Додати учасника
+                <label>
+                  Перше повторення
+                  <DateTimePicker name="firstOccurrenceAt" type="datetime-local" required />
+                </label>
+                <label>
+                  До дати
+                  <DateTimePicker name="until" type="datetime-local" />
+                </label>
+                <Button variant="secondary" disabled={recurrence.isPending}>
+                  Запланувати
+                </Button>
+              </form>
+              </section>}
+              {recurrenceMessage && <p className="success-note">{recurrenceMessage}</p>}
+            </div>
+          </details>
+          <details className="task-detail-disclosure" data-task-section="checklist">
+          <summary aria-label="Чек-лист">
+            <span className="task-detail-card-icon"><ListChecks size={18} /></span>
+            <span>
+              <strong>Чек-лист</strong>
+              <small>{query.data.checklist.length ? `${query.data.checklist.filter((item) => item.isDone).length} із ${query.data.checklist.length} виконано` : 'Конкретні кроки до результату'}</small>
+            </span>
+            <ChevronDown size={18} />
+          </summary>
+          <div className="task-detail-disclosure__body">
+          <section>
+            {query.data.checklist?.length ? (
+              <div className="checklist">
+                {query.data.checklist.map((item) => (
+                  <label className="checklist-row" key={item.id}>
+                    <input
+                      type="checkbox"
+                      checked={item.isDone}
+                      disabled={!canManageTask}
+                      onChange={() =>
+                        updateItem.mutate({
+                          id: item.id,
+                          isDone: !item.isDone,
+                        })
+                      }
+                    />
+                    <span>{item.text}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">Кроків немає</p>
+            )}
+            {canManageTask && (
+              <form
+                className="inline-add"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (newItem.trim()) addItem.mutate(newItem)
+                }}
+              >
+                <input
+                  value={newItem}
+                  maxLength={240}
+                  onChange={(event) => setNewItem(event.target.value)}
+                  placeholder="Додати крок"
+                />
+                <Button variant="secondary" disabled={addItem.isPending}>
+                  <CheckCircle2 size={16} />
+                  Додати
                 </Button>
               </form>
             )}
-            {participantMessage && (
-              <p className="task-participant-message" aria-live="polite">{participantMessage}</p>
-            )}
           </section>
-          {!query.data.parentTaskId && (
+          </div>
+          </details>
+          <details
+            className="task-detail-disclosure task-detail-links"
+            data-task-section="subtasks"
+            open={linksOpen}
+            onToggle={(event) => setLinksOpen(event.currentTarget.open)}
+          >
+            <summary aria-label={`${linksOpen ? 'Згорнути' : 'Розгорнути'} секцію «Зв’язки»`}>
+              <span className="task-detail-card-icon"><Link2 size={18} /></span>
+              <span>
+                <strong>Зв’язки</strong>
+                <small>
+                  {query.data.parent || query.data.subtasks.length
+                    ? `${(query.data.parent ? 1 : 0) + query.data.subtasks.length} пов’язаних завдань`
+                    : 'Батьківське завдання та підзавдання'}
+                </small>
+              </span>
+              <ChevronDown size={18} />
+            </summary>
+            <div className="task-detail-disclosure__body">
             <section className="task-subtasks" aria-labelledby={`task-subtasks-${id}`}>
               <header>
                 <div>
-                  <h4 id={`task-subtasks-${id}`}>Підзадачі</h4>
+                  <h3 id={`task-subtasks-${id}`}>Ієрархія завдання</h3>
                   <p>
                     {query.data.subtaskProgress.total
                       ? `${query.data.subtaskProgress.done} із ${query.data.subtaskProgress.total} завершено`
                       : 'Розбийте результат на окремі відповідальні кроки.'}
                   </p>
                 </div>
-                {query.data.canCreateSubtask && (
+                {canManageTask && query.data.canCreateSubtask && (
                   <Button
                     type="button"
                     variant={subtaskFormOpen ? 'ghost' : 'secondary'}
@@ -1520,6 +2363,15 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   </Button>
                 )}
               </header>
+              {query.data.parent && (
+                <Link
+                  className="task-parent-link"
+                  to={`/tasks/${query.data.parent.id}${location.search}`}
+                >
+                  <ArrowLeft size={15} />
+                  До батьківського завдання · {query.data.parent.number}
+                </Link>
+              )}
               {query.data.subtaskProgress.total > 0 && (
                 <progress
                   aria-label="Прогрес підзадач"
@@ -1562,7 +2414,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 >
                   <div className="task-subtask-form__intro">
                     <strong>Нова підзадача</strong>
-                    <small>Робоча група та організаційний контекст успадковуються автоматично.</small>
+                    <small>Організаційний контекст успадковується автоматично.</small>
                   </div>
                   <label className="span-2">
                     <span>
@@ -1576,22 +2428,11 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                       placeholder="Який окремий результат потрібен?"
                     />
                   </label>
-                  <label>
-                    <span>
-                      Виконавець <span aria-hidden="true">*</span>
-                    </span>
-                    <select
-                      name="assigneeId"
-                      required
-                      defaultValue={query.data.assignee.id}
-                    >
-                      {employees.data?.items.map((employee) => (
-                        <option value={employee.id} key={employee.id}>
-                          {employee.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <UserSearchCombobox
+                    label="Відповідальний"
+                    name="assigneeId"
+                    defaultUser={query.data.assignee}
+                  />
                   <label>
                     Пріоритет
                     <select name="priority" defaultValue={query.data.priority}>
@@ -1603,17 +2444,16 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                   </label>
                   <label className="span-2">
                     Строк
-                    <input name="deadline" type="datetime-local" />
+                    <DateTimePicker name="deadline" type="datetime-local" />
                   </label>
-                  <label className="span-2">
-                    Опис
-                    <textarea
+                  <div className="span-2"><FormattedTextarea label="Опис"
+                      candidateUrl={`/tasks/${id}/mention-candidates`}
                       name="description"
                       rows={3}
                       maxLength={20000}
-                      placeholder="Контекст і критерій готовності"
+                      placeholder="Опис завдання"
                     />
-                  </label>
+                  </div>
                   {subtaskError && (
                     <div className="form-error span-2" role="alert">{subtaskError}</div>
                   )}
@@ -1628,7 +2468,7 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                     >
                       Скасувати
                     </Button>
-                    <Button disabled={createSubtask.isPending || employees.isLoading}>
+                    <Button disabled={createSubtask.isPending}>
                       <CirclePlus size={16} />
                       Створити підзадачу
                     </Button>
@@ -1636,441 +2476,255 @@ function TaskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
                 </form>
               )}
             </section>
-          )}
-          <section>
-            <h4>Контрольний список</h4>
-            {query.data.checklist?.length ? (
-              <div className="checklist">
-                {query.data.checklist.map((item) => (
-                  <label className="checklist-row" key={item.id}>
-                    <input
-                      type="checkbox"
-                      checked={item.isDone}
-                      disabled={!query.data.canEdit}
-                      onChange={() =>
-                        updateItem.mutate({
-                          id: item.id,
-                          isDone: !item.isDone,
-                        })
-                      }
-                    />
-                    <span>{item.text}</span>
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">Кроків немає</p>
-            )}
-            {query.data.canEdit && (
-              <form
-                className="inline-add"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (newItem.trim()) addItem.mutate(newItem)
-                }}
-              >
-                <input
-                  value={newItem}
-                  maxLength={240}
-                  onChange={(event) => setNewItem(event.target.value)}
-                  placeholder="Додати крок"
-                />
-                <Button variant="secondary" disabled={addItem.isPending}>
-                  <CheckCircle2 size={16} />
-                  Додати
-                </Button>
-              </form>
-            )}
-          </section>
-          {query.data.canEdit && !query.data.parentTaskId && <section>
-            <details>
-              <summary>Повторення завдання</summary>
-              <form
-                className="recurrence-form"
-                onChange={() => markDirty('recurrence')}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const form = new FormData(event.currentTarget)
-                  recurrence.mutate({
-                    frequency: String(form.get('frequency')),
-                    interval: Number(form.get('interval')),
-                    firstOccurrenceAt: new Date(String(form.get('firstOccurrenceAt'))).toISOString(),
-                    until: form.get('until') ? new Date(String(form.get('until'))).toISOString() : undefined,
-                  })
-                }}
-              >
-                <label>
-                  Період
-                  <select name="frequency" defaultValue="WEEKLY">
-                    <option value="DAILY">Щодня</option>
-                    <option value="WEEKLY">Щотижня</option>
-                    <option value="MONTHLY">Щомісяця</option>
-                  </select>
-                </label>
-                <label>
-                  Інтервал
-                  <input name="interval" type="number" min="1" max="365" defaultValue="1" required />
-                </label>
-                <label>
-                  Перше повторення
-                  <input name="firstOccurrenceAt" type="datetime-local" required />
-                </label>
-                <label>
-                  До дати
-                  <input name="until" type="datetime-local" />
-                </label>
-                <Button variant="secondary" disabled={recurrence.isPending}>
-                  Запланувати
-                </Button>
-                {recurrenceMessage && <p className="success-note">{recurrenceMessage}</p>}
-              </form>
-            </details>
-          </section>}
-          <section className="task-materials">
-            <details>
-              <summary>
-                <span>
-                  <Paperclip size={17} />
-                  Матеріали
-                </span>
-                <small>
-                  {query.data.attachments.length + query.data.sourceLinks.length || 'Немає'}
-                </small>
-              </summary>
-              <div className="task-materials__body">
-                {query.data.sourceLinks.length > 0 && (
-                  <div className="task-source-links">
-                    <span>Джерело</span>
-                    {query.data.sourceLinks.map((source) => (
-                      <Link key={source.id} to={source.href}>
-                        <Link2 size={16} />
-                        <span>
-                          <strong>{source.label}</strong>
-                          <small>{formatDateTime(source.createdAt)}</small>
-                        </span>
-                        <ChevronRight size={15} />
-                      </Link>
-                    ))}
-                  </div>
-                )}
-                {query.data.attachments.length > 0 && (
-                  <div className="task-attachment-list" aria-label="Файли завдання">
-                    <span>Файли</span>
-                    {query.data.attachments.map((attachment) => (
-                      <div className="task-attachment-row" key={attachment.id}>
-                        <TaskAttachment attachment={attachment} />
-                        {attachment.canRemove && (
-                          <button
-                            type="button"
-                            aria-label={`Вилучити ${attachment.fileName}`}
-                            disabled={removeAttachment.isPending}
-                            onClick={() => removeAttachment.mutate(attachment.id)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {query.data.canAttachFiles && (
-                  <label className="task-file-picker">
-                    <Paperclip size={16} />
-                    <span>
-                      <strong>{uploadAttachment.isPending ? 'Додаємо…' : 'Додати файл'}</strong>
-                      <small>До 20 файлів у завданні</small>
-                    </span>
-                    <input
-                      type="file"
-                      disabled={uploadAttachment.isPending}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (file) uploadAttachment.mutate({ file, selectForComment: false })
-                        event.currentTarget.value = ''
-                      }}
-                    />
-                  </label>
-                )}
-                {!query.data.sourceLinks.length && !query.data.attachments.length && (
-                  <p className="muted">Додайте файл або створіть завдання з повідомлення чи процесу.</p>
-                )}
-                {contentMessage && (
-                  <p className="task-content-message" aria-live="polite">{contentMessage}</p>
-                )}
-              </div>
-            </details>
-          </section>
-          <section className="task-history">
-            <details
-              onToggle={(event) => setActivityOpen(event.currentTarget.open)}
+            </div>
+          </details>
+          <div className="task-detail-roles" data-task-section="participants">
+            <TaskSingleRoleCard
+              label="Постановник"
+              person={query.data.reporter}
             >
-              <summary>
-                <History size={17} />
-                Історія змін
-              </summary>
-              <div>
-                {activity.isLoading ? (
-                  <Skeleton rows={3} />
-                ) : activity.isError ? (
-                  <div className="form-error" role="alert">
-                    Не вдалося завантажити історію.
-                  </div>
-                ) : activity.data?.pages.some((pageResult) => pageResult.items.length) ? (
-                  <>
-                    <ol className="activity-timeline">
-                      {activity.data.pages.flatMap((pageResult) => pageResult.items).map((item) => (
-                        <li key={item.id}>
-                          <i />
-                          <div>
-                            <strong>{item.label}</strong>
-                            <p>{item.actor?.displayName ?? 'Система'}</p>
-                            <small>{formatDateTime(item.createdAt)}</small>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                    {activity.hasNextPage && (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        disabled={activity.isFetchingNextPage}
-                        onClick={() => void activity.fetchNextPage()}
-                      >
-                        Показати давніші зміни
-                      </Button>
-                    )}
-                  </>
-                ) : (
-                  <p className="muted">Історія ще порожня.</p>
-                )}
-              </div>
-            </details>
-          </section>
-          <section className="task-discussion" aria-labelledby={`task-discussion-${id}`}>
-            <header>
-              <div>
-                <h4 id={`task-discussion-${id}`}>Обговорення</h4>
-                <p>Рішення та уточнення залишаються поруч із завданням.</p>
-              </div>
-              {query.data.comments.length > 0 && (
-                <small>{query.data.comments.length}</small>
+              {editOpen && query.data.canTransferCreator && (
+                <div className="task-role-card__add">
+                  <UserSearchCombobox
+                    label="Змінити постановника"
+                    value={editCreatorId}
+                    defaultUser={query.data.creator}
+                    onChange={(userId) => { setEditCreatorId(userId); markDirty('edit') }}
+                  />
+                </div>
               )}
-            </header>
-            {query.data.comments.length > 0 ? (
-              <div className="task-comments">
-                {query.data.comments.map((item) => (
-                  <article className={item.replyToCommentId ? 'is-reply' : ''} key={item.id}>
-                    <Avatar
-                      size="sm"
-                      name={item.author.displayName}
-                      src={item.author.avatarAsset}
-                    />
-                    <div>
-                      <header>
-                        <strong>{item.author.displayName}</strong>
-                        <time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
-                      </header>
-                      {item.replyPreview && (
-                        <blockquote>
-                          <strong>{item.replyPreview.authorName}</strong>
-                          <span>{item.replyPreview.body}</span>
-                        </blockquote>
-                      )}
-                      <p>{item.body}</p>
-                      {item.attachments.length > 0 && (
-                        <div className="task-comment-attachments">
-                          {item.attachments.map((attachment) => (
-                            <TaskAttachment key={attachment.id} attachment={attachment} compact />
-                          ))}
-                        </div>
-                      )}
-                      {!item.replyToCommentId && (
-                        <button
-                          type="button"
-                          className="task-comment-reply"
-                          onClick={() => {
-                            setReplyTo({
-                              id: item.id,
-                              authorName: item.author.displayName,
-                              body: item.body,
-                            })
-                          }}
-                        >
-                          <Reply size={14} />
-                          Відповісти
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">Ще немає коментарів. Додайте перше корисне уточнення.</p>
+            </TaskSingleRoleCard>
+            <TaskSingleRoleCard
+              label="Відповідальний"
+              person={query.data.assignee}
+              canChange={editOpen && query.data.canReassign && query.data.status !== 'IN_REVIEW'}
+              onChange={(person) => setPersonAction({ kind: 'assign', person })}
+            />
+            <TaskParticipantGroup
+              label="Співвиконавці"
+              emptyLabel="Співвиконавців ще немає"
+              participants={query.data.coExecutors}
+              role="CO_EXECUTOR"
+              canEdit={editOpen && canManageTask && query.data.canManageParticipants}
+              excludedUserIds={[
+                query.data.assignee.id,
+                query.data.reporter.id,
+                ...query.data.coExecutors.map((participant) => participant.user.id),
+              ]}
+              addPending={addParticipant.isPending}
+              removePending={removeParticipant.isPending}
+              onAdd={(person) => setPersonAction({ kind: 'add', person, role: 'CO_EXECUTOR' })}
+              onRemove={(person) => setPersonAction({ kind: 'remove', person, role: 'CO_EXECUTOR' })}
+            />
+            <TaskParticipantGroup
+              label="Спостерігачі"
+              emptyLabel="Спостерігачів ще немає"
+              participants={query.data.observers}
+              role="OBSERVER"
+              canEdit={editOpen && canManageTask && query.data.canManageParticipants}
+              excludedUserIds={[
+                query.data.assignee.id,
+                query.data.reporter.id,
+                ...query.data.observers.map((participant) => participant.user.id),
+              ]}
+              addPending={addParticipant.isPending}
+              removePending={removeParticipant.isPending}
+              onAdd={(person) => setPersonAction({ kind: 'add', person, role: 'OBSERVER' })}
+              onRemove={(person) => setPersonAction({ kind: 'remove', person, role: 'OBSERVER' })}
+            />
+            {participantMessage && (
+              <p className="task-participant-message" aria-live="polite">{participantMessage}</p>
             )}
-            <form
-              className="task-comment-form"
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (comment.trim()) {
-                  post.mutate({
-                    body: comment,
-                    replyToCommentId: replyTo?.id ?? null,
-                    attachmentIds: commentAttachmentIds,
-                  })
-                }
-              }}
-            >
-              {replyTo && (
-                <div className="task-reply-context">
-                  <Reply size={15} />
-                  <span>
-                    <strong>Відповідь для {replyTo.authorName}</strong>
-                    <small>{replyTo.body.slice(0, 120)}</small>
-                  </span>
-                  <button
-                    type="button"
-                    aria-label="Скасувати відповідь"
-                    onClick={() => setReplyTo(null)}
-                  >
-                    <X size={15} />
-                  </button>
-                </div>
-              )}
-              <textarea
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
-                rows={2}
-                maxLength={4000}
-                placeholder={replyTo ? 'Напишіть коротку відповідь…' : 'Додати корисний коментар…'}
-              />
-              {commentAttachmentIds.length > 0 && (
-                <div className="task-comment-selected-files" aria-label="Файли коментаря">
-                  {commentAttachmentIds.map((fileId) => {
-                    const attachment = query.data.attachments.find((item) => item.id === fileId)
-                    return (
-                      <span key={fileId}>
-                        <FileText size={14} />
-                        <strong>{attachment?.fileName ?? 'Новий файл'}</strong>
-                        <button
-                          type="button"
-                          aria-label={`Прибрати ${attachment?.fileName ?? 'файл'} з коментаря`}
-                          onClick={() => setCommentAttachmentIds((current) => (
-                            current.filter((idValue) => idValue !== fileId)
-                          ))}
-                        >
-                          <X size={14} />
-                        </button>
-                      </span>
-                    )
-                  })}
-                </div>
-              )}
-              <div className="task-comment-controls">
-                <div>
-                  <label className="task-comment-file-picker">
-                    <Paperclip size={15} />
-                    {uploadAttachment.isPending ? 'Додаємо…' : 'Новий файл'}
-                    <input
-                      type="file"
-                      disabled={uploadAttachment.isPending || commentAttachmentIds.length >= 5}
-                      onChange={(event) => {
-                        const file = event.target.files?.[0]
-                        if (file) uploadAttachment.mutate({ file, selectForComment: true })
-                        event.currentTarget.value = ''
-                      }}
-                    />
-                  </label>
-                  {query.data.attachments.some((attachment) => (
-                    !commentAttachmentIds.includes(attachment.id)
-                  )) && (
-                    <select
-                      aria-label="Додати файл із матеріалів"
-                      value=""
-                      disabled={commentAttachmentIds.length >= 5}
-                      onChange={(event) => {
-                        const fileId = event.target.value
-                        if (fileId) {
-                          setCommentAttachmentIds((current) => [...current, fileId].slice(0, 5))
-                        }
-                      }}
-                    >
-                      <option value="">Із матеріалів…</option>
-                      {query.data.attachments
-                        .filter((attachment) => !commentAttachmentIds.includes(attachment.id))
-                        .map((attachment) => (
-                          <option value={attachment.id} key={attachment.id}>
-                            {attachment.fileName}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                </div>
-                <Button disabled={!comment.trim() || post.isPending || uploadAttachment.isPending}>
-                Надіслати <ChevronRight size={16} />
-                </Button>
-              </div>
-              {contentMessage && (
-                <p className="task-content-message" aria-live="polite">{contentMessage}</p>
-              )}
-            </form>
-          </section>
+          </div>
+          </aside>
         </div>
         )}
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      </TaskDetailLayout>
+      {personAction && query.data && <ConfirmationDialog
+        {...taskPersonActionCopy(personAction, personName(query.data.assignee.displayName))}
+        onRequestClose={() => setPersonAction(null)}
+        onConfirm={() => {
+          setPersonAction(null)
+          if (personAction.kind === 'assign') {
+            reassignResponsible.mutate(personAction.person.id)
+            return
+          }
+          const participant = personAction.kind === 'add' ? addParticipant : removeParticipant
+          participant.mutate({ userId: personAction.person.id, role: personAction.role, expectedVersion: query.data.version })
+        }}
+      />}
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Повернутися до списку завдань?"
+        description="Незбережені зміни в завданні буде втрачено."
+      />
     </>
   )
+}
+
+function TaskDetailLayout({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <div className="task-detail-page">
+      <PageHeader title={title} action={(
+        <Link className="button button--primary" to="/tasks/new">
+          <Plus size={17} />
+          Створити завдання
+        </Link>
+      )} />
+      <Card className="task-detail-surface">{children}</Card>
+    </div>
+  )
+}
+
+function TaskAttachmentGlyph({ attachment }: { attachment: TaskAttachmentView }) {
+  return <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={18} className="task-attachment-glyph" />
+}
+
+function taskFileStatusOptions(attachment: TaskAttachmentView) {
+  return queryOptions({
+    queryKey: ['file-status', attachment.id],
+    queryFn: () => api<{ scanStatus: TaskAttachmentView['scanStatus'] }>(`/files/${attachment.id}/status`),
+    enabled: !['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus),
+    staleTime: 0,
+    refetchInterval: (result) => {
+      const current = result.state.data?.scanStatus ?? attachment.scanStatus
+      return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(current) ? false : 2_000
+    },
+  })
+}
+
+function resolvedTaskFileStatus(attachment: TaskAttachmentView, polled?: TaskAttachmentView['scanStatus']) {
+  // A refreshed task may already have a terminal verdict while the disabled
+  // status query still holds an older SCANNING response.
+  return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus)
+    ? attachment.scanStatus : polled ?? attachment.scanStatus
 }
 
 function TaskAttachment({
   attachment,
   compact = false,
+  composer = false,
+  actions = false,
 }: {
   attachment: TaskAttachmentView
   compact?: boolean
+  composer?: boolean
+  actions?: boolean
 }) {
-  const status = useQuery({
-    queryKey: ['file-status', attachment.id],
-    queryFn: () => api<{ scanStatus: TaskAttachmentView['scanStatus'] }>(
-      `/files/${attachment.id}/status`,
-    ),
-    enabled: !['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(attachment.scanStatus),
-    refetchInterval: (result) => {
-      const current = result.state.data?.scanStatus ?? attachment.scanStatus
-      return ['CLEAN', 'INFECTED', 'UNSUPPORTED', 'FAILED'].includes(current)
-        ? false
-        : 2_000
-    },
-  })
-  const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
-  const content = (
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const status = useQuery(taskFileStatusOptions(attachment))
+  const scanStatus = resolvedTaskFileStatus(attachment, status.data?.scanStatus)
+  const imagePreview = compact && scanStatus === 'CLEAN' && isPreviewableImage(attachment.mimeType)
+  const extensionIndex = attachment.fileName.lastIndexOf('.')
+  const className = composer
+    ? 'task-comment-composer__attachment-name'
+    : compact ? `task-attachment is-compact${imagePreview ? ' task-comment-image' : ''}` : 'task-attachment'
+  const content = composer ? (
     <>
-      <FileText size={compact ? 15 : 17} />
+      <FileFormatIcon mimeType={attachment.mimeType} fileName={attachment.fileName} size={15} />
+      <span>{attachment.fileName}</span>
+    </>
+  ) : (
+    <>
+      {imagePreview ? <FileThumbnail file={{ ...attachment, scanStatus }} /> : <TaskAttachmentGlyph attachment={attachment} />}
       <span>
-        <strong>{attachment.fileName}</strong>
+        <strong title={attachment.fileName}>
+          <span className="task-attachment__stem">{extensionIndex > 0 ? attachment.fileName.slice(0, extensionIndex) : attachment.fileName}</span>
+          {extensionIndex > 0 && <span>{attachment.fileName.slice(extensionIndex)}</span>}
+        </strong>
         <small>
           {scanStatus === 'CLEAN'
             ? formatBytes(attachment.bytes)
             : taskAttachmentStateLabel(scanStatus)}
         </small>
       </span>
-      {scanStatus === 'CLEAN' && <Download size={15} />}
+      {scanStatus === 'CLEAN' && <Eye size={15} />}
     </>
   )
   if (scanStatus === 'CLEAN') {
     return (
-      <a
-        className={compact ? 'task-attachment is-compact' : 'task-attachment'}
-        href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}
-      >
-        {content}
-      </a>
+      <>
+        <button
+          type="button"
+          className={className}
+          aria-label={`Переглянути ${attachment.fileName}`}
+          onClick={() => setPreviewOpen(true)}
+        >
+          {content}
+        </button>
+        {actions && <>
+          <a className="task-attachment-action" href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}
+            download={attachment.fileName} title="Завантажити" aria-label={`Завантажити ${attachment.fileName}`}>
+            <Download size={15} aria-hidden="true" />
+          </a>
+          <SaveToDriveButton fileId={attachment.id} fileName={attachment.fileName}
+            className="task-attachment-action" iconOnly />
+        </>}
+        {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+      </>
     )
   }
   return (
-    <span className={compact ? 'task-attachment is-compact' : 'task-attachment'}>
+    <span className={className}>
       {content}
     </span>
+  )
+}
+
+function TaskInlinePhoto({ attachment }: { attachment: TaskAttachmentView }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const status = useQuery(taskFileStatusOptions(attachment))
+  const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
+  return <>
+    <button type="button" aria-label={`Переглянути ${attachment.fileName}`} disabled={scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><FileThumbnail file={{ ...attachment, scanStatus }} /></button>
+    {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+  </>
+}
+
+function TaskSingleRoleCard({
+  label,
+  person,
+  canChange = false,
+  onChange,
+  children,
+}: {
+  label: 'Постановник' | 'Відповідальний'
+  person: TaskDetailView['reporter']
+  canChange?: boolean
+  onChange?: (person: TaskRolePerson) => void
+  children?: ReactNode
+}) {
+  const headingId = label === 'Постановник' ? 'task-reporter' : 'task-responsible'
+  return (
+    <section className="task-role-card task-role-card--single" aria-labelledby={headingId}>
+      <header>
+        <span className="task-role-card__icon">{label === 'Постановник' ? <UserRoundPen size={18} aria-hidden /> : <UserRoundCheck size={18} aria-hidden />}</span>
+        <h3 id={headingId}>{label}</h3>
+      </header>
+      <UserProfileLink className="task-role-card__person" userId={person.id}>
+        <Avatar size="sm" name={personName(person.displayName)} src={person.avatarAsset} />
+        <strong>{personName(person.displayName)}</strong>
+      </UserProfileLink>
+      {canChange && onChange && (
+        <div className="task-role-card__add">
+          <UserSearchCombobox
+            label="Змінити відповідального"
+            value=""
+            clearOnSelect
+            placeholder="Почніть вводити ім’я"
+            excludeIds={[person.id]}
+            onSelect={onChange}
+          />
+        </div>
+      )}
+      {children}
+    </section>
   )
 }
 
@@ -2078,37 +2732,52 @@ function TaskParticipantGroup({
   label,
   emptyLabel,
   participants,
-  canRemove,
-  pending,
+  role,
+  canEdit,
+  excludedUserIds,
+  addPending,
+  removePending,
+  onAdd,
   onRemove,
 }: {
   label: string
   emptyLabel: string
   participants: TaskDetailView['coExecutors']
-  canRemove: boolean
-  pending: boolean
-  onRemove: (userId: string) => void
+  role: TaskParticipantRole
+  canEdit: boolean
+  excludedUserIds: string[]
+  addPending: boolean
+  removePending: boolean
+  onAdd: (person: TaskRolePerson) => void
+  onRemove: (person: TaskRolePerson) => void
 }) {
+  const headingId = `task-role-${role.toLowerCase()}`
   return (
-    <div className="task-role-group">
-      <span>{label}</span>
+    <section className="task-role-card task-role-group" aria-labelledby={headingId}>
+      <header>
+        <span className="task-role-card__icon"><Users size={18} /></span>
+        <h3 id={headingId}>{label}</h3>
+        <small className="task-detail-count">{participants.length}</small>
+      </header>
       {participants.length ? (
         <div className="task-role-people">
           {participants.map((participant) => (
             <div className="task-person-chip" key={participant.id}>
-              <Avatar
-                size="sm"
-                name={participant.user.displayName}
-                src={participant.user.avatarAsset}
-              />
-              <strong>{participant.user.displayName}</strong>
-              {canRemove && (
+              <UserProfileLink className="task-person-chip__profile" userId={participant.user.id}>
+                <Avatar
+                  size="sm"
+                  name={personName(participant.user.displayName)}
+                  src={participant.user.avatarAsset}
+                />
+                <strong>{personName(participant.user.displayName)}</strong>
+              </UserProfileLink>
+              {canEdit && (
                 <button
                   type="button"
                   className="task-participant-remove"
-                  aria-label={`Вилучити ${participant.user.displayName} з ролі «${label}»`}
-                  disabled={pending}
-                  onClick={() => onRemove(participant.user.id)}
+                  aria-label={`Вилучити ${personName(participant.user.displayName)} з ролі «${label}»`}
+                  disabled={removePending}
+                  onClick={() => onRemove(participant.user)}
                 >
                   <X size={15} />
                 </button>
@@ -2117,9 +2786,22 @@ function TaskParticipantGroup({
           ))}
         </div>
       ) : (
-        <small>{emptyLabel}</small>
+        <p className="task-role-card__empty">{emptyLabel}</p>
       )}
-    </div>
+      {canEdit && (
+        <div className="task-role-card__add">
+          <UserSearchCombobox
+            label={role === 'CO_EXECUTOR' ? 'Додати співвиконавця' : 'Додати спостерігача'}
+            value=""
+            clearOnSelect
+            disabled={addPending}
+            placeholder="Почніть вводити ім’я"
+            excludeIds={excludedUserIds}
+            onSelect={(person) => { if (!addPending) onAdd(person) }}
+          />
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -2141,38 +2823,31 @@ function taskAttachmentStateLabel(status: TaskAttachmentView['scanStatus']): str
   if (status === 'QUARANTINED' || status === 'SCANNING') return 'Перевіряється'
   if (status === 'INFECTED') return 'Заблоковано перевіркою'
   if (status === 'UNSUPPORTED') return 'Формат не підтримується'
+  if (status === 'FAILED') return 'Не вдалося перевірити файл'
   return 'Файл недоступний'
 }
 
-function TaskFilterSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string
-  value: string
-  options: Array<{ id: string; label: string }>
-  onChange: (value: string) => void
-}) {
-  return (
-    <label>
-      {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Усі</option>
-        {value && !options.some((option) => option.id === value) && <option value={value}>Збережене значення</option>}
-        {options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-      </select>
-    </label>
-  )
+function taskPriorityLabel(priority: TaskListItem['priority']): string {
+  return {
+    LOW: 'Низький',
+    MEDIUM: 'Середній',
+    HIGH: 'Високий',
+    CRITICAL: 'Терміновий',
+  }[priority]
 }
 
 function isTaskOverdue(task: TaskListItem): boolean {
   return Boolean(
     task.deadline
     && new Date(task.deadline).getTime() < Date.now()
-    && !['DONE', 'CANCELLED', 'ARCHIVED'].includes(task.status),
+    && !['DONE', 'ARCHIVED'].includes(task.status),
   )
+}
+
+function isTaskDueSoon(task: TaskListItem): boolean {
+  if (!task.deadline || ['DONE', 'ARCHIVED'].includes(task.status)) return false
+  const remaining = new Date(task.deadline).getTime() - Date.now()
+  return remaining >= 0 && remaining <= 72 * 60 * 60 * 1000
 }
 
 function taskRoleEmptyState(role: TaskViewRole): { title: string; description: string } {
@@ -2185,7 +2860,7 @@ function taskRoleEmptyState(role: TaskViewRole): { title: string; description: s
   if (role === 'CREATOR') {
     return {
       title: 'Ви ще нічого не доручили',
-      description: 'Створені вами завдання залишатимуться тут незалежно від виконавця.',
+      description: 'Створені вами завдання залишатимуться тут незалежно від відповідального.',
     }
   }
   if (role === 'OBSERVER') {
@@ -2204,4 +2879,19 @@ function taskRoleEmptyState(role: TaskViewRole): { title: string; description: s
     title: 'Немає завдань, за які ви відповідаєте',
     description: 'Нове призначення автоматично з’явиться у цьому списку.',
   }
+}
+
+function TaskFilesArchive({ attachments }: { attachments: TaskAttachmentView[] }) {
+  const statuses = useQueries({ queries: attachments.map(taskFileStatusOptions) })
+  if (attachments.length < 2) return null
+  const current = attachments.map((file, index) => resolvedTaskFileStatus(file, statuses[index]?.data?.scanStatus))
+  const ready = current.every((status) => status === 'CLEAN')
+  return ready ? (
+    <a className="task-files-archive" href={`/api/v1/files/archive?ids=${encodeURIComponent(attachments.map((file) => file.id).join(','))}`}>
+      <Download size={14} aria-hidden="true" />
+      <span>Завантажити все одним архівом</span>
+    </a>
+  ) : <span className="task-files-archive muted">{current.some((status) => ['INFECTED', 'UNSUPPORTED', 'FAILED'].includes(status))
+    ? 'Архів недоступний: не всі файли пройшли перевірку'
+    : 'Архів буде доступний після перевірки всіх файлів'}</span>
 }

@@ -1,4 +1,4 @@
-import type { ProblemDetails } from '@bert-crm/contracts'
+import type { ProblemDetails } from '@lankadws/contracts'
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 let csrfToken = ''
@@ -23,6 +23,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { ...init, headers, credentials: 'include' })
   if (!response.ok) {
     const body = await response.json().catch(() => ({ type: 'about:blank', title: 'Не вдалося виконати запит', status: response.status, code: `http_${response.status}`, correlationId: response.headers.get('x-correlation-id') ?? 'unknown' })) as ProblemDetails
+    if (response.status === 401 && !path.startsWith('/auth/') && body.code !== 'credential_step_required') {
+      window.dispatchEvent(new Event('lankadws:session-ended'))
+    }
     throw new ApiProblem(body)
   }
   if (response.status === 204) return undefined as T
@@ -31,4 +34,46 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function jsonBody(value: unknown): string { return JSON.stringify(value) }
 
-export function idempotencyKey(prefix: string): string { return `${prefix}:${crypto.randomUUID()}` }
+/** Multipart transport with real browser upload progress and the same auth as api(). */
+export function uploadApi<T>(path: string, form: FormData, signal: AbortSignal, onProgress: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException('Aborted', 'AbortError')); return }
+    const request = new XMLHttpRequest()
+    const abort = () => request.abort()
+    const cleanup = () => signal.removeEventListener('abort', abort)
+    request.open('POST', apiUrl(path))
+    request.withCredentials = true
+    request.responseType = 'json'
+    if (csrfToken) request.setRequestHeader('x-csrf-token', csrfToken)
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(event.loaded / event.total)
+    }
+    request.upload.onload = () => onProgress(1)
+    request.onload = () => {
+      cleanup()
+      if (request.status >= 200 && request.status < 300) { resolve(request.response as T); return }
+      const problem = request.response as ProblemDetails | null
+      if (request.status === 401 && problem?.code !== 'credential_step_required') window.dispatchEvent(new Event('lankadws:session-ended'))
+      reject(new ApiProblem(problem ?? { type: 'about:blank', title: 'Не вдалося завантажити файл', status: request.status, code: `http_${request.status}`, correlationId: request.getResponseHeader('x-correlation-id') ?? 'unknown' }))
+    }
+    request.onerror = () => { cleanup(); reject(new Error('Не вдалося завантажити файл. Перевірте з’єднання та спробуйте ще раз.')) }
+    request.onabort = () => { cleanup(); reject(new DOMException('Aborted', 'AbortError')) }
+    signal.addEventListener('abort', abort, { once: true })
+    try { request.send(form) } catch (error) { cleanup(); reject(error) }
+  })
+}
+
+export function randomId(): string {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  if (typeof cryptoApi?.getRandomValues !== 'function') {
+    throw new Error('Secure random values are unavailable in this browser')
+  }
+  const bytes = cryptoApi.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0'))
+  return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`
+}
+
+export function idempotencyKey(prefix: string): string { return `${prefix}:${randomId()}` }

@@ -1,6 +1,7 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import { Temporal } from '@js-temporal/polyfill'
-import type { TaskRecurrenceInput, TaskRelationType } from '@bert-crm/contracts'
+import type { TaskRecurrenceInput, TaskRelationType } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
@@ -203,6 +204,7 @@ export class TaskRecurrenceService {
         data: { version: { increment: 1 } },
       })
       if (!taskUpdated.count) throw conflict('task_version')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.recurrence_changed')
       if (!recurrence) {
         const recurrenceId = id('trec')
         await this.writeRecurrence(
@@ -278,6 +280,7 @@ export class TaskRecurrenceService {
         data: { version: { increment: 1 } },
       })
       if (!updated.count) throw conflict('task_version')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.recurrence_changed')
       await tx.taskRecurrence.update({
         where: { id: recurrence.id },
         data: { isActive: false, nextRunAt: null, version: { increment: 1 } },

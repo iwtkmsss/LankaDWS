@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  OrganizationCapability,
   bitrixSnapshotManifestPayloadSchema,
   bitrixSnapshotSealRequestSchema,
   companyMappingArtifactSchema,
@@ -8,12 +7,12 @@ import {
   companyScopeSchema,
   chatThreadListQuerySchema,
   chatMessagePageQuerySchema,
+  chatMentionCandidatesQuerySchema,
   chatMessageSearchQuerySchema,
   chatThreadPageSchema,
   chatUserSearchQuerySchema,
   addChatParticipantSchema,
-  convertChatMessageToEventSchema,
-  convertChatMessageToTaskSchema,
+  createCalendarEventSchema,
   createChatThreadSchema,
   deleteChatMessageSchema,
   editChatMessageSchema,
@@ -24,9 +23,9 @@ import {
   updateChatPreferenceSchema,
   createFeedCommentSchema,
   createFeedPostSchema,
+  feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
-  updateFeedSubscriptionSchema,
-  groupListQuerySchema,
+  updateFeedPostSchema,
   importDatasetKindSchema,
   importDatasetRelativePathSchema,
   importReadinessViewSchema,
@@ -34,8 +33,16 @@ import {
   loginInputSchema,
   markFeedReadSchema,
   orgUnitListQuerySchema,
+  archiveOrgUnitSchema,
+  assignOrgUnitEmployeesSchema,
+  createOrgUnitSchema,
+  restoreOrgUnitSchema,
+  updateCompanyManagerSchema,
+  updateOrgUnitSchema,
   shareFileToFeedSchema,
   updateOrganizationCapabilitySchema,
+  taskCommentInputSchema,
+  taskOptionSchema,
   createTaskSchema,
 } from './index.js'
 
@@ -60,7 +67,7 @@ function validManifestPayload() {
     datasetId: 'dataset-001',
     snapshotId: 'snapshot-001',
     sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.bertcompany.org',
+    sourceTenantId: 'b24.lankadwscompany.org',
     sourceBuild: '20.0.1198',
     perconaVersion: '5.7.26-29-log',
     sourceSchemaFingerprint: 'a'.repeat(64),
@@ -99,9 +106,9 @@ function validCompanyMappingArtifact() {
     artifactVersion: 1,
     decisionId: 'D-024',
     sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.bertcompany.org',
+    sourceTenantId: 'b24.lankadwscompany.org',
     sourceBuild: '20.0.1198',
-    targetWorkspaceId: 'ws_bert',
+    targetWorkspaceId: 'ws_lankadws',
     companyMappingVersion: 1,
     mappingPolicyVersion: 1,
     generatedAt: '2026-07-23T07:30:00.000Z',
@@ -125,8 +132,8 @@ function validCompanyMappingArtifact() {
       includeDescendants: true,
       resolution: {
         kind: 'MAP',
-        targetCompanyId: 'cmp_bert_ua',
-        targetCompanyCode: 'bert-ua',
+        targetCompanyId: 'cmp_lankadws_ua',
+        targetCompanyCode: 'lankadws-ua',
       },
     }],
     approvals: [
@@ -139,18 +146,18 @@ function validCompanyMappingArtifact() {
 
 describe('transport schemas', () => {
   it('canonicalizes a nickname and rejects email login identifiers', () => {
-    expect(loginInputSchema.parse({ username: 'DMYTRO', password: 'x' }).username).toBe('dmytro')
+    expect(loginInputSchema.parse({ username: ' DMY TRO ', password: ' p a s s ' })).toMatchObject({ username: 'dmytro', password: 'pass' })
     expect(() => loginInputSchema.parse({ username: 'dmytro@example.com', password: 'x' })).toThrow()
   })
 
   it('accepts only explicit company scopes', () => {
     expect(companyScopeSchema.parse('all')).toBe('all')
-    expect(companyScopeSchema.parse('cmp_bert')).toBe('cmp_bert')
+    expect(companyScopeSchema.parse('cmp_lankadws')).toBe('cmp_lankadws')
     expect(() => companyScopeSchema.parse('everything')).toThrow()
   })
 
   it('keeps capability rollout explicit and company-scoped', () => {
-    expect(organizationCapabilityCodeSchema.parse('FEED')).toBe(OrganizationCapability.Feed)
+    expect(organizationCapabilityCodeSchema.safeParse('FEED').success).toBe(false)
     expect(() => organizationCapabilityCodeSchema.parse('TASKS')).toThrow()
     expect(updateOrganizationCapabilitySchema.parse({ enabled: true, expectedVersion: 2 })).toEqual({
       enabled: true,
@@ -158,31 +165,36 @@ describe('transport schemas', () => {
     })
   })
 
-  it('normalizes bounded group and organization queries', () => {
-    expect(groupListQuerySchema.parse({ company: 'cmp_bert', limit: '20', query: '  design  ' })).toMatchObject({ company: 'cmp_bert', limit: 20, query: 'design', status: 'ACTIVE' })
-    expect(() => groupListQuerySchema.parse({ company: 'cmp_bert', limit: 500 })).toThrow()
-    expect(orgUnitListQuerySchema.parse({ company: 'cmp_bert', parentId: null })).toEqual({ company: 'cmp_bert', parentId: null })
+  it('normalizes bounded organization queries', () => {
+    expect(orgUnitListQuerySchema.parse({ company: 'cmp_lankadws', parentId: null })).toEqual({ company: 'cmp_lankadws', parentId: null })
+    expect(createOrgUnitSchema.parse({ name: '  Дослідження\tта  розвиток 🚀  ', parentId: null })).toEqual({
+      name: 'Дослідження та розвиток 🚀',
+      parentId: null,
+    })
+    expect(updateOrgUnitSchema.parse({ managerId: null, expectedVersion: 3 })).toEqual({ managerId: null, expectedVersion: 3 })
+    expect(assignOrgUnitEmployeesSchema.parse({ employeeIds: ['usr_one', 'usr_two'], expectedVersion: 2 })).toEqual({ employeeIds: ['usr_one', 'usr_two'], expectedVersion: 2 })
+    expect(() => assignOrgUnitEmployeesSchema.parse({ employeeIds: ['usr_one', 'usr_one'], expectedVersion: 2 })).toThrow()
+    expect(archiveOrgUnitSchema.parse({ targetUnitId: 'org_target', expectedVersion: 2 })).toEqual({ targetUnitId: 'org_target', expectedVersion: 2 })
+    expect(restoreOrgUnitSchema.parse({ name: '  Відновлений відділ ', parentId: null, expectedVersion: 4 })).toEqual({ name: 'Відновлений відділ', parentId: null, expectedVersion: 4 })
+    expect(updateCompanyManagerSchema.parse({ managerId: null, expectedVersion: 1 })).toEqual({ managerId: null, expectedVersion: 1 })
+    expect(() => createOrgUnitSchema.parse({ name: ' '.repeat(5) })).toThrow()
   })
 
   it('keeps feed audiences explicit and comment replies flat', () => {
     expect(feedListQuerySchema.parse({
-      company: 'cmp_bert',
-      filter: 'FOLLOWING',
+      company: 'cmp_lankadws',
+      filter: 'MINE',
       type: 'TASK',
-      groupId: 'grp_product_design',
-      audienceId: 'cmp_bert',
+      audienceId: 'cmp_lankadws',
       mentioned: 'true',
-      favorite: 'true',
       important: 'false',
       limit: '10',
     })).toMatchObject({
-      company: 'cmp_bert',
-      filter: 'FOLLOWING',
+      company: 'cmp_lankadws',
+      filter: 'MINE',
       type: 'TASK',
-      groupId: 'grp_product_design',
-      audienceId: 'cmp_bert',
+      audienceId: 'cmp_lankadws',
       mentioned: true,
-      favorite: true,
       important: false,
       limit: 10,
     })
@@ -190,20 +202,17 @@ describe('transport schemas', () => {
       dateFrom: '2026-08-01',
       dateTo: '2026-07-01',
     })).toThrow()
-    expect(updateFeedSubscriptionSchema.parse({ notificationMode: 'MENTIONS' })).toEqual({
-      notificationMode: 'MENTIONS',
-    })
-    expect(() => updateFeedSubscriptionSchema.parse({ notificationMode: 'SOMETIMES' })).toThrow()
+    expect(() => feedListQuerySchema.parse({ filter: 'FOLLOWING' })).toThrow()
     expect(feedListQuerySchema.parse({ type: 'FILE' })).toMatchObject({ type: 'FILE' })
     expect(shareFileToFeedSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       audience: { type: 'USERS', userIds: ['usr_two', 'usr_one', 'usr_two'] },
     })).toEqual({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       audience: { type: 'USERS', userIds: ['usr_two', 'usr_one'] },
     })
     expect(createFeedPostSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       body: '  Важливе оновлення  ',
       audience: { type: 'USERS', userIds: ['usr_one', 'usr_one', 'usr_two'] },
       attachmentIds: ['file_one', 'file_one'],
@@ -214,30 +223,79 @@ describe('transport schemas', () => {
       attachmentIds: ['file_one'],
       requiresAcknowledgement: false,
     })
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_lankadws',
+      body: '',
+      audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws', 'cmp_other', 'cmp_other'] },
+      attachmentIds: ['file_one'],
+    })).toMatchObject({
+      audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws', 'cmp_other'] },
+    })
+    const placedPost = {
+      companyId: 'cmp_lankadws', body: 'Фото', audience: { type: 'COMPANY' }, attachmentIds: ['file_one'],
+      photoLayout: [{ fileId: 'file_one', x: 0.1, y: 0.4, width: 0.5, height: 0.3 }],
+    }
+    expect(createFeedPostSchema.parse(placedPost).photoLayout).toHaveLength(1)
+    expect(createFeedPostSchema.parse({ ...placedPost, photoLayout: undefined }).photoLayout).toEqual([])
+    expect(createFeedPostSchema.safeParse({ ...placedPost, attachmentIds: ['file_two'] }).success).toBe(false)
+    expect(createFeedPostSchema.safeParse({ ...placedPost, photoLayout: [{ ...placedPost.photoLayout[0], x: 0.6 }] }).success).toBe(false)
+    expect(createFeedPostSchema.safeParse({ ...placedPost, photoLayout: [placedPost.photoLayout[0], placedPost.photoLayout[0]] }).success).toBe(false)
     expect(createFeedCommentSchema.parse({
       body: ' Відповідь ',
       replyToCommentId: 'cmt_parent',
     })).toMatchObject({ body: 'Відповідь', replyToCommentId: 'cmt_parent' })
+    expect(createFeedCommentSchema.parse({ body: '', attachmentIds: ['photo', 'photo'] })).toMatchObject({ body: '', attachmentIds: ['photo'] })
+    expect(createFeedCommentSchema.safeParse({ body: ' ' }).success).toBe(false)
+    expect(createFeedCommentSchema.safeParse({ body: '', attachmentIds: Array.from({ length: 6 }, (_, index) => `photo-${index}`) }).success).toBe(false)
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_lankadws',
+      body: '@Марія перевір, будь ласка',
+      audience: { type: 'COMPANY' },
+      mentions: [{ userId: 'usr_maria', start: 0, end: 7, label: 'Марія' }],
+    }).mentions).toEqual([{ userId: 'usr_maria', start: 0, end: 7, label: 'Марія' }])
+    expect(createFeedPostSchema.parse({
+      companyId: 'cmp_lankadws',
+      body: 'Raw @Марія без вибору',
+      audience: { type: 'COMPANY' },
+    }).mentions).toEqual([])
+    expect(updateFeedPostSchema.parse({
+      body: 'Сумісне редагування старим клієнтом',
+      expectedVersion: 2,
+    }).mentions).toBeUndefined()
+    expect(() => updateFeedPostSchema.parse({
+      body: '@Марія',
+      expectedVersion: 2,
+      mentions: [{ userId: 'usr_maria', start: 4, end: 2, label: 'Марія' }],
+    })).toThrow()
+    expect(feedMentionCandidatesQuerySchema.parse({
+      company: 'cmp_lankadws',
+      audienceType: 'COMPANY',
+      q: 'м',
+    })).toMatchObject({ q: 'м', limit: 5 })
+    expect(() => feedMentionCandidatesQuerySchema.parse({
+      company: 'cmp_lankadws',
+      audienceType: 'GROUP',
+    })).toThrow()
     expect(() => createFeedPostSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       body: '',
       audience: { type: 'USERS', userIds: [] },
     })).toThrow()
     expect(() => markFeedReadSchema.parse({
       markers: [
-        { companyId: 'cmp_bert', lastItemId: 'item_one' },
-        { companyId: 'cmp_bert', lastItemId: 'item_two' },
+        { companyId: 'cmp_lankadws', lastItemId: 'item_one' },
+        { companyId: 'cmp_lankadws', lastItemId: 'item_two' },
       ],
     })).toThrow()
   })
 
   it('keeps chat creation, collaboration, lifecycle, read and mute contracts explicit', () => {
     expect(chatThreadListQuerySchema.parse({
-      company: 'cmp_bert',
+      company: 'cmp_lankadws',
       unread: 'true',
       limit: '30',
     })).toEqual({
-      company: 'cmp_bert',
+      company: 'cmp_lankadws',
       unread: true,
       limit: 30,
     })
@@ -245,9 +303,11 @@ describe('transport schemas', () => {
     expect(chatMessagePageQuerySchema.parse({ before: 'cursor', limit: '50' }))
       .toEqual({ before: 'cursor', limit: 50 })
     expect(() => chatMessagePageQuerySchema.parse({ before: 'a', after: 'b' })).toThrow()
-    expect(() => chatMessageSearchQuerySchema.parse({ q: 'x' })).toThrow()
-    expect(chatUserSearchQuerySchema.parse({ company: 'cmp_bert', q: 'ОЛЕНА' }))
-      .toEqual({ company: 'cmp_bert', q: 'ОЛЕНА', limit: 20 })
+    expect(chatMessageSearchQuerySchema.parse({ q: 'x' })).toMatchObject({ q: 'x', limit: 20 })
+    expect(chatMessageSearchQuerySchema.parse({ q: '😀' })).toMatchObject({ q: '😀', limit: 20 })
+    expect(() => chatMessageSearchQuerySchema.parse({ q: ' ' })).toThrow()
+    expect(chatUserSearchQuerySchema.parse({ company: 'cmp_lankadws', q: 'ОЛЕНА' }))
+      .toEqual({ company: 'cmp_lankadws', q: 'ОЛЕНА', limit: 5 })
     expect(chatThreadPageSchema.parse({
       items: [],
       counts: { all: 0, unread: 0 },
@@ -258,18 +318,18 @@ describe('transport schemas', () => {
       nextCursor: null,
     })
     expect(createChatThreadSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       kind: 'DIRECT',
       participantIds: ['usr_two'],
     })).toMatchObject({ kind: 'DIRECT', participantIds: ['usr_two'] })
     expect(createChatThreadSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       kind: 'GROUP',
       title: 'Запуск',
       participantIds: ['usr_three', 'usr_two', 'usr_two'],
     })).toMatchObject({ kind: 'GROUP', participantIds: ['usr_three', 'usr_two'] })
     expect(() => createChatThreadSchema.parse({
-      companyId: 'cmp_bert',
+      companyId: 'cmp_lankadws',
       kind: 'GROUP',
       participantIds: ['usr_two'],
     })).toThrow()
@@ -281,40 +341,31 @@ describe('transport schemas', () => {
       body: 'Готово',
       replyToId: null,
       attachmentIds: ['file_one', 'file_two'],
+      mentions: [],
     })
-    expect(() => sendChatMessageSchema.parse({
+    expect(sendChatMessageSchema.parse({
+      body: '@Олена Бондар, перевірте',
+      mentions: [{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }],
+    }).mentions).toEqual([{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }])
+    expect(sendChatMessageSchema.parse({
+      body: '',
+      attachmentIds: ['file_one'],
+    })).toEqual({
+      body: '',
+      attachmentIds: ['file_one'],
+      mentions: [],
+    })
+    expect(() => sendChatMessageSchema.parse({ body: '', attachmentIds: [] })).toThrow()
+    expect(chatMentionCandidatesQuerySchema.parse({ q: 'о', limit: '8' }))
+      .toEqual({ q: 'о', limit: 8 })
+    expect(sendChatMessageSchema.parse({
       body: 'Файли',
       attachmentIds: ['1', '2', '3', '4', '5', '6'],
-    })).toThrow()
+    }).attachmentIds).toEqual(['1', '2', '3', '4', '5', '6'])
     expect(editChatMessageSchema.parse({ body: '  Уточнений текст  ', expectedVersion: 2 }))
       .toEqual({ body: 'Уточнений текст', expectedVersion: 2 })
     expect(deleteChatMessageSchema.parse({ expectedVersion: 3 }))
       .toEqual({ expectedVersion: 3 })
-    expect(convertChatMessageToTaskSchema.parse({
-      title: '  Узгодити макет  ',
-      assigneeId: 'usr_two',
-      deadline: '2026-07-25T12:00:00.000Z',
-    })).toEqual({
-      title: 'Узгодити макет',
-      assigneeId: 'usr_two',
-      deadline: '2026-07-25T12:00:00.000Z',
-    })
-    expect(convertChatMessageToEventSchema.parse({
-      title: '  Демонстрація  ',
-      startAt: '2026-07-25T12:00:00.000Z',
-      endAt: '2026-07-25T13:00:00.000Z',
-    })).toEqual({
-      title: 'Демонстрація',
-      startAt: '2026-07-25T12:00:00.000Z',
-      endAt: '2026-07-25T13:00:00.000Z',
-      sourceTimezone: 'Europe/Kyiv',
-      allDay: false,
-    })
-    expect(() => convertChatMessageToEventSchema.parse({
-      title: 'Демонстрація',
-      startAt: '2026-07-25T13:00:00.000Z',
-      endAt: '2026-07-25T12:00:00.000Z',
-    })).toThrow()
     expect(addChatParticipantSchema.parse({
       userId: 'usr_two',
       expectedThreadVersion: 2,
@@ -343,6 +394,27 @@ describe('transport schemas', () => {
       .toEqual({ lastReadMessageId: 'msg_1' })
     expect(updateChatPreferenceSchema.parse({ notificationMode: 'NONE', expectedVersion: 2 }))
       .toEqual({ notificationMode: 'NONE', expectedVersion: 2 })
+  })
+
+  it('keeps task comment mentions structured and defaults legacy comments safely', () => {
+    expect(taskCommentInputSchema.parse({ body: 'Без згадок' }).mentions).toEqual([])
+    expect(taskCommentInputSchema.parse({
+      body: '@Олена Бондар, перевір, будь ласка.',
+      mentions: [{ userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' }],
+    }).mentions).toEqual([
+      { userId: 'usr_olena', start: 0, end: 13, label: 'Олена Бондар' },
+    ])
+  })
+
+  it('allows task comments with only attachments but rejects completely empty comments', () => {
+    expect(taskCommentInputSchema.parse({ body: '', attachmentIds: ['file_one'] })).toMatchObject({
+      body: '', attachmentIds: ['file_one'], mentions: [],
+    })
+    expect(taskCommentInputSchema.safeParse({ body: '   ', attachmentIds: ['file_one'] }).success).toBe(true)
+    expect(taskCommentInputSchema.safeParse({ body: '' }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '   ', attachmentIds: [] }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '', attachmentIds: ['', ' '] }).success).toBe(false)
+    expect(taskCommentInputSchema.safeParse({ body: '', attachmentIds: ['1', '2', '3', '4', '5', '6'] }).success).toBe(false)
   })
 
   it('validates a complete task create payload and participant invariants', () => {
@@ -378,6 +450,16 @@ describe('transport schemas', () => {
       attachmentIds: [],
     })
 
+    const placedTask = {
+      title: 'З фото',
+      participants: [{ userId: 'usr_one', role: 'RESPONSIBLE' }],
+      attachmentIds: ['file_one'],
+      photoLayout: [{ fileId: 'file_one', x: 0.1, y: 0.2, width: 0.5, height: 0.25 }],
+    }
+    expect(createTaskSchema.parse(placedTask).photoLayout).toHaveLength(1)
+    expect(createTaskSchema.parse({ ...placedTask, photoLayout: undefined }).photoLayout).toEqual([])
+    expect(createTaskSchema.safeParse({ ...placedTask, attachmentIds: ['file_two'] }).success).toBe(false)
+    expect(createTaskSchema.safeParse({ ...placedTask, photoLayout: [placedTask.photoLayout[0], placedTask.photoLayout[0]] }).success).toBe(false)
     expect(() => createTaskSchema.parse({
       title: 'Без відповідального',
       participants: [{ userId: 'usr_one', role: 'WATCHER' }],
@@ -390,6 +472,27 @@ describe('transport schemas', () => {
         { userId: 'usr_one', role: 'COLLABORATOR' },
       ],
     })).toThrow()
+
+    expect(() => createTaskSchema.parse({
+      title: 'Кілька відповідальних',
+      participants: [
+        { userId: 'usr_one', role: 'RESPONSIBLE' },
+        { userId: 'usr_two', role: 'RESPONSIBLE' },
+      ],
+    })).toThrow()
+  })
+
+  it('keeps task display numbers as numeric strings', () => {
+    const option = {
+      id: 'tsk_one',
+      number: '2401',
+      title: 'Task',
+      status: 'NEW',
+      projectId: null,
+      parentTaskId: null,
+    }
+    expect(taskOptionSchema.parse(option).number).toBe('2401')
+    expect(() => taskOptionSchema.parse({ ...option, number: 'TSK-2401' })).toThrow()
   })
 
   it('keeps import states explicit and production apply separate from readiness', () => {
@@ -501,10 +604,58 @@ describe('transport schemas', () => {
       sourceOrgUnitKey: 'department-root-2',
       resolution: {
         kind: 'MAP',
-        targetCompanyId: 'cmp_bert_service',
-        targetCompanyCode: 'bert-ua',
+        targetCompanyId: 'cmp_lankadws_service',
+        targetCompanyCode: 'lankadws-ua',
       },
     })
     expect(() => companyMappingArtifactSchema.parse(unstableTarget)).toThrow()
+  })
+})
+
+describe('calendar event audience', () => {
+  const base = {
+    companyId: 'cmp_lankadws_ua',
+    title: 'Зустріч команди',
+    startAt: '2026-09-14T15:00:00.000Z',
+    endAt: '2026-09-14T16:00:00.000Z',
+    sourceTimezone: 'Europe/Kyiv',
+    allDay: false,
+  }
+
+  it('keeps a private event out of every company audience', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      description: 'Порядок денний',
+      audience: { type: 'PRIVATE' },
+    })
+    expect(parsed.audience).toEqual({ type: 'PRIVATE' })
+    expect(parsed.description).toBe('Порядок денний')
+  })
+
+  it('deduplicates the selected companies', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_ua', 'cmp_lankadws_ua', 'cmp_lankadws_service'] },
+    })
+    expect(parsed.audience).toEqual({
+      type: 'COMPANIES',
+      companyIds: ['cmp_lankadws_ua', 'cmp_lankadws_service'],
+    })
+  })
+
+  it('allows an audience that differs from the owning company', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...base,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_service'] },
+    })
+    expect(parsed.audience).toEqual({ type: 'COMPANIES', companyIds: ['cmp_lankadws_service'] })
+  })
+
+  it('still rejects an end that is not after the start', () => {
+    expect(() => createCalendarEventSchema.parse({
+      ...base,
+      endAt: base.startAt,
+      audience: { type: 'COMPANIES', companyIds: ['cmp_lankadws_ua'] },
+    })).toThrow()
   })
 })

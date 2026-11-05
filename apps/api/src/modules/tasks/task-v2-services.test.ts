@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CreateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput } from '@lankadws/contracts'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { DomainError } from '../../common/errors.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
@@ -26,7 +26,6 @@ function createInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput 
   return {
     title: 'Prepare launch',
     description: 'Coordinate the release',
-    groupId: null,
     projectId: 'prj_1',
     parentTaskId: null,
     reporterId: 'usr_actor',
@@ -46,6 +45,7 @@ function createInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput 
     reminders: [],
     recurrence: null,
     attachmentIds: [],
+    photoLayout: [],
     ...overrides,
   }
 }
@@ -55,6 +55,7 @@ describe('TaskCommandService', () => {
     const tx = {
       task: {
         create: vi.fn().mockResolvedValue({ version: 1 }),
+        findUnique: vi.fn().mockResolvedValue({ id: 'tsk_1', number: '1', title: 'Prepare launch', workspaceId: 'wrk_1', createdById: 'usr_actor', reporterId: 'usr_reporter', participants: [{ userId: 'usr_owner', role: 'RESPONSIBLE' }, { userId: 'usr_actor', role: 'COLLABORATOR' }, { userId: 'usr_watcher', role: 'WATCHER' }] }),
       },
       taskTag: {
         createMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -69,6 +70,7 @@ describe('TaskCommandService', () => {
         create: vi.fn().mockResolvedValue({}),
       },
     }
+    Object.assign(tx, { feedItem: { findUnique: vi.fn().mockResolvedValue({ id: 'existing_projection' }) }, user: { findMany: vi.fn().mockResolvedValue([{ id: 'usr_owner' }, { id: 'usr_reporter' }, { id: 'usr_watcher' }]) }, notification: { upsert: vi.fn().mockResolvedValue({}) } })
     const prisma = {
       idempotencyRecord: {
         findUnique: vi.fn().mockResolvedValue(null),
@@ -78,7 +80,6 @@ describe('TaskCommandService', () => {
     const validation = {
       validateCreate: vi.fn().mockResolvedValue({
         companyId: 'cmp_1',
-        groupId: null,
         projectId: 'prj_1',
         parentTaskId: null,
         reporterId: 'usr_actor',
@@ -114,6 +115,14 @@ describe('TaskCommandService', () => {
     }
     const service = new TaskCommandService(
       prisma as never,
+      {
+        runInTransaction: vi.fn((
+          client: typeof prisma,
+          callback: (transaction: typeof tx, number: string) => unknown,
+        ) => (
+          client.$transaction((transaction: typeof tx) => callback(transaction, '2405'))
+        )),
+      } as never,
       {} as never,
       validation as never,
       {} as never,
@@ -146,7 +155,7 @@ describe('TaskCommandService', () => {
     )
 
     expect(result.id).toMatch(/^tsk_/)
-    expect(result.number).toMatch(/^TSK-/)
+    expect(result.number).toMatch(/^\d+$/)
     expect(prisma.$transaction).toHaveBeenCalledOnce()
     expect(participants.createMany).toHaveBeenCalledOnce()
     expect(checklist.createMany).toHaveBeenCalledOnce()
@@ -164,33 +173,28 @@ describe('TaskCommandService', () => {
 })
 
 describe('TaskAccessService', () => {
-  it('lets a collaborator edit while a watcher remains read-only', async () => {
+  it('lets the reporter edit while every participant role remains read-only', async () => {
     const task = {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
-      groupId: null,
       createdById: 'usr_creator',
-      reporterId: 'usr_reporter',
+      reporterId: 'usr_actor',
     }
     const prisma = {
       task: {
         findFirst: vi.fn().mockResolvedValue(task),
       },
       taskParticipant: {
-        findFirst: vi.fn()
-          .mockResolvedValueOnce({ id: 'part_1' })
-          .mockResolvedValueOnce({ id: 'part_1' }),
+        findFirst: vi.fn(),
       },
     }
     const service = new TaskAccessService(prisma as never)
 
     await expect(service.editableTask(principal(), 'tsk_1')).resolves.toBe(task)
 
-    prisma.taskParticipant.findFirst
-      .mockReset()
-      .mockResolvedValueOnce({ id: 'part_2' })
-      .mockResolvedValueOnce(null)
+    prisma.task.findFirst.mockResolvedValue({ ...task, reporterId: 'usr_reporter' })
+    prisma.taskParticipant.findFirst.mockResolvedValue({ id: 'part_2' })
     await expect(service.editableTask(principal(), 'tsk_1'))
       .rejects.toBeInstanceOf(DomainError)
   })
@@ -200,7 +204,6 @@ describe('TaskAccessService', () => {
       id: 'tsk_1',
       workspaceId: 'wrk_1',
       companyId: 'cmp_1',
-      groupId: null,
       createdById: 'usr_creator',
       reporterId: 'usr_reporter',
     }
@@ -222,13 +225,12 @@ describe('TaskResponseMapper', () => {
     const date = new Date('2026-08-01T06:00:00.000Z')
     const task = {
       id: 'tsk_1',
-      number: 'TSK-1',
+      number: '1',
       title: 'Task',
       description: '',
       status: 'IN_PROGRESS',
       priority: 'HIGH',
       version: 3,
-      groupId: null,
       projectId: null,
       parentTaskId: null,
       startsAt: date,
@@ -242,7 +244,6 @@ describe('TaskResponseMapper', () => {
       reporterId: 'usr_actor',
       createdBy: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
       reporter: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
-      group: null,
       project: null,
       parent: null,
       subtasks: [],
@@ -253,7 +254,7 @@ describe('TaskResponseMapper', () => {
         id: 'rel_1',
         type: 'BLOCKS',
         createdAt: date,
-        targetTask: { id: 'tsk_2', number: 'TSK-2', title: 'Target', status: 'NEW' },
+        targetTask: { id: 'tsk_2', number: '2', title: 'Target', status: 'NEW' },
       }],
       incomingRelations: [],
       reminders: [],

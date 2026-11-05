@@ -8,7 +8,7 @@ import {
   type ImportManifestFile,
   type ImportManifestIssue,
   type ImportManifestValidationReport,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { open, readdir, realpath, stat } from 'node:fs/promises'

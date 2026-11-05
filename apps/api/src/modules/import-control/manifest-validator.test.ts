@@ -4,7 +4,7 @@ import {
   type BitrixSnapshotManifest,
   type BitrixSnapshotManifestPayload,
   type ImportManifestFile,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { createHash, generateKeyPairSync, sign as signBytes } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -33,7 +33,7 @@ interface FixtureOptions {
 }
 
 async function writeFixture(options: FixtureOptions = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'bert-import-manifest-'))
+  const root = await mkdtemp(join(tmpdir(), 'lankadws-import-manifest-'))
   roots.push(root)
   const { publicKey, privateKey } = generateKeyPairSync('ed25519')
   const keyId = 'fixture-ed25519-key'
@@ -41,9 +41,9 @@ async function writeFixture(options: FixtureOptions = {}) {
     artifactVersion: 1,
     decisionId: 'D-024',
     sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.bertcompany.org',
+    sourceTenantId: 'b24.lankadwscompany.org',
     sourceBuild: '20.0.1198',
-    targetWorkspaceId: 'ws_bert',
+    targetWorkspaceId: 'ws_lankadws',
     companyMappingVersion: options.companyMappingVersion ?? 1,
     mappingPolicyVersion: 1,
     generatedAt: '2026-07-23T07:30:00.000Z',
@@ -67,7 +67,7 @@ async function writeFixture(options: FixtureOptions = {}) {
       includeDescendants: true,
       resolution: options.quarantinedCompanyRoot
         ? { kind: 'QUARANTINE', reasonCode: 'D024_UNRESOLVED' }
-        : { kind: 'MAP', targetCompanyId: 'cmp_bert_ua', targetCompanyCode: 'bert-ua' },
+        : { kind: 'MAP', targetCompanyId: 'cmp_lankadws_ua', targetCompanyCode: 'lankadws-ua' },
     }],
     approvals: [
       { role: 'PRODUCT', evidenceId: 'approval-product-1', approvedAt: '2026-07-23T07:00:00.000Z' },
@@ -124,7 +124,7 @@ async function writeFixture(options: FixtureOptions = {}) {
     datasetId: 'fixture-dataset-001',
     snapshotId: 'fixture-snapshot-001',
     sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.bertcompany.org',
+    sourceTenantId: 'b24.lankadwscompany.org',
     sourceBuild: '20.0.1198',
     perconaVersion: '5.7.26-29-log',
     sourceSchemaFingerprint: '1'.repeat(64),
@@ -374,12 +374,12 @@ describe('signed company mapping database preflight', () => {
     const fixture = await writeFixture()
     const findActiveMappings = vi.fn().mockResolvedValue([{
       sourceOrgUnitKey: 'department-root-1',
-      targetCompanyId: 'cmp_bert_ua',
+      targetCompanyId: 'cmp_lankadws_ua',
       targetCompany: {
-        id: 'cmp_bert_ua',
-        code: 'bert-ua',
+        id: 'cmp_lankadws_ua',
+        code: 'lankadws-ua',
         status: 'ACTIVE',
-        workspaceId: 'ws_bert',
+        workspaceId: 'ws_lankadws',
       },
     }])
 
@@ -392,7 +392,7 @@ describe('signed company mapping database preflight', () => {
     expect(report.valid).toBe(true)
     expect(report).toMatchObject({
       manifestValid: true,
-      targetWorkspaceId: 'ws_bert',
+      targetWorkspaceId: 'ws_lankadws',
       companyMappingVersion: 1,
       counters: {
         signedRoots: 1,
@@ -403,9 +403,9 @@ describe('signed company mapping database preflight', () => {
       issues: [],
     })
     expect(findActiveMappings).toHaveBeenCalledWith({
-      workspaceId: 'ws_bert',
+      workspaceId: 'ws_lankadws',
       sourceSystem: 'bitrix24',
-      sourceTenantId: 'b24.bertcompany.org',
+      sourceTenantId: 'b24.lankadwscompany.org',
       version: 1,
       limit: 10_001,
     })
@@ -421,9 +421,9 @@ describe('signed company mapping database preflight', () => {
         findActiveMappings: () => Promise.resolve([
           {
             sourceOrgUnitKey: 'department-root-1',
-            targetCompanyId: 'cmp_bert_ua',
+            targetCompanyId: 'cmp_lankadws_ua',
             targetCompany: {
-              id: 'cmp_bert_ua',
+              id: 'cmp_lankadws_ua',
               code: 'private-company-code',
               status: 'INACTIVE',
               workspaceId: 'ws_other',
@@ -436,7 +436,7 @@ describe('signed company mapping database preflight', () => {
               id: 'cmp_other',
               code: 'other-private-code',
               status: 'ACTIVE',
-              workspaceId: 'ws_bert',
+              workspaceId: 'ws_lankadws',
             },
           },
         ]),

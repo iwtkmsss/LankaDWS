@@ -1,4 +1,4 @@
-# Codex task template — BertCRM
+# Codex task template — LankaDWS
 
 ## Mode
 

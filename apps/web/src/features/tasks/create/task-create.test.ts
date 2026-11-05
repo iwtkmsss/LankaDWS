@@ -15,11 +15,11 @@ function draft(): TaskCreateDraft {
   return {
     title: '  Запустити кампанію  ',
     description: 'Підготувати матеріали',
-    groupId: '',
     projectId: 'prj_1',
     parentTaskId: '',
     reporterId: 'usr_1',
     priority: 'HIGH',
+    requiresAcceptance: false,
     startsAt: '2026-08-01T09:00',
     dueAt: '2026-08-01T18:00',
     estimatedMinutes: '120',
@@ -60,6 +60,7 @@ function draft(): TaskCreateDraft {
       scanStatus: 'QUARANTINED',
       stagedAt: '2026-08-01T08:00:00.000Z',
     }],
+    photoPlacements: [],
   }
 }
 
@@ -93,6 +94,7 @@ describe('task create payload', () => {
         maxOccurrences: 6,
       },
       attachmentIds: ['file_1'],
+      photoLayout: [],
     })
     expect(payload.startsAt).toMatch(/Z$/)
   })
@@ -103,8 +105,35 @@ describe('task create payload', () => {
       participants: [{ userId: 'usr_1', role: 'WATCHER' }],
     })).toEqual({
       section: 'participants',
-      message: 'Додайте принаймні одного відповідального.',
+      message: 'Оберіть одного відповідального.',
     })
+
+    expect(validateTaskCreateDraft({
+      ...draft(),
+      participants: [
+        { userId: 'usr_1', role: 'RESPONSIBLE' },
+        { userId: 'usr_2', role: 'RESPONSIBLE' },
+      ],
+    })).toEqual({
+      section: 'participants',
+      message: 'Оберіть одного відповідального.',
+    })
+  })
+
+  it('keeps only the first responsible in a defensive payload mapping', () => {
+    const payload = mapTaskCreatePayload({
+      ...draft(),
+      participants: [
+        { userId: 'usr_1', role: 'RESPONSIBLE' },
+        { userId: 'usr_2', role: 'RESPONSIBLE' },
+        { userId: 'usr_3', role: 'WATCHER' },
+      ],
+    })
+
+    expect(payload.participants).toEqual([
+      { userId: 'usr_1', role: 'RESPONSIBLE' },
+      { userId: 'usr_3', role: 'WATCHER' },
+    ])
   })
 })
 

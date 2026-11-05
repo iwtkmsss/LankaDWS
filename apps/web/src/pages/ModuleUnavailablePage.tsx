@@ -8,7 +8,7 @@ export function ModuleUnavailablePage({ title, state }: { title: string; state: 
   const company = searchParams.get('company')
   return (
     <div className="module-unavailable-page">
-      <PageHeader title={title} description="BERT CRM розвивається поетапно без напівготових розділів" />
+      <PageHeader title={title} description="Lanka розвивається поетапно без напівготових розділів" />
       <Card className="module-unavailable-card">
         <span className="module-unavailable-card__icon">{disabled ? <Layers3 /> : <Construction />}</span>
         <div>
@@ -19,9 +19,9 @@ export function ModuleUnavailablePage({ title, state }: { title: string; state: 
               ? 'Поки що тут немає окремого робочого розділу. Чинні задачі, документи й повідомлення залишаються доступними у своїх звичних місцях.'
               : 'Capability вже підготовлено, але інтерфейс ще проходить перевірку. Ми відкриємо розділ лише після повного UX та access-control acceptance.'}
           </p>
-          <Link className="button button--secondary" to={company ? `/overview?company=${encodeURIComponent(company)}` : '/overview'}>
+          <Link className="button button--secondary" to={company ? `/tasks?company=${encodeURIComponent(company)}` : '/tasks'}>
             <ArrowLeft size={17} />
-            До огляду
+            До завдань
           </Link>
         </div>
       </Card>

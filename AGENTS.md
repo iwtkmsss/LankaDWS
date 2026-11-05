@@ -1,20 +1,29 @@
-# AGENTS.md — BertCRM
+# AGENTS.md — LankaDWS
 
 ## Purpose
 
-Help Codex make small, safe, reviewable changes in this npm-workspaces monorepo without repeatedly scanning unrelated code or running the full release pipeline.
+Help coding agents (Codex, Claude) make small, safe, reviewable changes in this npm-workspaces monorepo without repeatedly scanning unrelated code or running the full release pipeline.
+
+## Naming
+
+Repo and packages are `lankadws` / `@lankadws/*`; the official product name is **LankaDWS**. Keep display copy and technical namespaces consistent, and do not rename identifiers or packages as part of an unrelated task.
 
 ## Repository map
 
-- `apps/web`: React 19 + Vite + TypeScript client.
-- `apps/api`: NestJS API/worker + Prisma + SQLite.
-- `packages/contracts`: shared Zod schemas, permissions and transport types.
+- `apps/web`: React 19 + Vite 8 + react-router 7 + TanStack Query client. Lint = **oxlint**.
+- `apps/api`: NestJS 11 API/worker + Prisma 7.8 + SQLite (`better-sqlite3`) + Zod 4 + Temporal polyfill. Lint = **eslint**.
+- `packages/contracts`: shared Zod schemas, permissions and transport types (framework-neutral).
+- Toolchain: Node ≥24, npm ≥11, TypeScript ~6, ESM everywhere. Playwright projects: `desktop-chromium`, `mobile-chromium`.
 - `docs/architecture.md`: short architecture overview.
-- `docs/decisions.md`: durable architecture decisions.
+- `docs/decisions.md`: authoritative chronological record of product invariants — consult it before relying on an invariant stated only here.
 - `artifacts/openapi.json`: generated API reference; read only for API-map/OpenAPI work.
 - `docs/bitrix24-*`: migration-only context; do not read for normal product/UI tasks.
 
 Read `CODEX_CONTEXT_MAP.md` for targeted request flows.
+
+Canonical authenticated home is the Live Feed at `/feed`; its summary header reads `GET /dashboard`. `/overview` is retired and resolves to the not-found page (see `docs/decisions.md`, 2026-11-03). Import-control has no production `APPLY` path.
+
+There is currently large in-progress uncommitted work in `apps/*` messages, `feed`, and a new `apps/api/src/modules/realtime` module. Keep changes narrowly scoped and expect this area to move.
 
 ## Context budget
 
@@ -39,14 +48,28 @@ Do not run repo-wide `git show`, `git diff HEAD~1`, empty-pattern `rg`, or `find
 
 ## Existing product invariants
 
-- One authenticated organization; `companyId` is an internal persistence key, not a user-facing multi-company selector.
+- One workspace holds multiple active companies, surfaced as organizational groups (`/companies`, `/organization`). `companyId` is a persistence key and UI filter, **not** an authorization boundary; there is no global company switcher in the shell. Every authenticated principal receives all active companies (decision 2026-08-31).
+- Confidentiality is enforced at the aggregate boundary: a task is readable only by its creator/reporter/active participants/admin; a chat only by active participants/admin; a notification only by its recipient.
 - Authorization is server-side. Search, chat, files, groups, tasks and employee projections must preserve current permission/scope checks.
 - Direct chat threads are canonical and idempotent. Reuse `POST /messages/threads`; never create duplicate direct conversations.
 - Org hierarchy already uses recursive `OrgUnit.parentId`; do not add another hierarchy model.
-- Groups already exist and Tasks already have optional `groupId`.
-- There is no approved standalone `Project` model. Do not add Project/schema migrations unless the task explicitly approves a design.
+- Work groups have been removed. Group chats use `MessageThread` and `ThreadParticipant`; do not reintroduce a work-group aggregate or task group scope.
+- `Project` and `Tag` exist in `schema.prisma` as task-catalog records (`Task.projectId`, `Task.tags`). Do not build a standalone project-management aggregate, page or route, and do not treat `Project` as a company/authorization scope.
 - Reuse canonical create routes/forms. Do not duplicate entity forms inside global search.
 - Do not edit generated Prisma Client.
+
+## User search and scale
+
+- Design user selectors for thousands of accounts. Never preload the whole employee/user directory or render it as suggestions.
+- Start server-side user search from one non-whitespace Unicode character, with debounce and cancellation of stale requests. An empty input must not fetch or list users.
+- User search has one shared policy: `packages/contracts/src/user-search.ts`, one server implementation: `apps/api/src/common/search-users.ts`, and one client request builder: `apps/web/src/shared/api/user-search.ts`. Use `useUserSearch` or `UserSearchCombobox` in UI. Never add another local user-matching/ranking/request implementation; fix shared behavior centrally.
+- Return at most 5 user search results, enforced in database queries by the shared implementation. A client-side slice or scrollable dropdown is not a limit. Search the full authorized dataset, not only the first cached page, and exclude already selected users before applying the limit.
+- Include active administrators by default in user search. Apply explicit eligibility restrictions only for actions that require them (for example, company employee transfer). Preserve contextual mention/chat access checks before searching.
+- Show user avatars in search results using the existing `Avatar` component and its placeholder when no photo exists.
+- Recent-user suggestions are opt-in product behavior and must have an explicit server limit (5 for the established chat recommendations). Do not substitute all users for recent users.
+- Preserve selected people by ID independently of search results. Preserve workspace/access checks, safe projections and keyboard behavior.
+- For large memberships, pass an aggregate ID and exclude members with a SQL relationship predicate. The shared request builder uses a JSON search body for long explicit exclusion lists; never truncate exclusions or put thousands of IDs in a URL.
+- Audit both the UI and its endpoint when adding or reusing a selector. Directories and membership lists require pagination or a separate scoped design; do not silently truncate them to make a selector scalable.
 
 ## Change boundaries
 
@@ -76,10 +99,10 @@ Run only touched workspaces and focused tests.
 Examples:
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run typecheck --workspace @bert-crm/web
-npm run test:e2e --workspace @bert-crm/web -- --project=desktop-chromium --grep "<focused scenario>"
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run typecheck --workspace @lankadws/web
+npm run test:e2e --workspace @lankadws/web -- --project=desktop-chromium --grep "<focused scenario>"
 ```
 
 ### Before completing a feature slice

@@ -16,7 +16,7 @@ function run(entry: string) {
       ...process.env,
       NODE_ENV: 'test',
       DATABASE_URL: databaseUrl,
-      DEMO_SEED_PASSWORD: 'BertDemoPassphrase2026!',
+      DEMO_SEED_PASSWORD: 'LankaDWSDemoPassphrase2026!',
       DISABLE_JOB_WORKER: 'true',
     },
   })

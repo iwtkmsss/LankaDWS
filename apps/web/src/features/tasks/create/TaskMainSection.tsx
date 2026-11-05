@@ -1,8 +1,18 @@
+import { DateTimePicker } from '../../../shared/ui/DateTimePicker'
+import { FormattedTextarea } from '../../../shared/text/FormattedTextarea'
 import { useMutation } from '@tanstack/react-query'
-import { FilePlus2, Plus, Trash2 } from 'lucide-react'
-import { useState, type CSSProperties, type RefObject } from 'react'
+import { CalendarDays, CalendarClock, Flag, FilePlus2, Plus, Trash2 } from 'lucide-react'
+import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
+import { FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
+import { apiUrl } from '../../../shared/api/client'
+import { InlinePhotoButton, useObjectUrls } from '../../../shared/inline-photos/InlinePhotoButton'
+import { InlinePhotoEditor } from '../../../shared/inline-photos/InlinePhotoEditor'
+import { imageRatio, initialPlacement } from '../../../shared/inline-photos/inlinePhotos'
 import { Button } from '../../../shared/ui'
-import { createProject, createTag, stageTaskAttachment } from './api'
+import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
+import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
+import { AsyncTaskCombobox } from '../AsyncTaskCombobox'
+import { createProject, createTag, loadTaskCreateOptions, stageTaskAttachment } from './api'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -22,6 +32,50 @@ export function TaskBasicsSection({
   dueAtRef: RefObject<HTMLInputElement | null>
   invalidField?: string
 }) {
+  const upload = useMutation({
+    mutationFn: stageTaskAttachment,
+    onSuccess: (attachment) => {
+      update((current) => ({
+        ...current,
+        attachments: [...current.attachments, attachment],
+      }))
+    },
+  })
+  const freeAttachmentSlots = 10 - draft.attachments.length
+  const uploadFiles = useCallback(async (files: File[]) => {
+    for (const file of files.slice(0, freeAttachmentSlots)) {
+      await upload.mutateAsync(file).catch(() => undefined)
+    }
+  }, [freeAttachmentSlots, upload])
+  const objectUrl = useObjectUrls()
+  const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({})
+  const placePhotos = async (files: File[]) => {
+    const photos = files.filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.type))
+    for (const file of photos.slice(0, freeAttachmentSlots)) {
+      const attachment = await upload.mutateAsync(file).catch(() => null)
+      if (!attachment) continue
+      const src = objectUrl(file)
+      const ratio = await imageRatio(src)
+      setPhotoPreviews((current) => ({ ...current, [attachment.id]: src }))
+      update((current) => ({
+        ...current,
+        photoPlacements: [...current.photoPlacements, { id: attachment.id, ratio, ...initialPlacement(current.photoPlacements.length) }],
+      }))
+    }
+  }
+  const inlinePhotos = draft.photoPlacements.flatMap((photo) => {
+    const attachment = draft.attachments.find((item) => item.id === photo.id)
+    return attachment ? [{
+      ...photo,
+      name: attachment.fileName,
+      src: photoPreviews[photo.id] ?? apiUrl(`/files/${encodeURIComponent(photo.id)}/download?inline=true`),
+    }] : []
+  })
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: upload.isPending || freeAttachmentSlots <= 0,
+    onFiles: (files) => void uploadFiles(files),
+  })
+
   return (
     <section className="task-create-core" aria-labelledby="task-create-basics-title">
       <header className="task-create-core__header">
@@ -29,13 +83,20 @@ export function TaskBasicsSection({
           <span className="task-create-kicker">Основне</span>
           <h3 id="task-create-basics-title">Що потрібно зробити</h3>
         </div>
-        <p>Сформулюйте результат так, щоб завдання можна було почати без додаткових уточнень.</p>
       </header>
       <div className="task-create-fields">
         <label className="span-2">
+          <span className="task-create-field-label">
           Назва завдання <span aria-hidden="true">*</span>
+          </span>
           <input
             ref={titleRef}
+            onKeyDown={(event) => {
+              if (event.key === 'Tab' && !event.shiftKey) {
+                const description = event.currentTarget.closest('section')?.querySelector<HTMLElement>('.rich-editor__input')
+                if (description) { event.preventDefault(); description.focus() }
+              }
+            }}
             value={draft.title}
             maxLength={200}
             required
@@ -48,23 +109,107 @@ export function TaskBasicsSection({
             }))}
           />
         </label>
-        <label className="span-2">
-          Опис
-          <textarea
+        <div className="span-2"><InlinePhotoEditor photos={inlinePhotos} disabled={upload.isPending}
+          onRemove={(photoId) => update((current) => ({ ...current, photoPlacements: current.photoPlacements.filter((photo) => photo.id !== photoId) }))}
+          onUpdate={(photoId, placement) => update((current) => ({
+            ...current,
+            photoPlacements: current.photoPlacements.map((photo) => photo.id === photoId ? { ...photo, ...placement } : photo),
+          }))}
+        ><FormattedTextarea label="Опис"
+            candidateUrl="/employees"
+            toolbarActions={<InlinePhotoButton disabled={upload.isPending || freeAttachmentSlots <= 0} onFiles={(files) => void placePhotos(files)} />}
+            onPasteImages={(files) => { if (!upload.isPending && freeAttachmentSlots > 0) void placePhotos(files) }}
             value={draft.description}
-            rows={5}
+            rows={10}
             maxLength={20_000}
-            placeholder="Контекст, очікуваний результат і критерії готовності"
+            placeholder="Опис завдання"
             onChange={(event) => update((current) => ({
               ...current,
               description: event.target.value,
             }))}
-          />
-        </label>
+          /></InlinePhotoEditor>
+        </div>
+      </div>
+      <div className="task-create-attachments-layout">
+        <section
+          className="task-create-attachments-section is-file-drop-target"
+          aria-labelledby="task-create-attachments-title"
+          {...dropTargetProps}
+        >
+          <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб додати їх до завдання" />
+          <div className="task-create-subgroup__heading">
+            <div>
+              <h4 id="task-create-attachments-title">Вкладення</h4>
+              <p>Перетягніть файли сюди або виберіть їх. До 10 файлів; перевірка починається одразу.</p>
+            </div>
+            <label className="button button--secondary task-create-file-picker">
+              <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
+              <input
+                type="file"
+                multiple
+                aria-label="Додати файл"
+                disabled={upload.isPending || freeAttachmentSlots <= 0}
+                onChange={(event) => {
+                  void uploadFiles([...event.target.files ?? []])
+                  event.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+          {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
+          {draft.attachments.length > 0 && (
+            <ul className="task-create-attachments">
+              {draft.attachments.map((attachment) => (
+                <li key={attachment.id}>
+                  <div><FileFormatIcon mimeType={null} fileName={attachment.fileName} size={22} /></div>
+                  <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Вилучити ${attachment.fileName}`}
+                    onClick={() => update((current) => ({
+                      ...current,
+                      attachments: current.attachments.filter((item) => item.id !== attachment.id),
+                      photoPlacements: current.photoPlacements.filter((photo) => photo.id !== attachment.id),
+                    }))}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
       <div className="task-create-core__meta">
         <label>
-          Пріоритет
+          <span className="task-create-meta-label"><CalendarDays size={14} aria-hidden="true" />Дата початку</span>
+          <DateTimePicker
+            type="datetime-local"
+            value={draft.startsAt}
+            onChange={(event) => update((current) => ({
+              ...current,
+              startsAt: event.target.value,
+            }))}
+          />
+        </label>
+        <label>
+          <span className="task-create-meta-label"><CalendarClock size={14} aria-hidden="true" />Кінцевий термін</span>
+          <DateTimePicker
+            ref={dueAtRef}
+            type="datetime-local"
+            value={draft.dueAt}
+            min={draft.startsAt || undefined}
+            aria-invalid={invalidField === 'dueAt' || undefined}
+            aria-describedby={invalidField === 'dueAt' ? 'task-create-error' : undefined}
+            onChange={(event) => update((current) => ({
+              ...current,
+              dueAt: event.target.value,
+            }))}
+          />
+        </label>
+        <label>
+          <span className="task-create-meta-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
           <select
             value={draft.priority}
             onChange={(event) => update((current) => ({
@@ -78,31 +223,18 @@ export function TaskBasicsSection({
             <option value="URGENT">Терміновий</option>
           </select>
         </label>
-        <label>
-          Дата початку
+        <label className="task-create-acceptance">
           <input
-            type="datetime-local"
-            value={draft.startsAt}
+            type="checkbox"
+            checked={draft.requiresAcceptance}
             onChange={(event) => update((current) => ({
               ...current,
-              startsAt: event.target.value,
+              requiresAcceptance: event.target.checked,
             }))}
           />
-        </label>
-        <label>
-          Кінцевий термін
-          <input
-            ref={dueAtRef}
-            type="datetime-local"
-            value={draft.dueAt}
-            min={draft.startsAt || undefined}
-            aria-invalid={invalidField === 'dueAt' || undefined}
-            aria-describedby={invalidField === 'dueAt' ? 'task-create-error' : undefined}
-            onChange={(event) => update((current) => ({
-              ...current,
-              dueAt: event.target.value,
-            }))}
-          />
+          <span>
+            <strong>Прийняти після завершення</strong>
+          </span>
         </label>
       </div>
     </section>
@@ -126,6 +258,7 @@ export function TaskContextSection({
   onRetryOptions: () => void
   onOptionsChanged: () => void
 }) {
+  const loadMatches = useCallback((search: string, signal: AbortSignal) => loadTaskCreateOptions(draft.projectId, search, signal), [draft.projectId])
   const [projectName, setProjectName] = useState('')
   const [tagName, setTagName] = useState('')
   const [tagColor, setTagColor] = useState('#3b72ff')
@@ -157,16 +290,6 @@ export function TaskContextSection({
       onOptionsChanged()
     },
   })
-  const upload = useMutation({
-    mutationFn: stageTaskAttachment,
-    onSuccess: (attachment) => {
-      update((current) => ({
-        ...current,
-        attachments: [...current.attachments, attachment],
-      }))
-    },
-  })
-
   return (
     <div className="task-create-context">
       <section className="task-create-subgroup" aria-labelledby="task-create-context-project-title">
@@ -198,45 +321,35 @@ export function TaskContextSection({
         {options && (
           <>
             <div className="task-create-fields">
-              <label>
-                Проєкт <span className="optional">необов’язково</span>
-                <select
-                  value={draft.projectId}
-                  onChange={(event) => update((current) => ({
+              <AsyncTaskCombobox
+                label="Проєкт"
+                value={draft.projectId}
+                placeholder="Знайти проєкт"
+                selectedOption={options.projects.find((project) => project.id === draft.projectId) ? { id: draft.projectId, label: options.projects.find((project) => project.id === draft.projectId)!.name } : null}
+                loadOptions={async (search, signal) => (await loadMatches(search, signal)).projects.map((project) => ({ id: project.id, label: project.name }))}
+                onChange={(value) => update((current) => ({
                     ...current,
-                    projectId: event.target.value,
+                    projectId: value,
                     parentTaskId: '',
                     relations: [],
                   }))}
-                >
-                  <option value="">Без проєкту</option>
-                  {options.projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Батьківське завдання <span className="optional">необов’язково</span>
-                <select
-                  value={draft.parentTaskId}
-                  onChange={(event) => {
-                    const parent = options.tasks.find((task) => task.id === event.target.value)
+              />
+              <AsyncTaskCombobox
+                label="Батьківське завдання"
+                value={draft.parentTaskId}
+                placeholder="Знайти завдання"
+                selectedOption={options.tasks.find((task) => task.id === draft.parentTaskId) ? { id: draft.parentTaskId, label: `${options.tasks.find((task) => task.id === draft.parentTaskId)!.number} · ${options.tasks.find((task) => task.id === draft.parentTaskId)!.title}` } : null}
+                loadOptions={async (search, signal) => (await loadMatches(search, signal)).tasks.map((task) => ({ id: task.id, label: `${task.number} · ${task.title}` }))}
+                onChange={(value) => {
+                    const parent = options.tasks.find((task) => task.id === value)
                     update((current) => ({
                       ...current,
-                      parentTaskId: event.target.value,
+                      parentTaskId: value,
                       projectId: parent?.projectId ?? current.projectId,
-                      recurrence: event.target.value ? null : current.recurrence,
+                      recurrence: value ? null : current.recurrence,
                     }))
-                  }}
-                >
-                  <option value="">Без батьківського завдання</option>
-                  {options.tasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.number} · {task.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                }}
+              />
             </div>
             {projectCreateOpen && (
               <div className="task-create-inline">
@@ -340,50 +453,6 @@ export function TaskContextSection({
             )}
             {tagMutation.isError && <p className="form-error">Не вдалося створити тег.</p>}
           </>
-        )}
-      </section>
-
-      <section className="task-create-subgroup" aria-labelledby="task-create-context-files-title">
-        <div className="task-create-subgroup__heading">
-          <div>
-            <h4 id="task-create-context-files-title">Вкладення</h4>
-            <p>До 10 файлів; перевірка починається одразу після вибору.</p>
-          </div>
-          <label className="button button--secondary task-create-file-picker">
-            <FilePlus2 size={16} /> {upload.isPending ? 'Завантаження…' : 'Додати файл'}
-            <input
-              type="file"
-              disabled={upload.isPending || draft.attachments.length >= 10}
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) upload.mutate(file)
-                event.target.value = ''
-              }}
-            />
-          </label>
-        </div>
-        {upload.isError && <p className="form-error">Не вдалося підготувати файл.</p>}
-        {draft.attachments.length > 0 ? (
-          <ul className="task-create-attachments">
-            {draft.attachments.map((attachment) => (
-              <li key={attachment.id}>
-                <span>{attachment.fileName}<small>{Math.ceil(attachment.bytes / 1024)} КБ</small></span>
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`Вилучити ${attachment.fileName}`}
-                  onClick={() => update((current) => ({
-                    ...current,
-                    attachments: current.attachments.filter((item) => item.id !== attachment.id),
-                  }))}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="task-create-help">Файлів ще немає.</p>
         )}
       </section>
     </div>

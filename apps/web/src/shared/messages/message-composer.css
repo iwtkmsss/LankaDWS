@@ -1,0 +1,202 @@
+.message-draft-label { color: var(--danger); font-weight: var(--weight-regular); }
+
+.message-composer {
+  position: relative;
+  z-index: 8;
+  container-type: inline-size;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  background: var(--surface-glass-strong);
+  padding: var(--space-2) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom));
+}
+
+.message-composer__row,
+.message-composer__attachments {
+  --composer-action-size: 42px;
+  --composer-action-gap: var(--space-2);
+}
+
+.message-composer__row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--composer-action-gap);
+}
+
+.message-composer__row > .message-composer__input {
+  min-width: 0;
+  flex: 1;
+}
+
+.message-composer__input .mention-field__input {
+  min-width: 0;
+}
+
+.message-composer__row > button {
+  display: grid;
+  width: var(--composer-action-size);
+  height: var(--composer-action-size);
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--fg-link);
+  transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.message-composer__input textarea,
+.message-composer__row > textarea.message-composer__input {
+  display: block;
+  min-height: var(--composer-action-size);
+  max-height: 144px;
+  width: 100%;
+  resize: none;
+  overflow-y: auto;
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+  padding: calc((var(--composer-action-size) - 21px - 2px) / 2) var(--space-3);
+  font-size: var(--text-reading);
+  font-weight: var(--weight-regular);
+  line-height: 1.5;
+}
+
+.message-composer__input textarea::placeholder,
+.message-composer__row > textarea.message-composer__input::placeholder {
+  color: var(--fg-muted);
+  font-weight: var(--weight-regular);
+  opacity: 1;
+}
+
+.message-composer__input textarea:focus,
+.message-composer__input textarea:focus-visible,
+.message-composer__row > textarea.message-composer__input:focus,
+.message-composer__row > textarea.message-composer__input:focus-visible {
+  border-color: var(--line-strong) !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.message-composer .message-composer__input:focus-within,
+.message-composer .mention-field__input:focus-within { box-shadow: none !important; outline: 0 !important; }
+
+.message-composer .message-composer__row > button:not(.message-composer__send):not(:disabled):hover,
+.message-composer .message-composer__row > button:not(.message-composer__send):not(:disabled):focus-visible {
+  border-color: var(--cobalt-300);
+  background: var(--cobalt-50);
+  box-shadow: 0 4px 13px rgba(31, 94, 255, .12);
+}
+
+.message-composer__row .message-composer__send {
+  border-color: var(--cobalt-600);
+  background: var(--cobalt-600);
+  color: #fff;
+  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
+}
+
+.message-composer__row .message-composer__send:disabled {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: var(--fg-muted);
+  box-shadow: none;
+}
+
+.message-composer .message-composer__row .message-composer__send:hover,
+.message-composer .message-composer__row .message-composer__send:focus-visible {
+  border-color: var(--cobalt-500);
+  background: var(--cobalt-500);
+  color: #fff;
+  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-composer__row > button { transition: none; }
+}
+
+.message-composer__reply {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: -2px 50px var(--space-2);
+  border-left: 3px solid var(--cobalt-500);
+  padding: var(--space-1) var(--space-2);
+}
+
+.message-composer__reply > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: var(--space-0_5);
+}
+
+.message-composer__reply strong {
+  color: var(--fg-strong);
+  font-size: var(--text-person);
+  font-weight: var(--weight-medium);
+}
+
+.message-composer__reply small {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-composer__reply button,
+.message-composer__attachments button {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.message-composer__attachments {
+  display: flex;
+  max-height: 126px;
+  flex-wrap: wrap;
+  overflow-y: auto;
+  gap: var(--space-2);
+  margin: 0 calc(var(--composer-action-size) + var(--composer-action-gap)) var(--space-2);
+  margin-left: 0;
+}
+
+.message-composer__attachment-count {
+  width: 100%;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+}
+
+.message-composer__attachments > span {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: 7px;
+  background: var(--cobalt-50);
+  color: var(--fg-muted);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-meta);
+}
+
+@container (max-width: 380px) {
+  .message-composer {
+    padding-inline: var(--space-2);
+  }
+
+  .message-composer__row,
+  .message-composer__attachments {
+    --composer-action-size: 38px;
+    --composer-action-gap: var(--space-1);
+  }
+
+  .message-composer__input textarea,
+  .message-composer__row > textarea.message-composer__input {
+    padding-inline: var(--space-2);
+  }
+
+  .message-composer__reply {
+    margin-right: var(--space-10);
+    margin-left: var(--space-10);
+  }
+
+}

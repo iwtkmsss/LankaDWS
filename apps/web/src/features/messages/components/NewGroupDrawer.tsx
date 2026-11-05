@@ -1,7 +1,10 @@
-import type { ChatContactUser } from '@bert-crm/contracts'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { Check, Plus, Search, X } from 'lucide-react'
+import { useUserSearch } from '../../../shared/lib/useUserSearch'
+import { personName } from '../../../shared/lib/personName'
+import type { ChatContactUser } from '@lankadws/contracts'
+import { useMutation } from '@tanstack/react-query'
+import { Check, Plus, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { randomId } from '../../../shared/api/client'
 import {
   Avatar,
   Button,
@@ -10,8 +13,7 @@ import {
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../../../shared/ui'
-import { createThread, searchChatUsers } from '../api/messageApi'
-import { messageKeys } from '../api/messageKeys'
+import { createThread } from '../api/messageApi'
 import { normalizedCodePointLength } from '../lib/messageText'
 
 export function NewGroupDrawer({
@@ -25,23 +27,20 @@ export function NewGroupDrawer({
 }) {
   const [title, setTitle] = useState('')
   const [query, setQuery] = useState('')
-  const [debounced, setDebounced] = useState('')
+  const [searchFocused, setSearchFocused] = useState(false)
   const [selected, setSelected] = useState<ChatContactUser[]>([])
+  const { users, items: searchItems,
+    debouncedValue: debounced, isComposing, onCompositionStart, onCompositionEnd,
+  } = useUserSearch<ChatContactUser>(query, {
+    endpoint: '/messages/users/search', params: { company: companyId }, excludeIds: selected.map((user) => user.id),
+  })
   const attemptRef = useRef({ signature: '', key: '' })
   const closeGuard = useModalCloseGuard({
     dirty: Boolean(title.trim() || selected.length),
     onRequestClose: () => onClose(),
   })
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(query.trim()), 200)
-    return () => window.clearTimeout(timer)
-  }, [query])
   const normalizedLength = normalizedCodePointLength(debounced)
-  const users = useQuery({
-    queryKey: messageKeys.users(companyId, debounced),
-    queryFn: ({ signal }) => searchChatUsers(companyId, debounced, signal),
-    enabled: normalizedLength >= 2,
-  })
+
   const create = useMutation({
     mutationFn: () => {
       const payload = {
@@ -54,13 +53,19 @@ export function NewGroupDrawer({
       if (attemptRef.current.signature !== signature) {
         attemptRef.current = {
           signature,
-          key: `chat-group:${crypto.randomUUID()}`,
+          key: `chat-group:${randomId()}`,
         }
       }
       return createThread(payload, attemptRef.current.key)
     },
     onSuccess: (thread) => closeGuard.closeForSuccess(() => onCreated(thread.id)),
   })
+
+  useEffect(() => {
+    setQuery('')
+    setSelected([])
+    attemptRef.current = { signature: '', key: '' }
+  }, [companyId])
 
   function toggle(contact: ChatContactUser) {
     setSelected((current) =>
@@ -74,7 +79,9 @@ export function NewGroupDrawer({
     <>
       <Drawer
         title="Нова група"
+        onBeforeClose={closeGuard.shouldClose}
         onRequestClose={closeGuard.requestClose}
+        className="new-group-drawer"
         footer={(
           <>
             <Button
@@ -94,7 +101,7 @@ export function NewGroupDrawer({
         )}
       >
         <div className="new-group">
-        <label>
+        <label className="new-group__title">
           Назва групи
           <input
             autoFocus
@@ -104,14 +111,28 @@ export function NewGroupDrawer({
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
+        <div
+          className="new-group__search-area"
+          onFocusCapture={() => setSearchFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false)
+          }}
+        >
         <label>
-          Учасники <span>{selected.length}/49</span>
+          <span className="new-group__participants-heading">
+            <span>Учасники</span>
+            <span className="new-group__count" aria-label={`Обрано ${selected.length} із 49 учасників`}>{selected.length}/49</span>
+          </span>
           <div className="new-group__search">
             <Search size={17} />
             <input
               value={query}
-              placeholder="Ім’я або нікнейм"
+              aria-label="Пошук учасників групи"
+              aria-describedby="new-group-search-hint"
+              placeholder="Введіть ім’я або нікнейм"
               onChange={(event) => setQuery(event.target.value)}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
             />
             {query && (
               <button type="button" aria-label="Очистити пошук" onClick={() => setQuery('')}>
@@ -120,24 +141,25 @@ export function NewGroupDrawer({
             )}
           </div>
         </label>
+        <p id="new-group-search-hint" className="new-group__hint">Додайте щонайменше двох учасників. Пошук — за ім’ям або нікнеймом.</p>
         {selected.length > 0 && (
           <div className="new-group__selected" aria-label="Обрані учасники">
             {selected.map((contact) => (
-              <button type="button" key={contact.id} onClick={() => toggle(contact)}>
-                <Avatar size="sm" name={contact.displayName} src={contact.avatarAsset} />
-                {contact.displayName}
-                <X size={14} />
+              <button type="button" key={contact.id} aria-label={`Прибрати учасника ${personName(contact.displayName)}`} onClick={() => toggle(contact)}>
+                <Avatar size="sm" name={personName(contact.displayName)} src={contact.avatarAsset} />
+                <span className="new-group__selected-name">{personName(contact.displayName)}</span>
+                <X size={14} aria-hidden="true" />
               </button>
             ))}
           </div>
         )}
-        {query && normalizedLength < 2 ? (
-          <p className="new-group__hint">Введіть щонайменше 2 символи.</p>
+        {searchFocused && (query && !isComposing && normalizedLength < 1 ? (
+          <p className="new-group__hint">Введіть щонайменше 1 символ.</p>
         ) : users.isLoading ? (
           <Skeleton rows={5} />
         ) : (
           <div className="new-group__results">
-            {users.data?.items.map((contact) => {
+            {searchItems.map((contact) => {
               const isSelected = selected.some((item) => item.id === contact.id)
               return (
                 <button
@@ -147,21 +169,32 @@ export function NewGroupDrawer({
                   key={contact.id}
                   onClick={() => toggle(contact)}
                 >
-                  <Avatar name={contact.displayName} src={contact.avatarAsset} />
+                  <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
                   <span>
-                    <strong>{contact.displayName}</strong>
-                    <small>@{contact.username}{contact.jobTitle ? ` · ${contact.jobTitle}` : ''}</small>
+                    <strong>{personName(contact.displayName)}</strong>
+                    <small>{contact.jobTitle || `@${contact.username}`}</small>
                   </span>
                   <i>{isSelected ? <Check size={16} /> : <Plus size={16} />}</i>
                 </button>
               )
             })}
           </div>
+        ))}
+        </div>
+        {!query.trim() && !selected.length && (
+          <div className="new-group__empty">
+            <span className="new-group__empty-icon" aria-hidden="true"><UsersRound size={26} /></span>
+            <p>Зберіть людей для спільної розмови</p>
+          </div>
         )}
         {create.isError && <p className="form-error" role="alert">Не вдалося створити групу. Оновіть дані й спробуйте ще раз.</p>}
         </div>
       </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
+      <UnsavedChangesDialog
+        guard={closeGuard}
+        title="Закрити створення групи?"
+        description="Назва й вибрані учасники не збережуться."
+      />
     </>
   )
 }

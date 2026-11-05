@@ -1,19 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
+import { normalizeUserSearchValue as normalizeMessageSearch, userSearchCodePointLength as normalizedCodePointLength } from '@lankadws/contracts'
 
-const apostrophes = /[\u0060\u00b4\u02bc\u2018\u2019\u201b\u2032\uff07]/gu
-
-export function normalizeMessageSearch(value: string): string {
-  return value
-    .normalize('NFKC')
-    .trim()
-    .replace(/\s+/gu, ' ')
-    .toLocaleLowerCase('uk-UA')
-    .replace(apostrophes, "'")
-}
-
-export function normalizedCodePointLength(value: string): number {
-  return [...normalizeMessageSearch(value)].length
-}
+export { normalizeMessageSearch, normalizedCodePointLength }
 
 export function highlightNormalizedText(text: string, query: string): ReactNode {
   const normalizedQuery = normalizeMessageSearch(query)

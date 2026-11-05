@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { AuthPrincipal } from '../../common/request-context.js'
-import { DashboardService } from './dashboard.service.js'
+import { describe, expect, it, vi } from 'vitest';
+import type { AuthPrincipal } from '../../common/request-context.js';
+import { DashboardService } from './dashboard.service.js';
 
 function principal(accountType: 'ADMIN' | 'USER' = 'USER'): AuthPrincipal {
   return {
@@ -15,136 +15,225 @@ function principal(accountType: 'ADMIN' | 'USER' = 'USER'): AuthPrincipal {
     sessionId: 'ses_test',
     authAssurance: 1,
     restricted: false,
-  }
+  };
 }
 
 function setup() {
   const prisma = {
-    company: { findFirst: vi.fn().mockResolvedValue({
-      timezone: 'Europe/Kyiv',
-      capabilities: [{ enabled: true }],
-    }) },
+    company: {
+      findFirst: vi.fn().mockResolvedValue({
+        timezone: 'Europe/Kyiv',
+      }),
+    },
     event: {
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
     },
-    announcementReceipt: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findMany: vi.fn().mockResolvedValue([]) },
     notification: { count: vi.fn().mockResolvedValue(0) },
     lifecycleProcess: { findMany: vi.fn().mockResolvedValue([]) },
-  }
-  const tasks = { dashboardSummary: vi.fn().mockResolvedValue({ items: [], active: 0, overdue: 0, attention: 0, completedLast7Days: 0, byStatus: [] }) }
-  const messages = { summary: vi.fn().mockResolvedValue({ all: 0, unread: 0 }) }
-  const feed = { list: vi.fn().mockResolvedValue({ items: [], nextCursor: null, unreadCount: 0, attention: { pendingAcknowledgements: 0, overdueTasks: 0 }, readMarkers: [] }) }
+  };
+  const tasks = {
+    dashboardSummary: vi
+      .fn()
+      .mockResolvedValue({
+        items: [],
+        active: 0,
+        overdue: 0,
+        attention: 0,
+        completedLast7Days: 0,
+        byStatus: [],
+      }),
+  };
+  const messages = {
+    summary: vi.fn().mockResolvedValue({ all: 0, unread: 0 }),
+  };
+  const feed = {
+    list: vi
+      .fn()
+      .mockResolvedValue({
+        items: [],
+        nextCursor: null,
+        unreadCount: 0,
+        attention: { pendingAcknowledgements: 0, overdueTasks: 0 },
+        readMarkers: [],
+      }),
+  };
+  const knowledge = { pendingAcknowledgements: vi.fn().mockResolvedValue({ pendingCount: 0, nextArticle: null }) };
   const service = new DashboardService(
     prisma as never,
     tasks as never,
     messages as never,
     feed as never,
-  )
-  return { service, prisma, tasks, messages, feed }
+    knowledge as never,
+  );
+  return { service, prisma, tasks, messages, feed, knowledge };
 }
 
 describe('DashboardService', () => {
+  it('includes upcoming shared events by audience rather than requiring the viewer to be their author', async () => {
+    const { service, prisma } = setup();
+    const event = {
+      id: 'evt_shared', companyId: 'cmp_other', ownerId: 'usr_other',
+      title: 'Спільна подія', description: null,
+      startAt: new Date('2099-10-15T15:00:00Z'),
+      endAt: new Date('2099-10-16T16:00:00Z'),
+      allDay: false, visibility: 'INTERNAL',
+    };
+    prisma.event.findMany.mockResolvedValue([event]);
+    const result = await service.get(principal('ADMIN'));
+    const access = {
+      workspaceId: 'wrk_test',
+      audiences: { some: { companyId: { in: ['cmp_test'] } } },
+      OR: [
+        { ownerId: 'usr_test' },
+        { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } },
+      ],
+    };
+    expect(prisma.event.findMany).toHaveBeenCalledWith({
+      where: { ...access, endAt: { gte: new Date(result.meta.generatedAt) } },
+      orderBy: [{ startAt: 'asc' }, { id: 'asc' }], take: 5,
+    });
+    expect(prisma.event.count).toHaveBeenCalledWith({
+      where: {
+        ...access,
+        startAt: { lte: service['zonedDateBoundary'](result.meta.localDate, result.meta.timezone, true) },
+        endAt: { gte: service['zonedDateBoundary'](result.meta.localDate, result.meta.timezone, false) },
+      },
+    });
+    expect(result.events[0]).toMatchObject({ id: event.id, title: event.title });
+    expect(result.kpis.events).toMatchObject({ todayCount: 0, nextAt: event.startAt.toISOString() });
+  });
+
   it('exposes standard workspace blocks without an RBAC permission matrix', async () => {
-    const { service, prisma, tasks, messages, feed } = setup()
-    const result = await service.get(principal())
+    const { service, prisma, tasks, messages, feed } = setup();
+    const result = await service.get(principal());
 
     expect(result.availability).toEqual({
       tasks: true,
       calendar: true,
-      announcements: true,
       messages: true,
       notifications: true,
       activity: true,
       lifecycle: true,
-    })
-    expect(result.tasks).toEqual([])
-    expect(result.activity).toEqual([])
-    expect(result.taskAnalytics).not.toBeNull()
-    expect(result.kpis.activeTasks).not.toBeNull()
-    expect(tasks.dashboardSummary).toHaveBeenCalled()
-    expect(messages.summary).toHaveBeenCalled()
-    expect(feed.list).toHaveBeenCalled()
-    expect(prisma.event.findMany).toHaveBeenCalled()
-    expect(prisma.notification.count).toHaveBeenCalled()
-  })
+    });
+    expect(result.tasks).toEqual([]);
+    expect(result.focus.nextStep).toMatchObject({
+      kind: 'KNOWLEDGE',
+      href: '/knowledge',
+    });
+    expect(result.activity).toEqual([]);
+    expect(result.taskAnalytics).not.toBeNull();
+    expect(result.kpis.activeTasks).not.toBeNull();
+    expect(tasks.dashboardSummary).toHaveBeenCalled();
+    expect(messages.summary).toHaveBeenCalled();
+    expect(feed.list).toHaveBeenCalled();
+    expect(prisma.event.findMany).toHaveBeenCalled();
+    expect(prisma.notification.count).toHaveBeenCalled();
+  });
 
   it('keeps employee lifecycle visibility scoped to the current user', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma } = setup();
 
-    const result = await service.get(principal())
+    const result = await service.get(principal());
 
-    expect(result.availability.lifecycle).toBe(true)
-    const lifecycleQuery = prisma.lifecycleProcess.findMany.mock.calls[0]?.[0] as {
-      where?: { employeeId?: string }
-    } | undefined
-    expect(lifecycleQuery?.where?.employeeId).toBe('usr_test')
-  })
+    expect(result.availability.lifecycle).toBe(true);
+    const lifecycleQuery = prisma.lifecycleProcess.findMany.mock
+      .calls[0]?.[0] as
+      | {
+          where?: { employeeId?: string; processType?: string };
+        }
+      | undefined;
+    expect(lifecycleQuery?.where?.employeeId).toBe('usr_test');
+    expect(lifecycleQuery?.where?.processType).toBe('OFFBOARDING');
+  });
 
   it('combines authorized attention and chooses the task-first next step', async () => {
-    const { service, prisma, tasks, messages, feed } = setup()
+    const { service, prisma, tasks, messages, feed } = setup();
     tasks.dashboardSummary.mockResolvedValue({
-      items: [{
-        id: 'tsk_1',
-        number: 'TASK-1',
-        companyId: 'cmp_test',
-        parentTaskId: null,
-        title: 'Усунути блокер',
-        assignee: { id: 'usr_test', displayName: 'Тест Користувач', avatarAsset: null },
-        status: 'BLOCKED',
-        priority: 'HIGH',
-        deadline: null,
-        version: 1,
-        commentCount: 0,
-        attachmentCount: 0,
-        subtaskProgress: { done: 0, total: 0 },
-        viewerRoles: ['RESPONSIBLE'],
-      }],
+      items: [
+        {
+          id: 'tsk_1',
+          number: '1',
+          companyId: 'cmp_test',
+          parentTaskId: null,
+          title: 'Продовжити роботу',
+          assignee: {
+            id: 'usr_test',
+            displayName: 'Тест Користувач',
+            avatarAsset: null,
+          },
+          status: 'IN_PROGRESS',
+          priority: 'HIGH',
+          deadline: '2026-01-01T09:00:00.000Z',
+          version: 1,
+          commentCount: 0,
+          attachmentCount: 0,
+          subtaskProgress: { done: 0, total: 0 },
+          viewerRoles: ['RESPONSIBLE'],
+        },
+      ],
       active: 3,
       overdue: 1,
       attention: 2,
       completedLast7Days: 4,
-      byStatus: [{ status: 'BLOCKED', count: 1 }],
-    })
-    messages.summary.mockResolvedValue({ all: 8, unread: 4 })
-    prisma.notification.count
-      .mockResolvedValueOnce(2)
-      .mockResolvedValueOnce(3)
+      byStatus: [{ status: 'IN_PROGRESS', count: 1 }],
+    });
+    messages.summary.mockResolvedValue({ all: 8, unread: 4 });
+    prisma.notification.count.mockResolvedValueOnce(2).mockResolvedValueOnce(3);
     feed.list.mockResolvedValue({
       items: [],
       nextCursor: null,
       unreadCount: 0,
       attention: { pendingAcknowledgements: 1, overdueTasks: 0 },
       readMarkers: [],
-    })
+    });
 
-    const result = await service.get(principal())
+    const result = await service.get(principal());
 
-    expect(result.attentionCount).toBe(9)
+    expect(result.attentionCount).toBe(9);
     expect(result.focus.nextStep).toMatchObject({
       kind: 'TASK',
       href: '/tasks/tsk_1',
-    })
+    });
     expect(result.kpis).toMatchObject({
       activeTasks: { value: 3 },
       overdueTasks: { value: 1 },
       unreadMessages: { value: 4 },
-      unreadNotifications: { value: 3 },
-    })
+      unreadNotifications: { value: 3, href: '/feed?panel=notifications' },
+    });
     expect(result.taskAnalytics).toEqual({
-      byStatus: [{ status: 'BLOCKED', count: 1 }],
+      byStatus: [{ status: 'IN_PROGRESS', count: 1 }],
       completedLast7Days: 4,
       overdue: 1,
-    })
-  })
+    });
+  });
 
   it('uses IANA timezone boundaries across daylight-saving changes', () => {
-    const { service } = setup()
-    const start = service['zonedDateBoundary']('2026-03-29', 'Europe/Kyiv', false)
-    const end = service['zonedDateBoundary']('2026-03-29', 'Europe/Kyiv', true)
+    const { service } = setup();
+    const start = service['zonedDateBoundary'](
+      '2026-03-29',
+      'Europe/Kyiv',
+      false,
+    );
+    const end = service['zonedDateBoundary']('2026-03-29', 'Europe/Kyiv', true);
 
-    expect(start.toISOString()).toBe('2026-03-28T22:00:00.000Z')
-    expect(end.toISOString()).toBe('2026-03-29T20:59:59.999Z')
-  })
-})
+    expect(start.toISOString()).toBe('2026-03-28T22:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-03-29T20:59:59.999Z');
+  });
+});
+
+
+it('prioritizes mandatory knowledge over overdue tasks and resumes the existing next step after confirmation', async () => {
+  const { service, tasks, knowledge } = setup();
+  tasks.dashboardSummary.mockResolvedValue({ items: [{ id: 'task', title: 'Overdue', number: '42', deadline: '2020-01-01' }], active: 1, overdue: 1, attention: 1, completedLast7Days: 0, byStatus: [] });
+  knowledge.pendingAcknowledgements.mockResolvedValue({ pendingCount: 2, nextArticle: { slug: 'policy', title: 'Policy' } });
+  const before = await service.get(principal());
+  expect(before.focus.nextStep).toMatchObject({ kind: 'KNOWLEDGE', href: '/knowledge/policy' });
+  expect(before.attentionCount).toBe(3);
+  expect((await service.get(principal())).focus.nextStep).toMatchObject({ kind: 'KNOWLEDGE', href: '/knowledge/policy' });
+  knowledge.pendingAcknowledgements.mockResolvedValue({ pendingCount: 0, nextArticle: null });
+  const after = await service.get(principal());
+  expect(after.focus.nextStep).toMatchObject({ kind: 'TASK', href: '/tasks/task' });
+  expect(after.attentionCount).toBe(1);
+});

@@ -1,0 +1,64 @@
+.right-panel__notification-list article.notification-state {
+  --notification-state-color: var(--fg-muted);
+  --notification-state-bg: var(--surface-soft);
+  background: var(--notification-state-bg);
+  box-shadow: inset 3px 0 var(--line-strong);
+}
+
+.right-panel__notification-list article.notification-state.is-unread {
+  --notification-state-color: var(--fg-link);
+  --notification-state-bg: var(--cobalt-100);
+  background: var(--notification-state-bg);
+  border-color: var(--cobalt-300);
+  box-shadow: inset 3px 0 var(--cobalt-500);
+}
+
+.right-panel__notification-list article.notification-state:hover {
+  background: color-mix(in srgb, var(--notification-state-bg) 85%, var(--surface-hover));
+}
+
+.right-panel__notification-list .notification-state strong {
+  color: var(--notification-state-color);
+}
+
+.right-panel__notification-list .notification-read-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-end: var(--space-2);
+  color: var(--notification-state-color);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+
+.notification-read-status::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+
+.task-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: var(--space-2);
+  border-radius: 999px;
+  background: var(--cobalt-100);
+  color: var(--fg-link);
+  padding: 1px var(--space-2);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.task-unread-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}

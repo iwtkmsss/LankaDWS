@@ -1,0 +1,110 @@
+import '@testing-library/jest-dom/vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api } from '../shared/api/client'
+import { TopbarContent, TopbarContentProvider } from '../layout/TopbarContent'
+import ContentPages from './ContentPages'
+import { OverlayProvider } from '../shared/ui/Overlay'
+
+const auth = vi.hoisted(() => ({ accountType: 'ADMIN' }))
+vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: auth }) }))
+vi.mock('../shared/api/client', async (original) => ({ ...await original<typeof import('../shared/api/client')>(), api: vi.fn() }))
+const item = {
+  id: 'article', slug: 'policy', title: 'Політика', changeSummary: 'Перша публікація', version: 2, reviewAt: null,
+  createdAt: '2026-09-01T10:00:00.000Z', updatedAt: '2026-09-04T10:00:00.000Z', requiresAcknowledgement: false, hasAcknowledged: false,
+}
+
+// The material body is a contentEditable rich editor, not a textarea.
+function typeRich(element: HTMLElement, text: string) {
+  element.textContent = text
+  fireEvent.input(element)
+}
+
+function mount(path = '/knowledge') {
+  const router = createMemoryRouter([{ path: '/knowledge/:articleSlug?', element: <OverlayProvider><TopbarContentProvider><TopbarContent /><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: [path] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+}
+
+beforeEach(() => {
+  auth.accountType = 'ADMIN'
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path.startsWith('/files?')) return { id: 'file_new', scanStatus: 'CLEAN' }
+    if (path === '/files/file_new/status') return { scanStatus: 'CLEAN' }
+    if (options?.method) return { id: 'article', slug: 'policy' }
+    if (path.startsWith('/knowledge/articles?')) return { items: [item] }
+    if (path === '/knowledge/articles/policy') return { ...item, currentVersion: { title: 'Політика', body: 'Чинний текст', publishedAt: '2026-09-04T10:00:00.000Z' }, attachments: [
+      { id: 'file_cover', safeFilename: 'cover.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' },
+      { id: 'file_image', safeFilename: 'guide.jpg', bytes: 1024, mimeType: 'image/jpeg', scanStatus: 'CLEAN' },
+    ], companyIds: ['company'] }
+    if (path === '/knowledge/tickets') return { items: [] }
+    if (path === '/admin/companies') return { items: [{ id: 'company', name: 'Компанія', isActive: true }] }
+    throw new Error(`Unexpected request: ${path}`)
+  })
+})
+afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+describe('knowledge management', () => {
+  it('toggles editing controls on the knowledge page', async () => {
+    mount()
+    await screen.findByText('Політика')
+    expect(screen.queryByRole('button', { name: /Додати матеріал/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Керувати матеріалами' }))
+    expect(screen.getByRole('button', { name: 'Редагувати Політика' })).toBeVisible()
+    expect(screen.getByRole('button', { name: /Додати матеріал/ })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Завершити керування' }))
+    expect(screen.queryByRole('button', { name: 'Редагувати Політика' })).not.toBeInTheDocument()
+  })
+  it('loads existing text and submits a version-checked update', async () => {
+    mount('/knowledge?manage=1&edit=policy')
+    const body = await screen.findByLabelText('Текст матеріалу')
+    expect(body).toHaveTextContent('Чинний текст')
+    typeRich(body, 'Новий текст')
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти зміни' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Політика', body: 'Новий текст', changeSummary: '', attachmentIds: [], companyIds: ['company'], requiresAcknowledgement: false, expectedVersion: 2, removedAttachmentIds: [] }) })))
+    await waitFor(() => expect(screen.queryByLabelText('Текст матеріалу')).not.toBeInTheDocument())
+  })
+  it('creates a material using the existing publication endpoint', async () => {
+    mount('/knowledge?manage=1&edit=new')
+    fireEvent.change(await screen.findByLabelText('Назва'), { target: { value: 'Інструкція' } })
+    typeRich(screen.getByLabelText('Текст матеріалу'), 'Зміст')
+    fireEvent.click(screen.getByRole('button', { name: 'Опублікувати матеріал' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles', expect.objectContaining({ method: 'POST' })))
+    const call = vi.mocked(api).mock.calls.find(([, options]) => options?.method === 'POST')!
+    expect(JSON.parse(call[1]!.body as string)).toMatchObject({ title: 'Інструкція', body: 'Зміст', companyIds: ['company'] })
+    await waitFor(() => expect(screen.queryByLabelText('Текст матеріалу')).not.toBeInTheDocument())
+  })
+  it('uploads selected files before attaching them to a new material', async () => {
+    mount('/knowledge?manage=1&edit=new')
+    fireEvent.change(await screen.findByLabelText('Назва'), { target: { value: 'Інструкція' } })
+    typeRich(screen.getByLabelText('Текст матеріалу'), 'Зміст')
+    fireEvent.change(screen.getByLabelText('Додати файли'), { target: { files: [new File(['content'], 'guide.pdf', { type: 'application/pdf' })] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Опублікувати матеріал' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/files?company=company', expect.objectContaining({ method: 'POST' })))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles', expect.objectContaining({ body: expect.stringContaining('"attachmentIds":["file_new"]') })))
+  })
+  it('hides management for ordinary users even with management URL parameters', async () => {
+    auth.accountType = 'USER'
+    mount('/knowledge?manage=1&edit=policy')
+    await screen.findByText('Політика')
+    expect(screen.queryByRole('button', { name: /Керувати|Редагувати|Додати матеріал/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Текст матеріалу')).not.toBeInTheDocument()
+  })
+  it('asks for confirmation and archives a material', async () => {
+    mount('/knowledge?manage=1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Видалити Політика' }))
+    expect(screen.getByRole('alertdialog', { name: 'Видалити матеріал?' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Видалити' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/knowledge/articles/policy', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ expectedVersion: 2 }) })))
+  })
+  it('opens an attached image in the shared CRM preview', async () => {
+    mount('/knowledge/policy')
+    const preview = await screen.findByRole('region', { name: 'Прикріплений файл guide.jpg' })
+    expect(preview).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Переглянути guide.jpg' }))
+    const dialog = screen.getByRole('dialog', { name: 'guide.jpg' })
+    expect(within(dialog).getByRole('img', { name: 'guide.jpg' })).toHaveAttribute('src', '/api/v1/files/file_image/download?inline=true')
+    expect(within(dialog).getByRole('button', { name: 'Закрити' })).toBeVisible()
+  })
+})

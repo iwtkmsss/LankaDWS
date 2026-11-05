@@ -4,113 +4,145 @@ import { expect, test, type Page } from '@playwright/test'
 async function login(page: Page, username = 'maria') {
   await page.goto('/login')
   await page.getByLabel('Нікнейм').fill(username)
-  await page.getByLabel('Пароль', { exact: true }).fill('BertDemoPassphrase2026!')
+  await page.getByLabel('Пароль', { exact: true }).fill('LankaDWSDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
-  await expect(page).toHaveURL(/\/overview$/)
-  await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/feed$/)
 }
+
+async function openTaskEditing(page: Page) {
+  const status = page.getByLabel('Змінити статус')
+  if (await status.isVisible()) return
+  await page.getByLabel('Дії із завданням').click()
+  await page.getByRole('menuitem', { name: 'Редагувати' }).click()
+  await expect(status).toBeVisible()
+}
+
+test('profile menu closes when clicking outside it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await login(page, 'dmytro')
+
+  await page.locator('.profile-button').click()
+  await expect(page.locator('.profile-popover')).toBeVisible()
+
+  await page.locator('.workspace').click({ position: { x: 400, y: 200 } })
+  await expect(page.locator('.profile-popover')).toBeHidden()
+})
+
+test('profile menu changes and persists the color theme', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await login(page, 'dmytro')
+
+  await page.locator('.profile-button').click()
+  const themeToggle = page.getByRole('switch', { name: 'Темна тема' })
+  await expect(themeToggle).toHaveAttribute('aria-checked', 'false')
+
+  await themeToggle.click()
+  await expect(themeToggle).toHaveAttribute('aria-checked', 'true')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+})
+
+test('desktop navigation prefetches destinations and reuses cached task data', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop sidebar is the navigation prefetch surface.')
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await login(page)
+  const sidebar = page.locator('.sidebar')
+  let taskListRequests = 0
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/v1/tasks') taskListRequests += 1
+  })
+
+  async function navigateTo(path: string) {
+    const link = sidebar.locator(`.sidebar__nav a[href="${path}"]`)
+    await link.hover()
+    await link.click()
+    await expect(page).toHaveURL(new RegExp(`${path.replace('/', '\\/')}$`))
+    await expect(link).toHaveClass(/active/)
+    await expect(page.locator('main')).toBeVisible()
+    await expect(page.locator('.page-data-loader')).toHaveCount(0)
+  }
+
+  await navigateTo('/tasks')
+  const taskLink = page.locator('.task-list-table tbody a').first()
+  await expect(taskLink).toBeVisible()
+  await taskLink.click()
+  await expect(page).toHaveURL(/\/tasks\/tsk_/)
+  await expect(page.locator('.task-detail-heading h2')).toBeVisible()
+  const taskRequestsAfterFirstVisit = taskListRequests
+
+  await navigateTo('/messages')
+  await navigateTo('/drive')
+  await navigateTo('/calendar')
+  await navigateTo('/organization')
+  await navigateTo('/feed')
+  await navigateTo('/tasks')
+  await expect(page.locator('.page-data-loader')).toHaveCount(0)
+  await page.waitForTimeout(250)
+  expect(taskListRequests).toBe(taskRequestsAfterFirstVisit)
+})
+
+test('home landing uses the feed and removed overview is not addressable', async ({ page }) => {
+  await login(page)
+  await expect(page).toHaveURL(/\/feed$/)
+  await page.goto('/')
+  await expect(page).toHaveURL(/\/feed$/)
+  await page.goto('/overview')
+  await expect(page.getByRole('heading', { name: 'Такої сторінки немає' })).toBeVisible()
+
+})
 
 async function createTaskThroughModal(
   page: Page,
   title: string,
-  options: { description?: string; additionalResponsible?: string } = {},
+  options: { description?: string } = {},
 ) {
   await page.goto('/tasks/new')
   const dialog = page.getByRole('dialog', { name: 'Нове завдання' })
   await expect(dialog).toBeVisible()
   await page.getByLabel('Назва завдання').fill(title)
   if (options.description) await page.getByLabel('Опис').fill(options.description)
-  if (options.additionalResponsible) {
-    const responsibleSelect = page.getByLabel('Додати відповідального')
-    const responsibleId = await responsibleSelect.locator('option').filter({
-      hasText: options.additionalResponsible,
-    }).getAttribute('value')
-    expect(responsibleId).toBeTruthy()
-    await responsibleSelect.selectOption(responsibleId!)
-  }
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
-  await expect(page.getByRole('dialog').getByRole('heading', { name: title })).toBeVisible()
+  await expect(page.getByRole('heading', { name: title })).toBeVisible()
 }
 
-test('employee feed and canonical navigation are accessible', async ({ page }, testInfo) => {
+test('employee feed and canonical navigation are accessible', async ({ page }) => {
   await login(page)
   await page.goto('/feed')
-  await expect(page.getByRole('heading', { name: 'Жива стрічка', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/feed$/)
   await expect(page.locator('.sidebar .nav-section__label').getByText('Адміністрування', { exact: true })).toHaveCount(0)
-  await expect(page.locator('.feed-card').getByText('Марія Іваненко').first()).toBeVisible()
+  await expect(page.locator('.stream-card--post').getByText('Марія Іваненко').first()).toBeVisible()
   await expect(page.locator('.feed-attention').getByRole('link').first()).toHaveAttribute(
     'href',
     '/feed?filter=ACK_REQUIRED',
   )
-  const eventSource = page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })
+  const eventSource = page.locator('.stream-card--event').filter({ hasText: 'Огляд операцій' })
   await expect(eventSource).toBeVisible()
   await eventSource.getByRole('link', { name: 'Відкрити подію' }).click()
   const eventDialog = page.getByRole('dialog', { name: 'Подія' })
   await expect(eventDialog.getByRole('heading', { name: 'Огляд операцій' })).toBeVisible()
   await eventDialog.getByRole('button', { name: 'Закрити' }).click()
-  await expect(page.getByRole('heading', { name: 'Календар', exact: true })).toBeVisible()
-  await page.goto('/feed')
+  await expect(page).toHaveURL(/\/calendar\?date=\d{4}-\d{2}-\d{2}$/)
+  await page.goto('/feed?type=EVENT')
+  await expect(page).toHaveURL(/\/feed\?type=EVENT$/)
+  await expect(page.locator('.stream-card--event').filter({ hasText: 'Огляд операцій' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Показати всю стрічку' })).toHaveCount(1)
+  await expect(page.getByRole('tab')).toHaveCount(0)
+  await expect(page.getByLabel('Тип події')).toHaveCount(0)
+  await expect(page.getByLabel('Збережені фільтри')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Показати всю стрічку' }).click()
   await expect(page).toHaveURL(/\/feed$/)
-  await page.getByLabel('Тип події').selectOption('EVENT')
-  await expect(page).toHaveURL(/type=EVENT/)
-  await expect(page.locator('.feed-source-card').filter({ hasText: 'Огляд операцій' })).toBeVisible()
-  await page.getByLabel('Тип події').selectOption('ALL')
-  await page.getByRole('button', { name: 'Фільтри', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Додаткові фільтри' })).toBeVisible()
-  await expect(page.getByLabel('Кому адресовано').locator('option', { hasText: 'BERT' })).toHaveCount(1)
-  await expect(page.getByLabel('Робоча група').locator('option', { hasText: 'Продукт і дизайн' })).toHaveCount(1)
-  await expect(page.getByLabel('Робоча група').locator('option', { hasText: 'Люди · приватна група' })).toHaveCount(0)
-  await page.getByLabel('Робоча група').selectOption('grp_product_design')
-  await expect(page).toHaveURL(/groupId=grp_product_design/)
-  await expect(page.locator('.feed-card').filter({ hasText: 'Підготувала компактніший варіант' })).toBeVisible()
-  await page.getByLabel('Робоча група').selectOption('')
-  await page.getByLabel('Кому адресовано').selectOption('cmp_bert_ua')
-  await expect(page).toHaveURL(/audienceId=cmp_bert_ua/)
-  await expect(page.locator('.feed-card').filter({ hasText: 'Сьогодні оновили робочий простір' })).toBeVisible()
-  await page.getByLabel('Кому адресовано').selectOption('')
-  await expect(page.getByLabel('Автор').locator('option', { hasText: 'Андрій Коваль' })).toHaveCount(1)
-  await page.getByLabel('Автор').selectOption({ label: 'Андрій Коваль' })
-  await expect(page).toHaveURL(/authorId=usr_andrii/)
-  await expect(page.locator('.feed-card').filter({ hasText: 'Андрій Коваль' })).toBeVisible()
-  const kyivDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Kyiv',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-  await page.getByLabel('Від дати').fill(kyivDate)
-  await page.getByLabel('До дати').fill(kyivDate)
-  await expect(page).toHaveURL(new RegExp(`dateFrom=${kyivDate}.*dateTo=${kyivDate}`))
-  await page.screenshot({
-    path: `artifacts/screenshots/${testInfo.project.name}-feed-filters.png`,
-    fullPage: true,
-  })
-  await page.getByLabel('Мене згадали').check()
-  await expect(page).toHaveURL(/mentioned=true/)
-  await page.getByLabel('Мене згадали').uncheck()
-  await page.getByLabel('Лише обране').check()
-  await expect(page).toHaveURL(/favorite=true/)
-  await page.getByLabel('Лише обране').uncheck()
-  await page.getByRole('button', { name: 'Очистити додаткові' }).click()
-  await expect(page).not.toHaveURL(/authorId|groupId|audienceId|dateFrom|dateTo|mentioned|favorite|important/)
-  await page.getByLabel('Важливі публікації').check()
-  await expect(page).toHaveURL(/important=true/)
-  await expect(page.locator('.feed-acknowledgement').first()).toBeVisible()
-  await page.getByLabel('Важливі публікації').uncheck()
-  await expect(page).not.toHaveURL(/authorId|groupId|audienceId|dateFrom|dateTo|mentioned|favorite|important/)
-  await page.getByRole('button', { name: 'Закрити додаткові фільтри' }).click()
-  const overviewA11y = await new AxeBuilder({ page }).analyze()
-  expect(overviewA11y.violations).toEqual([])
+  const feedA11y = await new AxeBuilder({ page }).analyze()
+  expect(feedA11y.violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }))
-  await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-feed.png`, fullPage: true })
 })
 
-test('manager overview and admin access stay correctly scoped', async ({ page }) => {
+test('manager feed overview and admin access stay correctly scoped', async ({ page }) => {
   await login(page, 'andrii')
-  await page.goto('/overview?company=cmp_bert_service')
-  await expect(page.getByRole('heading', { name: 'Огляд', exact: true })).toBeVisible()
+  await page.goto('/feed?company=cmp_lankadws_service')
+  await expect(page).toHaveURL(/\/feed$/)
   await expect(page).not.toHaveURL(/company=/)
   await expect(page.getByText('Потребують рішення')).toHaveCount(0)
   await page.goto('/admin/users')
@@ -118,41 +150,187 @@ test('manager overview and admin access stay correctly scoped', async ({ page })
   await expect(page.getByRole('heading', { name: 'Користувачі' })).toHaveCount(0)
 })
 
-test('organization tree expands and keeps the selected unit addressable', async ({ page }) => {
+test('organization map moves the camera, highlights a branch and keeps selection addressable', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/employees/org')
-  const tree = page.getByRole('tree', { name: 'Структура підрозділів' })
-  await expect(tree).toBeVisible()
+  await page.goto('/organization?view=structure&companyId=cmp_lankadws_ua')
+  const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
+  await expect(map).toBeVisible()
 
-  const expandable = tree.locator('[role="treeitem"][aria-expanded]').first()
-  await expect(expandable).toHaveAttribute('aria-expanded', 'true')
-  const toggle = expandable.getByRole('button', { name: /Згорнути/ })
-  await toggle.click()
-  await expect(expandable).toHaveAttribute('aria-expanded', 'false')
-  await expandable.getByRole('button', { name: /Розгорнути/ }).click()
-
-  const selectedUnit = tree.locator('.org-tree__select').first()
+  const selectedUnit = map.locator('.organization-map__node:not(.organization-map__node--company)').first()
   await selectedUnit.click()
-  await expect(page).toHaveURL(/\/employees\/org\?unit=/)
-  await selectedUnit.press('ArrowDown')
-  await expect(tree.locator('.org-tree__select').nth(1)).toBeFocused()
+  await expect(page).toHaveURL(/\/organization\?.*unitId=/)
+  await expect(map.locator('.organization-map__links path.is-active')).not.toHaveCount(0)
+  const transformBefore = await map.locator('.organization-map__world').getAttribute('style')
+  await map.getByRole('button', { name: 'Збільшити карту' }).click()
+  await expect(map.locator('.organization-map__world')).not.toHaveAttribute('style', transformBefore ?? '')
+  await map.hover()
+  const pageScrollBefore = await page.evaluate(() => window.scrollY)
+  await page.mouse.wheel(0, 180)
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore)
+  for (let index = 0; index < 24; index += 1) await page.mouse.wheel(0, 180)
+  const transformAtZoomLimit = await map.locator('.organization-map__world').getAttribute('style')
+  await page.mouse.wheel(0, 180)
+  await expect(map.locator('.organization-map__world')).toHaveAttribute('style', transformAtZoomLimit ?? '')
+  await expect(map.getByRole('button', { name: /Lanka/ }).first()).toBeVisible()
+
+  await expect(page.getByRole('button', { name: 'Структура', exact: true })).toHaveClass(/is-active/)
+  await expect(page.getByRole('combobox', { name: 'Оберіть компанію' })).toHaveValue('cmp_lankadws_ua')
 })
 
-test('command palette keeps canonical create actions ahead of results', async ({ page }) => {
+test('administrator manages a recursive company structure', async ({ page }, testInfo) => {
+  await login(page, 'dmytro')
+  await page.goto('/admin/companies/cmp_lankadws_ua/structure')
+  const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
+  await expect(map).toBeVisible()
+  await page.getByRole('button', { name: 'Редагувати структуру' }).click()
+  await map.getByRole('button', { name: /Lanka\./ }).click()
+  await expect(map.getByRole('heading', { name: 'Lanka' })).toBeVisible()
+  await expect(map.getByRole('searchbox', { name: 'Керівник', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Новий підрозділ' }).click()
+
+  const suffix = Date.now().toString(36)
+  let drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
+  await drawer.getByLabel('Назва').fill(`E2E UI напрям ${suffix}`)
+  await drawer.getByLabel('Керівник').fill('Анд')
+  await drawer.getByRole('option', { name: /Андрій Коваль/ }).click()
+  await drawer.getByLabel('Працівники').fill('Марко')
+  await drawer.getByRole('option', { name: /Марко Литвин/ }).click()
+  await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: `E2E UI напрям ${suffix}` })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Новий підрозділ' }).click()
+  drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
+  await drawer.getByLabel('Назва').fill(`E2E UI лабораторія ${suffix}`)
+  await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
+  await expect(drawer).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: `E2E UI лабораторія ${suffix}` })).toBeVisible()
+
+  const sourceUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI напрям ${suffix}` })
+  const targetUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI лабораторія ${suffix}` })
+  await sourceUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
+  const employeeCard = map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')
+  await expect(employeeCard).toBeVisible()
+  const transferData = await page.evaluateHandle(() => new DataTransfer())
+  await employeeCard.dispatchEvent('dragstart', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('dragenter', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('dragover', { dataTransfer: transferData })
+  await targetUnitNode.dispatchEvent('drop', { dataTransfer: transferData })
+  const transfer = page.getByRole('alertdialog', { name: 'Перевести працівника?' })
+  await expect(transfer).toContainText(`E2E UI лабораторія ${suffix}`)
+  await transfer.getByRole('button', { name: 'Перевести' }).click()
+  await expect(transfer).toHaveCount(0)
+  await targetUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
+  await expect(map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')).toBeVisible()
+
+  await page.getByText('Архівація', { exact: true }).click()
+  await page.getByRole('button', { name: 'Архівувати' }).click()
+  await expect(page.getByText('Відновиться порожнім; попередні переміщення не відкочуються.')).toBeVisible()
+  await page.getByRole('button', { name: 'Відновити' }).click()
+  await expect(page.getByText('Активний підрозділ')).toBeVisible()
+
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations).toEqual([])
+})
+
+test('top bar exposes global search without company navigation buttons', async ({ page }) => {
   await login(page, 'maria')
-  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
-  const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-  await palette.getByRole('textbox').fill('завдання')
-  await expect(palette.getByText('Створити', { exact: true })).toBeVisible()
-  await palette.getByRole('option', { name: /Нове завдання/ }).click()
-  await expect(page).toHaveURL(/\/tasks\/new/)
+  const topbar = page.locator('.topbar')
+  await expect(topbar).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
+  await expect(topbar.getByRole('button', { name: 'Компанії' })).toHaveCount(0)
+  await expect(topbar.getByRole('button', { name: 'Структура' })).toHaveCount(0)
+  await page.keyboard.press('Control+K')
+  await expect(page.getByRole('dialog', { name: 'Глобальний пошук' })).toBeVisible()
+  const searchInput = page.getByRole('textbox', { name: 'Знайти або перейти' })
+  await searchInput.fill('dashboard')
+  await expect(page.getByRole('option', { name: /Підготувати концепцію дизайну dashboard/ })).toBeVisible()
+  await searchInput.fill('дмитро')
+  const personResult = page.getByRole('option', { name: /Дмитро Савчук.*Адміністратор/ })
+  await expect(personResult).toBeVisible()
+  await personResult.click()
+  await expect(page).toHaveURL(/\/feed\?employeeId=usr_dmytro/)
+  await expect(page.getByRole('region', { name: 'Діалог: Дмитро Савчук' })).toBeVisible()
+})
+
+test('create actions use the left top-bar slot while search stays centered', async ({ page }, testInfo) => {
+  await login(page, 'maria')
+
+  await page.goto('/tasks')
+  const topbar = page.locator('.topbar')
+  await expect(topbar.getByRole('link', { name: 'Створити завдання' })).toBeVisible()
+  await expect(page.locator('main').getByRole('link', { name: 'Створити завдання' })).toHaveCount(0)
+
+  if (testInfo.project.name === 'desktop-chromium') {
+    const topbarBox = await topbar.boundingBox()
+    const searchBox = await topbar.getByRole('button', { name: 'Пошук у Lanka' }).boundingBox()
+    expect(topbarBox).not.toBeNull()
+    expect(searchBox).not.toBeNull()
+    expect(Math.abs(
+      searchBox!.x + searchBox!.width / 2 - (topbarBox!.x + topbarBox!.width / 2),
+    )).toBeLessThanOrEqual(1)
+  }
+
+  await page.goto('/feed')
+  await expect(topbar.getByRole('button', { name: 'Створити публікацію' })).toBeVisible()
+  await expect(page.locator('main').getByRole('button', { name: 'Створити публікацію' })).toHaveCount(0)
+
+  await page.goto('/messages')
+  await expect(topbar.getByRole('button', { name: 'Новий чат' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Повідомлення' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Пошук користувачів' })).toBeVisible()
+
+  if (testInfo.project.name === 'desktop-chromium') {
+    await page.goto('/calendar')
+    await expect(topbar.getByRole('button', { name: 'Створити подію' })).toBeVisible()
+    await expect(topbar.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
+    const [calendarToolbar, calendarNavigation] = await Promise.all([
+      page.locator('.calendar-view-switch').boundingBox(),
+      page.locator('.calendar-nav--topbar').boundingBox(),
+    ])
+    expect(calendarToolbar).not.toBeNull()
+    expect(calendarNavigation).not.toBeNull()
+    expect(Math.abs(
+      calendarNavigation!.x + calendarNavigation!.width / 2
+        - (calendarToolbar!.x + calendarToolbar!.width / 2),
+    )).toBeLessThanOrEqual(1)
+  }
+
+  await page.goto('/drive')
+  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeVisible()
+})
+
+test('global admin uses a personal drive without choosing a company', async ({ page }) => {
+  await login(page, 'dmytro')
+  await page.goto('/drive')
+
+  const topbar = page.locator('.topbar')
+  await expect(topbar.getByRole('combobox', { name: 'Компанія' })).toHaveCount(0)
+  await expect(topbar.getByRole('button', { name: 'Завантажити' })).toBeEnabled()
+  await expect(topbar.getByRole('button', { name: 'Нова папка' })).toBeEnabled()
+})
+
+test('drive upload derives the document title from the selected file', async ({ page }) => {
+  await login(page, 'maria')
+  await page.goto('/drive')
+  await page.route('**/api/v1/files/*/status', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ scanStatus: 'CLEAN' }) })
+  })
+
+  await page.locator('.drive-page > input[type="file"]').setInputFiles({
+    name: 'Звіт за серпень.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('document'),
+  })
+
+  await expect(page.getByRole('button', { name: 'Звіт за серпень', exact: true })).toBeVisible({ timeout: 15_000 })
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
   await login(page, 'maria')
-  await page.goto('/employees?q=Марія')
+  await page.goto('/organization?view=people&companyId=cmp_lankadws_ua&q=Марія')
   await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
-  await page.getByRole('link', { name: /Марія Іваненко/ }).click()
+  await page.locator('.directory-person__profile').filter({ hasText: 'Марія Іваненко' }).click()
   await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
 })
 
@@ -169,43 +347,27 @@ test('feed publishing, acknowledgement and comments remain explicit', async ({ p
     mimeType: 'text/plain',
     buffer: Buffer.from('Вкладення стрічки'),
   })
+  await expect(composer.getByText('1 із 10 прикріплено')).toBeVisible()
   await expect(composer.getByText(`feed-${testInfo.project.name}.txt`)).toBeVisible()
   await composer.getByRole('button', { name: 'Опублікувати', exact: true }).click()
   await expect(composer).toHaveCount(0)
   await expect(composerTrigger).toBeFocused()
-  const card = page.locator('.feed-card').filter({ hasText: postText })
+  const card = page.locator('.stream-card--post').filter({ hasText: postText })
   await expect(card).toBeVisible()
-  await card.getByRole('button', { name: 'Стежу', exact: true }).click()
-  await card.getByRole('menuitemradio', { name: 'Без сповіщень' }).click()
-  await expect(card.getByRole('button', { name: 'Стежити', exact: true })).toBeVisible()
-  await card.getByRole('button', { name: 'Стежити', exact: true }).click()
-  await card.getByRole('menuitemradio', { name: 'Лише згадки' }).click()
-  await expect(card.getByRole('button', { name: 'Лише згадки', exact: true })).toBeVisible()
-  await page.getByRole('tab', { name: 'Стежу', exact: true }).click()
-  await expect(page).toHaveURL(/filter=FOLLOWING/)
-  await expect(card).toBeVisible()
-  await page.getByRole('tab', { name: 'Усі', exact: true }).click()
-  await card.getByRole('button', { name: 'Додати в обране' }).click()
-  await expect(card.getByRole('button', { name: 'Прибрати з обраного' })).toBeVisible()
-  await page.goto('/feed?favorite=true')
-  const favoriteCard = page.locator('.feed-card').filter({ hasText: postText })
-  await expect(favoriteCard).toBeVisible()
-  await favoriteCard.getByRole('button', { name: 'Прибрати з обраного' }).click()
-  await expect(favoriteCard).not.toBeVisible()
-  await page.goto('/feed')
-  await expect(card).toBeVisible()
-  await expect(card.getByText('Перевіряється перед завантаженням')).toBeVisible()
+  await expect(card.getByRole('button', { name: /Стежити|Стежу/ })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: /обран/i })).toHaveCount(0)
+  await expect(card.getByText('Перевіряється')).toBeVisible()
   await card.getByRole('button', { name: 'Подобається' }).click()
-  await expect(card.getByRole('button', { name: /Подобається · 1/ })).toBeVisible()
+  await expect(card.getByRole('button', { name: /Подобається.*1/ })).toBeVisible()
   await card.getByRole('button', { name: 'Коментарі' }).click()
   await card.getByLabel('Новий коментар').fill('Контекст додано окремим коментарем.')
   await card.getByRole('button', { name: 'Надіслати' }).click()
   await expect(card.getByText('Контекст додано окремим коментарем.')).toBeVisible()
 
-  const acknowledgementCard = page.locator('.feed-card').filter({ hasText: 'Сьогодні оновили робочий простір' })
-  const acknowledgementButton = acknowledgementCard.getByRole('button', { name: 'Підтвердити' })
+  const acknowledgementCard = page.locator('.stream-card--post').filter({ hasText: 'Сьогодні оновили робочий простір' })
+  const acknowledgementButton = acknowledgementCard.getByRole('button', { name: 'Ознайомився' })
   if (await acknowledgementButton.isVisible()) await acknowledgementButton.click()
-  await expect(acknowledgementCard.getByText('Ви підтвердили ознайомлення')).toBeVisible()
+  await expect(acknowledgementCard.getByText('Ви ознайомилися')).toBeVisible()
   const feedA11y = await new AxeBuilder({ page }).analyze()
   expect(feedA11y.violations).toEqual([])
 })
@@ -222,15 +384,17 @@ test('task detail creates a real subtask and explains why the parent cannot fini
     description: 'Один зрозумілий результат із окремою відповідальною підзадачею.',
   })
 
+  await page.getByLabel(/секцію «Зв’язки»/).click()
   await page.getByRole('button', { name: 'Додати підзадачу' }).click()
   const subtaskForm = page.locator('.task-subtask-form')
   await subtaskForm.getByPlaceholder('Який окремий результат потрібен?').fill(subtaskTitle)
-  await subtaskForm.getByLabel('Виконавець').selectOption(assigneeId)
+  await subtaskForm.getByLabel('Відповідальний').selectOption(assigneeId)
   await subtaskForm.getByLabel('Опис').fill('Це повне завдання зі своїм статусом, а не пункт checklist.')
   await subtaskForm.getByRole('button', { name: 'Створити підзадачу' }).click()
   await expect(page.getByText('0 із 1 завершено')).toBeVisible()
   await expect(page.locator('.task-subtask-list').getByText(subtaskTitle)).toBeVisible()
 
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   const blocker = page.getByRole('alert').filter({ hasText: 'Завдання ще не готове до завершення' })
   await expect(blocker).toBeVisible()
@@ -238,18 +402,22 @@ test('task detail creates a real subtask and explains why the parent cannot fini
 
   await page.locator('.task-subtask-list').getByRole('link', { name: new RegExp(subtaskTitle) }).click()
   await expect(page.getByRole('heading', { name: subtaskTitle })).toBeVisible()
+  const parentLink = page.getByRole('link', { name: /До батьківського завдання/ })
+  if (!await parentLink.isVisible()) await page.getByLabel(/секцію «Зв’язки»/).click()
   await expect(page.getByRole('link', { name: /До батьківського завдання/ })).toBeVisible()
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
 
   await page.getByRole('link', { name: /До батьківського завдання/ }).click()
   await expect(page.getByRole('heading', { name: parentTitle })).toBeVisible()
   await expect(page.getByText('1 із 1 завершено')).toBeVisible()
+  await openTaskEditing(page)
   await page.getByLabel('Змінити статус').selectOption('DONE')
   await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
 
-  const materials = page.locator('.task-materials')
-  await materials.getByText('Матеріали', { exact: true }).click()
+  await page.getByLabel('Матеріали').click()
+  const materials = page.locator('.task-detail-materials')
   const fileName = `task-material-${testInfo.project.name}.txt`
   await materials.getByLabel(/Додати файл/).setInputFiles({
     name: fileName,
@@ -259,7 +427,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   await expect(materials.getByText(fileName)).toBeVisible()
   const discussion = page.locator('.task-discussion')
   await discussion.getByLabel('Додати файл із матеріалів').selectOption({ label: fileName })
-  await discussion.getByPlaceholder('Додати корисний коментар…').fill('Матеріал додано до рішення.')
+  await discussion.getByPlaceholder('Написати повідомлення…').fill('Матеріал додано до рішення.')
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   await expect(discussion.getByText('Матеріал додано до рішення.')).toBeVisible()
   await discussion.getByRole('button', { name: 'Відповісти' }).click()
@@ -275,7 +443,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
 test('task role views explain why a task is visible and participant management stays compact', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
   await login(page)
-  await page.goto('/tasks?company=cmp_bert_ua')
+  await page.goto('/tasks?company=cmp_lankadws_ua')
   await expect(page.getByRole('tab', { name: /Мої/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Допомагаю/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: /Доручив/ })).toBeVisible()
@@ -291,53 +459,114 @@ test('task role views explain why a task is visible and participant management s
   await page.getByRole('tab', { name: /Спостерігаю/ }).click()
   await expect(page).toHaveURL(/role=OBSERVER/)
   await page.getByRole('link', { name: /Підготувати доступи нового працівника/ }).click()
-  await expect(page.getByRole('heading', { name: 'Учасники' })).toBeVisible()
-  await expect(page.getByText('Спостерігачі', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Спостерігачі' })).toBeVisible()
   await expect(page.getByLabel('Змінити статус')).toHaveCount(0)
 
   const title = `Перевірити керування учасниками · ${testInfo.project.name}`
-  await createTaskThroughModal(page, title, { additionalResponsible: 'Андрій Коваль' })
-  await page.getByRole('button', { name: 'Керувати' }).click()
-  const participantSection = page.locator('.task-participants')
+  await createTaskThroughModal(page, title)
+  await openTaskEditing(page)
+  const participantSection = page.getByRole('region', { name: 'Спостерігачі' })
   const participantId = 'usr_marko'
   const participantName = 'Марко Литвин'
-  await participantSection.getByLabel('Людина').selectOption(participantId)
-  await participantSection.getByLabel('Роль у завданні').selectOption('OBSERVER')
-  await participantSection.getByRole('button', { name: 'Додати учасника' }).click()
-  await expect(participantSection.getByText('Учасника додано.')).toBeVisible()
+  await participantSection.getByLabel('Додати: спостерігачі').selectOption(participantId)
+  await participantSection.getByRole('button', { name: 'Додати учасника до ролі «Спостерігачі»' }).click()
+  await expect(page.getByText('Учасника додано.')).toBeVisible()
   const participantChip = participantSection.locator('.task-role-people strong', { hasText: participantName })
   await expect(participantChip).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({
-    path: `artifacts/screenshots/${testInfo.project.name}-task-roles.png`,
-    fullPage: true,
-  })
   await participantSection
     .getByRole('button', { name: new RegExp(`Вилучити ${participantName}`) })
     .click()
-  await expect(participantSection.getByText('Учасника вилучено.')).toBeVisible()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Вилучити' }).click()
+  await expect(page.getByText('Учасника вилучено.')).toBeVisible()
   await expect(participantChip).toHaveCount(0)
 })
 
-test('standalone file sharing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
+test('only an administrator can edit or delete task discussion messages', async ({ page }, testInfo) => {
+  test.setTimeout(90_000)
+  await login(page, 'maria')
+  const title = `Адмінські дії в обговоренні · ${testInfo.project.name} · ${Date.now()}`
+  await createTaskThroughModal(page, title)
+  const taskUrl = page.url()
+  const discussion = page.getByRole('region', { name: 'Обговорення' })
+  const originalMessage = 'Повідомлення для перевірки прав адміністратора.'
+  await discussion.getByPlaceholder('Написати повідомлення…').fill(originalMessage)
+  await discussion.getByRole('button', { name: 'Надіслати' }).click()
+  const originalBubble = discussion.locator('article', { hasText: originalMessage })
+  await expect(originalBubble).toBeVisible()
+  await expect(originalBubble.getByRole('button', { name: /Редагувати повідомлення/ })).toHaveCount(0)
+  await expect(originalBubble.getByRole('button', { name: /Видалити повідомлення/ })).toHaveCount(0)
+
+  await page.locator('.profile-button').click()
+  await page.getByRole('button', { name: 'Вийти' }).click()
+  await expect(page).toHaveURL(/\/login$/)
+  await login(page, 'dmytro')
+  await page.goto(taskUrl)
+
+  const adminDiscussion = page.getByRole('region', { name: 'Обговорення' })
+  const adminBubble = adminDiscussion.locator('article', { hasText: originalMessage })
+  await adminBubble.getByRole('button', { name: /Редагувати повідомлення/ }).click()
+  const editForm = adminDiscussion.locator('form.task-comment-edit-form')
+  const editor = editForm.getByLabel('Редагувати повідомлення')
+  const updatedMessage = 'Відредаговано адміністратором.'
+  await editor.fill(updatedMessage)
+  await editForm.getByRole('button', { name: 'Зберегти' }).click()
+  const updatedBubble = adminDiscussion.locator('article', { hasText: updatedMessage })
+  await expect(updatedBubble).toBeVisible()
+  await expect(updatedBubble.getByText('ред.')).toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await updatedBubble.getByRole('button', { name: /Видалити повідомлення/ }).click()
+  await expect(updatedBubble).toHaveCount(0)
+  await expect(adminDiscussion.getByText('Повідомлення видалено.')).toBeVisible()
+})
+
+test('task list column customization persists and resets', async ({ page }, testInfo) => {
+  await login(page, 'maria')
+  await page.goto('/tasks')
+  const columns = page.locator('details.task-list-columns')
+
+  await columns.locator('summary').click()
+  await columns.getByLabel('Пріоритет').click()
+  await expect(columns.getByLabel('Пріоритет')).toBeChecked()
+  if (testInfo.project.name === 'mobile-chromium') {
+    await expect(page.locator('td[data-label="Пріоритет"]').first()).toBeVisible()
+  } else {
+    await expect(page.getByRole('columnheader', { name: 'Пріоритет' })).toBeVisible()
+  }
+  await expect(columns.getByRole('button', { name: 'За замовчуванням' })).toBeEnabled()
+
+  await page.reload()
+  await columns.locator('summary').click()
+  await expect(columns.getByLabel('Пріоритет')).toBeChecked()
+
+  await columns.getByRole('button', { name: 'За замовчуванням' }).click()
+  await expect(page.locator('th, td').filter({ hasText: /^Пріоритет$/ })).toHaveCount(0)
+})
+
+test('file-only feed publishing is explicit, scanner-aware and revocable', async ({ page }, testInfo) => {
   await login(page, 'maria')
   await page.goto('/feed')
   await page.getByRole('button', { name: 'Створити публікацію' }).click()
   const composer = page.getByRole('dialog', { name: 'Створити публікацію' })
   const fileName = `standalone-${testInfo.project.name}.txt`
-  await composer.getByLabel('Поширити файл').setInputFiles({
+  await composer.getByLabel('Додати файл').setInputFiles({
     name: fileName,
     mimeType: 'text/plain',
     buffer: Buffer.from('Окремо поширений файл у стрічці'),
   })
-  await expect(composer.getByText('Файл поширено. Завантаження відкриється після безпечної перевірки.')).toBeVisible()
-  await composer.getByRole('button', { name: 'Закрити' }).click()
-  const card = page.locator('.feed-source-card').filter({ hasText: fileName })
+  await expect(composer.getByText('1 із 10 прикріплено')).toBeVisible()
+  await composer.getByRole('button', { name: 'Опублікувати', exact: true }).click()
+  const confirmation = page.getByRole('alertdialog', { name: 'Опублікувати лише файл?' })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: 'Опублікувати файл' }).click()
+  await expect(composer).toHaveCount(0)
+  const card = page.locator('.stream-card--post').filter({ hasText: fileName })
   await expect(card).toBeVisible()
-  await expect(card.getByText('Перевіряється', { exact: true })).toBeVisible()
-  await page.getByLabel('Тип події').selectOption('FILE')
-  await expect(page).toHaveURL(/type=FILE/)
+  await expect(card.getByText('Перевіряється')).toBeVisible()
+  await page.goto('/feed?type=POST')
+  await expect(page).toHaveURL(/type=POST/)
   await expect(card).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
@@ -345,41 +574,30 @@ test('standalone file sharing is explicit, scanner-aware and revocable', async (
     path: `artifacts/screenshots/${testInfo.project.name}-feed-file-share.png`,
     fullPage: true,
   })
-  await card.getByRole('button', { name: 'Прибрати', exact: true }).click()
-  await card.getByRole('button', { name: 'Підтвердити', exact: true }).click()
+  await card.getByRole('button', { name: 'Дії з записом' }).click()
+  await card.getByRole('menuitem', { name: 'Архівувати' }).click()
+  await card.getByRole('button', { name: 'Підтвердити' }).click()
   await expect(card).not.toBeVisible()
 })
 
-test('administrator sees the approved grouped admin navigation', async ({ page }, testInfo) => {
-  if (testInfo.project.name === 'desktop-chromium') {
-    await page.setViewportSize({ width: 1440, height: 900 })
-  }
+test('removed administration landing and system pages are not addressable', async ({ page }) => {
   await login(page, 'dmytro')
-  await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: 'Адміністрування', exact: true })).toBeVisible()
-  if (testInfo.project.name === 'mobile-chromium') {
-    await page.getByRole('button', { name: 'Відкрити меню' }).click()
-    const sidebar = page.locator('.sidebar')
-    await expect(sidebar.getByRole('link', { name: 'Компанії', exact: true })).toBeVisible()
-    await expect(sidebar.getByRole('link', { name: 'Користувачі', exact: true })).toBeVisible()
-  } else {
-    await page.locator('.sidebar').getByRole('button', { name: 'Ще' }).click()
-    const overflowMenu = page.getByRole('menu', { name: 'Додаткові розділи' })
-    await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
-    await expect(overflowMenu.getByRole('menuitem', { name: 'Користувачі', exact: true })).toBeVisible()
+  for (const path of ['/admin', '/admin/system']) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: 'Такої сторінки немає' })).toBeVisible()
   }
-  await page.screenshot({ path: `artifacts/screenshots/${testInfo.project.name}-admin.png`, fullPage: true })
 })
 
 test('desktop sidebar groups routes, persists collapse and keeps active navigation visible', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'mobile-chromium', 'Desktop collapse is independent from mobile navigation.')
-  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.setViewportSize({ width: 1440, height: 650 })
   await login(page, 'dmytro')
   const sidebar = page.locator('.sidebar')
-  await expect(sidebar.getByText('Основне', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Щоденна робота', { exact: true })).toBeVisible()
   await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
-  await expect(sidebar.getByText('Компанія', { exact: true })).toBeVisible()
-  await expect(sidebar.getByText('Управління', { exact: true })).toBeVisible()
+  await expect(sidebar.locator('.nav-section').first().getByRole('link')).toHaveText([
+    'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Календар',
+  ])
   const moreButton = sidebar.getByRole('button', { name: 'Ще' })
   await expect(moreButton).toBeVisible()
   await moreButton.click()
@@ -387,7 +605,10 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(
     overflowMenu.locator('.nav-section__label').getByText('Адміністрування', { exact: true }),
   ).toBeVisible()
-  await expect(overflowMenu.getByRole('menuitem', { name: 'Компанії', exact: true })).toBeVisible()
+  await page.locator('.workspace').click({ position: { x: 400, y: 200 } })
+  await expect(overflowMenu).toBeHidden()
+
+  await moreButton.click()
   await moreButton.click()
 
   await sidebar.getByRole('link', { name: 'Жива стрічка', exact: true }).click()
@@ -399,12 +620,49 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
   await expect(feedLink).toHaveAttribute('title', 'Жива стрічка')
   await expect.poll(() => page.evaluate(() =>
-    window.localStorage.getItem('bertcrm.sidebar.collapsed'))).toBe('true')
+    window.localStorage.getItem('lankadws.sidebar.collapsed'))).toBe('true')
   await page.reload()
   await expect(page.getByRole('button', { name: 'Розгорнути бічну панель' })).toBeVisible()
   await expect(sidebar.getByRole('link', { name: 'Жива стрічка', exact: true })).toHaveClass(/active/)
   await page.getByRole('button', { name: 'Розгорнути бічну панель' }).click()
   await expect(page.getByRole('button', { name: 'Згорнути бічну панель' })).toBeVisible()
+})
+
+test('approved mobile footer keeps its order and overflow accessible', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'The approved footer is mobile-only.')
+  await login(page)
+
+  for (const width of [320, 375, 390, 412]) {
+    await page.setViewportSize({ width, height: 820 })
+    await page.goto('/feed')
+    const footer = page.getByRole('navigation', { name: 'Мобільна навігація' })
+    await expect(footer).toBeVisible()
+    await expect.poll(() => footer.locator(':scope > a, :scope > button').evaluateAll((elements) =>
+      elements.map((element) => element.querySelector('span')?.textContent))).toEqual([
+      'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Ще',
+    ])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    for (const control of await footer.locator(':scope > a, :scope > button').all()) {
+      expect((await control.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    }
+  }
+
+  const footer = page.getByRole('navigation', { name: 'Мобільна навігація' })
+  await footer.getByRole('link', { name: 'Завдання', exact: true }).click()
+  await expect(page).toHaveURL(/\/tasks$/)
+  await expect(footer.getByRole('link', { name: 'Завдання', exact: true })).toHaveClass(/active/)
+
+  const more = footer.getByRole('button', { name: 'Ще' })
+  await more.click()
+  const menu = page.getByRole('menu', { name: 'Ще' })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem')).toHaveText(['Календар', 'Організація'])
+  await expect(menu.getByRole('menuitem').first()).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem').nth(1)).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(more).toBeFocused()
 })
 
 test('unknown route preserves URL and renders branded 404', async ({ page }) => {
@@ -413,29 +671,41 @@ test('unknown route preserves URL and renders branded 404', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Такої сторінки немає' })).toBeVisible()
 })
 
-test('legacy company scope is removed while task filters and browser history remain URL-addressable', async ({ page }) => {
+test('legacy company scope is removed while task filters and browser history remain URL-addressable', async ({ page }, testInfo) => {
   await login(page)
-  await page.goto('/overview?company=all')
+  await page.goto('/feed?company=all')
   await expect(page).not.toHaveURL(/company=/)
-  await page.getByRole('button', { name: 'Пошук у BERT CRM' }).click()
-  const palette = page.getByRole('dialog', { name: 'Глобальний пошук' })
-  await palette.getByRole('textbox').fill('dashboard')
-  await palette.getByRole('option', { name: /Підготувати концепцію дизайну dashboard/ }).click()
-  await expect(page).toHaveURL(/\/tasks\/tsk_design$/)
-  await page.goBack()
-  const mobileTaskLink = page.locator('.bottom-nav').getByRole('link', { name: 'Завдання', exact: true })
-  const taskLink = (await mobileTaskLink.isVisible()) ? mobileTaskLink : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
+  const taskLink = testInfo.project.name === 'mobile-chromium'
+    ? page.locator('.bottom-nav').getByRole('link', { name: /^Завдання/ })
+    : page.locator('.sidebar').getByRole('link', { name: 'Завдання', exact: true })
   await taskLink.click()
   await expect(page).toHaveURL(/\/tasks$/)
-  await expect(page.getByRole('heading', { name: 'Завдання', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Фільтри' }).click()
+  await page.getByRole('button', { name: 'Пошук і фільтри' }).click()
+  const filters = page.locator('.filter-panel')
+  await page.getByLabel('Пошук завдань').fill('d')
+  await expect(page).toHaveURL(/search=d/)
   await page.getByLabel('Пошук завдань').fill('dashboard')
-  await page.getByLabel('Статус').selectOption('IN_PROGRESS')
+  await filters.getByLabel('Статус').selectOption('IN_PROGRESS')
   await expect(page).toHaveURL(/search=dashboard/)
   await expect(page).toHaveURL(/status=IN_PROGRESS/)
   await page.getByRole('link', { name: /Підготувати концепцію дизайну dashboard/ }).click()
-  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page).toHaveURL(/\/tasks\/tsk_design\?search=dashboard&status=IN_PROGRESS/)
   await page.goBack()
   await expect(page).toHaveURL(/search=dashboard/)
-  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
+})
+
+test('chat remains available from the sidebar and the restored top bar', async ({ page }, testInfo) => {
+  await login(page)
+  await expect(page.locator('.topbar').getByRole('button', { name: 'Відкрити чат і сповіщення' })).toBeVisible()
+  const chatAction = testInfo.project.name === 'mobile-chromium'
+    ? page.locator('.bottom-nav').getByRole('link', { name: /^Чат/ })
+    : page.locator('.sidebar').getByRole('link', { name: /Чат/ })
+  await chatAction.click()
+  await expect(page).toHaveURL(/\/messages$/)
+  await expect(page.getByRole('dialog', { name: 'Новий чат' })).toHaveCount(0)
+
+  await page.locator('.topbar').getByRole('button', { name: 'Новий чат' }).click()
+  await expect(page).toHaveURL(/\/messages\?new=1/)
+  await expect(page.getByRole('dialog', { name: 'Новий чат' })).toBeVisible()
 })

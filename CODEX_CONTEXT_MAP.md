@@ -1,6 +1,8 @@
-# BertCRM context map
+# LankaDWS context map
 
 Read only the flow relevant to the request. This is a navigation map, not an architecture manual. Route sources are `apps/web/src/app/routes.ts` and `apps/web/src/app/router.tsx`; the machine-readable endpoint source is `artifacts/openapi.json`.
+
+Check for context-wasting tracked files with `node scripts/audit-codex-context.mjs`; regenerate the endpoint index with `node scripts/generate-codex-api-map.mjs` (see bottom of this file).
 
 ## Global search / command palette
 
@@ -12,20 +14,22 @@ Read only the flow relevant to the request. This is a navigation map, not an arc
 | Contract / model | `packages/contracts/src/domain.ts`; permission-safe projections from existing domain models |
 | Focused test | `apps/web/e2e/app.spec.ts` (global search scenario) |
 
-The palette debounces queries of at least two characters and routes safe results. Do not duplicate creation forms there.
+The palette debounces queries from one Unicode character and returns only permission-safe People and Tasks. Local quick actions stay separate; do not duplicate creation forms there.
 
 ## Quick create
 
 | Field | Current path |
 |---|---|
 | Frontend entry | `apps/web/src/layout/AppShell.tsx` |
-| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/groups?new=1`, `/drive?new=1`, `/announcements/new` |
-| API owners | Existing tasks, messages, calendar, groups, documents, and announcements controllers |
+| Canonical routes | `/tasks/new`, `/messages?new=1`, `/calendar?new=1`, `/drive?new=1`, `/announcements/new` |
+| API owners | Existing tasks, messages, calendar, documents, and announcements controllers |
 | Focused test | `apps/web/e2e/app.spec.ts` where the changed canonical flow is covered |
 
 Keep permission/capability gates and reuse the destination form.
 
 ## Messages and user search
+
+> Note: the messaging realtime layer is mid-redesign (`apps/api/src/modules/realtime/*`, `packages/contracts/src/realtime.ts`, `apps/web/src/features/messages/*`). Verify against current code before relying on the rows below.
 
 | Field | Current path |
 |---|---|
@@ -52,37 +56,17 @@ metadata; in-thread search can open an anchored `around` window.
 
 Direct threads are canonical: reuse the returned thread and navigate to `/messages/:threadId`; never create a duplicate conversation.
 
-## Employees
+## Organization (directory + hierarchy + companies)
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/employees`, `/employees/:employeeId`) |
-| API request | `GET /api/v1/employees`, `GET /api/v1/employees/:id` |
-| Controller / service | `modules/employees/employees.controller.ts` / controller-owned Prisma projection |
-| Contract / model | `packages/contracts/src/org.ts`; `User`, `UserOrgAssignment` |
+| Frontend entry | `apps/web/src/pages/OrganizationUniversePage.tsx` (`/organization`). `/employees`, `/employees/org`, `/employees/:id`, `/companies*` are `apps/web/src/pages/LegacyRouteRedirectPage.tsx`; company-structure admin is `apps/web/src/pages/AdminOrganizationPage.tsx` (`/admin/companies/:companyId/structure`). |
+| API request | `GET /api/v1/employees`, `GET /api/v1/employees/:id`; `GET /api/v1/org/units`, `GET /api/v1/org/units/:id/employees`; companies routes under `modules/companies`. |
+| Controller / service | `modules/employees/employees.controller.ts` (controller-owned Prisma projection); `modules/org/org.controller.ts` / `org.service.ts`; `modules/companies/*` |
+| Contract / model | `packages/contracts/src/org.ts`; `User`, `UserOrgAssignment`, `OrgUnit.parentId`, `Company` |
 | Focused test | `apps/web/e2e/app.spec.ts` or a focused web scenario |
 
-## Organization hierarchy
-
-| Field | Current path |
-|---|---|
-| Frontend entry | `apps/web/src/pages/OrganizationPage.tsx` (`/employees/org`) |
-| API request | `GET /api/v1/org/units`, `GET /api/v1/org/units/:id/employees` |
-| Controller / service | `modules/org/org.controller.ts` / `org.service.ts` |
-| Contract / model | `packages/contracts/src/org.ts`; `OrgUnit.parentId`, `UserOrgAssignment` |
-| Focused test | Focused web E2E when the tree interaction changes |
-
-Build the displayed tree from the safe flat list. Do not add another hierarchy model.
-
-## Groups
-
-| Field | Current path |
-|---|---|
-| Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/groups`, `/groups/:groupId`) |
-| API request | `GET/POST /api/v1/groups`, detail, membership, archive, and group-thread routes |
-| Controller / service | `modules/groups/groups.controller.ts` / `groups.service.ts` |
-| Contract / model | `packages/contracts/src/groups.ts`; `Group`, `GroupMember`, `GroupJoinRequest` |
-| Focused test | Focused web/API test for the changed membership or group flow |
+Build the displayed tree from the safe flat list. Do not add another hierarchy model. Companies are organizational groups within one workspace, not authorization scopes (see `docs/decisions.md` 2026-08-31).
 
 ## Tasks
 
@@ -94,7 +78,7 @@ Build the displayed tree from the safe flat list. Do not add another hierarchy m
 | Contract / model | `packages/contracts/src/tasks.ts`; `Task`, `TaskParticipant`, `TaskChecklistItem`, `TaskRelation`, `TaskReminder`, `TaskRecurrence`, `TimeEntry`, `Project`, `Tag` and shared `FileObject`/`FileLink` |
 | Focused test | `apps/api/src/modules/tasks/task-v2-services.test.ts`, `task-planning-services.test.ts`, `apps/api/test/e2e/workflows.e2e.test.ts` (complete task aggregate) and `apps/web/e2e/task-create.spec.ts` |
 
-Task creation is the canonical `/tasks/new` modal. It submits one idempotent aggregate command; staged uploads remain in the shared quarantine/file lifecycle and are linked only when that command commits. The legacy `TasksService` export is a compatibility facade for established list/detail consumers, not the owner of new task business logic.
+Task creation is the standalone `/tasks/new` page (`src/pages/TaskCreatePage.tsx`), using the canonical `TaskCreateForm`. It submits one idempotent aggregate command; staged uploads remain in the shared quarantine/file lifecycle and are linked only when that command commits. The legacy `TasksService` export is a compatibility facade for established list/detail consumers, not the owner of new task business logic.
 
 ## Documents / Drive
 
@@ -103,7 +87,7 @@ Task creation is the canonical `/tasks/new` modal. It submits one idempotent agg
 | Frontend entry | `apps/web/src/pages/ContentPages.tsx` (`/documents`, `/drive`) |
 | API request | `GET/POST /api/v1/documents`, detail, version, publish, archive, and restore routes |
 | Controller / service | `modules/documents/documents.controller.ts` / `documents.service.ts` |
-| Contract / model | `packages/contracts/src/domain.ts`; `Document`, `DocumentVersion`, `DocumentAcl` |
+| Contract / model | `packages/contracts/src/domain.ts`, `drive.ts`; `Document.fileId`, `DocumentAcl`, `DriveShare` (no document file versions) |
 | Focused test | Focused test for the changed document/ACL flow |
 
 ## Calendar
@@ -120,7 +104,7 @@ Task creation is the canonical `/tasks/new` modal. It submits one idempotent agg
 
 | Field | Current path |
 |---|---|
-| Frontend entry | `apps/web/src/layout/AppShell.tsx`, `apps/web/src/pages/CommunicationPages.tsx` (`/notifications`) |
+| Frontend entry | `apps/web/src/layout/AppShell.tsx`, `apps/web/src/layout/RightCommunicationPanel.tsx` (right panel only) |
 | API request | `GET /api/v1/notifications`, `GET /summary`, `PATCH /read-all`, `PATCH /:id` |
 | Controller / service | `communication/notifications.controller.ts` / controller-owned Prisma projection |
 | Contract / model | `packages/contracts/src/domain.ts`; `Notification`, `NotificationPreference` |

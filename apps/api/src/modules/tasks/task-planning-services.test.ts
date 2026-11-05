@@ -146,6 +146,8 @@ describe('task time tracking', () => {
     const access = {
       readableTask: vi.fn().mockResolvedValue({ companyId: 'cmp_1' }),
     }
+    const tx = { task: { update: vi.fn().mockResolvedValue({ version: 2 }), findUnique: vi.fn().mockResolvedValue(null) } }
+    Object.assign(prisma, { $transaction: vi.fn((fn: (client: typeof tx) => unknown) => fn(tx)) })
     const service = new TaskTimeService(prisma as never, access as never)
 
     await expect(service.start(timePrincipal, 'tsk_1'))
@@ -182,6 +184,8 @@ describe('task time tracking', () => {
     const access = {
       readableTask: vi.fn().mockResolvedValue({ companyId: 'cmp_1' }),
     }
+    const tx = { task: { update: vi.fn().mockResolvedValue({ version: 2 }), findUnique: vi.fn().mockResolvedValue(null) } }
+    Object.assign(prisma, { $transaction: vi.fn((fn: (client: typeof tx) => unknown) => fn(tx)) })
     const service = new TaskTimeService(prisma as never, access as never)
 
     const result = await service.stop(timePrincipal, 'tsk_1')

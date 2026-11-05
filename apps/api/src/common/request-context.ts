@@ -14,12 +14,12 @@ export interface AuthPrincipal {
   restricted: boolean
 }
 
-export interface BertRequest extends Request {
+export interface LankaDWSRequest extends Request {
   principal?: AuthPrincipal
   correlationId?: string
 }
 
-export function principalFrom(request: BertRequest): AuthPrincipal {
+export function principalFrom(request: LankaDWSRequest): AuthPrincipal {
   if (!request.principal) throw new Error('Principal missing after auth guard')
   return request.principal
 }

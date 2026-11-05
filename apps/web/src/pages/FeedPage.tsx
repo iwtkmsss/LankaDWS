@@ -1,83 +1,49 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query'
+import { personName, personNamesInLabel } from '../shared/lib/personName'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
-  FeedAudienceFacetOption,
   FeedAttachmentView,
-  FeedAuthorOption,
   FeedItemType,
   FeedListFilter,
   FeedListResult,
   FeedPostView,
   FeedSourceView,
-  FeedSubscriptionMode,
-} from '@bert-crm/contracts'
-import {
-  Archive,
-  ArrowRight,
-  Bell,
-  BellOff,
-  BellRing,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Download,
-  FileText,
-  Heart,
-  Megaphone,
-  MessageCircle,
-  MoreHorizontal,
-  Pencil,
-  Reply,
-  Save,
-  Send,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
-  SquareCheckBig,
-  Star,
-  X,
-} from 'lucide-react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+  StructuredMentionInput,
+} from '@lankadws/contracts'
+import { FEED_COMMENT_PHOTO_LIMIT, FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
+import { Check, CheckCircle2, Download, ImagePlus, LoaderCircle, Plus, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { withCompanyScope } from '../shared/lib/navigation'
+import { organizationQueryScope } from '../shared/lib/navigation'
+import { MentionTextarea } from '../shared/mentions/MentionTextarea'
+import { editableMentions, trimMentionValue } from '../shared/mentions/mentionText'
 import {
-  Avatar,
   Button,
   Card,
-  EmptyState,
-  ErrorState,
   IconButton,
   Modal,
   PageHeader,
-  Skeleton,
-  Tabs,
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
-import { FeedComposerForm, formatBytes } from './FeedComposerForm'
-
-interface SavedFeedView {
-  id: string
-  module: string
-  name: string
-  queryState: string
-}
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import { FileThumbnail } from '../shared/files/FileThumbnail'
+import { FeedComposerForm } from './FeedComposerForm'
+import { FeedCardDesign, FeedFileRow, type FeedCardModel, type FeedCardViewState, type FeedPersonRenderer } from '../features/feed/FeedCardDesign'
+import { FeedLoading, FeedPageState } from '../features/feed/FeedPageStates'
+import { FeedDraftPhotos } from '../features/feed/FeedDraftPhotos'
+import { useFeedCommentPhotos } from '../features/feed/useFeedCommentPhotos'
+import '../features/feed/feed-page.css'
+import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
+import { FeedOverview } from './FeedOverview'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 
 export function FeedPage() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
-  const paramsRef = useRef(params)
-  paramsRef.current = params
   const queryClient = useQueryClient()
   const [composerOpen, setComposerOpen] = useState(false)
   const [composerBusy, setComposerBusy] = useState(false)
@@ -90,25 +56,37 @@ export function FeedPage() {
     },
   })
   const readKey = useRef('')
-  const company = user?.company?.id ?? ''
+  const initialFeedItemIdsRef = useRef<Set<string> | null>(null)
+  const [newFeedItemIds, setNewFeedItemIds] = useState<Set<string>>(() => new Set())
+  // Opening the feed advances the read cursor at once, so remember where it stood
+  // on arrival: what was news then stays marked until the person leaves the page.
+  const [readPositionsOnArrival, setReadPositionsOnArrival] = useState<FeedListResult['readPositions'] | null>(null)
+  const company = organizationQueryScope(user?.company?.id)
+  const targetPostId = params.get('post')
+  const targetPost = useQuery({
+    queryKey: ['feed', 'post', targetPostId],
+    queryFn: () => api<FeedPostView>(`/feed/${encodeURIComponent(targetPostId!)}`),
+    enabled: Boolean(targetPostId),
+  })
   const filter = parseFilter(params.get('filter'))
   const itemType = parseItemType(params.get('type'))
   const authorId = parseIdParam(params.get('authorId'))
-  const groupId = parseIdParam(params.get('groupId'))
   const audienceId = parseIdParam(params.get('audienceId'))
   const dateFrom = parseDateParam(params.get('dateFrom'))
   const dateTo = parseDateParam(params.get('dateTo'))
   const mentioned = params.get('mentioned') === 'true'
-  const favorite = params.get('favorite') === 'true'
   const important = params.get('important') === 'true'
-  const activeAdvancedCount = Number(Boolean(authorId))
-    + Number(Boolean(groupId))
-    + Number(Boolean(audienceId))
-    + Number(Boolean(dateFrom || dateTo))
-    + Number(mentioned)
-    + Number(favorite)
-    + Number(important)
-  const [advancedOpen, setAdvancedOpen] = useState(activeAdvancedCount > 0)
+  const feedSessionKey = [
+    company,
+    filter,
+    itemType,
+    authorId,
+    audienceId,
+    dateFrom,
+    dateTo,
+    mentioned,
+    important,
+  ].join('|')
   const pages = useInfiniteQuery({
     queryKey: [
       'feed',
@@ -116,12 +94,10 @@ export function FeedPage() {
       filter,
       itemType,
       authorId,
-      groupId,
       audienceId,
       dateFrom,
       dateTo,
       mentioned,
-      favorite,
       important,
     ],
     initialPageParam: null as string | null,
@@ -133,70 +109,85 @@ export function FeedPage() {
         limit: '20',
       })
       if (authorId) query.set('authorId', authorId)
-      if (groupId) query.set('groupId', groupId)
       if (audienceId) query.set('audienceId', audienceId)
       if (dateFrom) query.set('dateFrom', dateFrom)
       if (dateTo) query.set('dateTo', dateTo)
       if (mentioned) query.set('mentioned', 'true')
-      if (favorite) query.set('favorite', 'true')
       if (important) query.set('important', 'true')
       if (pageParam) query.set('cursor', pageParam)
       return api<FeedListResult>(`/feed?${query}`)
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     placeholderData: keepPreviousData,
-    refetchInterval: (query) => {
-      const data = query.state.data as { pages?: FeedListResult[] } | undefined
-      return data?.pages?.some((page) => page.items.some((item) =>
-        item.kind === 'SOURCE'
-        && item.sourceType === 'FILE'
-        && item.actionState === 'PROCESSING'))
-        ? 3_000
-        : false
-    },
-  })
-  const authors = useQuery({
-    queryKey: ['feed-authors', company],
-    queryFn: () => api<{ items: FeedAuthorOption[] }>(
-      `/feed/authors?company=${encodeURIComponent(company)}`,
-    ),
-    enabled: Boolean(user),
-  })
-  const audienceFacets = useQuery({
-    queryKey: ['feed-facet-audiences', company],
-    queryFn: () => api<{ items: FeedAudienceFacetOption[] }>(
-      `/feed/facets/audiences?company=${encodeURIComponent(company)}`,
-    ),
-    enabled: Boolean(user),
-  })
-  const savedViews = useQuery({
-    queryKey: ['saved-views', 'FEED'],
-    queryFn: () => api<SavedFeedView[]>('/saved-views'),
+    refetchInterval: 15_000,
   })
   const markRead = useMutation({
     mutationFn: (markers: FeedListResult['readMarkers']) =>
       api('/feed/read', { method: 'POST', body: jsonBody({ markers }) }),
+    onSuccess: () => {
+      queryClient.setQueriesData<{ unreadCount: number }>({ queryKey: ['feed', 'summary'] }, (current) =>
+        current ? { ...current, unreadCount: 0 } : current,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
+    },
+    // Deliberately no retry on failure: `markRead` sits in the effect's dependency list, so
+    // clearing readKey here re-triggers the effect on the very next render and a persistently
+    // failing request (an expired CSRF cookie, say) turns into an unbounded request loop.
+    // The next batch of markers produces a new key and gets its own attempt.
   })
   const firstPage = pages.data?.pages[0]
-  const items = pages.data?.pages.flatMap((page) => page.items) ?? []
+  const timelineItems = pages.data?.pages.flatMap((page) => page.items) ?? []
+  const items = (targetPost.data
+    ? [targetPost.data, ...timelineItems.filter((item) => item.kind !== 'POST' || item.id !== targetPost.data.id)]
+    : timelineItems).sort((left, right) => {
+      const leftPinned = needsAcknowledgement(left)
+      const rightPinned = needsAcknowledgement(right)
+      if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
+      const leftPersonal = Boolean(left.pinnedByMe)
+      const rightPersonal = Boolean(right.pinnedByMe)
+      if (!leftPinned && leftPersonal !== rightPersonal) return leftPersonal ? -1 : 1
+      const leftAt = left.kind === 'POST' ? left.editedAt ?? left.publishedAt : left.occurredAt
+      const rightAt = right.kind === 'POST' ? right.editedAt ?? right.publishedAt : right.occurredAt
+      return Date.parse(rightAt) - Date.parse(leftAt) || right.itemId.localeCompare(left.itemId)
+    })
 
   useEffect(() => {
-    document.title = 'Жива стрічка — BERT CRM'
-  }, [])
+    // Cached pages from an earlier visit hold an old cursor, so wait for a fresh one.
+    if (readPositionsOnArrival || !firstPage || !pages.isFetchedAfterMount || pages.isPlaceholderData) return
+    setReadPositionsOnArrival(firstPage.readPositions ?? [])
+  }, [firstPage, pages.isFetchedAfterMount, pages.isPlaceholderData, readPositionsOnArrival])
+
+  useEffect(() => {
+    initialFeedItemIdsRef.current = null
+    setNewFeedItemIds(new Set())
+  }, [feedSessionKey])
+
+  useEffect(() => {
+    if (!firstPage || !user) return
+    const knownIds = initialFeedItemIdsRef.current
+    if (!knownIds) {
+      initialFeedItemIdsRef.current = new Set(firstPage.items.map((item) => item.itemId))
+      return
+    }
+    const newIds = firstPage.items
+      .filter((item) => !knownIds.has(item.itemId) && isNewsForViewer(item, user.id))
+      .map((item) => item.itemId)
+    firstPage.items.forEach((item) => knownIds.add(item.itemId))
+    if (newIds.length) setNewFeedItemIds((current) => new Set([...current, ...newIds]))
+  }, [firstPage, user])
 
   useEffect(() => {
     if (
-      filter !== 'ALL'
-      || itemType !== 'ALL'
-      || authorId
-      || groupId
-      || audienceId
-      || dateFrom
-      || dateTo
-      || mentioned
-      || favorite
-      || important
-    ) return
+      filter !== 'ALL' ||
+      itemType !== 'ALL' ||
+      authorId ||
+      audienceId ||
+      dateFrom ||
+      dateTo ||
+      mentioned ||
+      important
+    )
+      return
     const markers = firstPage?.readMarkers ?? []
     if (markers.length === 0) return
     const key = JSON.stringify(markers)
@@ -208,468 +199,115 @@ export function FeedPage() {
     audienceId,
     dateFrom,
     dateTo,
-    favorite,
     filter,
     firstPage?.readMarkers,
-    groupId,
     important,
     itemType,
     markRead,
     mentioned,
   ])
 
-  function updateSearchParams(update: (next: URLSearchParams) => void) {
-    const next = new URLSearchParams(paramsRef.current)
-    update(next)
-    paramsRef.current = next
-    setParams(next, { flushSync: true })
-  }
-
-  function selectFilter(value: string) {
-    updateSearchParams((next) => {
-      if (value === 'ALL') next.delete('filter')
-      else next.set('filter', value)
-      if (value === 'FOLLOWING') next.set('type', 'POST')
-    })
-  }
-
-  function selectItemType(value: string) {
-    updateSearchParams((next) => {
-      if (value === 'ALL') next.delete('type')
-      else next.set('type', value)
-      if (filter === 'FOLLOWING' && value !== 'POST') next.delete('filter')
-    })
-  }
-
-  function selectAuthor(value: string) {
-    updateSearchParams((next) => {
-      if (value) next.set('authorId', value)
-      else next.delete('authorId')
-    })
-  }
-
-  function selectGroup(value: string) {
-    updateSearchParams((next) => {
-      if (value) next.set('groupId', value)
-      else next.delete('groupId')
-    })
-  }
-
-  function selectAudience(value: string) {
-    updateSearchParams((next) => {
-      if (value) next.set('audienceId', value)
-      else next.delete('audienceId')
-    })
-  }
-
-  function selectDateFrom(value: string) {
-    updateSearchParams((next) => {
-      if (value) next.set('dateFrom', value)
-      else next.delete('dateFrom')
-      const currentTo = parseDateParam(next.get('dateTo'))
-      if (value && currentTo && currentTo < value) next.set('dateTo', value)
-    })
-  }
-
-  function selectDateTo(value: string) {
-    updateSearchParams((next) => {
-      if (value) next.set('dateTo', value)
-      else next.delete('dateTo')
-      const currentFrom = parseDateParam(next.get('dateFrom'))
-      if (value && currentFrom && currentFrom > value) next.set('dateFrom', value)
-    })
-  }
-
-  function selectMentioned(value: boolean) {
-    updateSearchParams((next) => {
-      if (value) next.set('mentioned', 'true')
-      else next.delete('mentioned')
-    })
-  }
-
-  function selectFavorite(value: boolean) {
-    updateSearchParams((next) => {
-      if (value) next.set('favorite', 'true')
-      else next.delete('favorite')
-    })
-  }
-
-  function selectImportant(value: boolean) {
-    updateSearchParams((next) => {
-      if (value) next.set('important', 'true')
-      else next.delete('important')
-    })
-  }
-
-  function clearAdvancedFilters() {
-    updateSearchParams((next) => {
-      next.delete('authorId')
-      next.delete('groupId')
-      next.delete('audienceId')
-      next.delete('dateFrom')
-      next.delete('dateTo')
-      next.delete('mentioned')
-      next.delete('favorite')
-      next.delete('important')
-    })
-  }
-
   function clearAllFilters() {
-    updateSearchParams((next) => {
-      for (const key of [
-        'filter',
-        'type',
-        'authorId',
-        'groupId',
-        'audienceId',
-        'dateFrom',
-        'dateTo',
-        'mentioned',
-        'favorite',
-        'important',
-      ]) {
-        next.delete(key)
-      }
-    })
-  }
-
-  function applySavedView(id: string) {
-    const view = savedViews.data?.find((item) => item.id === id)
-    if (!view) return
-    try {
-      const state = JSON.parse(view.queryState) as {
-        filter?: string
-        type?: string
-        authorId?: string
-        groupId?: string
-        audienceId?: string
-        dateFrom?: string
-        dateTo?: string
-        mentioned?: boolean
-        favorite?: boolean
-        important?: boolean
-      }
-      const nextFilter = parseFilter(state.filter ?? null)
-      const nextType = parseItemType(state.type ?? null)
-      const nextAuthorId = parseIdParam(state.authorId ?? null)
-      const nextGroupId = parseIdParam(state.groupId ?? null)
-      const nextAudienceId = parseIdParam(state.audienceId ?? null)
-      const parsedDateFrom = parseDateParam(state.dateFrom ?? null)
-      const parsedDateTo = parseDateParam(state.dateTo ?? null)
-      const validDateRange = !parsedDateFrom || !parsedDateTo || parsedDateFrom <= parsedDateTo
-      const nextDateFrom = validDateRange ? parsedDateFrom : ''
-      const nextDateTo = validDateRange ? parsedDateTo : ''
-      updateSearchParams((next) => {
-        if (nextFilter === 'ALL') next.delete('filter')
-        else next.set('filter', nextFilter)
-        if (nextType === 'ALL') next.delete('type')
-        else next.set('type', nextType)
-        if (nextAuthorId) next.set('authorId', nextAuthorId)
-        else next.delete('authorId')
-        if (nextGroupId) next.set('groupId', nextGroupId)
-        else next.delete('groupId')
-        if (nextAudienceId) next.set('audienceId', nextAudienceId)
-        else next.delete('audienceId')
-        if (nextDateFrom) next.set('dateFrom', nextDateFrom)
-        else next.delete('dateFrom')
-        if (nextDateTo) next.set('dateTo', nextDateTo)
-        else next.delete('dateTo')
-        if (state.mentioned === true) next.set('mentioned', 'true')
-        else next.delete('mentioned')
-        if (state.favorite === true) next.set('favorite', 'true')
-        else next.delete('favorite')
-        if (state.important === true) next.set('important', 'true')
-        else next.delete('important')
-      })
-      setAdvancedOpen(Boolean(
-        nextAuthorId
-        || nextGroupId
-        || nextAudienceId
-        || nextDateFrom
-        || nextDateTo
-        || state.mentioned === true
-        || state.favorite === true
-        || state.important === true,
-      ))
-    } catch {
-      // Invalid legacy saved state is ignored rather than breaking the feed.
-    }
+    const next = new URLSearchParams()
+    setParams(next, { flushSync: true })
   }
 
   if (pages.isLoading || !user) {
     return (
       <>
         <PageHeader title="Жива стрічка" />
-        <Skeleton rows={7} />
+        <FeedLoading />
       </>
     )
   }
-  if (pages.isError || !firstPage) return <ErrorState onRetry={() => void pages.refetch()} />
-  const feedSavedViews = savedViews.data?.filter((item) => item.module === 'FEED') ?? []
-  const authorOptions = authors.data?.items ?? []
-  const selectedAuthor = authorOptions.find((author) => author.id === authorId)
-  const facetOptions = audienceFacets.data?.items ?? []
-  const groupOptions = facetOptions.filter((option) => option.type === 'GROUP')
-  const recipientOptions = facetOptions.filter((option) => option.type !== 'GROUP')
-  const selectedGroup = groupOptions.find((option) => option.id === groupId)
-  const selectedAudience = recipientOptions.find((option) => option.id === audienceId)
-  const hasAnyFilter = filter !== 'ALL'
-    || itemType !== 'ALL'
-    || activeAdvancedCount > 0
+  if (pages.isError || !firstPage) return <div className="feed-page"><PageHeader title="Жива стрічка" /><FeedPageState kind="error" onAction={() => void pages.refetch()} /></div>
+  const hasLegacyFilter =
+    filter !== 'ALL' ||
+    itemType !== 'ALL' ||
+    authorId ||
+    audienceId ||
+    dateFrom ||
+    dateTo ||
+    mentioned ||
+    important
 
   return (
     <div className="feed-page">
       <PageHeader
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
-        action={(
-          <Button onClick={() => {
-            setComposerDirty(false)
-            setComposerOpen(true)
-          }}>
+        action={
+          <Button
+            onClick={() => {
+              setComposerDirty(false)
+              setComposerOpen(true)
+            }}
+          >
+            <Plus size={17} />
             Створити публікацію
           </Button>
-        )}
+        }
       />
+      <FeedOverview />
       <div className="feed-layout">
         <div className="feed-main">
-          <section className="feed-toolbar" aria-label="Фільтри стрічки">
-            <Tabs
-              value={filter}
-              items={[
-                { value: 'ALL', label: 'Усі' },
-                {
-                  value: 'ACK_REQUIRED',
-                  label: 'До підтвердження',
-                  count: firstPage.attention.pendingAcknowledgements,
-                },
-                { value: 'MINE', label: 'Мої' },
-                { value: 'FOLLOWING', label: 'Стежу' },
-              ]}
-              onChange={selectFilter}
-            />
-            <label className="feed-type-filter">
-              <span className="sr-only">Тип події</span>
-              <select value={itemType} onChange={(event) => selectItemType(event.target.value)}>
-                <option value="ALL">Усі типи</option>
-                <option value="POST">Публікації</option>
-                <option value="TASK">Завдання</option>
-                <option value="EVENT">Події</option>
-                <option value="ANNOUNCEMENT">Оголошення</option>
-                <option value="FILE">Файли</option>
-              </select>
-              <ChevronDown size={14} aria-hidden />
-            </label>
-            <Button
-              type="button"
-              variant="ghost"
-              className="feed-advanced-toggle"
-              aria-expanded={advancedOpen}
-              aria-controls="feed-advanced-filters"
-              onClick={() => setAdvancedOpen((value) => !value)}
-            >
-              <SlidersHorizontal size={15} />
-              Фільтри
-              {activeAdvancedCount > 0 && <span>{activeAdvancedCount}</span>}
-            </Button>
-            <div className="feed-saved-filter">
-              {feedSavedViews.length > 0 && (
-                <label>
-                  <span className="sr-only">Збережені фільтри</span>
-                  <select defaultValue="" onChange={(event) => applySavedView(event.target.value)}>
-                    <option value="" disabled>Збережені фільтри</option>
-                    {feedSavedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}
-                  </select>
-                  <ChevronDown size={14} aria-hidden />
-                </label>
-              )}
-              {hasAnyFilter && (
-                <SaveFilterButton
-                  filter={filter}
-                  itemType={itemType}
-                  authorId={authorId}
-                  authorName={selectedAuthor?.displayName ?? null}
-                  groupId={groupId}
-                  groupName={selectedGroup?.label ?? null}
-                  audienceId={audienceId}
-                  audienceName={selectedAudience?.label ?? null}
-                  dateFrom={dateFrom}
-                  dateTo={dateTo}
-                  mentioned={mentioned}
-                  favorite={favorite}
-                  important={important}
-                />
-              )}
+          {hasLegacyFilter && (
+            <div className="feed-legacy-filter-notice">
+              <Button type="button" variant="secondary" onClick={clearAllFilters}>
+                Показати всю стрічку
+              </Button>
             </div>
-          </section>
-
-          {advancedOpen && (
-            <section
-              id="feed-advanced-filters"
-              className="feed-filter-panel"
-              aria-label="Додаткові фільтри стрічки"
-            >
-              <header>
-                <div>
-                  <span className="eyebrow">Точніше знайти оновлення</span>
-                  <h2>Додаткові фільтри</h2>
-                </div>
-                <IconButton label="Закрити додаткові фільтри" onClick={() => setAdvancedOpen(false)}>
-                  <X size={17} />
-                </IconButton>
-              </header>
-              <div className="feed-filter-panel__fields">
-                <label>
-                  <span>Кому адресовано</span>
-                  <select value={audienceId} onChange={(event) => selectAudience(event.target.value)}>
-                    <option value="">Усі аудиторії</option>
-                    {audienceId && !selectedAudience && (
-                      <option value={audienceId}>Аудиторія зі збереженого фільтра</option>
-                    )}
-                    {recipientOptions.map((option) => (
-                      <option key={`${option.type}:${option.id}`} value={option.id}>
-                        {option.type === 'COMPANY' ? `Вся організація · ${option.label}` : option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Робоча група</span>
-                  <select value={groupId} onChange={(event) => selectGroup(event.target.value)}>
-                    <option value="">Усі групи</option>
-                    {groupId && !selectedGroup && (
-                      <option value={groupId}>Група зі збереженого фільтра</option>
-                    )}
-                    {groupOptions.map((option) => (
-                      <option key={option.id} value={option.id}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Автор</span>
-                  <select value={authorId} onChange={(event) => selectAuthor(event.target.value)}>
-                    <option value="">Усі автори</option>
-                    {authorId && !selectedAuthor && (
-                      <option value={authorId}>Автор зі збереженого фільтра</option>
-                    )}
-                    {authorOptions.map((author) => (
-                      <option key={author.id} value={author.id}>{author.displayName}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Від дати</span>
-                  <input
-                    type="date"
-                    value={dateFrom}
-                    max={dateTo || undefined}
-                    onChange={(event) => selectDateFrom(event.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>До дати</span>
-                  <input
-                    type="date"
-                    value={dateTo}
-                    min={dateFrom || undefined}
-                    onChange={(event) => selectDateTo(event.target.value)}
-                  />
-                </label>
-                <label className="feed-checkbox-filter">
-                  <input
-                    type="checkbox"
-                    checked={mentioned}
-                    onChange={(event) => selectMentioned(event.target.checked)}
-                  />
-                  <span>
-                    <strong>Мене згадали</strong>
-                    <small>Лише публікації з вашою прямою згадкою</small>
-                  </span>
-                </label>
-                <label className="feed-checkbox-filter feed-checkbox-filter--wide">
-                  <input
-                    type="checkbox"
-                    checked={favorite}
-                    onChange={(event) => selectFavorite(event.target.checked)}
-                  />
-                  <span>
-                    <strong>Лише обране</strong>
-                    <small>Картки, які ви зберегли для швидкого повернення</small>
-                  </span>
-                </label>
-                <label className="feed-checkbox-filter feed-checkbox-filter--wide">
-                  <input
-                    type="checkbox"
-                    checked={important}
-                    onChange={(event) => selectImportant(event.target.checked)}
-                  />
-                  <span>
-                    <strong>Важливі публікації</strong>
-                    <small>Усі повідомлення з обов’язковим підтвердженням</small>
-                  </span>
-                </label>
-              </div>
-              <footer>
-                <span role="status">
-                  {activeAdvancedCount > 0
-                    ? `Застосовано додаткових фільтрів: ${activeAdvancedCount}`
-                    : 'Фільтри застосовуються одразу й зберігаються в адресі сторінки.'}
-                </span>
-                {activeAdvancedCount > 0 && (
-                  <Button type="button" variant="ghost" onClick={clearAdvancedFilters}>
-                    Очистити додаткові
-                  </Button>
-                )}
-              </footer>
-            </section>
           )}
 
           <section className="feed-list" aria-label="Оновлення стрічки">
-            {items.length > 0 ? items.map((item) => (
-              item.kind === 'POST'
-                ? (
-                    <FeedCard
-                      key={item.itemId}
-                      item={item}
-                      onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-                    />
-                  )
-                : (
-                    <FeedSourceCard
-                      key={item.itemId}
-                      item={item}
-                      onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-                    />
-                  )
-            )) : (
-              <Card>
-                <EmptyState
-                  title={!hasAnyFilter ? 'Оновлень ще немає' : 'За цим фільтром нічого немає'}
-                  description={!hasAnyFilter
-                    ? 'Опублікуйте корисне оновлення або створіть завдання для команди.'
-                    : 'Спробуйте інший фільтр або поверніться до всіх публікацій.'}
-                  action={hasAnyFilter
-                    ? <Button variant="secondary" onClick={clearAllFilters}>Показати всі</Button>
-                    : undefined}
-                />
-              </Card>
+            {targetPostId && (targetPost.isLoading ? <FeedLoading /> : targetPost.isError ? <FeedPageState kind="error" onAction={() => void targetPost.refetch()} /> : null)}
+            {items.length > 0 ? (
+              items.map((item) =>
+                item.kind === 'POST' ? (
+                  <FeedCard
+                    key={item.itemId}
+                    viewerId={user.id}
+                    item={item}
+                    loadedAt={item.id === targetPost.data?.id ? targetPost.dataUpdatedAt : pages.dataUpdatedAt}
+                    isNew={newFeedItemIds.has(item.itemId) || wasUnreadOnArrival(item, user.id, readPositionsOnArrival)}
+                    onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+                  />
+                ) : (
+                  <FeedSourceCard
+                    key={item.itemId}
+                    item={item}
+                    isNew={newFeedItemIds.has(item.itemId) || wasUnreadOnArrival(item, user.id, readPositionsOnArrival)}
+                    onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
+                  />
+                ),
+              )
+            ) : (
+              <FeedPageState kind={hasLegacyFilter ? 'filtered' : 'empty'} onAction={() => {
+                if (hasLegacyFilter) clearAllFilters()
+                else { setComposerDirty(false); setComposerOpen(true) }
+              }} />
             )}
           </section>
-          {pages.hasNextPage && (
+          <div className="stream-pagination">{pages.hasNextPage ? (
             <Button
               variant="secondary"
               className="feed-load-more"
               disabled={pages.isFetchingNextPage}
               onClick={() => void pages.fetchNextPage()}
             >
+              {pages.isFetchingNextPage && <LoaderCircle size={15} className="stream-spin" />}
               {pages.isFetchingNextPage ? 'Завантаження…' : 'Показати давніші публікації'}
             </Button>
-          )}
+          ) : items.length > 0 ? <p>Ви переглянули всі оновлення</p> : null}
+          {pages.isFetchNextPageError && <p role="alert">Не вдалося завантажити давніші записи. Спробуйте ще раз.</p>}
+          </div>
         </div>
 
         <aside className="feed-attention" aria-label="Потребує уваги">
-          <Card>
-            <span className="eyebrow"><Sparkles size={14} /> Потребує уваги</span>
+          <Card className="feed-attention__actions">
+            <span className="eyebrow">
+              <Sparkles size={14} /> Потребує уваги
+            </span>
             <h2>Ваші наступні кроки</h2>
             <Link to="/feed?filter=ACK_REQUIRED">
               <ShieldCheck size={18} />
@@ -686,424 +324,322 @@ export function FeedPage() {
               </span>
             </Link>
             {firstPage.attention.pendingAcknowledgements === 0 && firstPage.attention.overdueTasks === 0 && (
-              <p className="feed-attention__clear"><Check size={16} /> Термінових дій немає.</p>
+              <p className="feed-attention__clear">
+                <Check size={16} /> Термінових дій немає.
+              </p>
             )}
           </Card>
-          <p className="feed-unread-note">
-            {firstPage.unreadCount > 0
-              ? `${firstPage.unreadCount} нових подій позначено прочитаними. Підтвердження важливого завжди виконується окремо.`
-              : 'Відкриття стрічки не підтверджує ознайомлення з важливими публікаціями.'}
-          </p>
+          {!hasLegacyFilter && <FeedBirthdayHighlight birthdays={firstPage.birthdays} />}
         </aside>
       </div>
       {composerOpen && (
         <Modal
           title="Створити публікацію"
+          size="xl"
           description="Поділіться важливим оновленням із потрібною аудиторією."
           closeDisabled={composerBusy}
+          onBeforeClose={composerCloseGuard.shouldClose}
           onRequestClose={composerCloseGuard.requestClose}
         >
           <FeedComposerForm
-            company={company}
-            canShareFiles
+            defaultCompanyId={user?.company?.id}
             onBusyChange={setComposerBusy}
             onDirtyChange={setComposerDirty}
-            onFeedChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
-            onPostCreated={() => composerCloseGuard.closeForSuccess(() => {
-              setComposerDirty(false)
-              setComposerOpen(false)
-            })}
-            onNavigate={(path) => {
-              navigate(withCompanyScope(path, company))
+            onFeedChanged={() => {
+              void queryClient.invalidateQueries({ queryKey: ['feed'] })
+              void queryClient.invalidateQueries({ queryKey: ['feed', 'summary'] })
             }}
+            onPostCreated={() =>
+              composerCloseGuard.closeForSuccess(() => {
+                setComposerDirty(false)
+                setComposerOpen(false)
+              })
+            }
           />
         </Modal>
       )}
-      <UnsavedChangesDialog guard={composerCloseGuard} />
+      <UnsavedChangesDialog
+        guard={composerCloseGuard}
+        title="Закрити створення публікації?"
+        description="Текст, аудиторія та додані файли не збережуться."
+      />
     </div>
   )
 }
 
-function FeedSourceCard({
-  item,
-  onChanged,
-}: {
-  item: FeedSourceView
-  onChanged: () => void
-}) {
-  const [confirmRevoke, setConfirmRevoke] = useState(false)
-  const revoke = useMutation({
-    mutationFn: () => api(`/feed/file-shares/${encodeURIComponent(item.id)}`, {
-      method: 'DELETE',
-      body: jsonBody({ expectedVersion: item.version }),
-    }),
-    onSuccess: onChanged,
-  })
-  const Icon = item.sourceType === 'TASK'
-    ? SquareCheckBig
-    : item.sourceType === 'EVENT'
-      ? CalendarDays
-      : item.sourceType === 'FILE'
-        ? FileText
-        : Megaphone
-  const actionLabel = item.sourceType === 'TASK'
-    ? 'Відкрити завдання'
-    : item.sourceType === 'EVENT'
-      ? 'Відкрити подію'
-      : item.sourceType === 'FILE'
-        ? 'Завантажити'
-        : 'Відкрити оголошення'
-  return (
-    <Card className={`feed-source-card feed-source-card--${item.sourceType.toLowerCase()}`}>
-      <div className="feed-source-card__icon" aria-hidden><Icon size={20} /></div>
-      <div className="feed-source-card__content">
-        <header>
-          <span>{item.label}</span>
-          <time dateTime={item.occurredAt}>{formatDateTime(item.occurredAt)}</time>
-        </header>
-        <h2>{item.title}</h2>
-        {item.summary && <p>{item.summary}</p>}
-        <div className="feed-source-card__meta">
-          {item.metadata.map((entry) => <span key={entry}>{entry}</span>)}
-          {item.actor && <span>{item.actor.displayName}</span>}
-        </div>
-      </div>
-      <div className="feed-source-card__actions">
-        <FavoriteButton
-          itemId={item.itemId}
-          favorited={item.favoritedByMe}
-          onChanged={onChanged}
-        />
-        {item.sourceType === 'FILE'
-          ? item.actionState === 'AVAILABLE'
-            ? (
-                <a className="feed-source-card__action" href={item.href}>
-                  <Download size={15} /> {actionLabel}
-                </a>
-              )
-            : (
-                <span className={`feed-source-card__action is-${item.actionState.toLowerCase()}`} aria-disabled="true">
-                  {item.actionState === 'PROCESSING' ? 'Перевіряється' : 'Заблоковано'}
-                </span>
-              )
-          : (
-              <Link className="feed-source-card__action" to={item.href}>
-                {actionLabel} <ArrowRight size={15} />
-              </Link>
-            )}
-        {item.sourceType === 'FILE' && item.canRevoke && (
-          confirmRevoke
-            ? (
-                <span className="feed-source-card__confirm">
-                  <button type="button" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
-                    {revoke.isPending ? 'Прибираємо…' : 'Підтвердити'}
-                  </button>
-                  <button type="button" disabled={revoke.isPending} onClick={() => setConfirmRevoke(false)}>
-                    Скасувати
-                  </button>
-                </span>
-              )
-            : (
-                <button
-                  type="button"
-                  className="feed-source-card__revoke"
-                  onClick={() => setConfirmRevoke(true)}
-                >
-                  <Archive size={14} /> Прибрати
-                </button>
-              )
-        )}
-      </div>
-    </Card>
-  )
+export function needsAcknowledgement(item: FeedPostView | FeedSourceView): boolean {
+  return item.kind === 'POST'
+    ? item.acknowledgementRequiredForMe && !item.hasAcknowledged
+    : item.sourceType === 'EVENT' && Boolean(item.eventAcknowledgement?.requiredForMe && !item.eventAcknowledgement.acknowledgedAt)
 }
 
-function FavoriteButton({
-  itemId,
-  favorited,
-  onChanged,
-}: {
-  itemId: string
-  favorited: boolean
-  onChanged: () => void
-}) {
-  const favorite = useMutation({
-    mutationFn: () => api(`/feed/items/${itemId}/favorite`, {
-      method: favorited ? 'DELETE' : 'PUT',
-    }),
-    onSuccess: onChanged,
-  })
-  const label = favorited ? 'Прибрати з обраного' : 'Додати в обране'
-  return (
-    <button
-      type="button"
-      className={`feed-favorite-button ${favorited ? 'is-active' : ''}`}
-      aria-label={label}
-      aria-pressed={favorited}
-      title={label}
-      disabled={favorite.isPending}
-      onClick={() => favorite.mutate()}
-    >
-      <Star size={17} fill={favorited ? 'currentColor' : 'none'} />
-    </button>
-  )
+const readCardState: FeedCardViewState = {
+  mode: 'read', menuOpen: false, commentsOpen: false, replyTo: null,
+  comment: '', sending: false, liking: false, notice: '',
 }
 
-function FeedCard({ item, onChanged }: { item: FeedPostView; onChanged: () => void }) {
+const renderFeedPerson: FeedPersonRenderer = (person, children, className, label) => person.id ? (
+  <UserProfileLink userId={person.id} className={className} aria-label={label}>{children}</UserProfileLink>
+) : <span className={className}>{children}</span>
+
+export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceView; isNew: boolean; onChanged: () => void }) {
+  const editorId = useId()
+  const queryClient = useQueryClient()
+  const pin = useMutation({
+    mutationFn: () => api(`/feed/${item.sourceType === 'EVENT' ? 'events' : 'tasks'}/${encodeURIComponent(item.id)}/pin`, { method: item.pinnedByMe ? 'DELETE' : 'POST' }),
+    onSuccess: onChanged,
+  })
+  const acknowledgeEvent = useMutation({
+    mutationFn: () => api('/calendar/events/' + encodeURIComponent(item.id) + '/acknowledge', {
+      method: 'POST', body: jsonBody({ expectedVersion: item.eventVersion }),
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['calendar-event'] }),
+        queryClient.invalidateQueries({ queryKey: ['feed'] }),
+      ])
+      onChanged()
+    },
+  })
+  if (item.sourceType === 'FILE') return null
+  const metadata: FeedCardModel['metadata'] = item.metadata
+    .filter((entry) => item.sourceType !== 'EVENT' || entry === 'Увесь день')
+    .map((entry) => {
+      const separator = entry.indexOf(':')
+      const label = separator < 0 ? 'Тривалість' : entry.slice(0, separator)
+      const value = personNamesInLabel(separator < 0 ? entry : entry.slice(separator + 1).trim())
+      const person = label === 'Постановник' ? item.taskReporter : label === 'Відповідальний' ? item.taskAssignee : null
+      return { label, value, ...(person ? { person: { ...person, displayName: personName(person.displayName) } } : {}) }
+    })
+  const acknowledgement = item.eventAcknowledgement
+  if (item.sourceType === 'EVENT' && item.summary) metadata.unshift({ label: 'Дата і час', value: item.summary })
+  const model: FeedCardModel = {
+    kind: item.sourceType, title: item.title, body: '',
+    canPin: true, pinned: item.pinnedByMe, pinning: pin.isPending,
+    date: formatDateTime(item.occurredAt), dateTime: item.occurredAt, audience: '',
+    href: item.href, metadata, changes: item.taskChanges, historical: item.historical, isNew,
+    author: item.sourceType === 'EVENT' && item.actor ? { ...item.actor, displayName: personName(item.actor.displayName) } : undefined,
+    acknowledgement: acknowledgement && (acknowledgement.requiredForMe || acknowledgement.acknowledgedAt)
+      ? { state: acknowledgement.acknowledgedAt ? 'done' : acknowledgeEvent.isPending ? 'loading' : acknowledgeEvent.isError ? 'error' : 'pending' }
+      : undefined,
+  }
+  return <FeedCardDesign item={model} state={readCardState} editorId={editorId} headingLevel="h2"
+    renderPerson={renderFeedPerson} onReply={() => {}} onFile={() => {}}
+    onAction={(action) => {
+      if (action === 'pin' && !pin.isPending) pin.mutate()
+      if (action === 'acknowledge' && needsAcknowledgement(item) && !acknowledgeEvent.isPending) acknowledgeEvent.mutate()
+    }}
+    error={pin.isError ? 'Не вдалося змінити закріплення. Спробуйте ще раз.' : undefined}
+  />
+}
+
+function isOwnFeedItem(item: FeedPostView | FeedSourceView, userId: string): boolean {
+  return item.kind === 'POST' ? item.author.id === userId : item.actor?.id === userId
+}
+
+/** A task update the viewer has already read, for example in an open task, is not news. */
+export function isNewsForViewer(item: FeedPostView | FeedSourceView, userId: string): boolean {
+  if (isOwnFeedItem(item, userId)) return false
+  if (item.kind === 'SOURCE' && item.sourceType === 'TASK') return Object.values(item.taskChanges ?? {}).some(Boolean)
+  return true
+}
+
+/** Was this card unread when the person arrived? A first visit marks nothing: everything would be new. */
+export function wasUnreadOnArrival(
+  item: FeedPostView | FeedSourceView,
+  userId: string | undefined,
+  readPositions: FeedListResult['readPositions'] | null,
+): boolean {
+  const lastReadAt = readPositions?.find((position) => position.companyId === item.companyId)?.lastReadAt
+  if (!lastReadAt || !userId) return false
+  if (item.kind === 'SOURCE' && item.historical) return false
+  const occurredAt = item.kind === 'POST' ? item.editedAt ?? item.publishedAt : item.occurredAt
+  return Date.parse(occurredAt) > Date.parse(lastReadAt) && isNewsForViewer(item, userId)
+}
+
+export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item: FeedPostView; isNew: boolean; onChanged: () => void; loadedAt: number; viewerId?: string }) {
+  const notificationReadRef = useEntityNotificationRead('FEED_POST', item.id, loadedAt, true)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [comment, setComment] = useState('')
+  const commentPhotos = useFeedCommentPhotos(item.id)
+  const photoInput = useRef<HTMLInputElement>(null)
+  const [commentMentions, setCommentMentions] = useState<StructuredMentionInput[]>([])
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const editPhotoInput = useRef<HTMLInputElement>(null)
+  const existingPhotoCount = item.attachments.filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.mimeType)).length
+  const editPhotoLimit = Math.max(0, Math.min(FEED_COMMENT_PHOTO_LIMIT - existingPhotoCount, 10 - item.attachments.length))
+  const editPhotos = useFeedCommentPhotos(item.id, {
+    uploadUrl: '/feed/attachments?company=' + encodeURIComponent(item.companyId), limit: editPhotoLimit,
+  })
   const [editBody, setEditBody] = useState(item.body)
+  const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
+    editableMentions(item.body, item.mentions),
+  )
   const [menuOpen, setMenuOpen] = useState(false)
-  const [subscriptionOpen, setSubscriptionOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const pin = useMutation({
+    mutationFn: () => api(`/feed/posts/${encodeURIComponent(item.id)}/pin`, { method: item.pinnedByMe ? 'DELETE' : 'POST' }),
+    onSuccess: onChanged,
+  })
   const like = useMutation({
     mutationFn: () => api(`/feed/${item.id}/reactions/like`, { method: 'POST' }),
     onSuccess: onChanged,
   })
   const acknowledge = useMutation({
-    mutationFn: () => api(`/feed/${item.id}/acknowledge`, {
-      method: 'POST',
-      body: jsonBody({ acknowledgementVersion: item.acknowledgementVersion }),
-    }),
+    mutationFn: () =>
+      api(`/feed/${item.id}/acknowledge`, {
+        method: 'POST',
+        body: jsonBody({ acknowledgementVersion: item.acknowledgementVersion }),
+      }),
     onSuccess: onChanged,
   })
   const addComment = useMutation({
-    mutationFn: () => api(`/feed/${item.id}/comments`, {
-      method: 'POST',
-      body: jsonBody({ body: comment, replyToCommentId: replyTo }),
+    mutationFn: (value: { body: string; mentions: StructuredMentionInput[]; replyToCommentId: string | null; attachmentIds: string[] }) => api(`/feed/${item.id}/comments`, {
+      method: 'POST', body: jsonBody(value),
     }),
     onSuccess: () => {
       setComment('')
+      setCommentMentions([])
       setReplyTo(null)
+      commentPhotos.clear()
       setCommentsOpen(true)
       onChanged()
     },
   })
   const update = useMutation({
-    mutationFn: () => api(`/feed/${item.id}`, {
-      method: 'PATCH',
-      body: jsonBody({ body: editBody, expectedVersion: item.version }),
-    }),
+    mutationFn: () => {
+      const value = trimMentionValue(editBody, editMentions)
+      return api(`/feed/${item.id}`, {
+        method: 'PATCH',
+        body: jsonBody({ ...value, expectedVersion: item.version,
+          ...(editPhotos.photos.length ? { attachmentIds: editPhotos.photos.map((photo) => photo.attachment.id) } : {}),
+        }),
+      })
+    },
     onSuccess: () => {
       setEditing(false)
+      editPhotos.clear()
       setMenuOpen(false)
       onChanged()
     },
   })
   const archive = useMutation({
-    mutationFn: () => api(`/feed/${item.id}`, {
-      method: 'DELETE',
-      body: jsonBody({ expectedVersion: item.version }),
-    }),
+    mutationFn: () =>
+      api(`/feed/${item.id}`, {
+        method: 'DELETE',
+        body: jsonBody({ expectedVersion: item.version }),
+      }),
     onSuccess: onChanged,
   })
-  const subscription = useMutation({
-    mutationFn: (notificationMode: FeedSubscriptionMode) => api(`/feed/${item.id}/subscription`, {
-      method: 'PUT',
-      body: jsonBody({ notificationMode }),
-    }),
-    onSuccess: () => {
-      setSubscriptionOpen(false)
-      onChanged()
-    },
-  })
-  const SubscriptionIcon = item.subscriptionMode === 'ALL'
-    ? BellRing
-    : item.subscriptionMode === 'MENTIONS'
-      ? Bell
-      : BellOff
-
   function submitComment(event: FormEvent) {
     event.preventDefault()
-    if (comment.trim()) addComment.mutate()
+    if (!addComment.isPending && !commentPhotos.uploading && (comment.trim() || commentPhotos.photos.length)) {
+      addComment.mutate({
+        ...trimMentionValue(comment, commentMentions), replyToCommentId: replyTo,
+        attachmentIds: commentPhotos.photos.map((photo) => photo.attachment.id),
+      })
+    }
   }
 
-  return (
-    <Card className="feed-card">
-      <header className="feed-card__header">
-        <Avatar name={item.author.displayName} src={item.author.avatarAsset} />
-        <div>
-          <strong>{item.author.displayName}</strong>
-          <span>{item.audienceLabel} · <time dateTime={item.publishedAt}>{formatDateTime(item.publishedAt)}</time></span>
-        </div>
-        <div className="feed-card__header-actions">
-          <FavoriteButton
-            itemId={item.itemId}
-            favorited={item.favoritedByMe}
-            onChanged={onChanged}
-          />
-          {item.canEdit && (
-            <div className="feed-card__menu">
-              <IconButton
-                label="Дії з публікацією"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((value) => !value)}
-              >
-                <MoreHorizontal size={18} />
-              </IconButton>
-              {menuOpen && (
-                <div role="menu">
-                  <button role="menuitem" onClick={() => { setEditing(true); setMenuOpen(false) }}>
-                    <Pencil size={15} /> Редагувати
-                  </button>
-                  <button role="menuitem" onClick={() => { setConfirmArchive(true); setMenuOpen(false) }}>
-                    <Archive size={15} /> Архівувати
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
+  function startEditing() {
+    editPhotos.clear()
+    setEditBody(item.body)
+    setEditMentions(editableMentions(item.body, item.mentions))
+    setEditing(true)
+    setMenuOpen(false)
+  }
 
-      {editing ? (
-        <form className="feed-edit-form" onSubmit={(event) => { event.preventDefault(); update.mutate() }}>
-          <label>
-            <span>Текст публікації</span>
-            <textarea value={editBody} rows={4} maxLength={10_000} onChange={(event) => setEditBody(event.target.value)} />
-          </label>
-          <div>
-            <Button type="button" variant="secondary" onClick={() => { setEditing(false); setEditBody(item.body) }}>Скасувати</Button>
-            <Button disabled={!editBody.trim() || update.isPending}>Зберегти зміни</Button>
-          </div>
-        </form>
-      ) : (
-        <div className="feed-card__body">{item.body}</div>
-      )}
+  function cancelEditing() {
+    editPhotos.clear()
+    setEditing(false)
+    setEditBody(item.body)
+    setEditMentions(editableMentions(item.body, item.mentions))
+  }
 
-      {item.attachments.length > 0 && (
-        <div className="feed-card__attachments" aria-label="Вкладення">
-          {item.attachments.map((attachment) => <FeedAttachment key={attachment.id} attachment={attachment} />)}
-        </div>
-      )}
-
-      {confirmArchive && (
-        <div className="feed-archive-confirm" role="alert">
-          <span>Прибрати цю публікацію зі стрічки?</span>
-          <div>
-            <Button variant="ghost" onClick={() => setConfirmArchive(false)}>Залишити</Button>
-            <Button variant="danger" disabled={archive.isPending} onClick={() => archive.mutate()}>Архівувати</Button>
-          </div>
-        </div>
-      )}
-
-      {item.requiresAcknowledgement && (
-        <div className={`feed-acknowledgement ${item.hasAcknowledged ? 'is-done' : ''}`}>
-          <ShieldCheck size={19} />
-          <span>
-            <strong>{item.hasAcknowledged ? 'Ви підтвердили ознайомлення' : 'Потрібне явне підтвердження'}</strong>
-            <small>{item.acknowledgementCount} із {item.acknowledgementRecipientCount} адресатів підтвердили</small>
-          </span>
-          {item.acknowledgementRequiredForMe && !item.hasAcknowledged && (
-            <Button
-              variant="secondary"
-              disabled={acknowledge.isPending}
-              onClick={() => acknowledge.mutate()}
-            >
-              Підтвердити
-            </Button>
-          )}
-        </div>
-      )}
-
-      <footer className="feed-card__actions">
-        <button
-          className={item.likedByMe ? 'is-active' : ''}
-          aria-pressed={item.likedByMe}
-          disabled={like.isPending}
-          onClick={() => like.mutate()}
-        >
-          <Heart size={17} fill={item.likedByMe ? 'currentColor' : 'none'} />
-          Подобається{item.likeCount > 0 ? ` · ${item.likeCount}` : ''}
-        </button>
-        <button aria-expanded={commentsOpen} onClick={() => setCommentsOpen((value) => !value)}>
-          <MessageCircle size={17} /> Коментарі{item.commentCount > 0 ? ` · ${item.commentCount}` : ''}
-        </button>
-        <div className="feed-subscription">
-          <button
-            className={item.subscriptionMode !== 'NONE' ? 'is-active' : ''}
-            aria-expanded={subscriptionOpen}
-            aria-haspopup="menu"
-            onClick={() => setSubscriptionOpen((value) => !value)}
-          >
-            <SubscriptionIcon size={17} />
-            {subscriptionModeLabel(item.subscriptionMode)}
-          </button>
-          {subscriptionOpen && (
-            <div role="menu" aria-label="Сповіщення про цю публікацію">
-              {([
-                ['ALL', 'Усі нові коментарі', BellRing],
-                ['MENTIONS', 'Лише згадки', Bell],
-                ['NONE', 'Без сповіщень', BellOff],
-              ] as const).map(([mode, label, Icon]) => (
-                <button
-                  key={mode}
-                  role="menuitemradio"
-                  aria-checked={item.subscriptionMode === mode}
-                  disabled={subscription.isPending}
-                  onClick={() => subscription.mutate(mode)}
-                >
-                  <Icon size={15} />
-                  <span>{label}</span>
-                  {item.subscriptionMode === mode && <Check size={14} aria-hidden />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {item.editedAt && <small>Змінено {formatDateTime(item.editedAt)}</small>}
-      </footer>
-
-      {commentsOpen && (
-        <section className="feed-comments" aria-label="Коментарі до публікації">
-          {item.comments.length > 0 && (
-            <div className="feed-comments__list">
-              {item.comments.map((entry) => (
-                <article key={entry.id} className={entry.replyToCommentId ? 'is-reply' : ''}>
-                  <Avatar name={entry.author.displayName} src={entry.author.avatarAsset} size="sm" />
-                  <div>
-                    <header>
-                      <strong>{entry.author.displayName}</strong>
-                      <time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time>
-                    </header>
-                    <p>{entry.body}</p>
-                    {!entry.replyToCommentId && (
-                      <button onClick={() => { setReplyTo(entry.id); setComment('') }}>
-                        <Reply size={13} /> Відповісти
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-          <form onSubmit={submitComment}>
-            <label>
-              <span>{replyTo ? 'Відповідь на коментар' : 'Новий коментар'}</span>
-              <textarea
-                value={comment}
-                rows={2}
-                maxLength={4_000}
-                placeholder={replyTo ? 'Напишіть коротку відповідь…' : 'Додайте корисний контекст…'}
-                onChange={(event) => setComment(event.target.value)}
-              />
-            </label>
-            <div>
-              {replyTo && <Button type="button" variant="ghost" onClick={() => setReplyTo(null)}>Скасувати відповідь</Button>}
-              <Button disabled={!comment.trim() || addComment.isPending}>
-                <Send size={15} /> Надіслати
-              </Button>
-            </div>
-          </form>
-        </section>
-      )}
-    </Card>
-  )
+  const editorId = useId()
+  const reply = item.comments.find((entry) => entry.id === replyTo)
+  const model: FeedCardModel = {
+    kind: 'POST', author: { ...item.author, displayName: personName(item.author.displayName) },
+    date: formatDateTime(item.publishedAt), dateTime: item.publishedAt,
+    audience: personNamesInLabel(item.audienceLabel), body: editing ? editBody : item.body,
+    mentions: item.mentions, attachments: item.attachments, photoLayout: item.photoLayout,
+    comments: item.comments.map((entry) => ({ ...entry, author: { ...entry.author, displayName: personName(entry.author.displayName) } })),
+    commentCount: item.commentCount, likes: item.likeCount, liked: item.likedByMe,
+    canManage: item.canEdit, canPin: true, pinned: item.pinnedByMe, pinning: pin.isPending, isNew, edited: Boolean(item.editedAt),
+    acknowledgement: !item.requiresAcknowledgement ? undefined
+      : item.author.id === viewerId
+        ? { state: 'summary', acknowledgedCount: item.acknowledgementCount, recipientCount: item.acknowledgementRecipientCount }
+        : item.acknowledgementRequiredForMe || item.hasAcknowledged
+          ? { state: item.hasAcknowledged ? 'done' : acknowledge.isPending ? 'loading' : acknowledge.isError ? 'error' : 'pending' }
+          : undefined,
+  }
+  const state: FeedCardViewState = {
+    ...readCardState, commentsOpen, menuOpen, replyTo, comment,
+    sending: addComment.isPending, liking: like.isPending,
+    mode: update.isPending || (editing && editPhotos.uploading) ? 'saving' : editing ? 'edit' : archive.isPending ? 'archiving' : confirmArchive ? 'archive' : 'read',
+  }
+  return <FeedCardDesign item={model} state={state} editorId={editorId} headingLevel="h2"
+    headerRef={notificationReadRef} renderPerson={renderFeedPerson}
+    renderAttachment={(attachment) => <FeedAttachment attachment={attachment} photoPreview />}
+    renderInlinePhoto={(attachment) => <FeedInlinePhoto attachment={attachment} />}
+    renderCommentExtra={(entry) => entry.attachments?.length ? <div className="stream-photo-previews">{entry.attachments.map((attachment) => <FeedAttachment key={attachment.id} attachment={attachment} photoPreview />)}</div> : null}
+    onFile={() => {}}
+    onReply={(id) => { setReplyTo(id); setComment(''); setCommentMentions([]) }}
+    onAction={(action) => {
+      if (action === 'pin' && !pin.isPending) { setMenuOpen(false); pin.mutate() }
+      if (action === 'like' && !like.isPending) like.mutate()
+      if (action === 'comments') setCommentsOpen((value) => !value)
+      if (action === 'menu') setMenuOpen((value) => !value)
+      if (action === 'edit') startEditing()
+      if (action === 'cancel-edit') cancelEditing()
+      if (action === 'save' && editBody.trim() && !update.isPending && !editPhotos.uploading) update.mutate()
+      if (action === 'archive') { setConfirmArchive(true); setMenuOpen(false) }
+      if (action === 'cancel-archive') setConfirmArchive(false)
+      if (action === 'confirm-archive' && !archive.isPending) archive.mutate()
+      if (action === 'acknowledge' && needsAcknowledgement(item) && !acknowledge.isPending) acknowledge.mutate()
+    }}
+    editor={<><MentionTextarea formatting label="Текст публікації" value={editBody} mentions={editMentions}
+      candidateUrl={'/feed/' + encodeURIComponent(item.id) + '/mention-candidates'} rows={4} maxLength={10000}
+      toolbarActions={<button type="button" className="stream-composer__insert-photo" aria-label="Вставити фото" title="Вставити фото · до 5 фото · до 10 МБ"
+        disabled={update.isPending || editPhotos.uploading || editPhotos.photos.length >= editPhotoLimit} onClick={() => editPhotoInput.current?.click()}><ImagePlus size={16} /><span>Вставити фото</span></button>}
+      onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); if (!update.isPending) void editPhotos.add(files) } }}
+      disabled={update.isPending || editPhotos.uploading} onChange={(body, mentions) => { setEditBody(body); setEditMentions(mentions) }} />
+      <input ref={editPhotoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} aria-label="Фото до публікації"
+        disabled={update.isPending || editPhotos.uploading || editPhotos.photos.length >= editPhotoLimit}
+        onChange={(event) => { void editPhotos.add(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+      {editPhotos.photos.length > 0 && <FeedDraftPhotos photos={editPhotos.photos} onRemove={editPhotos.remove} disabled={update.isPending || editPhotos.uploading} />}
+      {editPhotos.error && <p className="stream-photo-error" role="alert">{editPhotos.error}</p>}
+    </>}
+    commentComposer={<form className={'stream-comment-form' + (reply ? ' is-replying' : '')} onSubmit={submitComment}>
+      {reply && <div className="stream-reply-to"><div><span>У відповідь <strong>{personName(reply.author.displayName)}</strong></span><p>{reply.body}</p></div><IconButton label="Скасувати відповідь" disabled={addComment.isPending} onClick={() => setReplyTo(null)}><X size={13} /></IconButton></div>}
+      <MentionTextarea label={reply ? 'Ваша відповідь' : 'Новий коментар'} value={comment} mentions={commentMentions}
+        candidateUrl={'/feed/' + encodeURIComponent(item.id) + '/mention-candidates'} rows={2} maxLength={4000}
+        disabled={addComment.isPending || commentPhotos.uploading} placeholder="Додайте коментар або вставте скріншот…"
+        onPaste={(event) => {
+          const files = Array.from(event.clipboardData.files)
+          if (files.length) { event.preventDefault(); if (!addComment.isPending) void commentPhotos.add(files) }
+        }}
+        onChange={(body, mentions) => { setComment(body); setCommentMentions(mentions) }} />
+      <input ref={photoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} aria-label="Фото до коментаря"
+        disabled={addComment.isPending || commentPhotos.uploading || commentPhotos.photos.length >= FEED_COMMENT_PHOTO_LIMIT}
+        onChange={(event) => { void commentPhotos.add(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+      {commentPhotos.photos.length > 0 && <FeedDraftPhotos photos={commentPhotos.photos} onRemove={commentPhotos.remove} disabled={addComment.isPending || commentPhotos.uploading} />}
+      {commentPhotos.error && <p className="stream-photo-error" role="alert">{commentPhotos.error}</p>}
+      <div className="stream-comment-actions"><Button type="button" variant="secondary" disabled={addComment.isPending || commentPhotos.uploading || commentPhotos.photos.length >= FEED_COMMENT_PHOTO_LIMIT} onClick={() => photoInput.current?.click()}><ImagePlus size={16} />{commentPhotos.uploading ? 'Додаємо фото…' : 'Фото'}</Button><Button disabled={(!comment.trim() && !commentPhotos.photos.length) || addComment.isPending || commentPhotos.uploading}>
+        {addComment.isPending ? <LoaderCircle size={15} className="stream-spin" /> : <Send size={15} />}
+        {addComment.isPending ? 'Надсилаємо…' : 'Надіслати'}
+      </Button></div>
+    </form>}
+    error={pin.isError ? 'Не вдалося змінити закріплення. Спробуйте ще раз.' : update.isError ? 'Не вдалося зберегти зміни. Оновіть стрічку та спробуйте ще раз.'
+      : archive.isError ? 'Не вдалося архівувати публікацію. Спробуйте ще раз.'
+        : addComment.isError ? 'Не вдалося надіслати коментар. Спробуйте ще раз.'
+          : like.isError ? 'Не вдалося зберегти реакцію. Спробуйте ще раз.' : undefined}
+  />
 }
 
-function FeedAttachment({ attachment }: { attachment: FeedAttachmentView }) {
+export function FeedAttachment({ attachment, photoPreview = false }: { attachment: FeedAttachmentView; photoPreview?: boolean }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
   const status = useQuery({
     queryKey: ['file-status', attachment.id],
     queryFn: () => api<{ scanStatus: FeedAttachmentView['scanStatus'] }>(`/files/${attachment.id}/status`),
@@ -1114,108 +650,29 @@ function FeedAttachment({ attachment }: { attachment: FeedAttachmentView }) {
     },
   })
   const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
-  if (scanStatus === 'CLEAN') {
-    return (
-      <a href={`/api/v1/files/${encodeURIComponent(attachment.id)}/download`}>
-        <FileText size={17} />
-        <span>
-          <strong>{attachment.fileName}</strong>
-          <small>{formatBytes(attachment.bytes)}</small>
-        </span>
-        <Download size={15} />
-      </a>
-    )
-  }
-  return (
-    <span>
-      <FileText size={17} />
-      <span>
-        <strong>{attachment.fileName}</strong>
-        <small>{attachmentStateLabel(scanStatus)}</small>
-      </span>
-    </span>
-  )
+  const isPhoto = photoPreview && scanStatus === 'CLEAN' && FEED_PHOTO_MIME_TYPES.some((mime) => mime === attachment.mimeType)
+  return <>
+    {isPhoto ? <div className="stream-photo-preview"><button type="button" className="stream-photo-preview__open" aria-label={`Переглянути ${attachment.fileName}`} onClick={() => setPreviewOpen(true)}><FileThumbnail file={{ ...attachment, scanStatus }} /></button><a className="icon-button" aria-label={`Завантажити ${attachment.fileName}`} href={'/api/v1/files/' + encodeURIComponent(attachment.id) + '/download'}><Download size={15} /></a></div>
+      : <FeedFileRow file={{ ...attachment, scanStatus }} onPreview={() => setPreviewOpen(true)}
+        downloadHref={'/api/v1/files/' + encodeURIComponent(attachment.id) + '/download'} />}
+    {previewOpen && scanStatus === 'CLEAN' && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+  </>
 }
 
-function SaveFilterButton({
-  filter,
-  itemType,
-  authorId,
-  authorName,
-  groupId,
-  groupName,
-  audienceId,
-  audienceName,
-  dateFrom,
-  dateTo,
-  mentioned,
-  favorite,
-  important,
-}: {
-  filter: FeedListFilter
-  itemType: FeedItemType
-  authorId: string
-  authorName: string | null
-  groupId: string
-  groupName: string | null
-  audienceId: string
-  audienceName: string | null
-  dateFrom: string
-  dateTo: string
-  mentioned: boolean
-  favorite: boolean
-  important: boolean
-}) {
-  const queryClient = useQueryClient()
-  const save = useMutation({
-    mutationFn: () => api('/saved-views', {
-      method: 'POST',
-      body: jsonBody({
-        module: 'FEED',
-        name: savedViewName({
-          filter,
-          itemType,
-          authorName: authorName ?? (authorId ? 'Автор' : null),
-          groupName: groupName ?? (groupId ? 'Робоча група' : null),
-          audienceName: audienceName ?? (audienceId ? 'Аудиторія' : null),
-          dateFrom,
-          dateTo,
-          mentioned,
-          favorite,
-          important,
-        }),
-        queryState: {
-          filter,
-          type: itemType,
-          ...(authorId ? { authorId } : {}),
-          ...(groupId ? { groupId } : {}),
-          ...(audienceId ? { audienceId } : {}),
-          ...(dateFrom ? { dateFrom } : {}),
-          ...(dateTo ? { dateTo } : {}),
-          ...(mentioned ? { mentioned: true } : {}),
-          ...(favorite ? { favorite: true } : {}),
-          ...(important ? { important: true } : {}),
-        },
-      }),
-    }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['saved-views', 'FEED'] }),
-  })
-  return (
-    <Button variant="ghost" disabled={save.isPending || save.isSuccess} onClick={() => save.mutate()}>
-      {save.isSuccess ? <Check size={15} /> : <Save size={15} />}
-      {save.isSuccess ? 'Збережено' : 'Зберегти фільтр'}
-    </Button>
-  )
+function FeedInlinePhoto({ attachment }: { attachment: FeedAttachmentView }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return <>
+    <button type="button" aria-label={`Переглянути ${attachment.fileName}`} disabled={attachment.scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><FileThumbnail file={attachment} /></button>
+    {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+  </>
 }
 
 function parseFilter(value: string | null): FeedListFilter {
-  return value === 'ACK_REQUIRED' || value === 'MINE' || value === 'FOLLOWING' ? value : 'ALL'
+  return value === 'ACK_REQUIRED' || value === 'MINE' ? value : 'ALL'
 }
 
 function parseItemType(value: string | null): FeedItemType {
-  return value === 'POST' || value === 'TASK' || value === 'EVENT' || value === 'ANNOUNCEMENT' || value === 'FILE'
-    ? value
-    : 'ALL'
+  return value === 'POST' || value === 'TASK' || value === 'EVENT' ? value : 'ALL'
 }
 
 function parseIdParam(value: string | null): string {
@@ -1227,84 +684,4 @@ function parseDateParam(value: string | null): string {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return ''
   const parsed = new Date(`${value}T12:00:00.000Z`)
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : ''
-}
-
-function savedViewName({
-  filter,
-  itemType,
-  authorName,
-  groupName,
-  audienceName,
-  dateFrom,
-  dateTo,
-  mentioned,
-  favorite,
-  important,
-}: {
-  filter: FeedListFilter
-  itemType: FeedItemType
-  authorName: string | null
-  groupName: string | null
-  audienceName: string | null
-  dateFrom: string
-  dateTo: string
-  mentioned: boolean
-  favorite: boolean
-  important: boolean
-}): string {
-  const parts: string[] = []
-  if (filter === 'ACK_REQUIRED') parts.push('До підтвердження')
-  else if (filter === 'MINE') parts.push('Мої')
-  else if (filter === 'FOLLOWING') parts.push('Стежу')
-  else parts.push(itemType === 'ALL' ? 'Стрічка' : itemTypeLabel(itemType))
-  if (filter !== 'ALL' && itemType !== 'ALL' && !(filter === 'FOLLOWING' && itemType === 'POST')) {
-    parts.push(itemTypeLabel(itemType))
-  }
-  if (favorite) parts.push('Обране')
-  if (important) parts.push('Важливі')
-  if (mentioned) parts.push('Згадки')
-  if (audienceName) parts.push(audienceName)
-  if (groupName) parts.push(groupName)
-  if (authorName) parts.push(authorName)
-  if (dateFrom || dateTo) {
-    parts.push(dateFrom && dateTo
-      ? `${shortDate(dateFrom)}–${shortDate(dateTo)}`
-      : dateFrom
-        ? `від ${shortDate(dateFrom)}`
-        : `до ${shortDate(dateTo)}`)
-  }
-  return parts.join(' · ').slice(0, 80)
-}
-
-function shortDate(value: string): string {
-  return new Intl.DateTimeFormat('uk-UA', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-    timeZone: 'UTC',
-  }).format(new Date(`${value}T12:00:00.000Z`))
-}
-
-function itemTypeLabel(value: FeedItemType): string {
-  return ({
-    ALL: 'Усі типи',
-    POST: 'Публікації',
-    TASK: 'Завдання',
-    EVENT: 'Події',
-    ANNOUNCEMENT: 'Оголошення',
-    FILE: 'Файли',
-  } as const)[value]
-}
-
-function attachmentStateLabel(status: FeedAttachmentView['scanStatus']): string {
-  if (status === 'INFECTED') return 'Файл заблоковано'
-  if (status === 'UNSUPPORTED') return 'Формат не підтримується'
-  if (status === 'FAILED') return 'Не вдалося перевірити'
-  return 'Перевіряється перед завантаженням'
-}
-
-function subscriptionModeLabel(mode: FeedSubscriptionMode): string {
-  if (mode === 'ALL') return 'Стежу'
-  if (mode === 'MENTIONS') return 'Лише згадки'
-  return 'Стежити'
 }

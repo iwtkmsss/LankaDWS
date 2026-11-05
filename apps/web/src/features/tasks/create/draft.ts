@@ -8,8 +8,8 @@ interface StoredTaskDraft {
   value: TaskCreateDraft
 }
 
-export function taskDraftKey(userId: string, groupId: string): string {
-  return `bertcrm:task-create:v2:${userId}:${groupId || 'organization'}`
+export function taskDraftKey(userId: string, context: string): string {
+  return `lankadws:task-create:v2:${userId}:${context || 'organization'}`
 }
 
 export function loadTaskDraft(key: string): TaskCreateDraft | null {
@@ -27,6 +27,7 @@ export function loadTaskDraft(key: string): TaskCreateDraft | null {
       attachments: stored.value.attachments.filter((attachment) => (
         Date.now() - new Date(attachment.stagedAt).getTime() < attachmentLifetimeMs
       )),
+      photoPlacements: stored.value.photoPlacements ?? [],
     }
   } catch {
     localStorage.removeItem(key)

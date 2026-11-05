@@ -1,32 +1,16 @@
 import { z } from 'zod'
 import type { OrganizationCapabilityView } from './capabilities.js'
 import type { AccountType } from './accounts.js'
+import type { FeedPhotoPlacement } from './feed.js'
+import type { StructuredMentionView } from './mentions.js'
 
-export const companyScopeSchema = z.union([
-  z.literal('all'),
-  z.string().regex(/^cmp_[a-zA-Z0-9_-]+$/),
-])
+export const companyScopeSchema = z.union([z.literal('all'), z.string().regex(/^cmp_[a-zA-Z0-9_-]+$/)])
 export type CompanyScope = z.infer<typeof companyScopeSchema>
 
-export const taskStatusSchema = z.enum([
-  'NEW',
-  'PLANNED',
-  'IN_PROGRESS',
-  'IN_REVIEW',
-  'DONE',
-  'BLOCKED',
-  'CANCELLED',
-  'ARCHIVED',
-])
+export const taskStatusSchema = z.enum(['NEW', 'IN_PROGRESS', 'IN_REVIEW', 'DONE', 'ARCHIVED'])
 export type TaskStatus = z.infer<typeof taskStatusSchema>
 
-export const taskViewRoleSchema = z.enum([
-  'RESPONSIBLE',
-  'CO_EXECUTOR',
-  'CREATOR',
-  'OBSERVER',
-  'ALL',
-])
+export const taskViewRoleSchema = z.enum(['RESPONSIBLE', 'CO_EXECUTOR', 'CREATOR', 'OBSERVER', 'ALL'])
 export type TaskViewRole = z.infer<typeof taskViewRoleSchema>
 
 export const taskParticipantRoleSchema = z.enum(['CO_EXECUTOR', 'OBSERVER'])
@@ -42,18 +26,14 @@ export const executionStatusSchema = z.enum([
 ])
 export type ExecutionStatus = z.infer<typeof executionStatusSchema>
 
-export const confidentialitySchema = z.enum([
-  'GENERAL',
-  'INTERNAL',
-  'CONFIDENTIAL',
-  'HR_SECURITY',
-])
+export const confidentialitySchema = z.enum(['GENERAL', 'INTERNAL', 'CONFIDENTIAL', 'HR_SECURITY'])
 export type Confidentiality = z.infer<typeof confidentialitySchema>
 
 export interface CompanyView {
   id: string
   name: string
   slug: string
+  description: string | null
   isActive: boolean
   timezone: string
   createdAt?: string
@@ -69,9 +49,15 @@ export interface UserSummary {
 }
 
 export interface PrincipalView extends UserSummary {
+  firstName?: string
   accountType: AccountType
   company: CompanyView | null
+  positionTitle: string
+  orgUnitPath: Array<{ id: string; name: string }>
   contactEmail: string | null
+  phone: string | null
+  gender: 'FEMALE' | 'MALE' | 'OTHER' | null
+  birthDate: string | null
   timezone: string
   locale: 'uk-UA' | 'en-US'
   capabilities: OrganizationCapabilityView[]
@@ -93,9 +79,13 @@ export interface TaskListItem {
   parentTaskId: string | null
   title: string
   assignee: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+  responsibles: Array<Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>>
+  reporter: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
   status: TaskStatus
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   deadline: string | null
+  createdAt: string
+  updatedAt: string
   version: number
   commentCount: number
   attachmentCount: number
@@ -122,8 +112,6 @@ export interface TaskReminderView {
 export interface TaskPersonalStateView {
   favorited: boolean
   important: boolean
-  following: boolean
-  followerCount: number
   reminders: TaskReminderView[]
 }
 
@@ -167,6 +155,7 @@ export interface TaskReference {
 
 export interface TaskDetailView extends TaskListItem {
   description: string
+  photoLayout: FeedPhotoPlacement[]
   blockReason: string | null
   creator: Pick<UserSummary, 'id' | 'displayName'>
   checklist: Array<{
@@ -179,7 +168,16 @@ export interface TaskDetailView extends TaskListItem {
     id: string
     author: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
     body: string
+    mentions: StructuredMentionView[]
     createdAt: string
+    editedAt: string | null
+    version: number
+    canEdit: boolean
+    canDelete: boolean
+    reactions: {
+      likeCount: number
+      likedByMe: boolean
+    }
     replyToCommentId: string | null
     replyPreview: {
       authorName: string
@@ -199,6 +197,8 @@ export interface TaskDetailView extends TaskListItem {
   canCreateSubtask: boolean
   canManageParticipants: boolean
   canAttachFiles: boolean
+  requiresAcceptance: boolean
+  availableStatusActions: Array<'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'>
   personalState: TaskPersonalStateView
 }
 
@@ -206,6 +206,7 @@ export interface EventListItem {
   id: string
   companyId: string
   title: string
+  description: string | null
   startAt: string
   endAt: string
   allDay: boolean
@@ -224,18 +225,6 @@ export interface DocumentListItem {
   version: number
 }
 
-export interface AnnouncementListItem {
-  id: string
-  title: string
-  safeSnippet: string
-  authorName: string
-  companyIds: string[]
-  status: string
-  isPinned: boolean
-  publishedAt: string | null
-  readAt: string | null
-}
-
 export interface DashboardKpi {
   value: number
   href: string
@@ -247,7 +236,7 @@ export interface DashboardAction {
 }
 
 export interface DashboardNextStep {
-  kind: 'TASK' | 'NOTIFICATION' | 'ACKNOWLEDGEMENT' | 'EVENT' | 'LIFECYCLE' | 'ANNOUNCEMENT'
+  kind: 'TASK' | 'NOTIFICATION' | 'ACKNOWLEDGEMENT' | 'EVENT' | 'LIFECYCLE' | 'KNOWLEDGE'
   title: string
   detail: string
   href: string
@@ -255,7 +244,7 @@ export interface DashboardNextStep {
 
 export interface DashboardLifecycleItem {
   id: string
-  type: 'ONBOARDING' | 'OFFBOARDING'
+  type: 'OFFBOARDING'
   employeeName: string
   progress: number
   status: string
@@ -263,7 +252,7 @@ export interface DashboardLifecycleItem {
 
 export interface DashboardActivityItem {
   id: string
-  kind: 'POST' | 'TASK' | 'EVENT' | 'ANNOUNCEMENT' | 'FILE'
+  kind: 'POST' | 'TASK' | 'EVENT' | 'FILE'
   title: string
   summary: string
   occurredAt: string
@@ -274,7 +263,6 @@ export interface DashboardView {
   attentionCount: number
   tasks: TaskListItem[]
   events: EventListItem[]
-  announcements: AnnouncementListItem[]
   lifecycle: DashboardLifecycleItem[]
   meta: {
     generatedAt: string
@@ -284,7 +272,6 @@ export interface DashboardView {
   availability: {
     tasks: boolean
     calendar: boolean
-    announcements: boolean
     messages: boolean
     notifications: boolean
     activity: boolean

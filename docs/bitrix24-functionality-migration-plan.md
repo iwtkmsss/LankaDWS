@@ -1,12 +1,12 @@
-# План переносу робочого функціоналу Bitrix24 у BERT CRM
+# План переносу робочого функціоналу Bitrix24 у LankaDWS
 
 - **Версія:** 1.5 — implementation-aligned product/UI plan
 - **Дата:** 2026-07-23
 - **Статус:** робочий product/UI plan для scope, UX, domain/API contracts і user-facing acceptance; його рішення можна уточнювати за evidence та зручністю, якщо зміна зафіксована й узгоджена з backend data plan
-- **Продукт:** BERT CRM — внутрішній operations workspace без sales CRM
+- **Продукт:** LankaDWS — внутрішній operations workspace без sales CRM
 - **Backend data plan:** [bitrix24-database-migration-plan.md](bitrix24-database-migration-plan.md)
 
-**Межа evidence:** старий portal перевірявся лише читанням UI, metadata та агрегованими `SELECT`/`SHOW`; жодні дані, налаштування, права, повідомлення або файли на ньому не змінювалися. Поточна реалізація BertCRM уже розвивається за цим планом; фактичний стан фіксують код, migration files, tests, [implementation checklist](implementation-checklist.md) і [decisions](decisions.md).
+**Межа evidence:** старий portal перевірявся лише читанням UI, metadata та агрегованими `SELECT`/`SHOW`; жодні дані, налаштування, права, повідомлення або файли на ньому не змінювалися. Поточна реалізація LankaDWS уже розвивається за цим планом; фактичний стан фіксують код, migration files, tests, [implementation checklist](implementation-checklist.md) і [decisions](decisions.md).
 
 > Обидва плани є координованими робочими правилами, а не незмінною специфікацією. Зміни product scope, route, domain schema, permission або API мають бути відображені тут або в загальному Decision log; snapshot/export/import/reconciliation/cutover/rollback — у backend data plan. При суперечності обирається безпечніше й простіше для користувача рішення з явним записом причини.
 
@@ -41,15 +41,15 @@
 
 ### Коротке рішення
 
-BERT CRM переносить щоденне ядро в такому порядку: **Жива стрічка → Завдання → Чат → Співробітники/оргконтекст**. **Групи, Диск і Календар** підключаються поетапно після inventory; старі **Відсутності** лишаються archive-only за D-009. Встановлені, але непідтверджені модулі не потрапляють навіть у «Ще». Leads, deals, sales pipeline та зв’язок «компанія → лід → угода» не входять у модель. Одна сутність має одне джерело правди; feed, search і notifications є проєкціями.
+LankaDWS переносить щоденне ядро в такому порядку: **Жива стрічка → Завдання → Чат → Співробітники/оргконтекст**. **Групи, Диск і Календар** підключаються поетапно після inventory; старі **Відсутності** лишаються archive-only за D-009. Встановлені, але непідтверджені модулі не потрапляють навіть у «Ще». Leads, deals, sales pipeline та зв’язок «компанія → лід → угода» не входять у модель. Одна сутність має одне джерело правди; feed, search і notifications є проєкціями.
 
 ## 1. Докази й перевірений поточний стан
 
 ### 1.1. Вхідний scope
 
 - [Оригінальне меню Bitrix24](assets/bitrix24-migration/source-bitrix24-menu.png)
-- [Поточний BERT CRM — Огляд](assets/bitrix24-migration/current-overview.png)
-- [Поточний BERT CRM — Завдання](assets/bitrix24-migration/current-tasks.png)
+- [Поточний LankaDWS — Огляд](assets/bitrix24-migration/current-overview.png)
+- [Поточний LankaDWS — Завдання](assets/bitrix24-migration/current-tasks.png)
 
 `current-messages.png` не використовується як evidence: screenshot має зламаний viewport. Перед F0 sign-off сторінки треба перезняти в одному viewport 1440×900 із датою, роллю та company.
 
@@ -81,17 +81,17 @@ BERT CRM переносить щоденне ядро в такому поряд
 
 Перевірено 2026-07-22:
 
-- [Feed](https://helpdesk.bitrix24.com/open/25601377/) містить posts, group/project updates, events, tasks і work reports; BERT свідомо не переносить polls/workflows у feed v1.
-- [Workgroups/projects](https://helpdesk.bitrix24.com/open/24633004/) мають public/private/hidden privacy, participants, tasks та archive; BERT зберігає privacy semantics в одній сутності `Group`.
+- [Feed](https://helpdesk.bitrix24.com/open/25601377/) містить posts, group/project updates, events, tasks і work reports; LankaDWS свідомо не переносить polls/workflows у feed v1.
+- [Workgroups/projects](https://helpdesk.bitrix24.com/open/24633004/) мають public/private/hidden privacy, participants, tasks та archive; LankaDWS зберігає privacy semantics в одній сутності `Group`.
 - [Task/event from message](https://helpdesk.bitrix24.com/open/25834615/) підтверджує потребу двостороннього deep-link.
-- [Drive](https://helpdesk.bitrix24.com/open/25927659/) має folders, versions, permissions і recycle bin; BERT P1 переносить потрібне ядро без public links за замовчуванням.
+- [Drive](https://helpdesk.bitrix24.com/open/25927659/) має folders, versions, permissions і recycle bin; LankaDWS P1 переносить потрібне ядро без public links за замовчуванням.
 - [Worktime](https://helpdesk.bitrix24.com/open/24856218/) включає clock-in/out і daily reports; [task elapsed time](https://apidocs.bitrix24.com/api-reference/tasks/index.html) — окрема capability.
 - [Task XLS export](https://helpdesk.bitrix24.com/open/26004483/) не доводить доступність comments/chats/files; повний import залежить від edition і REST scopes.
 - [Chat history](https://apidocs.bitrix24.com/api-reference/chats/messages/im-dialog-messages-get.html) доступна в межах participant permissions; [workgroup list](https://apidocs.bitrix24.com/api-reference/sonet-group/socialnetwork-api-workgroup-list.html) також залежить від caller rights. F0 мусить довести coverage.
 
 ### 1.5. Read-only usage evidence
 
-Перевірено 2026-07-22–23 на налаштованому `b24.bertcompany.org`. Аудит був суворо read-only: UI, metadata й агрегати; без зміни даних, налаштувань, прав, повідомлень або файлів. Персональний content і secrets у repo не копіювалися.
+Перевірено 2026-07-22–23 на налаштованому `b24.lankadwscompany.org`. Аудит був суворо read-only: UI, metadata й агрегати; без зміни даних, налаштувань, прав, повідомлень або файлів. Персональний content і secrets у repo не копіювалися.
 
 Product-релевантні висновки:
 
@@ -170,7 +170,7 @@ Product-релевантні висновки:
 
 Global `Ctrl/Cmd+K` є робочою палітрою, а не окремим search module: без запиту вона показує лише дозволені швидкі переходи, від двох символів — згруповані результати Tasks, Requests, Groups, Chat, Drive, Employees, Calendar і Knowledge. Backend повторно застосовує company scope, permissions, document/article ACL та live group/thread membership; snippets не містять message body або іншої чутливої preview-інформації. Палітра підтримує debounce, стрілки/Enter/Esc, focus trap і повноекранний mobile state.
 
-Notification center лишається єдиною BERT-native чергою: «Потребує дії» містить лише непрочитані actionable items, окремо доступні «Непрочитані», «Згадки» та «Усі». Користувач може відкрити allowlisted canonical target, змінити read state одного item або позначити видиму чергу прочитаною; topbar показує реальний unread count. Читання сповіщення не змінює сам Task/Request/Feed aggregate, тому робочий статус завжди лишається у canonical module.
+Notification center лишається єдиною LankaDWS-native чергою: «Потребує дії» містить лише непрочитані actionable items, окремо доступні «Непрочитані», «Згадки» та «Усі». Користувач може відкрити allowlisted canonical target, змінити read state одного item або позначити видиму чергу прочитаною; topbar показує реальний unread count. Читання сповіщення не змінює сам Task/Request/Feed aggregate, тому робочий статус завжди лишається у canonical module.
 
 Chat unread summary є окремим lightweight read без message body та user profiles. Він повторює company/participant/live-group authorization і живить однаковий badge у sidebar, topbar та mobile nav. Відкритий thread використовує SSE invalidation; 15-second foreground polling списку лишається тільки fallback, доки SSE не підключений або діалог не відкритий.
 
@@ -191,10 +191,10 @@ Existing Requests лишаються compact workflow, а не окремим BP
 - help sheet містить mapping старої назви/іконки до нового route та короткі tooltips лише для першого входу;
 - personal sidebar order, themes, Company Pulse widgets і admin favorites не імпортуються; default role nav однаковий і передбачуваний;
 - saved filters/default views імпортуються лише коли всі referenced fields/operators мають canonical mapping; решта потрапляє у compatibility report з назвою filter, owner та причиною, без silent approximation;
-- old notification queue/system toasts не з'являються як нові notifications. Після переходу notification center створює лише BERT-native actionable events; chat і mandatory inbox мають окремі badges;
+- old notification queue/system toasts не з'являються як нові notifications. Після переходу notification center створює лише LankaDWS-native actionable events; chat і mandatory inbox мають окремі badges;
 - links у historical post/task/comment/message bodies проходять allowlisted backend legacy-link resolver; user ніколи не redirect-иться на arbitrary URL.
 
-`LegacyLinkResolver` приймає лише відомі Bitrix patterns для task, post/comment, group, user, file/document і calendar event. Resolver нормалізує source tenant + numeric ID, повторно авторизує target і робить 302 на canonical BERT route. Невідомий pattern не стає open redirect; повертається safe 404 з link на search. Старий portal у read-only window або окремий `/legacy/bitrix/resolve` entry point використовує той самий mapping. Embedded file download URLs не переписуються на public links.
+`LegacyLinkResolver` приймає лише відомі Bitrix patterns для task, post/comment, group, user, file/document і calendar event. Resolver нормалізує source tenant + numeric ID, повторно авторизує target і робить 302 на canonical LankaDWS route. Невідомий pattern не стає open redirect; повертається safe 404 з link на search. Старий portal у read-only window або окремий `/legacy/bitrix/resolve` entry point використовує той самий mapping. Embedded file download URLs не переписуються на public links.
 
 ### 3.2. Layout і accessibility
 
@@ -373,7 +373,7 @@ Older result opens an explicit authorized archive context; it never silently van
 - Core relations мають typed FK; `EntityLink` — canonical cross-module relation.
 - JSON зберігається як validated `String` з суфіксом `Json`, відповідно до чинної SQLite schema.
 - Aggregate mutation використовує `expectedVersion` у body. `If-Match` не вводиться без окремого contracts/CORS update.
-- BERT генерує `TSK-*`/`DOC-*`; legacy Bitrix ID доступний через stable backend source mapping, бо може конфліктувати між portals.
+- LankaDWS генерує `TSK-*`/`DOC-*`; legacy Bitrix ID доступний через stable backend source mapping, бо може конфліктувати між portals.
 
 `CompanyCapability`: `id`, `companyId`, `code FEED|GROUPS_UI|DRIVE|CALENDAR_WRITE|CALLS|ABSENCES`, `enabled`, `enabledById?`, `enabledAt?`, `disabledAt?`, `version`, timestamps; unique company/code. Capability є deployment/product gate поверх permission, не заміною RBAC. Server guard читає current value або cache keyed by company/code/version; client/session value не є authorization evidence.
 
@@ -469,11 +469,11 @@ Import control-plane models, leases, dataset/watermark chain, external ID mappin
 
 Product acceptance: migration screens/status доступні лише admin/authorized operators, не показують PII в errors, а жодна imported entity не publish-иться до backend reconciliation/ACL gates.
 
-Поточний exporter entry point — Ops CLI `npm run bert -- import:seal-manifest [--json]`: він приймає prepared export, окремий strict metadata request і окремий Ed25519 key file поза repo/dataset, сам рахує hashes/checksums, підписує без overwrite та приймає пакет лише після round-trip через existing verifier. Після цього `npm run bert -- import:validate-manifest [--json]` читає абсолютний read-only dataset root поза repo, не запускає application/DB і повертає safe metadata/stable issue codes. Browser upload, paste raw manifest/private key і декоративний «Запустити імпорт» не додаються: для великого dataset це погіршило б security та створило б хибне відчуття готового `APPLY`. Admin UI лишається коротким readiness view у чинному стилі BertCRM.
+Поточний exporter entry point — Ops CLI `npm run lankadws -- import:seal-manifest [--json]`: він приймає prepared export, окремий strict metadata request і окремий Ed25519 key file поза repo/dataset, сам рахує hashes/checksums, підписує без overwrite та приймає пакет лише після round-trip через existing verifier. Після цього `npm run lankadws -- import:validate-manifest [--json]` читає абсолютний read-only dataset root поза repo, не запускає application/DB і повертає safe metadata/stable issue codes. Browser upload, paste raw manifest/private key і декоративний «Запустити імпорт» не додаються: для великого dataset це погіршило б security та створило б хибне відчуття готового `APPLY`. Admin UI лишається коротким readiness view у чинному стилі LankaDWS.
 
-Signed `reports/company-mapping.json` має privacy-safe v1 contract: opaque source root key/fingerprint → explicit BERT company ID/code або quarantine, fixed no-inference precedence та окремі Product/Security/Data evidence refs. User-facing/Ops report показує лише агреговане coverage; source branch names, keys і approver identity не відображаються. Будь-який quarantined root або unresolved cross-company entity блокує preflight, тому D-024 не можна «закрити» лише наявністю формально правильного JSON.
+Signed `reports/company-mapping.json` має privacy-safe v1 contract: opaque source root key/fingerprint → explicit LankaDWS company ID/code або quarantine, fixed no-inference precedence та окремі Product/Security/Data evidence refs. User-facing/Ops report показує лише агреговане coverage; source branch names, keys і approver identity не відображаються. Будь-який quarantined root або unresolved cross-company entity блокує preflight, тому D-024 не можна «закрити» лише наявністю формально правильного JSON.
 
-Другий Ops entry point `npm run bert -- import:validate-company-map [--json]` повторно перевіряє весь signed dataset і лише після успіху read-only звіряє exact artifact з активними `SourceCompanyMapping` та станом target companies у підписаному workspace. Він повертає aggregate counters/stable codes, не показує source keys/company names і нічого не імпортує. Ця операційна перевірка не перетворюється на додатковий admin wizard: UI продовжує показувати короткий стан готовності та конкретні blockers у стилі BertCRM.
+Другий Ops entry point `npm run lankadws -- import:validate-company-map [--json]` повторно перевіряє весь signed dataset і лише після успіху read-only звіряє exact artifact з активними `SourceCompanyMapping` та станом target companies у підписаному workspace. Він повертає aggregate counters/stable codes, не показує source keys/company names і нічого не імпортує. Ця операційна перевірка не перетворюється на додатковий admin wizard: UI продовжує показувати короткий стан готовності та конкретні blockers у стилі LankaDWS.
 
 
 ## 5. Contracts, permissions, API і realtime
@@ -806,7 +806,7 @@ Backend DB-F4 дає data go/no-go; product команда відповідає 
 | Chat attachment ACL | Thread participants мають різний file access | Author attaches CLEAN file і participant downloads | File ACL не розширюється мовчазно; allowed user downloads, denied user sees unavailable placeholder/404; removed user denied |
 | Group context | Active member | Creates task/file/event | Shared/global modules return same IDs; non-member denied safely |
 | Safe file | Allowed upload | pending/infected/clean | No download before CLEAN; infected quarantined; clean obeys ACL |
-| Imported history | Before watermark | First BERT open | History read; authorized legacy ID finds target |
+| Imported history | Before watermark | First LankaDWS open | History read; authorized legacy ID finds target |
 | Hot/archive thread | Reply and attachment cross selected hot boundary | User opens thread/searches legacy result | Hot UI has explicit stub/link; authorized archive resolves context; outsider gets no result/snippet/download |
 | Legacy deep-link | Imported body/bookmark contains known Bitrix task/post/group/file URL | Authorized user and outsider open resolver | Authorized redirects to canonical target; outsider safe 404; unknown pattern cannot redirect off-site |
 | Org scope | User belongs to nested active OrgUnit; manager has approved typed scope | Directory/absence/team query by member, manager and outsider | Parent/manager tree correct; only safe fields visible; manager scope bounded; admin status does not leak data to outsider |
@@ -877,7 +877,7 @@ Performance SLO встановлюється після baseline; до цьог�
 | D-020 | Full hot import vs hot + authorized archive per entity, dependency closure і source shutdown date | **BLOCKING F0** | Product/Legal/Data · TBD |
 | D-021 | Мінімальний OrgUnit kernel переноситься; HR dossier/efficiency/honours не переноситься | Прийнято планом | Product/Architecture · 2026-07-22 |
 | D-022 | Які saved/default views мігрують, legacy URL patterns, resolver ownership і compatibility window | **BLOCKING F0** | Product/UX/Data · TBD |
-| D-024 | Source org/legal/project branches → BERT companies і policy для cross-company entities | **BLOCKING F0** | Product/Security/Data · TBD |
+| D-024 | Source org/legal/project branches → LankaDWS companies і policy для cross-company entities | **BLOCKING F0** | Product/Security/Data · TBD |
 
 Backend decisions щодо snapshots, retention/encryption, source coverage, delta, topology, recovery і cutover ведуться окремо як `DDB-*` у [backend data plan](bitrix24-database-migration-plan.md#12-decision-log), а не дублюються тут.
 

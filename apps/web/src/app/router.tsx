@@ -1,18 +1,14 @@
-import { Suspense, useEffect } from 'react'
+import { Suspense } from 'react'
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { AppShell } from '../layout/AppShell'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { OverlayProvider, Skeleton } from '../shared/ui'
-import { routes, routeTitle, type RouteMeta } from './routes'
+import { resolveHomePath } from '../shared/auth/home'
+import { OverlayProvider, PageDataLoader, Skeleton } from '../shared/ui'
+import { routes, type RouteMeta } from './routes'
 import { LoginPage, RestrictedAccessPage } from '../pages/AuthPages'
 import ErrorPage from '../pages/ErrorPage'
 import { ModuleUnavailablePage } from '../pages/ModuleUnavailablePage'
-
-function DocumentTitle() {
-  const location = useLocation()
-  useEffect(() => { document.title = `${routeTitle(location.pathname)} — BERT CRM` }, [location.pathname])
-  return null
-}
+import { UserProfileProvider } from '../features/employees/UserProfileDrawer'
 
 function ProtectedRoot() {
   const auth = useAuth()
@@ -28,9 +24,10 @@ function ProtectedRoot() {
   }
   return (
     <>
-      <DocumentTitle />
       <OverlayProvider>
-        <AppShell><Outlet /></AppShell>
+        <UserProfileProvider>
+          <AppShell><Outlet /></AppShell>
+        </UserProfileProvider>
       </OverlayProvider>
     </>
   )
@@ -44,11 +41,19 @@ function ProtectedPage({ route }: { route: RouteMeta }) {
   }
   if (route.releaseState === 'planned') return <ModuleUnavailablePage title={route.title} state="preparing" />
   const Component = route.component
-  return <Suspense fallback={<div className="route-loading"><Skeleton rows={5} /></div>}><Component /></Suspense>
+  return <Suspense fallback={<div className="route-loading"><PageDataLoader /></div>}><Component /></Suspense>
+}
+
+function HomeRedirect() {
+  const auth = useAuth()
+  if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
+  if (auth.state === 'anonymous') return <Navigate to="/login" replace />
+  if (auth.state === 'restricted') return <Navigate to="/access/setup" replace />
+  return <Navigate to={resolveHomePath(auth.user)} replace />
 }
 
 export const router = createBrowserRouter([
-  { path: '/', element: <Navigate to="/overview" replace /> },
+  { path: '/', element: <HomeRedirect /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/first-login', element: <RestrictedAccessPage mode="first-login" /> },
   { path: '/password-changed', element: <RestrictedAccessPage mode="password-changed" /> },

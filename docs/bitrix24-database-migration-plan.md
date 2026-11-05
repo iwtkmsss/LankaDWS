@@ -1,16 +1,16 @@
-# Backend-план переносу БД і файлів Bitrix24 у BERT CRM
+# Backend-план переносу БД і файлів Bitrix24 у LankaDWS
 
 - **Версія:** 1.1 — implementation-aligned data plan
 - **Дата:** 2026-07-23
 - **Статус:** робочий план для source snapshot, export, staging, import, delta, reconciliation і cutover; рішення уточнюються за evidence, security review та rehearsal results
 - **Пов'язаний product/UI план:** [bitrix24-functionality-migration-plan.md](bitrix24-functionality-migration-plan.md)
-- **Source:** `b24.bertcompany.org`, Bitrix on-prem `20.0.1198`
+- **Source:** `b24.lankadwscompany.org`, Bitrix on-prem `20.0.1198`
 
 > Цей файл регулює backend/data migration, а пов'язаний plan — product scope, UI, routes і UX. Обидва є керованими правилами, не незмінною «правдою»: доречна зміна приймається, якщо вона безпечніша або спрощує роботу, має evidence/tests і зафіксована в decision log. Data safety/recovery не послаблюються лише заради UI-зручності.
 
 ## 0. Рішення
 
-Просте копіювання MySQL-файлів у папку BERT CRM **не використовується** як migration method:
+Просте копіювання MySQL-файлів у папку LankaDWS **не використовується** як migration method:
 
 - live `*.ibd`/redo/undo copy може бути transaction-inconsistent;
 - DB має ≈77,82 GiB, із яких ≈43,04 GiB — derived search/projection data, які треба rebuild-ити;
@@ -27,7 +27,7 @@ consistent Percona 5.7 backup + matching /upload snapshot
 → schema fingerprint + exact source inventory
 → allowlisted canonical export у deterministic chunks
 → normalization/quarantine/reconciliation
-→ ordered idempotent BERT import
+→ ordered idempotent LankaDWS import
 → rebuild search/feed/counters
 → final delta під write freeze
 → signed reconciliation
@@ -36,7 +36,7 @@ consistent Percona 5.7 backup + matching /upload snapshot
 Потрібні два різні артефакти:
 
 1. **Safety/source snapshot** — повний encrypted physical DB backup + matching `/upload` snapshot для recovery і повторного extraction.
-2. **Migration dataset** — очищений logical export лише канонічних даних, який читає BERT importer.
+2. **Migration dataset** — очищений logical export лише канонічних даних, який читає LankaDWS importer.
 
 ## 1. Межі й безпека аудиту
 
@@ -272,7 +272,7 @@ Iblock ID 3 має properties `USER`, `FINISH_STATE`, `STATE`, `ABSENCE_TYPE`. R
 - User department field: `b_user_field.ID=63`, `UF_DEPARTMENT`, multiple; values у `b_utm_user`.
 - Department head field: `b_user_field.ID=125`, `IBLOCK_1_SECTION/UF_HEAD`; values у `b_uts_iblock_1_section`.
 - User може мати кілька assignments; primary assignment не вигадується без source/approved rule.
-- `sourceTenantId` не дорівнює одному BERT `companyId`. Versioned `SourceCompanyMapping` має бути signed до entity import.
+- `sourceTenantId` не дорівнює одному LankaDWS `companyId`. Versioned `SourceCompanyMapping` має бути signed до entity import.
 
 Company resolution precedence:
 
@@ -302,7 +302,7 @@ Task import:
 - second pass: `PARENT_ID`, checklist tree, dependencies, recurrence/options;
 - unknown status/member type, parent cycle, missing required actor або cross-company relation — quarantine/blocker;
 - source `ZOMBIE`/delete/status constants pin-яться fixtures, не вгадуються;
-- BERT task number генерується новий; `ExternalIdMap` зберігає legacy ID/link;
+- LankaDWS task number генерується новий; `ExternalIdMap` зберігає legacy ID/link;
 - comments беруться лише з `b_forum_message.TOPIC_ID = b_tasks.FORUM_TOPIC_ID`;
 - 976 716 `b_sonet_log_comment(tasks_comment)` rows є projection і не імпортуються повторно.
 
@@ -508,9 +508,9 @@ Production raw snapshot: encrypted Operations storage, never Git/dev machine.
 
 Developer-safe normalized test dataset, якщо потрібен:
 
-`C:\mics\project\BertCRM-migration-data\<snapshotId>`
+`C:\mics\project\LankaDWS-migration-data\<snapshotId>`
 
-Це sibling до repo, не `BertCRM`. Future importer отримує read-only root через `BITRIX_SNAPSHOT_ROOT`. Real user content не копіюється локально без DDB-006 authorization; fixtures мають synthetic/redacted bodies.
+Це sibling до repo, не `LankaDWS`. Future importer отримує read-only root через `BITRIX_SNAPSHOT_ROOT`. Real user content не копіюється локально без DDB-006 authorization; fixtures мають synthetic/redacted bodies.
 
 ### 6.2. Layout
 
@@ -559,7 +559,7 @@ Developer-safe normalized test dataset, якщо потрібен:
 - every child manifest SHA-256;
 - signer and key ID, never secret key.
 
-#### 6.2.1. BertCRM signed manifest contract v1
+#### 6.2.1. LankaDWS signed manifest contract v1
 
 Станом на 2026-07-23 preflight contract реалізований у `packages/contracts/src/import.ts`, а filesystem validator — у `apps/api/src/modules/import-control/manifest-validator.ts`.
 
@@ -568,15 +568,15 @@ Developer-safe normalized test dataset, якщо потрібен:
 - Child paths — лише lowercase forward-slash relative ASCII paths під `source-schema/`, `canonical/`, `files/`, `reports/` або exact `checksums.sha256`; absolute, drive, backslash, empty, `.`/`..`, trailing-dot і Windows device-name segments блокуються до filesystem access.
 - Обов'язкові schema/reconciliation reports, `reports/company-mapping.json`, `files/manifest.ndjson.zst`, `files/tombstones.ndjson.zst` і `checksums.sha256`. Canonical chunks лишаються entity-dependent, але кожен фактичний chunk обов'язково декларується.
 - `checksums.sha256` має GNU-compatible форму `<64 hex><two spaces><relative path>`, охоплює кожен child, крім самого `checksums.sha256`, і не може містити duplicate/extra paths.
-- Підпис — Ed25519. Signed bytes = deterministic BertCRM canonical JSON v1 з lexicographically sorted object keys для `{ payload, signing: { signerId, keyId, algorithm } }`; `signedPayloadSha256` хешує саме ці bytes, після чого `signature` підписує ті самі bytes. Поля hash/signature навмисно не входять у signed bytes, щоб не створювати cycle.
+- Підпис — Ed25519. Signed bytes = deterministic LankaDWS canonical JSON v1 з lexicographically sorted object keys для `{ payload, signing: { signerId, keyId, algorithm } }`; `signedPayloadSha256` хешує саме ці bytes, після чого `signature` підписує ті самі bytes. Поля hash/signature навмисно не входять у signed bytes, щоб не створювати cycle.
 - Trusted public keys задаються Operations як JSON object `keyId → PEM/public-key text` у `IMPORT_SIGNING_PUBLIC_KEYS_JSON`; для sealing конфігурація містить лише absolute private-key path, але не key bytes.
 - Validator inventory-ить bounded filesystem tree, відхиляє undeclared/unsafe entries, realpath-ить root/children і блокує escape, non-regular/hard-linked file, mutation during read, size/hash mismatch, invalid signature/key та malformed/invalid UTF-8 manifest/checksum index. Raw child content він не парсить і не виводить.
 
 Exporter-side sealing використовує [strict request v1 example](examples/bitrix-snapshot-seal-request.example.json), скопійований у захищене Operations-сховище. Request містить payload metadata без `files`/hashes/signature та non-secret `signerId/keyId`; Ed25519 private key є окремим bounded regular file. Dataset, request і key — три distinct absolute paths поза repository, а request/key також поза dataset root.
 
 ```bash
-npm run bert -- import:seal-manifest
-npm run bert -- import:seal-manifest --json
+npm run lankadws -- import:seal-manifest
+npm run lankadws -- import:seal-manifest --json
 ```
 
 `BITRIX_SNAPSHOT_ROOT`, `BITRIX_MANIFEST_METADATA_PATH` та `IMPORT_SIGNING_PRIVATE_KEY_PATH` задають exact paths. Команда bounded-inventory-ить allowlisted export, відхиляє symlink/hardlink/unsafe/extra entry, хешує stable bytes, генерує lexicographically sorted GNU-compatible `checksums.sha256`, canonical Ed25519 envelope і одразу запускає existing verifier з public key, derived in-memory. Вона створює тільки відсутні `checksums.sha256`/`snapshot-manifest.json`: identical rerun не пише й повертає той самий hash; mismatch ніколи не overwrite-иться; outputs поточної спроби видаляються, якщо verifier round-trip не пройшов. Private-key bytes, absolute paths і raw content у report не потрапляють.
@@ -584,8 +584,8 @@ npm run bert -- import:seal-manifest --json
 Verifier commands:
 
 ```bash
-npm run bert -- import:validate-manifest
-npm run bert -- import:validate-manifest --json
+npm run lankadws -- import:validate-manifest
+npm run lankadws -- import:validate-manifest --json
 ```
 
 Після sealing `BITRIX_SNAPSHOT_ROOT` монтується read-only. Validator не bootstraps NestJS/Prisma, не пише у target DB і повертає лише safe dataset IDs, relative paths, counters, hashes та stable issue codes. Exit `0` = valid/sealed, `2` = validation або seal-input failure, `1` = config/runtime failure. Generator закриває ручне складання envelope, але не є canonical source extractor і не замінює real company inventory/approval, DDB-004–DDB-009 evidence або rehearsal.
@@ -601,7 +601,7 @@ Artifact містить лише migration metadata:
 - fixed precedence `authoritative marker → owning mapped group → approved org unit → block ambiguous`;
 - `fallbackPolicy=AUTHORITATIVE_ONLY`; author department, participant, admin company, filename/path не можуть стати fallback;
 - opaque `sourceOrgUnitKey`, source-root fingerprint, branch kind, descendant flag і explicit `MAP|QUARANTINE`;
-- для `MAP` — stable BERT `targetCompanyId` + code; один ID не може мати різні codes і навпаки;
+- для `MAP` — stable LankaDWS `targetCompanyId` + code; один ID не може мати різні codes і навпаки;
 - current cross-company policy `BLOCK_AND_QUARANTINE` та detected count;
 - рівно три non-secret approval evidence refs: Product, Security, Data.
 
@@ -614,8 +614,8 @@ Preflight блокує missing/malformed/duplicate-key artifact, source/version 
 Після filesystem-only manifest check оператор виконує:
 
 ```bash
-npm run bert -- import:validate-company-map
-npm run bert -- import:validate-company-map --json
+npm run lankadws -- import:validate-company-map
+npm run lankadws -- import:validate-company-map --json
 ```
 
 Команда спершу повторює повну перевірку signed dataset. Лише після її успіху вона відкриває окреме Prisma/SQLite з'єднання з `readonly + fileMustExist` і читає `SourceCompanyMapping` за exact signed scope: `targetWorkspaceId + sourceSystem + sourceTenantId + companyMappingVersion + ACTIVE`. NestJS, workers та application services для цього не запускаються. Preflight блокує:
@@ -671,7 +671,7 @@ exporterVersion
 Product decisions D-010/D-020 приймаються окремо для Tasks, Feed, Chat, Calendar і Files. Допустимі outcomes:
 
 1. full operational import після DDB-004 capacity proof;
-2. bounded hot operational history + BERT-hosted immutable authorized archive;
+2. bounded hot operational history + LankaDWS-hosted immutable authorized archive;
 3. bounded hot history + time-limited read-only Bitrix, після чого sealed archive import/export.
 
 Archive не є public dump: він використовує ту саму identity/company/group/thread/file ACL, encrypted storage/index, audit, retention/legal hold і stable legacy ID resolver. Якщо archive search не може перевірити ACL до snippet, body не індексується.
@@ -769,7 +769,7 @@ Issue має stable code, entity/source ID, severity, rule/mapping version, owne
 
 `ImportChangeJournal`: `id`, run, external map?, operation `CREATE|UPDATE|NOOP|TOMBSTONE|QUARANTINE`, before/after version, `safeDiffJson`, createdAt. Це reconciliation evidence, не backup.
 
-`MigrationActivation`: `id`, workspace/company/source, status `PREPARING|READY|ACTIVE_PRE_WRITE|FORWARD_FIX_ONLY|ROLLED_BACK`, final dataset/watermarks/manifest/signoff, feed cutover, pre-apply and activation-baseline backup refs, prepared/activated/first-native-write timestamps, version. Перша accepted native BERT mutation атомарно заповнює `firstNativeWriteAt` і переводить state у `FORWARD_FIX_ONLY`.
+`MigrationActivation`: `id`, workspace/company/source, status `PREPARING|READY|ACTIVE_PRE_WRITE|FORWARD_FIX_ONLY|ROLLED_BACK`, final dataset/watermarks/manifest/signoff, feed cutover, pre-apply and activation-baseline backup refs, prepared/activated/first-native-write timestamps, version. Перша accepted native LankaDWS mutation атомарно заповнює `firstNativeWriteAt` і переводить state у `FORWARD_FIX_ONLY`.
 
 ### 7.5. Historical side effects, unread and legacy links
 
@@ -780,7 +780,7 @@ Issue має stable code, entity/source ID, severity, rule/mapping version, owne
 - Historical feed item не збільшує unread. При activation `FeedReadCursor` seed-иться останнім видимим historical item для user/stream; late historical materialization не змінює counter.
 - Important acknowledgement імпортується лише з authoritative post/user receipt. Read/like/comment не створює receipt.
 - Chat unread/read/mute seed-иться з `b_im_relation` і mapped source boundary. Historical task/system IM notifications не створюють target unread.
-- Після activation лише BERT-native/post-cutover actions запускають normal notifications/outbox.
+- Після activation лише LankaDWS-native/post-cutover actions запускають normal notifications/outbox.
 
 Legacy-link rewrite виконується після `ExternalIdMap` і до content publish. Parser allowlist-ить exact internal Bitrix URL patterns і перевіряє target ACL; string replacement у arbitrary HTML заборонений. Report: `rewritten`, `leftAsLegacy`, `brokenKnownPattern`, `deniedOnOpen`. Included `brokenKnownPattern > 0` є blocker без explicit product gap; unknown pattern не redirect-ить на external/arbitrary URL.
 
@@ -820,13 +820,13 @@ Tombstone застосовується лише якщо source position вхо�
 3. Restore isolated clone; seal canonical dataset.
 4. Run repeated dry imports and failure-resume tests.
 5. Run pre-freeze delta rehearsal.
-6. Take verified BERT pre-apply DB+file backup; enable BERT mutation lock.
-7. Apply base snapshot and pre-freeze deltas; BERT remains locked.
+6. Take verified LankaDWS pre-apply DB+file backup; enable LankaDWS mutation lock.
+7. Apply base snapshot and pre-freeze deltas; LankaDWS remains locked.
 8. Announce and enforce Bitrix write freeze.
 9. Capture final DB delta + final upload sync/manifest in same freeze window.
 10. Apply final delta; rebuild projections; run signed reconcile under both locks.
-11. Take verified BERT activation-baseline backup.
-12. Set Bitrix read-only with transition banner; open BERT.
+11. Take verified LankaDWS activation-baseline backup.
+12. Set Bitrix read-only with transition banner; open LankaDWS.
 13. Monitor ACL denials, missing links/files, search, unread/ack counts, import lag.
 14. After validation sign-off, close pre-write restore window; future incidents use forward-fix.
 
@@ -834,9 +834,9 @@ Tombstone застосовується лише якщо source position вхо�
 
 ### 8.3. Rollback boundary
 
-До першого native BERT write import можна скасувати тільки verified restore BERT pre-apply DB+files backup. Batch delete imported rows не є rollback.
+До першого native LankaDWS write import можна скасувати тільки verified restore LankaDWS pre-apply DB+files backup. Batch delete imported rows не є rollback.
 
-Після першого native BERT write source failback/restore pre-cutover state заборонений, бо replay-complete journal для нових BERT bodies/files відсутній. Incident flow: lock → incident snapshot → reconcile → versioned forward-fix → reconcile.
+Після першого native LankaDWS write source failback/restore pre-cutover state заборонений, бо replay-complete journal для нових LankaDWS bodies/files відсутній. Incident flow: lock → incident snapshot → reconcile → versioned forward-fix → reconcile.
 
 ## 9. Reconciliation
 
@@ -934,7 +934,7 @@ Output:
 - deterministic canonical chunks;
 - exact source counts/relation reports;
 - synthetic/redacted developer fixture.
-- signed manifest v1 generated exporter-side and accepted by the existing BertCRM Ops validator.
+- signed manifest v1 generated exporter-side and accepted by the existing LankaDWS Ops validator.
 
 Exit: DDB-009 closed; repeated hash stable; source production load accepted; missing/orphan report complete.
 
@@ -957,7 +957,7 @@ Output:
 
 - base + overlapping delta chain;
 - final-freeze timing;
-- BERT pre-apply and activation backup restore proofs;
+- LankaDWS pre-apply and activation backup restore proofs;
 - workspace lock and forward-fix rehearsal;
 - signed reconciliation package.
 
@@ -977,12 +977,12 @@ Freeze → final delta/file sync → apply → rebuild → signed reconcile → 
 | DDB-004 | Target DB/search/archive topology на measured dataset | **BLOCKING DB-F0** | Architecture/Ops/Data |
 | DDB-005 | Реалізувати product decisions D-010/D-020: retention, full hot vs hot+archive і dependency closure | **BLOCKING DB-F0** | Product/Legal/Data |
 | DDB-006 | Raw/staging encryption, TTL, access і deletion evidence | **BLOCKING DB-F0** | Security/Data |
-| DDB-007 | Реалізувати product decision D-024: source org branches → BERT companies і cross-company policy | **BLOCKING DB-F0** | Product/Security/Data |
+| DDB-007 | Реалізувати product decision D-024: source org branches → LankaDWS companies і cross-company policy | **BLOCKING DB-F0** | Product/Security/Data |
 | DDB-008 | Binlog availability або explicit per-table delta/final-resnapshot rules | **BLOCKING DB-F0** | Data/Ops |
 | DDB-009 | Actual absolute DB/upload roots, backup target, owners, throughput and exact commands | **BLOCKING DB-F1** | Ops |
-| DDB-010 | RPO/RTO, freeze window, both BERT backup refs, commander | **BLOCKING DB-F3** | Ops/Product |
+| DDB-010 | RPO/RTO, freeze window, both LankaDWS backup refs, commander | **BLOCKING DB-F3** | Ops/Product |
 | DDB-011 | `ExternalIdMap` є canonical source→target mapping; email/filename/current department не є ID fallback | **Прийнято планом** | Data/Architecture |
-| DDB-012 | До first native BERT write rollback = verified restore; після нього лише forward-fix, не batch delete/replay | **Прийнято планом** | Ops/Data |
+| DDB-012 | До first native LankaDWS write rollback = verified restore; після нього лише forward-fix, не batch delete/replay | **Прийнято планом** | Ops/Data |
 | DDB-013 | Dataset envelope = strict signed manifest v1; Ed25519 trusted-key verification і full child size/hash/checksum preflight перед DB import | **Прийнято реалізацією** | Data/Security/Architecture |
 | DDB-014 | Signed company map = manifest-bound privacy-safe artifact v1, target-workspace binding, exact read-only DB comparison і Product/Security/Data evidence; unresolved roots/cross-company entities блокують preflight | **Прийнято реалізацією** | Product/Security/Data |
 | DDB-015 | Exporter sealing = external strict metadata request + separate Ed25519 key file; deterministic no-overwrite checksums/signature and mandatory existing-verifier round-trip | **Прийнято реалізацією** | Data/Security/Ops |
@@ -1000,7 +1000,7 @@ Freeze → final delta/file sync → apply → rebuild → signed reconcile → 
 | Encoding/time corruption | raw hash + fixtures | silent replacement/time drift |
 | SQLite overload | DDB-004 measured topology | target/recovery limits unmet |
 | Broken delta | binlog/high-water/overlap/final resnapshot | uncovered update/delete path |
-| Unrecoverable cutover | dual BERT backup/restore rehearsal | missing restore evidence |
+| Unrecoverable cutover | dual LankaDWS backup/restore rehearsal | missing restore evidence |
 
 ### 13.1. Verification matrix
 

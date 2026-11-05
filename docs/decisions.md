@@ -2,11 +2,81 @@
 
 No unresolved product contradiction was found. The repository's prior `frontend/` and `backend/` scaffold contained no user work beyond the initial commit, so it was moved to the required `apps/web` and `apps/api` paths instead of keeping parallel workspaces.
 
+## 2026-10-22 — Remove unused task subscriptions
+
+Task subscriptions have no current UI and are removed entirely: the follow/unfollow endpoints, follower projections and notification fan-out, input/export types, and `TaskFollower` persistence. A forward migration drops subscription records and their idempotency results. Task notification recipients continue to come from the existing task roles; comment replies and mentions retain their existing delivery rules. Observer participants, personal favourites/importance and reminders remain separate features. This supersedes the follower subscription portions of the 2026-07-24 decisions; earlier migration history remains immutable.
+
+## 2026-10-22 — Shared calendar events support explicit acknowledgement
+
+Calendar create/edit forms may request individual acknowledgement for shared events. Each saved revision snapshots active users whose primary company belongs to the event audience, excluding the organizer, and sends individual calendar notifications. Reading never acknowledges an event: the recipient must press «Ознайомився» in its details or feed card. Receipts are idempotent and tied to the exact event version; edits require a fresh confirmation for the whole series. The server rechecks current event access before accepting a receipt. Switching to private visibility disables acknowledgement. Event details show aggregate confirmation counts without exposing a user directory. Calendar event cards and authored posts awaiting the current recipient's acknowledgement are explicitly marked and ordered before the regular Live Feed timeline, independently of its pagination cursor. Recipients may confirm the same current event revision from either its calendar details or its feed card; both surfaces refresh after confirmation.
+
+## 2026-10-20 — Notifications live only in the right communication panel
+
+The left navigation entry and standalone `/notifications` page are removed. The right panel owns notification filtering, opening sources and read/unread actions. The unused manual notification composer, its POST endpoint and input contract are removed. Notification delivery, recipient authorization, entity-read reconciliation, realtime updates and counters remain shared.
+
+## 2026-10-19 — Knowledge feedback tickets are private submissions to administrators
+
+Authenticated users can submit feedback from the knowledge banner through the existing material editor, with a title, rich text and optional image/files, without company audiences or reading acknowledgement. Tickets are separate from published knowledge articles and never enter the knowledge reading counters. Only workspace administrators can list, open or archive tickets; the sender receives a submission confirmation rather than access to a ticket history. Administrators see the author and creation date, with cursor pagination and confirmed archival. Clean, sender-owned staged attachments inherit ticket access for administrators; the uploader retains access to their own uploaded files.
+
+## 2026-10-15 — Company membership is the holding area for employees without a department
+
+A company user's department is optional. The selected company remains their primary company when no department is selected, and the company's paginated “Без підрозділу” list lets administrators distribute these employees later. Archiving a department or branch ends its primary employee assignments without moving employees to another company. Restoring structure never recreates employee assignments.
+
+Department archival records the original parent links and sibling order in the existing atomic archive audit event. Restoration returns the saved branch and reattaches children promoted by a single-department archive. A conflicting name or a saved node changed since archival blocks the whole restoration instead of overwriting subsequent administrator changes. Older archives retain any hierarchy still present in `OrgUnit.parentId`; relationships already lost before snapshots existed cannot be inferred safely.
+
+## 2026-10-07 — Mandatory knowledge reading stays actionable until explicit confirmation
+
+Administrators choose optional or mandatory reading when creating or editing a knowledge article. Existing articles default to optional. Active mandatory articles in the caller's existing company/user audience contribute to the knowledge navigation counter until the caller explicitly confirms the current article version. Opening an article does not confirm it. Editing advances the existing article version and requires a new confirmation; disabling mandatory reading or archiving removes the reminder.
+
+The oldest pending mandatory article takes priority over all existing dashboard next-step rules and links directly to its reading page. Once no mandatory articles remain pending, the existing next-step logic resumes. Knowledge cards and reading pages show the original creation date, without update summaries or visible version numbers; mandatory cards carry a warning marker.
+
+## 2026-09-10 — A calendar event names its own audience; a chat like is a reaction, not a message
+
+A calendar event no longer reaches people through the single company that owns its row. `EventAudience` names every company whose members may see it; its owning `companyId` is a persistence and capability-check key, not an implicit audience member. Existing events were backfilled with exactly the reach they already had. Visibility `PRIVATE` is the new "тільки мені": the row keeps one owner-company audience row for scoping, and only the owner matches the read filter.
+
+`Event.description` is optional free text shown on the event detail. The create and edit forms share one field set, and the company picker lists every active organization in the principal's workspace, resolved through `GET /calendar/audiences`; the `CALENDAR_WRITE` requirement applies only to the event's owner company. This replaces the previous dependence on `user.company`: an account with no primary company could see the create button (the capability view aggregates every allowed company) but every submission failed validation with an empty `companyId`. The calendar page now scopes its queries to `company=all`.
+
+A chat like is a `MessageReaction` row on the message, not a `👍` reply in the conversation. The author learns about it through a `REACTION` notification addressed at the thread. `reconcileChatReads` deliberately ignores that category: it marks a chat notification read once the recipient has read the message its dedupe key names, and a reaction points at a message the recipient wrote themselves. Existing `👍` messages stay as ordinary history.
+
+The message hover panel carries like, reply, forward and the overflow menu on both sides of the conversation. Forwarding sends the message text into another thread with a `Переслано від <author>` attribution line; attachments stay with the original message rather than being copied. The inline edit box grows with its content instead of scrolling inside three rows.
+
+The knowledge-base editor is a centred modal like the Feed composer rather than a side drawer, and it carries an explicit company audience. `ArticleAudience` already modelled this on create; the update command now accepts `companyIds` as well, and article detail returns the current selection so an edit starts from the audience the article was published with. An empty selection is refused on both commands.
+
+## 2026-09-09 — Feed cards drop favourites and the follow control; the audience label names its recipients
+
+This supersedes *"Feed favourites are private state, not visibility"* (2026-07-23) and *"Feed subscriptions preserve user intent"* (2026-07-23), and retires the `FOLLOWING` list filter from *"Feed advanced filters stay compositional and local-time correct"* (2026-07-23).
+
+The favourite (`«Обране»`) star is removed from every Feed card. The `PUT/DELETE /feed/items/:itemId/favorite` endpoints, the `?favorite=true` list filter, the `favoritedByMe` view field and the favourite-projection-move (`moveFeedFavorites`) are gone. `FeedUserItemState` stays in `schema.prisma` but is no longer written; a later migration may drop it. Removing a favourite is no longer a concept, so `«Обране»` no longer "follows the logical card".
+
+The per-post notification control (`«Стежити»` / bell) and its `PUT/DELETE /feed/:id/subscription` endpoints are removed, along with the user-visible `NONE`/`MENTIONS` choice and the `subscriptionMode` view field. `FeedSubscription` survives **only** as the internal fan-out for feed comment notifications: post authors, past commenters and mentioned users are still auto-subscribed (`ALL` / `MENTIONS`) in the same transaction as the post or comment, and the comment-notification loop is unchanged. There is no user-facing way to opt out; a participant in a Feed conversation receives comment notifications.
+
+The post-card byline is ordered **date · audience** (was audience · date). `audienceLabel` now reads: a multi-company (`COMPANIES`) audience that reaches **every active company** in the workspace is `«Всім співробітникам»`; a multi-company audience that does not is the addressed companies' display names joined with `«, »` (replacing `«Обрані компанії · N»`); a single-company (`COMPANY`) audience stays `«Вся організація»`; a group audience is the group name; a direct-user audience is every recipient's name joined with `«, »` (the previous `«та ще N»` truncation is removed).
+
+## 2026-09-09 — Live Feed is always available; unread badges refresh over a realtime summary channel
+
+This supersedes the `FEED` company capability from the 2026-07-28 routing decision without deleting its rollout history. The `FEED` capability code is retired: Feed authorization is `feed.read` plus company scope only, and `/feed` is an unconditional authenticated route. `docs/architecture.md`, `CODEX_CONTEXT_MAP.md` and the demo seed no longer reference a `FEED` capability. This decision does **not** change the read-cursor / unread-count semantics — the precise model for "read = actually seen" remains open.
+
+A `FeedPost` audience may target several companies (`COMPANIES`); each targeted company gets its own immutable `FeedItem` and `FeedSourceHead`, and the rendered stream de-duplicates by post. How and when those per-company items are marked read is part of the still-open read-cursor model, not this decision.
+
+Notification, chat and feed unread badges are refreshed primarily by a **user-scoped SSE `summary` event** (`ChatRealtimeService.publishSummary`, delivered on the existing `GET /messages/events` stream). One connection is opened at the app shell for every authenticated route; feature pages do not open their own. Because several notification sources emit no realtime signal (job-worker task reminders, task participation/approval changes, admin credential resets) and SSE connections can be dropped without replay, each badge query also keeps a slow (60s, foreground-only) fallback poll plus refetch-on-window-focus. The chat badge counts unread **messages**, not threads with unread messages.
+
+## 2026-09-09 — A unit or company manager must be an active member of that company
+
+A global administrator may administer the organizational structure of any company, but may only be **set as** an `OrgUnit` or `Company` manager if they are an active `USER` whose primary company is that company. Global-admin status alone does not make a user a valid manager, and such a manager is never rendered in structure projections. Company membership here is the existing `primaryCompanyId` signal; this is not extended to `UserOrgAssignment`-based membership.
+
+## 2026-08-31 — Companies are workspace organization, not authorization boundaries
+
+This decision supersedes the runtime-scope part of “One organization with recursive departments” and any same-company participant requirement. Every authenticated principal receives all active companies in the workspace; company IDs remain persistence keys and optional UI filters. Inactive companies are visible only through administration. Module capabilities and existing record ACLs still apply.
+
+Confidentiality is explicit at the aggregate boundary: a task is readable only by its creator, reporter, active participants and global administrators; a chat is readable only by active participants and global administrators; a notification is readable only by its recipient. Any active workspace user may be selected for a new task, direct/group chat or manual notification regardless of primary company. Canonical direct-chat identity is workspace participant-based rather than company-based.
+
+The web client exposes `/companies` to all users and combines the former employee directory and structure pages under `/organization`. Legacy URLs redirect. The top bar contains privacy-aware global search with `Ctrl/Cmd+K`, chat and notification actions, but no company selector or separate structure button. Page-local searches remain available inside their modules.
+
 ## 2026-07-27 — One organization with recursive departments
 
-BertCRM no longer models several selectable companies. A user operates in one organization, while structure is represented by the existing recursive `OrgUnit.parentId` hierarchy, so a department may contain any number of nested subdepartments.
+LankaDWS no longer models several selectable companies. A user operates in one organization, while structure is represented by the existing recursive `OrgUnit.parentId` hierarchy, so a department may contain any number of nested subdepartments.
 
-The current `companyId` columns remain only as a transitional persistence key to avoid a destructive rewrite of historical SQLite migrations and foreign keys. Runtime scope always resolves to the principal's single organization record, rejects legacy alternative IDs, removes `company=all`, and no longer exposes company switching, company creation, multi-company user assignment or company-scoped navigation. The demo «BERT Сервіс» boundary is now the «Сервісний відділ» node under «Операції».
+The current `companyId` columns remain only as a transitional persistence key to avoid a destructive rewrite of historical SQLite migrations and foreign keys. Runtime scope always resolves to the principal's single organization record, rejects legacy alternative IDs, removes `company=all`, and no longer exposes company switching, company creation, multi-company user assignment or company-scoped navigation. The demo «LankaDWS Сервіс» boundary is now the «Сервісний відділ» node under «Операції».
 
 ## 2026-07-22 — Capability foundation before feature modules
 
@@ -16,7 +86,7 @@ The first navigation simplification is intentionally independent from those feat
 
 ## 2026-07-23 — Evidence-based SaaS/CRM UX rules
 
-The provided high-conversion research is adopted as a delivery quality bar, with “conversion” interpreted for BertCRM as successful completion of a work task. The hard gates are ethical UX, WCAG 2.2 AA, reduced-motion support and Core Web Vitals targets. The SaaS-specific emphasis is progressive disclosure, task-oriented information architecture and a clear dominant action instead of exposing every available module at once.
+The provided high-conversion research is adopted as a delivery quality bar, with “conversion” interpreted for LankaDWS as successful completion of a work task. The hard gates are ethical UX, WCAG 2.2 AA, reduced-motion support and Core Web Vitals targets. The SaaS-specific emphasis is progressive disclosure, task-oriented information architecture and a clear dominant action instead of exposing every available module at once.
 
 Images remain conditional: they are used only when they add meaning or improve a decision. The company-structure workflow therefore uses the existing code-native visual system and real seeded avatars rather than a generated decorative illustration. Its first useful release is read-only, company-scoped and privacy-safe; group UI stays behind its capability and release gate until the full user workflow is ready.
 
@@ -24,7 +94,7 @@ Images remain conditional: they are used only when they add meaning or improve a
 
 The F1 import foundation is implemented as a control plane and a read-only readiness view, not as a partial runner. The database now enforces immutable sealed packages, compatible delta ancestry, scoped mapping and activation evidence, exclusive apply leases, preserved external ID maps and an append-only change journal. These invariants live below the future worker and UI so a caller cannot bypass them accidentally.
 
-Production `APPLY` is intentionally unavailable while D-011, D-012, D-020, D-023 and D-024 remain unresolved. The admin screen uses the existing BertCRM cards, typography, tokens and Lucide language to show one dominant outcome—blocked or ready—followed by the concrete gates. It does not display raw source fields, offer a disabled imitation of an apply workflow or add decorative generated imagery.
+Production `APPLY` is intentionally unavailable while D-011, D-012, D-020, D-023 and D-024 remain unresolved. The admin screen uses the existing LankaDWS cards, typography, tokens and Lucide language to show one dominant outcome—blocked or ready—followed by the concrete gates. It does not display raw source fields, offer a disabled imitation of an apply workflow or add decorative generated imagery.
 
 ## 2026-07-23 — Signed dataset verification before an importer
 
@@ -54,11 +124,11 @@ The change does not remove useful project imagery globally. Lifecycle, authentic
 
 Operations no longer has to hand-author hashes, the checksum index or the signed envelope. A strict external seal request contains evidence-backed dataset metadata and a non-secret signer/key reference, while the Ed25519 private key remains in a separate file outside the repository and dataset. `import:seal-manifest` inventories only allowlisted regular files, derives deterministic source types, hashes stable bytes, creates sorted checksums and a canonical signature, then accepts the output only after the existing independent verifier validates the entire package and company mapping.
 
-The command never overwrites an existing manifest or checksum index. An identical rerun is read-only and returns the same manifest hash; a changed export, unsafe entry, concurrent mutation or mismatched existing output fails closed. Outputs created by the current attempt are removed when verifier round-trip fails. This closes the BertCRM-side manifest-generation gap without claiming that the real source extractor, DDB-007/D-024 approvals, capacity evidence, rehearsal or production `APPLY` is complete.
+The command never overwrites an existing manifest or checksum index. An identical rerun is read-only and returns the same manifest hash; a changed export, unsafe entry, concurrent mutation or mismatched existing output fails closed. Outputs created by the current attempt are removed when verifier round-trip fails. This closes the LankaDWS-side manifest-generation gap without claiming that the real source extractor, DDB-007/D-024 approvals, capacity evidence, rehearsal or production `APPLY` is complete.
 
 ## 2026-07-23 — Live Feed replaces Overview only after a company capability switch
 
-The first native Feed increment uses canonical `/overview`; it does not add a competing `/feed` route. A company with `FEED` disabled keeps the complete task-first Overview, while an enabled company receives the Feed label, composer and stream atomically. The demo enables only BERT Україна so both rollout states remain directly testable.
+The first native Feed increment uses canonical `/overview`; it does not add a competing `/feed` route. A company with `FEED` disabled keeps the complete task-first Overview, while an enabled company receives the Feed label, composer and stream atomically. The demo enables only LankaDWS Україна so both rollout states remain directly testable.
 
 `FeedPost` is the editable source and append-only `FeedItem` rows record source versions. Audience rows remain explicit company/group/user principals; acknowledgement expands that audience to a versioned user snapshot in the same transaction. Reading, liking or commenting never creates a receipt. Editing a mandatory post advances the acknowledgement version and snapshots current recipients again. Private denials use existence-safe 404 responses, and read cursors only advance.
 
@@ -68,7 +138,7 @@ The UI applies the provided CRM design research without introducing another visu
 
 This decision supersedes the 2026-07-23 routing decision above without deleting its rollout history. `/overview` is again the stable authenticated CRM home for every organization, while `/feed` is the canonical Feed route guarded by both `feed.read` and the existing `FEED` capability. Feed filters, saved views and browser-history state move with the Feed surface to `/feed`; `/overview` is never conditionally relabelled or replaced.
 
-The existing dashboard contract and `GET /dashboard` remain the single Overview data boundary. The response now composes permission-aware task, calendar, announcement, message, notification, Feed-activity and HR lifecycle projections, uses the organization IANA timezone for daily boundaries, and omits unavailable blocks instead of fetching private data for hidden metrics. The existing task-first focus panel remains compact, with navigable KPI and one small task-status analysis rather than a duplicate analytics page.
+The existing dashboard contract and `GET /dashboard` remain the single Overview data boundary. The response now composes permission-aware task, calendar, message, notification, Feed-activity and HR lifecycle projections, uses the organization IANA timezone for daily boundaries, and omits unavailable blocks instead of fetching private data for hidden metrics. The existing task-first focus panel remains compact, with navigable KPI and one small task-status analysis rather than a duplicate analytics page.
 
 Blocking overlays share one portal, focus, stack and scroll-lock owner. Drawer keeps its side-panel geometry, Modal provides the Feed composer surface, and Command Palette keeps its keyboard/search specialization. The desktop sidebar groups the same route registry into Основне, Комунікації, Компанія, Управління and Адміністрування; its persisted icon-only state is independent from the mobile menu and does not create alternate routes or authorization gates.
 
@@ -76,7 +146,7 @@ This was the first complete native-post vertical slice, not a claim that F2b mig
 
 ## 2026-07-23 — Feed source cards remain projections and imported history stays silent
 
-Task, Event and Announcement activity now appears in Feed only as an immutable reference to the canonical aggregate. `FeedItem.safePayload` carries a versioned source reference and action, never an editable copy of the task description, event or announcement body. Every list response re-authorizes and reloads the current source; the card has one explicit navigation action and no copied post controls. Native task assignment plus block/unblock transitions are relevant, while ordinary task comments and technical churn remain out of the company stream. Announcement projection occurs only after the durable audience materializer has produced receipts.
+Task and Event activity appears in Feed only as an immutable reference to the canonical aggregate. `FeedItem.safePayload` carries a versioned source reference and action, never an editable copy of the task description or event body. Every list response re-authorizes and reloads the current source; the card has one explicit navigation action and no copied post controls. Native task assignment plus block/unblock transitions are relevant, while ordinary task comments and technical churn remain out of the company stream.
 
 Attachments reuse the existing `FileObject` → quarantine/scanner → `FileLink` boundary. Publishing can link only files uploaded by the author into the same company, recipients re-use the post audience for authorization, and download remains unavailable until scan state is `CLEAN`. No second blob store or Feed-specific public URL is introduced.
 
@@ -102,7 +172,7 @@ This follows the provided SaaS/CRM research as an operational UX rule: progressi
 
 ## 2026-07-23 — Feed favourites are private state, not visibility
 
-`FeedUserItemState` stores a user's favourite against the immutable `FeedItem`, so the same mechanism works for authored posts and current canonical Task/Event/Announcement projections. The write endpoint first performs normal capability, audience and source re-authorization and returns an existence-safe 404 for an inaccessible item. The database additionally requires an active same-workspace company assignment when the state is first created. A favourite is never consulted as an authorization grant, produces no business outbox/audit noise and is removed idempotently.
+`FeedUserItemState` stores a user's favourite against the immutable `FeedItem`, so the same mechanism works for authored posts and current canonical Task/Event projections. The write endpoint first performs normal capability, audience and source re-authorization and returns an existence-safe 404 for an inaccessible item. The database additionally requires an active same-workspace company assignment when the state is first created. A favourite is never consulted as an authorization grant, produces no business outbox/audit noise and is removed idempotently.
 
 When a post edit or source update materializes a newer immutable projection, the transaction moves deduplicated favourite state for still-active, company-authorized users to the current `FeedItem` and removes it from superseded versions. Consequently, «Обране» follows the logical card instead of pinning stale content, while every read still applies current audience and canonical-source authorization.
 
@@ -112,7 +182,7 @@ Visually, one familiar star sits in the card header instead of adding a fourth a
 
 ## 2026-07-23 — Feed recipient and group facets stay exact and existence-safe
 
-`groupId` answers “in which work-group context was this item published?” and matches `FeedPost.groupId` or the explicit group on a standalone File share. `audienceId` answers “to which exact company or person was it addressed?” and matches a typed stored recipient. The two parameters may compose, but neither approximates org membership or expands a legacy right code. Task/Event/Announcement sources still stay excluded when these facets are active because they do not expose the same typed context.
+`groupId` answers “in which work-group context was this item published?” and matches `FeedPost.groupId` or the explicit group on a standalone File share. `audienceId` answers “to which exact company or person was it addressed?” and matches a typed stored recipient. The two parameters may compose, but neither approximates org membership or expands a legacy right code. Task/Event sources stay excluded when these facets are active because they do not expose the same typed context.
 
 The read-only facet endpoint returns enabled companies plus group and direct-recipient values found in posts the current principal can already read. Hidden groups, inaccessible direct posts and random known IDs therefore yield neither a label nor content. A saved ID that is no longer available is rendered with a generic fallback label so reopening a view does not become an existence oracle.
 
@@ -130,7 +200,7 @@ The composer keeps two adjacent, literal actions: «Додати файл» mean
 
 Immutable `FeedItem` rows remain the audit-friendly activity history, but list, unread, read-marker and favourite semantics need exactly one current version for each `(workspace, company, source type, source ID)`. Page-local overfetch and deduplication could repeat an older version on a later cursor page and count several versions as unread. `FeedSourceHead` now points to the current immutable item, advances only by source version and deterministic time/ID ordering, and is protected by database scope/match/regression triggers. Historical rows remain intact; only the mutable pointer changes.
 
-The ordered head index is the primary list boundary, and a second unread index keeps silent imported history out of the live counter path. Post and canonical Task/Event/Announcement/File projection writers advance the head in the same transaction; favourites move to that same item. Reads still re-authorize the canonical source, so the head is a relevance/index primitive and never an access grant.
+The ordered head index is the primary list boundary, and a second unread index keeps silent imported history out of the live counter path. Post and canonical Task/Event/File projection writers advance the head in the same transaction; favourites move to that same item. Reads still re-authorize the canonical source, so the head is a relevance/index primitive and never an access grant.
 
 The F2b evidence runner creates a fresh temporary database and uses the actual service path with source-fingerprint counts, superseded versions, ACL canaries, exact facets and cursor traversal. Its machine artifact records the host, dirty-worktree state, query plans and 20-sample p50/p95 without inventing an acceptance threshold. This local Feed baseline closes the relevance/load-evidence item only; DDB-004 remains open for full topology, concurrency, import, binary, search and restore capacity.
 
@@ -138,9 +208,9 @@ The F2b evidence runner creates a fresh temporary database and uses the actual s
 
 A checklist item remains a lightweight completion mark inside one task. A subtask instead has its own number, assignee, status, priority, deadline, description and comments, while inheriting the parent workspace, company and optional work-group context. The target deliberately supports one child level for the current product scope: a child cannot receive another child, move under a different parent or diverge from the inherited scope. Application checks provide useful errors, and SQLite triggers enforce the same invariants against races or alternate writers.
 
-Creating a child advances the parent version and atomically records idempotency, audit and outbox evidence. Changing a child status also advances that parent version so progress cannot remain silently stale. A parent cannot enter `DONE` while any child is outside `DONE|CANCELLED|ARCHIVED`; the API returns RFC 9457 `409` with only the safe blocker IDs, and the UI links those IDs to authorized child titles after its normal detail projection has been loaded.
+Creating a child advances the parent version and atomically records idempotency, audit and outbox evidence. Changing a child status also advances that parent version so progress cannot remain silently stale. A parent cannot enter `DONE` while any child is outside `DONE|ARCHIVED`; the API returns RFC 9457 `409` with only the safe blocker IDs, and the UI links those IDs to authorized child titles after its normal detail projection has been loaded.
 
-The drawer keeps the established BertCRM visual language and treats decomposition as progressive disclosure. The default detail remains compact; opening «Додати підзадачу» exposes externally labelled fields and explains automatic context inheritance. Completion conflict is not a toast that disappears: it is an alert inside the task, receives focus, scrolls into view and offers the concrete blocking child as the next action. No decorative image is introduced because it would compete with a dense operational decision. This decision covers the first Tasks slice only; it does not substitute for the remaining edit, reminder/follower/activity or Chat P0 work in F3.
+The drawer keeps the established LankaDWS visual language and treats decomposition as progressive disclosure. The default detail remains compact; opening «Додати підзадачу» exposes externally labelled fields and explains automatic context inheritance. Completion conflict is not a toast that disappears: it is an alert inside the task, receives focus, scrolls into view and offers the concrete blocking child as the next action. No decorative image is introduced because it would compete with a dense operational decision. This decision covers the first Tasks slice only; it does not substitute for the remaining edit, reminder/follower/activity or Chat P0 work in F3.
 
 ## 2026-07-24 — Task role explains access; follower remains separate intent
 
@@ -148,7 +218,7 @@ A task keeps exactly one responsible (`Task.assigneeId`) and one creator (`Task.
 
 Removing a participant must revoke direct task, global-search and current Feed-projection access unless another current role still grants it. Every path re-authorizes the canonical task and returns an existence-safe not-found response after access loss. Historical soft-removed rows remain for audit/import reconciliation. A follower will be a separate future notification subscription: observer membership is not silently converted to following, and notification preference will not become an authorization grant.
 
-The four daily perspectives are canonical URL/API values: `RESPONSIBLE`, `CO_EXECUTOR`, `CREATOR` and `OBSERVER`; `ALL` is available only with `tasks.manage`. The UI uses the existing BertCRM tabs, drawer, tokens and typography, keeps participant management progressively disclosed, and collapses the participant grid to one column with 44 px actions on mobile. Decorative imagery remains unsuitable because it would displace live task context on this decision-heavy surface.
+The four daily perspectives are canonical URL/API values: `RESPONSIBLE`, `CO_EXECUTOR`, `CREATOR` and `OBSERVER`; `ALL` is available only with `tasks.manage`. The UI uses the existing LankaDWS tabs, drawer, tokens and typography, keeps participant management progressively disclosed, and collapses the participant grid to one column with 44 px actions on mobile. Decorative imagery remains unsuitable because it would displace live task context on this decision-heavy surface.
 
 Task creation and participant addition bind each idempotency key to an HMAC fingerprint of the normalized request body. A retry of the same operation returns the original result, while reusing the key with a different body fails safely instead of mutating an unrelated roster.
 
@@ -185,3 +255,114 @@ The canonical create command validates company/group/project/parent scope and wr
 Task reminders materialize one durable job per recipient and re-authorize the live task before creating an in-app notification. Recurrence is top-level only, uses the reporter’s IANA timezone through Temporal calendar arithmetic, creates a new task for each occurrence and is protected by both a unique `(recurrenceId, recurrenceOccurrenceAt)` key and a durable job idempotency key. Occurrences copy participant roles, reset checklist completion, retain tags and allowed relations, and copy only relative start/due reminders; absolute reminders are not replayed. Time tracking is a separate `TimeEntry` history with one active timer per user enforced by the persistence boundary.
 
 The `/tasks/new` surface is one responsive modal with five progressively disclosed sections, one fixed submit action, body scroll lock, focus containment, dirty-close confirmation and a seven-day organization/user-scoped local draft. The browser generates a stable idempotency key per unchanged payload, while a changed retry receives a new key. The established task list/detail API remains temporarily available through `TaskCompatibilityService`; it maps the canonical aggregate for existing dashboard, Feed, search and drawer consumers without restoring removed single-assignee persistence.
+
+## 2026-08-11 — Task display numbers are numeric, immutable strings
+
+`Task.id` remains the opaque identity used by routes and relations. `Task.number` is an immutable decimal string allocated from one atomic SQLite sequence inside the same transaction as task creation; canonical create, recurrence and lifecycle task generation share that allocator. A failed transaction therefore rolls back its sequence increment, while concurrent writers receive distinct values. Persistence triggers reject non-digit inserts and number updates.
+
+The migration preserves every non-numeric pre-S11 number in `TaskNumberAlias`, retains a collision-free canonical `TSK-<digits>` suffix where possible, and deterministically assigns the remaining legacy tasks after the current numeric maximum. Task list, relation-option and global search include the alias relation so an old number still resolves to the same opaque task ID.
+
+## 2026-08-11 — Task approval is an explicit, versioned round
+
+An approval round names exactly one approver who already has current task access. `User.approverId` may preselect a suggestion, but never widens task visibility or grants decision authority by itself. Request and decision commands are body-bound idempotent transactions guarded by the task version; a partial unique index permits only one pending round per task. The generic status command cannot set `IN_REVIEW` and cannot move a task while a round is pending.
+
+Requesting approval moves the task to `IN_REVIEW`. The designated approver either moves it to `DONE` or returns it to `IN_PROGRESS` with `NEEDS_CHANGES`; an ordinary negative decision never means cancellation. Material aggregate changes invalidate the pending round and return the task to `IN_PROGRESS`, while comments, personal intent/reminders and time logs do not. Every round remains in history, and request, decision and invalidation reuse task audit, outbox, feed projection and optimistic-version conventions.
+
+After a successful approval, an approver who is still an active `WATCHER` receives a one-time UI offer to leave that role. Leaving reuses canonical version-guarded participant removal; the only authorization exception is that an active `WATCHER` may remove their own row. It does not grant roster editing, and the client drops task-scoped caches and returns to `/tasks` when that removal also revokes the approver's task access.
+
+## 2026-09-14 — Task ownership is singular and approval is removed
+
+This decision supersedes the multiple-`RESPONSIBLE` rule from 2026-07-29 and the approval workflow from 2026-08-11. Every task has exactly one active `RESPONSIBLE` participant and exactly one `reporterId` (the task owner/poster). Reassignment replaces the active responsible atomically; direct removal or conversion of the current responsible is rejected. A partial SQLite unique index protects the at-most-one persistence invariant, while create validation and participant commands protect the required-one invariant. Legacy duplicate rows are soft-removed during migration, and a missing responsible is restored from the reporter.
+
+Only the current reporter and a global administrator may change task content, status, checklist, relations, recurrence or participant composition. Only a global administrator may transfer `reporterId` or edit/delete discussion messages; every authorized reader may still view and comment. Comment edits preserve optimistic version checks, structured mentions and an `editedAt` marker, while deletion is soft and removes comment-scoped links and mentions.
+
+Task approval routes, public contracts, response payloads and active service dependencies are removed. `IN_REVIEW` remains readable only as a legacy persisted status and cannot be selected or entered through the current task API. Historical approval tables and implementation code remain inert for migration/audit compatibility and are not registered in the application module.
+
+## 2026-10-08 — Remove legacy work groups; preserve independent group chats
+
+The work-group aggregate (`Group`, membership and join requests), its capability, UI, routes and API are removed. Tasks have no group context, participant eligibility is based on active workspace users, and task reads still require creator/reporter/active participant/admin access. Feed audiences are company or explicit users; Drive grants are user-only.
+
+The forward migration deletes work groups, their memberships/requests and group-addressed Feed posts, file shares and derived content. It removes group grants without broadening the audience. Files and tasks themselves are retained. Existing contextual group threads are detached and become independent `GROUP` chats, preserving their messages and thread participants. New group chats continue to use the canonical thread-create command and have no work-group dependency. Earlier work-group invariants in this chronological record are superseded by this decision.
+
+## 2026-10-12 — Remove Drive document file versions
+
+Drive documents hold one file directly through `Document.fileId`. File version history, version creation, version counts, `DocumentVersion`, and its unused import-transfer reference are removed. The forward migration retains the latest file that Drive previously displayed and turns its document file link into `CONTENT`; historical document links are removed without deleting files or their independent chat/task/knowledge links. Documents without a file remain valid.
+
+The document's technical `version` counter remains for optimistic concurrency during rename, move, publish, archive and restore. It is not file history and is not displayed to users. Knowledge article versions and acknowledgements remain independent. Drive's preview shows file metadata and provides an authenticated file-only link in a new tab; access can be granted, changed or revoked by the owner or global administrator under the existing server checks.
+
+## 2026-10-16 — Shared file preview follows the file format
+
+All file surfaces reuse the shared file preview: supported images retain zoom and gallery controls; PDFs use the browser reader with a separate-tab link; UTF-8 TXT, CSV, JSON and XML are selectable plain text with copying, limited to 1 MiB. Larger text files, Office/ODF/RTF documents, archives and unknown formats use a compact file card with metadata and download. No external viewer receives file contents. Preview reads use the existing authenticated, scan-gated download endpoint; PDF blob URLs allow local viewing without weakening the API's frame restrictions and are revoked on close or file change. File access, Drive actions and persistence are unchanged.
+
+## 2026-10-16 — Personal Drive contains owned and explicitly shared items
+
+Personal Drive listings, search, recent/shared views, counts and file pickers include owned items and current user-addressed Drive shares, including descendants of shared folders. GENERAL/INTERNAL confidentiality and administrator status alone do not add unrelated documents to personal lists. Accessible items whose parent is not accessible appear at the root without revealing that parent's name. Administrators retain the separate “Файли користувачів” view. This changes Drive discovery; existing authorization for documents linked from other product contexts remains unchanged.
+
+## 2026-10-16 — Unassigned employees remain within their company
+
+«Підрозділ не обраний» is a company-specific category for users without an active primary department assignment. It is not a persisted OrgUnit, a separate company, or a node counted in the department hierarchy. Creating or editing a company user without a department places them in this category within their selected company.
+
+Archiving a department or branch ends assignments only to the archived departments, including secondary assignments so they cannot reappear after restoration. Users retain their company, job title, active status and other stored user fields. Restoring the department hierarchy does not reopen assignments: affected users remain in «Підрозділ не обраний» until explicitly assigned again. Company archival and authorization remain unchanged.
+
+## 2026-10-27 — File sharing uses notifications, without standalone Feed cards
+
+Sharing a Drive file or folder uses the existing recipient notification and unread highlight. It does not publish a standalone file card to the Live Feed. The Feed showcase no longer includes «Поширені файли»; attachment rows in authored posts and their shared preview remain available. The legacy Feed file-share create endpoint is removed, and existing file-share projections are excluded from Feed listings, unread counts and audience facets. Stored files, existing access grants and their revocation remain intact. This supersedes the earlier standalone file-card decision.
+
+## 2026-10-29 — Live Feed adopts the laboratory presentation and persists comment photos
+
+The production Feed and its laboratory share the same card presentation. Production actions retain the canonical API, source navigation, versioned acknowledgement, notification-read and audience boundaries; demonstration data and local mutations remain in the laboratory.
+
+Feed comments may contain text, up to five PNG/JPEG/WebP/GIF photos of at most 10 MB each, or both. Photos reuse staged `FileObject` uploads and transactional `FileLink` records with `entityType=FEED_COMMENT`; no new persistence aggregate is introduced. Upload and comment creation authorize the current post, attachment linking checks uploader/company/scan state, and recipient downloads require a live comment and the current published-post audience. Scanning still gates download and preview.
+
+## 2026-11-03 — Overview is retired; the Live Feed is the authenticated home
+
+This records the routing state shipped on 2026-09-04 and supersedes the 2026-07-28 decision that kept `/overview` as a separate CRM home. Login and the brand link resolve to `/feed` (`resolveHomePath`), whose summary header still reads the existing `GET /dashboard` contract. `/overview` is not a registered route and renders the not-found page; `apps/web/src/app/routes.test.ts` guards this. No redirect is added, so the route stays out of navigation, search shortcuts and document titles.
+
+## 2026-11-03 — Mobile «Ще» includes the Knowledge base
+
+The mobile bottom navigation keeps Feed, Tasks, Chat and Drive as primary items. Its «Ще» menu lists Calendar, Organization and Knowledge, so the Knowledge base and its required-acknowledgement records are reachable without the side menu. Administration stays in the side menu.
+
+## 2026-11-03 — Field captions do not focus their fields
+
+Clicking a text caption (a `<label>` for a text, search, select, textarea or combobox field) must not move focus into that field anywhere in the web app; only the field box itself, including its inline icon, activates it. `installLabelClickGuard` (`apps/web/src/shared/lib/labelClickGuard.ts`) enforces this once for the whole app in `main.tsx`, so forms keep using ordinary `<label>` elements and their accessible names. Checkbox, radio and file inputs keep native label behaviour: their captions remain the click target, and upload buttons stay styled labels.
+
+## 2026-11-04 — A unit manager is a member of the units they manage
+
+`OrgUnit.managerId` and `UserOrgAssignment` stay independent, and no assignment is created when a manager is set. On reads, a person belongs to a unit if they have an active primary assignment there or they are its valid manager (active `USER` whose primary company is that company), and each person counts once per unit. So `activeEmployeeCount` includes the manager, the `orgUnit` filter on `GET /employees` matches them, and "Не у підрозділі" lists only people with no assignment who also manage no active unit in their company. A person with no assignment shows their first managed unit in the directory, the employee profile and their own profile; a unit's own directory list shows that unit for its manager. Because one person can manage several units, unit counts may add up to more than the company headcount. `GET /org/units/:id/employees` still returns assignments only; panels show the manager separately. Chat recommendations (`sharedOrgUnit`) still use assignments only.
+
+## 2026-11-04 — Authored rich text has one size in reading and editing
+
+Task descriptions, feed posts and knowledge articles use `--text-rich` (`12pt`, line-height 1.5, no paragraph margin) both in `.formatted-text` and in the editor, so text does not change size or rhythm when edit mode opens and the toolbar's «12 pt» default is true. Chat messages and task and feed comments stay on `--text-reading` (14px). 
+
+## 2026-11-04 — Photos can be placed over a task description
+
+Task creation and editing reuse the publication photo editor from `shared/inline-photos`. `Task.photoLayout` stores placements the same way as `FeedPost.photoLayout`; the server accepts only image files attached to that task, and a request without the field keeps the stored layout. A photo pasted or picked while editing stays staged: it joins the materials and notifies people only when the edit is saved, and an abandoned staged file is left to the staged-file cleanup. Placed photos also stay in the task's materials, so removing a saved photo from the description does not delete the file, and deleting the file removes its placement. Subtask creation has no photo button; other editors keep the toolbar without it.
+
+
+## 2026-11-05 — An open task never produces unread updates
+
+A notification stays the only per-user read state of a task. The Feed unread counter counts a task card only while the viewer has an unread notification about that task, so opening the task clears it there as well, and the viewer's own changes never count. Posts and events still use the per-company read cursor; the wider read-cursor model from 2026-09-09 stays open.
+
+Every committed task mutation signals the other people on the task (`TaskChangeSignalInterceptor`), because several task services write notifications without a realtime event. While a loaded task is on screen in a visible tab, the counters refresh after its read request rather than alongside the reload, so an update the person is looking at does not flash in a badge. A hidden tab counts as not looking. `read-entity` takes the loaded age (`loadedAgoMs`) so its cutoff does not depend on the client clock.
+
+## 2026-11-05 — One change, one alert; the inbox holds alerts rather than chat messages
+
+Unread chat messages are counted and listed by the chat. Their stored notification rows remain only for read reconciliation, so `GET /notifications`, `/notifications/summary` and read-all ignore them, and the top badge and document title are the sum of unread chat messages and inbox alerts. Mentions, reactions and being added to a chat stay inbox alerts.
+
+A task change gives each person one alert: whoever has a dedicated alert (review requested, returned to work, mentioned in an edit) gets no generic task event for the same change. A like reaches only the comment author and does not move the Feed card. Setting a reminder alerts nobody; the reminder is delivered when due. Opening a notification reads it whatever its source, opening a chat reads its reactions, and notifications for a task the person can no longer open are read automatically, because no page can read them.
+
+"Action required" means an open action. A task status change or archive settles a task's actions, delegation settles the previous responsible person's, and acknowledging a post or setting the new password settles those alerts. Reminders are not actions. The list shows unread first and each group newest first, never ordered by when something was read.
+
+The Feed list excludes pending items with an explicit null check on `postId`: `NOT (postId IN (...))` is NULL for task and event items, which used to hide every task card and freeze the read cursor for anyone with an unconfirmed mandatory post.
+
+## 2026-11-05 — People can see where the news is
+
+A task row in the list carries an «Нове» badge with its unread count, read from the shared unread notifications, and the right panel separates «Нові» from «Раніше» when it holds both. Marking a notification read is a visible button rather than a dot. An archived task is off the task list, so of its unread notifications only the archive alert stays news; the rest are read automatically and no longer inflate the badge.
+
+Time tracking and reminders produce no alerts and do not move the Feed card. A task card is addressed to its participants from any company of the workspace, matching the 2026-08-31 decision that `companyId` is not an authorization boundary; reads still re-authorize through the task. Cards already written before this change gain the person only with the task's next update.
+
+A Feed card that was unread on arrival says «Нове оновлення» until the person leaves the page. `GET /feed` reports the read cursor (`readPositions`) as it stood when the page was built, because opening the feed advances it immediately and later pages and refreshes could no longer tell. A first visit, with no cursor yet, marks nothing.
+
+An administrator can have any task open without being on it, so every task change also signals active administrators and an open page stays current. A mention that makes someone a watcher adds no alert of its own; the comment's alerts cover it. An administrator reading a chat they are not in has no read position, so the page does not try to mark it read.
+
+The Feed shows an administrator only the task cards addressed to them, as for everyone else; any task can still be opened and is listed under «Усі доступні». An administrator who comments on a task they are not on becomes its watcher and follows it from then on.

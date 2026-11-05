@@ -39,18 +39,18 @@ describe('administrator CLI guards', () => {
     await expect(resetDevelopmentAdmin({} as PrismaService)).rejects.toThrow(/forbidden in production/)
   })
 
-  it('requires an explicit snapshot root outside the BertCRM repository', async () => {
+  it('requires an explicit snapshot root outside the LankaDWS repository', async () => {
     vi.stubEnv('BITRIX_SNAPSHOT_ROOT', '')
     resetConfigForTests()
     await expect(validateImportManifestCommand()).rejects.toThrow(/explicit absolute dataset root/)
 
     vi.stubEnv('BITRIX_SNAPSHOT_ROOT', resolve(process.cwd()))
     resetConfigForTests()
-    await expect(validateImportManifestCommand()).rejects.toThrow(/outside the BertCRM repository/)
+    await expect(validateImportManifestCommand()).rejects.toThrow(/outside the LankaDWS repository/)
   })
 
   it('keeps manifest metadata and the private signing key outside both repository and dataset', async () => {
-    const externalRoot = resolve(process.cwd(), '..', '..', '..', 'bert-manifest-fixture')
+    const externalRoot = resolve(process.cwd(), '..', '..', '..', 'lankadws-manifest-fixture')
     vi.stubEnv('BITRIX_SNAPSHOT_ROOT', externalRoot)
     vi.stubEnv('BITRIX_MANIFEST_METADATA_PATH', resolve(process.cwd(), 'seal-request.json'))
     vi.stubEnv('IMPORT_SIGNING_PRIVATE_KEY_PATH', resolve(externalRoot, 'private.pem'))

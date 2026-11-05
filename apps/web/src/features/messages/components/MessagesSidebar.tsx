@@ -1,43 +1,49 @@
+import { conversationName, personName } from '../../../shared/lib/personName'
 import type {
   ChatContactUser,
   ChatThreadCounts,
   ChatThreadListItem,
-  RecommendedChatUser,
-} from '@bert-crm/contracts'
-import { LoaderCircle, MessageCircle, Plus, Search, UsersRound, X } from 'lucide-react'
+} from '@lankadws/contracts'
+import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
-import { formatChatTime } from '../lib/chatDates'
+import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
+import { formatChatListTime } from '../lib/chatDates'
+import type { MessageDrafts } from '../lib/messageDrafts'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
+import { ChatPinButton } from './ChatPinButton'
 
 interface MessagesSidebarProps {
+  drafts: MessageDrafts
   threads: ChatThreadListItem[]
   counts: ChatThreadCounts
   selectedThreadId?: string
   unreadOnly: boolean
   query: string
   debouncedQuery: string
+  isComposing: boolean
   searchResults: ChatContactUser[]
-  recommendations: RecommendedChatUser[]
   loadingThreads: boolean
   threadError: boolean
   loadingSearch: boolean
-  loadingRecommendations: boolean
   startingUserId: string | null
   hasMoreThreads: boolean
   loadingMoreThreads: boolean
   onQueryChange: (value: string) => void
+  onSearchCompositionStart: () => void
+  onSearchCompositionEnd: () => void
   onUnreadChange: (value: boolean) => void
   onSelectThread: (threadId: string) => void
-  onStartDirect: (userId: string) => void
-  onOpenGroup: () => void
+  onStartDirect: (contact: ChatContactUser) => void
   onLoadMore: () => void
   onRetryThreads: () => void
+  onPinThread?: (threadId: string, pinned: boolean) => void
+  pinPending?: boolean
+  pinError?: boolean
 }
 
 function ThreadAvatar({ thread }: { thread: ChatThreadListItem }) {
   if (thread.kind === 'DIRECT') {
-    return <Avatar name={thread.title} src={thread.avatarAsset} />
+    return <Avatar name={conversationName(thread)} src={thread.avatarAsset} />
   }
   return (
     <span className="messages-avatar-stack" aria-hidden="true">
@@ -45,7 +51,7 @@ function ThreadAvatar({ thread }: { thread: ChatThreadListItem }) {
         <Avatar
           key={participant.id}
           size="sm"
-          name={participant.displayName}
+          name={personName(participant.displayName)}
           src={participant.avatarAsset}
         />
       ))}
@@ -54,17 +60,10 @@ function ThreadAvatar({ thread }: { thread: ChatThreadListItem }) {
   )
 }
 
-function reasonLabel(reason: RecommendedChatUser['reason']): string {
-  if (reason === 'RECENT') return 'Нещодавній діалог'
-  if (reason === 'FREQUENT') return 'Часто спілкуєтесь'
-  if (reason === 'SHARED_CONTEXT') return 'Спільна робота'
-  return 'Ваша команда'
-}
-
 export function MessagesSidebar(props: MessagesSidebarProps) {
   const [activeResult, setActiveResult] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
-  const searching = normalizedCodePointLength(props.query) >= 2
+  const searching = !props.isComposing && normalizedCodePointLength(props.query) >= 1
   const waitingForDebounce = searching && props.query !== props.debouncedQuery
   const resultCount = props.searchResults.length
 
@@ -84,7 +83,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const selected = props.searchResults[activeResult]
-      if (selected) props.onStartDirect(selected.id)
+      if (selected) props.onStartDirect(selected)
     } else if (event.key === 'Escape') {
       event.preventDefault()
       props.onQueryChange('')
@@ -93,14 +92,6 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
 
   return (
     <aside className="messages-sidebar" aria-label="Повідомлення">
-      <header className="messages-sidebar__header">
-        <h1>Повідомлення</h1>
-        <IconButton label="Нова група" onClick={props.onOpenGroup}>
-          <UsersRound size={20} />
-          <Plus className="messages-sidebar__plus" size={12} />
-        </IconButton>
-      </header>
-
       <div className="messages-sidebar__search">
         <Search size={18} aria-hidden="true" />
         <input
@@ -118,6 +109,8 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
           value={props.query}
           placeholder="Пошук користувачів"
           onChange={(event) => props.onQueryChange(event.target.value)}
+          onCompositionStart={props.onSearchCompositionStart}
+          onCompositionEnd={props.onSearchCompositionEnd}
           onKeyDown={handleSearchKeyDown}
         />
         {props.query && (
@@ -134,9 +127,9 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         )}
       </div>
 
-      {props.query && !searching && (
+      {props.query && !props.isComposing && !searching && (
         <p className="messages-sidebar__search-hint" role="status">
-          Введіть щонайменше 2 символи
+          Введіть щонайменше 1 символ
         </p>
       )}
 
@@ -155,12 +148,12 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                   type="button"
                   key={contact.id}
                   onMouseEnter={() => setActiveResult(index)}
-                  onClick={() => props.onStartDirect(contact.id)}
+                  onClick={() => props.onStartDirect(contact)}
                   disabled={Boolean(props.startingUserId)}
                 >
-                  <Avatar name={contact.displayName} src={contact.avatarAsset} />
+                  <Avatar name={personName(contact.displayName)} src={contact.avatarAsset} />
                   <span>
-                    <strong>{highlightNormalizedText(contact.displayName, props.debouncedQuery)}</strong>
+                    <strong>{highlightNormalizedText(personName(contact.displayName), props.debouncedQuery)}</strong>
                     <small>
                       @{highlightNormalizedText(contact.username, props.debouncedQuery)}
                       {contact.jobTitle ? ` · ${contact.jobTitle}` : ''}
@@ -182,32 +175,6 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         </section>
       ) : (
         <>
-          {props.recommendations.length > 0 && (
-            <section className="messages-recommendations" aria-label="Рекомендовані контакти">
-              <div className="messages-section-label">Рекомендовані</div>
-              <div>
-                {props.recommendations.map((contact) => (
-                  <button
-                    type="button"
-                    key={contact.id}
-                    disabled={Boolean(props.startingUserId)}
-                    onClick={() => props.onStartDirect(contact.id)}
-                    title={`${contact.displayName}: ${reasonLabel(contact.reason)}`}
-                  >
-                    <Avatar name={contact.displayName} src={contact.avatarAsset} />
-                    <strong>{contact.displayName.split(' ')[0]}</strong>
-                    <small>{reasonLabel(contact.reason)}</small>
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-          {props.loadingRecommendations && (
-            <div className="messages-recommendations messages-recommendations--loading">
-              <Skeleton rows={1} />
-            </div>
-          )}
-
           <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів">
             <button
               type="button"
@@ -230,38 +197,53 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
           </div>
 
           <div className="messages-thread-scroll">
+            {props.pinError && <p role="alert">Не вдалося змінити закріплення чату. Спробуйте ще раз.</p>}
             {props.loadingThreads ? (
-              <Skeleton rows={7} />
+              <PageDataLoader />
             ) : props.threadError ? (
               <ErrorState title="Не вдалося завантажити діалоги" onRetry={props.onRetryThreads} />
             ) : props.threads.length ? (
               <div className="messages-thread-list">
                 {props.threads.map((thread) => (
+                  <div className="message-thread-entry" key={thread.id}>
                   <button
                     type="button"
                     key={thread.id}
                     className={[
+                      'message-thread-select',
                       props.selectedThreadId === thread.id ? 'is-selected' : '',
                       thread.unread ? 'is-unread' : '',
                     ].filter(Boolean).join(' ')}
                     aria-current={props.selectedThreadId === thread.id ? 'page' : undefined}
-                    aria-label={`${thread.title}${thread.unreadCount ? `, ${thread.unreadCount} непрочитаних` : ''}`}
+                    aria-label={`${conversationName(thread)}${thread.unreadCount ? `, ${thread.unreadCount} непрочитаних` : ''}`}
                     onClick={() => props.onSelectThread(thread.id)}
                   >
                     <ThreadAvatar thread={thread} />
                     <span className="messages-thread-list__copy">
                       <span>
-                        <strong>{thread.title}</strong>
-                        <time>{thread.lastMessageAt ? formatChatTime(thread.lastMessageAt) : ''}</time>
+                        <strong>{conversationName(thread)}</strong>
                       </span>
                       <span>
                         <small>
-                          {thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} учасників`)}
+                          {props.drafts[thread.id]?.body.trim()
+                            ? <><span className="message-draft-label">Чернетка:</span> {props.drafts[thread.id]!.body}</>
+                            : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} учасників`)}
                         </small>
-                        {thread.unreadCount > 0 && <b>{Math.min(thread.unreadCount, 99)}</b>}
                       </span>
                     </span>
                   </button>
+                  <div className="message-thread-meta">
+                  <time>{props.drafts[thread.id]?.createdAt
+                    ? formatChatListTime(new Date(props.drafts[thread.id]!.createdAt).toISOString())
+                    : thread.lastMessageAt ? formatChatListTime(thread.lastMessageAt) : ''}</time>
+                  <div className="message-thread-meta__actions">
+                    {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
+                      disabled={Boolean(props.pinPending) || !props.onPinThread}
+                      onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
+                    {thread.unreadCount > 0 && <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>}
+                  </div>
+                  </div>
+                  </div>
                 ))}
                 {props.hasMoreThreads && (
                   <button

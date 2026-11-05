@@ -1,27 +1,39 @@
+import { FileFormatIcon } from '../shared/files/FileFormatIcon'
+import { personName } from '../shared/lib/personName'
+import './knowledge-reading.css'
+import { KnowledgeFeedbackTickets } from './KnowledgeFeedbackTickets'
+import { FormattedText } from '../shared/text/FormattedText'
+import { FormattedTextarea } from '../shared/text/FormattedTextarea'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { OrganizationCapability, type DocumentListItem, type GroupDetailView, type GroupListResult } from '@bert-crm/contracts'
-import { Archive, ArchiveRestore, BarChart3, BookOpenCheck, Building2, CalendarClock, Check, CheckSquare2, Download, File as FileIcon, FileCheck2, FileImage, FilePlus2, Files, LockKeyhole, LogOut, MessageCircle, Network, Newspaper, Plus, Search, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, jsonBody } from '../shared/api/client'
+import { AlertTriangle, ArrowRight, BookOpenCheck, Building2, Check, Download, Eye, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
+import { api, apiUrl, jsonBody, randomId } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
+import { UserProfileLink } from '../features/employees/UserProfileDrawer'
+import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
+import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
+import { FileDropzone } from '../shared/files/FileDropzone'
+import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import {
   Avatar,
   Button,
   Card,
-  Drawer,
+  ConfirmationDialog,
   EmptyState,
   ErrorState,
+  Modal,
+  PageDataLoader,
   PageHeader,
-  Skeleton,
-  StatusBadge,
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../shared/ui'
 
-interface ArticleList { id: string; slug: string; title: string; changeSummary: string; reviewAt: string | null; version: number; updatedAt: string }
-interface ArticleDetail { id: string; slug: string; version: number; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null }
+interface ArticleList { id: string; slug: string; title: string; changeSummary: string; reviewAt: string | null; version: number; createdAt: string; requiresAcknowledgement: boolean; hasAcknowledged: boolean; updatedAt: string; imageFileId?: string | null }
+interface KnowledgeAttachment { id: string; safeFilename: string; bytes: number; mimeType: string | null; scanStatus: string }
+interface ArticleDetail { id: string; slug: string; version: number; createdAt: string; requiresAcknowledgement: boolean; reviewAt?: string | null; currentVersion: { title: string; body: string; changeSummary: string; publishedAt: string } | null; acknowledgement: { confirmedAt?: string | null } | null; attachments: KnowledgeAttachment[]; companyIds: string[] }
+interface KnowledgeCompanyOption { id: string; name: string; isActive: boolean }
 interface Employee {
   id: string
   displayName: string
@@ -38,723 +50,334 @@ interface Employee {
 }
 interface EmployeeDirectory {
   items: Employee[]
+  total: number
+  nextCursor: string | null
   counts: { all: number; available: number; away: number }
   filters: {
     orgUnits: Array<{ id: string; name: string }>
     managers: Array<{ id: string; displayName: string }>
   }
 }
-type DriveSection = 'ALL' | 'MINE' | 'SHARED' | 'DRAFTS' | 'ARCHIVED'
-interface DriveDocument extends DocumentListItem {
-  ownerId: string
-  isOwner: boolean
-  versionCount: number
-  sizeBytes: number | null
-  fileType: 'DOCUMENT' | 'IMAGE' | 'OTHER'
-  archivedAt: string | null
-}
-interface DriveResult {
-  items: DriveDocument[]
-  counts: Record<DriveSection, number>
-}
-
 export default function ContentPages() {
   const path = useLocation().pathname
-  if (path.startsWith('/groups')) return <GroupsPage />
-  if (path.startsWith('/drive')) return <DocumentsPage basePath="/drive" title="Диск" />
-  if (path.startsWith('/documents')) return <DocumentsPage basePath="/documents" title="Документи" />
   if (path.startsWith('/knowledge')) return <KnowledgePage />
   if (path.startsWith('/employees')) return <EmployeesPage />
-  return <AnalyticsPage />
+  return null
 }
 
-function DocumentsPage({ basePath, title }: { basePath: '/drive' | '/documents'; title: string }) {
-  const { documentId } = useParams()
-  const navigate = useNavigate()
-  const { canUseCapability, user } = useAuth()
-  const [params, setParams] = useSearchParams()
-  const [creating, setCreating] = useState(false)
-  const search = params.get('q') ?? ''
-  const companyId = user?.company?.id ?? ''
-  const requestedCreate = params.get('new') === '1'
-  const section = (params.get('section') ?? 'ALL') as DriveSection
-  const fileType = params.get('type') ?? 'ALL'
-  const sort = params.get('sort') ?? 'RECENT'
-  const requestQuery = new URLSearchParams({ section, type: fileType, sort })
-  if (search) requestQuery.set('search', search)
-  if (companyId) requestQuery.set('company', companyId)
-  const query = useQuery({
-    queryKey: ['documents', search, companyId, section, fileType, sort],
-    queryFn: () => api<DriveResult>(`/documents?${requestQuery.toString()}`),
-  })
-  const featureEnabled = basePath === '/documents' || canUseCapability(OrganizationCapability.Drive)
-  const createCompanyId = companyId
-  const canCreate = featureEnabled && Boolean(companyId)
-  useEffect(() => {
-    if (!requestedCreate || !canCreate) return
-    setCreating(true)
-    setParams((current) => {
-      current.delete('new')
-      return current
-    }, { replace: true })
-  }, [canCreate, requestedCreate, setParams])
-  const updateFilter = (name: string, value: string) => {
-    const next = new URLSearchParams(params)
-    if (value && value !== 'ALL' && value !== 'RECENT') next.set(name, value)
-    else next.delete(name)
-    setParams(next, { replace: true })
-  }
-  const currentQuery = params.toString()
-  const sections: Array<{ id: DriveSection; label: string }> = [
-    { id: 'ALL', label: 'Усі файли' },
-    { id: 'MINE', label: 'Мої' },
-    { id: 'SHARED', label: 'Спільні' },
-    { id: 'DRAFTS', label: 'Чернетки' },
-    { id: 'ARCHIVED', label: 'Архів' },
-  ]
-  return (
-    <div>
-      <PageHeader
-        title={title}
-        description="Робочі файли, актуальні версії та зрозумілий доступ в одному місці"
-        action={canCreate && (
-          <Button onClick={() => setCreating(true)}><FilePlus2 size={17} />Завантажити файл</Button>
-        )}
-      />
-      <Card className="drive-card">
-        <div className="tabs drive-sections" role="tablist" aria-label="Розділи диска">
-          {sections.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={section === item.id}
-              className={section === item.id ? 'is-active' : ''}
-              onClick={() => updateFilter('section', item.id)}
-            >
-              {item.label}<span>{query.data?.counts[item.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
-        <div className="drive-toolbar">
-          <label className="search-field">
-            <Search size={17} />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => updateFilter('q', event.target.value)}
-              placeholder="Назва або номер файлу"
-            />
-          </label>
-          <label>
-            <span>Тип</span>
-            <select value={fileType} onChange={(event) => updateFilter('type', event.target.value)}>
-              <option value="ALL">Усі типи</option>
-              <option value="DOCUMENT">Документи</option>
-              <option value="IMAGE">Зображення</option>
-              <option value="OTHER">Інші</option>
-            </select>
-          </label>
-          <label>
-            <span>Сортування</span>
-            <select value={sort} onChange={(event) => updateFilter('sort', event.target.value)}>
-              <option value="RECENT">Нещодавно змінені</option>
-              <option value="NAME">За назвою</option>
-              <option value="OWNER">За власником</option>
-            </select>
-          </label>
-        </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
-          <ErrorState onRetry={() => void query.refetch()} />
-        ) : query.data?.items.length ? (
-          <div className="responsive-table drive-table">
-            <table>
-              <thead><tr><th>Файл</th><th>Власник</th><th>Версії</th><th>Оновлено</th><th>Статус</th></tr></thead>
-              <tbody>
-                {query.data.items.map((item) => (
-                  <tr key={item.id}>
-                    <td>
-                      <Link to={`${basePath}/${item.id}${currentQuery ? `?${currentQuery}` : ''}`}>
-                        <span className={`drive-file-icon drive-file-icon--${item.fileType.toLowerCase()}`}>
-                          {item.fileType === 'IMAGE' ? <FileImage size={19} /> : item.fileType === 'DOCUMENT' ? <FileIcon size={19} /> : <Files size={19} />}
-                        </span>
-                        <span>
-                          <strong>{item.name}</strong>
-                          <small>{item.number} · {formatFileSize(item.sizeBytes)}</small>
-                        </span>
-                      </Link>
-                    </td>
-                    <td>{item.isOwner ? 'Ви' : item.ownerName}</td>
-                    <td>{item.versionCount}</td>
-                    <td>{formatDateTime(item.updatedAt)}</td>
-                    <td><StatusBadge status={item.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState
-            title={section === 'ARCHIVED' ? 'Архів порожній' : 'Файлів не знайдено'}
-            description={search || fileType !== 'ALL' ? 'Змініть пошук або тип файлу.' : 'Завантажте перший робочий файл.'}
-            illustration={search || fileType !== 'ALL' ? 'search' : 'workspace'}
-            action={canCreate && section !== 'ARCHIVED' && <Button onClick={() => setCreating(true)}><FilePlus2 size={17} />Завантажити</Button>}
-          />
-        )}
-      </Card>
-      {documentId && (
-        <DocumentDrawer
-          id={documentId}
-          onClose={() => navigate(`${basePath}${currentQuery ? `?${currentQuery}` : ''}`)}
-        />
-      )}
-      {creating && (
-        <DocumentCreate
-          companyId={createCompanyId}
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false)
-            navigate(`${basePath}/${id}${currentQuery ? `?${currentQuery}` : ''}`)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function formatFileSize(bytes: number | null): string {
-  if (bytes === null) return 'розмір невідомий'
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
-}
-
-function GroupsPage() {
-  const { groupId } = useParams()
-  const navigate = useNavigate()
-  const { canUseCapability, user } = useAuth()
-  const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState(params.get('q') ?? '')
-  const [creating, setCreating] = useState(false)
-  const requestedCreate = params.get('new') === '1'
-  const status = params.get('status') === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE'
-  const company = user?.company?.id ?? ''
-  const queryParams = new URLSearchParams({ status, limit: '50' })
-  if (company) queryParams.set('company', company)
-  if (search.trim()) queryParams.set('query', search.trim())
-  const query = useQuery({
-    queryKey: ['groups', company, status, search],
-    queryFn: () => api<GroupListResult>(`/groups?${queryParams.toString()}`),
-  })
-  const createCompanyId = company
-  const canCreate = canUseCapability(OrganizationCapability.GroupsUi) && Boolean(company)
-  useEffect(() => {
-    if (!requestedCreate || !canCreate) return
-    setCreating(true)
-    setParams((current) => {
-      current.delete('new')
-      return current
-    }, { replace: true })
-  }, [canCreate, requestedCreate, setParams])
-  const selectStatus = (nextStatus: 'ACTIVE' | 'ARCHIVED') => {
-    setParams((current) => {
-      const next = new URLSearchParams(current)
-      if (nextStatus === 'ARCHIVED') next.set('status', nextStatus)
-      else next.delete('status')
-      return next
-    }, { replace: true })
-  }
-  return (
-    <div>
-      <PageHeader
-        title="Робочі групи"
-        description="Команди та проєкти без зайвих вкладок і налаштувань"
-        action={canCreate && <Button onClick={() => setCreating(true)}><Plus size={17} />Нова група</Button>}
-      />
-      <Card className="list-card">
-        <div className="list-toolbar group-toolbar">
-          <label className="search-field">
-            <Search size={17} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Знайти групу" />
-          </label>
-          <div className="segmented-control" aria-label="Стан груп">
-            <button className={status === 'ACTIVE' ? 'is-active' : ''} onClick={() => selectStatus('ACTIVE')}>Активні</button>
-            <button className={status === 'ARCHIVED' ? 'is-active' : ''} onClick={() => selectStatus('ARCHIVED')}>Архів</button>
-          </div>
-        </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
-          <ErrorState onRetry={() => void query.refetch()} />
-        ) : query.data?.items.length ? (
-          <div className="group-grid">
-            {query.data.items.map((group) => (
-              <Link to={`/groups/${group.id}?${params.toString()}`} key={group.id}>
-                <span className="group-icon">{group.discoverability === 'HIDDEN' ? <LockKeyhole size={20} /> : <UsersRound size={20} />}</span>
-                <div>
-                  <strong>{group.name}</strong>
-                  <p>{group.description || 'Робочий простір команди'}</p>
-                  <small>{group.memberCount} учасн. · {group.currentUserRole ? 'Ви учасник' : group.joinPolicy === 'OPEN' ? 'Відкрита' : 'За запитом'}</small>
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : <EmptyState title="Груп не знайдено" description="Спробуйте іншу назву або відкрийте активні групи." />}
-      </Card>
-      {groupId && <GroupDrawer id={groupId} company={company} onClose={() => navigate(`/groups?${params.toString()}`)} />}
-      {creating && (
-        <GroupCreate
-          companyId={createCompanyId}
-          onClose={() => setCreating(false)}
-          onCreated={(id) => {
-            setCreating(false)
-            navigate(`/groups/${id}?${params.toString()}`)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function GroupCreate({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const [error, setError] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
-  const create = useMutation({
-    mutationFn: (input: Record<string, unknown>) => api<{ id: string }>('/groups', {
-      method: 'POST',
-      body: jsonBody(input),
-    }),
-    onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
-    onError: () => setError('Не вдалося створити групу. Перевірте назву й доступ.'),
-  })
-  return (
-    <>
-      <Drawer title="Нова робоча група" onRequestClose={closeGuard.requestClose}>
-        <form className="entity-form" onChange={() => setDirty(true)} onSubmit={(event) => {
-          event.preventDefault()
-          const data = new FormData(event.currentTarget)
-          create.mutate({
-            companyId,
-            name: data.get('name'),
-            description: data.get('description') || undefined,
-            discoverability: data.get('discoverability'),
-            joinPolicy: data.get('joinPolicy'),
-          })
-        }}>
-          <label className="span-2">Назва<input name="name" required minLength={2} maxLength={120} autoFocus /></label>
-          <label className="span-2">Опис<textarea name="description" rows={4} maxLength={1000} /></label>
-          <label>Видимість<select name="discoverability" defaultValue="LISTED"><option value="LISTED">Видима всім</option><option value="HIDDEN">Прихована</option></select></label>
-          <label>Вступ<select name="joinPolicy" defaultValue="REQUEST"><option value="OPEN">Вільний</option><option value="REQUEST">За заявкою</option><option value="INVITE_ONLY">За запрошенням</option></select></label>
-          {error && <p className="form-error span-2">{error}</p>}
-          <Button className="span-2" disabled={create.isPending}>{create.isPending ? 'Створюємо…' : 'Створити групу'}</Button>
-        </form>
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
-    </>
-  )
-}
-
-function GroupDrawer({ id, company, onClose }: { id: string; company: string; onClose: () => void }) {
-  const client = useQueryClient()
-  const navigate = useNavigate()
-  const { canUseCapability } = useAuth()
-  const [settingsError, setSettingsError] = useState('')
-  const [settingsDirty, setSettingsDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({
-    dirty: settingsDirty,
-    onRequestClose: () => onClose(),
-  })
-  const suffix = company ? `?company=${encodeURIComponent(company)}` : ''
-  const query = useQuery({ queryKey: ['group', id, company], queryFn: () => api<GroupDetailView>(`/groups/${id}${suffix}`) })
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ['group', id] })
-    void client.invalidateQueries({ queryKey: ['groups'] })
-  }
-  const join = useMutation({ mutationFn: () => api(`/groups/${id}/join`, { method: 'POST' }), onSuccess: refresh })
-  const leave = useMutation({ mutationFn: () => api(`/groups/${id}/leave`, { method: 'POST' }), onSuccess: refresh })
-  const decide = useMutation({
-    mutationFn: (input: { requestId: string; decision: 'APPROVED' | 'REJECTED' }) =>
-      api(`/groups/${id}/requests/${input.requestId}`, { method: 'POST', body: jsonBody({ decision: input.decision }) }),
-    onSuccess: refresh,
-  })
-  const update = useMutation({
-    mutationFn: (input: Record<string, unknown>) => api(`/groups/${id}`, { method: 'PATCH', body: jsonBody(input) }),
-    onSuccess: () => {
-      setSettingsError('')
-      setSettingsDirty(false)
-      refresh()
-    },
-    onError: () => setSettingsError('Зміни не збережено. Оновіть групу й спробуйте ще раз.'),
-  })
-  const archive = useMutation({
-    mutationFn: () => api(`/groups/${id}/archive`, {
-      method: 'POST',
-      body: jsonBody({ expectedVersion: query.data?.version }),
-    }),
-    onSuccess: refresh,
-    onError: () => setSettingsError('Не вдалося архівувати групу.'),
-  })
-  const openChat = useMutation({
-    mutationFn: () => api<{ id: string }>(`/messages/groups/${id}/thread`, { method: 'POST' }),
-    onSuccess: (result) => {
-      const context = new URLSearchParams({ company: query.data!.companyId })
-      navigate(`/messages/${result.id}?${context.toString()}`)
-    },
-  })
-  const footer = query.data?.status === 'ACTIVE' && !query.data.currentUserRole ? (
-    <Button
-      disabled={join.isPending || query.data.currentUserRequestStatus === 'PENDING' || query.data.joinPolicy === 'INVITE_ONLY'}
-      onClick={() => join.mutate()}
-    >
-      <UserPlus size={17} />
-      {query.data.currentUserRequestStatus === 'PENDING'
-        ? 'Заявку надіслано'
-        : query.data.joinPolicy === 'OPEN'
-          ? 'Приєднатися'
-          : query.data.joinPolicy === 'REQUEST'
-            ? 'Подати заявку'
-            : 'Лише за запрошенням'}
-    </Button>
-  ) : query.data?.status === 'ACTIVE' && query.data.currentUserRole !== 'OWNER' ? (
-    <Button variant="secondary" disabled={leave.isPending} onClick={() => leave.mutate()}><LogOut size={17} />Вийти з групи</Button>
-  ) : undefined
-  return (
-    <>
-      <Drawer title="Робоча група" onRequestClose={closeGuard.requestClose} footer={footer}>
-        {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
-        <div className="detail-stack group-detail">
-          <span className="group-icon">{query.data.discoverability === 'HIDDEN' ? <LockKeyhole size={22} /> : <UsersRound size={22} />}</span>
-          <div>
-            <StatusBadge status={query.data.status} />
-            <h3>{query.data.name}</h3>
-            <p>{query.data.description || 'Опис групи не додано.'}</p>
-          </div>
-          <dl className="detail-grid">
-            <div><dt>Власник</dt><dd>{query.data.owner.displayName}</dd></div>
-            <div><dt>Учасники</dt><dd>{query.data.memberCount}</dd></div>
-            <div><dt>Доступ</dt><dd>{query.data.discoverability === 'HIDDEN' ? 'Прихована' : 'Видима'}</dd></div>
-            <div><dt>Вступ</dt><dd>{query.data.joinPolicy === 'OPEN' ? 'Вільний' : query.data.joinPolicy === 'REQUEST' ? 'За запитом' : 'За запрошенням'}</dd></div>
-          </dl>
-          {query.data.currentUserRole && query.data.status === 'ACTIVE' && (
-            <section className="group-workspace">
-              <h4>Робота групи</h4>
-              <div>
-                {canUseCapability(OrganizationCapability.Feed) && (
-                  <Link to={`/feed?groupId=${encodeURIComponent(id)}`}>
-                    <Newspaper size={19} />
-                    <span><strong>Стрічка</strong><small>Оновлення групи</small></span>
-                  </Link>
-                )}
-                {(
-                  <Link to={`/tasks?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
-                    <CheckSquare2 size={19} />
-                    <span><strong>Завдання</strong><small>Робота команди</small></span>
-                  </Link>
-                )}
-                {(
-                  <Link to={`/tasks/new?company=${encodeURIComponent(query.data.companyId)}&groupId=${encodeURIComponent(id)}`}>
-                    <Plus size={19} />
-                    <span><strong>Нове завдання</strong><small>У контексті групи</small></span>
-                  </Link>
-                )}
-                {(
-                  <button type="button" disabled={openChat.isPending} onClick={() => openChat.mutate()}>
-                    <MessageCircle size={19} />
-                    <span><strong>Чат</strong><small>{openChat.isPending ? 'Відкриваємо…' : 'Спільний діалог'}</small></span>
-                  </button>
-                )}
-              </div>
-              {openChat.isError && <p className="form-error">Не вдалося відкрити чат групи.</p>}
-            </section>
-          )}
-          <section>
-            <h4>Учасники</h4>
-            <div className="group-member-list">
-              {query.data.members.map((member) => (
-                <article key={member.id}>
-                  <Avatar size="sm" name={member.user.displayName} src={member.user.avatarAsset} />
-                  <span><strong>{member.user.displayName}</strong><small>{member.role === 'OWNER' ? 'Власник' : member.role === 'MODERATOR' ? 'Модератор' : 'Учасник'}</small></span>
-                </article>
-              ))}
-            </div>
-          </section>
-          {query.data.canManageMembers && query.data.pendingRequests.length > 0 && (
-            <section>
-              <h4>Заявки на вступ</h4>
-              <div className="group-request-list">
-                {query.data.pendingRequests.map((request) => (
-                  <article key={request.id}>
-                    <Avatar size="sm" name={request.requester.displayName} src={request.requester.avatarAsset} />
-                    <strong>{request.requester.displayName}</strong>
-                    <button aria-label="Прийняти" onClick={() => decide.mutate({ requestId: request.id, decision: 'APPROVED' })}><Check size={16} /></button>
-                    <button aria-label="Відхилити" onClick={() => decide.mutate({ requestId: request.id, decision: 'REJECTED' })}><X size={16} /></button>
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-          {query.data.canEdit && query.data.status === 'ACTIVE' && (
-            <details className="group-settings">
-              <summary>Налаштування групи</summary>
-              <form onChange={() => setSettingsDirty(true)} onSubmit={(event) => {
-                event.preventDefault()
-                const data = new FormData(event.currentTarget)
-                update.mutate({
-                  name: data.get('name'),
-                  description: data.get('description') || undefined,
-                  discoverability: data.get('discoverability'),
-                  joinPolicy: data.get('joinPolicy'),
-                  expectedVersion: query.data!.version,
-                })
-              }}>
-                <label>Назва<input name="name" defaultValue={query.data.name} required minLength={2} maxLength={120} /></label>
-                <label>Опис<textarea name="description" defaultValue={query.data.description ?? ''} rows={3} maxLength={1000} /></label>
-                <label>Видимість<select name="discoverability" defaultValue={query.data.discoverability}><option value="LISTED">Видима</option><option value="HIDDEN">Прихована</option></select></label>
-                <label>Вступ<select name="joinPolicy" defaultValue={query.data.joinPolicy}><option value="OPEN">Вільний</option><option value="REQUEST">За заявкою</option><option value="INVITE_ONLY">За запрошенням</option></select></label>
-                {settingsError && <p className="form-error">{settingsError}</p>}
-                <div>
-                  <Button disabled={update.isPending}>{update.isPending ? 'Зберігаємо…' : 'Зберегти'}</Button>
-                  <Button type="button" variant="ghost" disabled={archive.isPending} onClick={() => archive.mutate()}><Archive size={16} />Архівувати</Button>
-                </div>
-              </form>
-            </details>
-          )}
-          {query.data.status === 'ARCHIVED' && <p className="privacy-note"><Archive size={17} />Група доступна лише для перегляду.</p>}
-        </div>
-        )}
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
-    </>
-  )
-}
-
-function DocumentCreate({ companyId, onClose, onCreated }: { companyId: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const { user } = useAuth()
-  const selectedCompany = companyId || user?.company?.id || ''
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: () => onClose() })
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setBusy(true)
-    setError('')
-    const data = new FormData(event.currentTarget)
-    const file = data.get('file') as globalThis.File
-    try {
-      const upload = new FormData()
-      upload.set('file', file)
-      const uploaded = await api<{ id: string; status: string }>(`/files?company=${selectedCompany}`, { method: 'POST', body: upload })
-      let status = uploaded.status
-      for (let attempt = 0; attempt < 10 && status !== 'CLEAN'; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 600))
-        status = (await api<{ status: string }>(`/files/${uploaded.id}/status`)).status
-      }
-      if (status !== 'CLEAN') throw new Error('scan')
-      const document = await api<{ id: string }>('/documents', {
-        method: 'POST',
-        body: jsonBody({
-          companyId: selectedCompany,
-          name: data.get('name'),
-          fileId: uploaded.id,
-          changeSummary: data.get('summary'),
-        }),
-      })
-      closeGuard.closeForSuccess(() => onCreated(document.id))
-    } catch {
-      setError('Файл не пройшов перевірку або документ не вдалося створити.')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <>
-      <Drawer
-        title="Новий документ"
-        closeDisabled={busy}
-        onRequestClose={closeGuard.requestClose}
-      >
-        <form className="entity-form" onChange={() => setDirty(true)} onSubmit={submit}>
-          <label className="span-2">Назва<input name="name" required maxLength={180} /></label>
-          <label className="span-2 file-input">
-            <FilePlus2 /><span>PDF, DOCX, TXT, PNG, JPEG або WEBP · до 25 МБ</span>
-            <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
-          </label>
-          <label className="span-2">Що у версії<input name="summary" placeholder="Перша версія" maxLength={180} /></label>
-          {error && <div className="form-error span-2">{error}</div>}
-          <Button className="span-2" disabled={busy}>{busy ? 'Перевіряємо файл…' : 'Завантажити на Диск'}</Button>
-        </form>
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
-    </>
-  )
-}
-
-function DocumentDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  interface Detail {
-    id: string
-    number: string
-    companyId: string
-    name: string
-    status: string
-    version: number
-    confidentiality: string
-    archivedAt: string | null
-    versions: Array<{ id: string; fileId: string; version: number; changeSummary: string; createdAt: string; status: string }>
-  }
-  const client = useQueryClient()
-  const [versionError, setVersionError] = useState('')
-  const [versionDirty, setVersionDirty] = useState(false)
-  const closeGuard = useModalCloseGuard({
-    dirty: versionDirty,
-    onRequestClose: () => onClose(),
-  })
-  const query = useQuery({ queryKey: ['document', id], queryFn: () => api<Detail>(`/documents/${id}`) })
-  const refresh = async () => {
-    await Promise.all([
-      query.refetch(),
-      client.invalidateQueries({ queryKey: ['documents'] }),
-    ])
-  }
-  const publish = useMutation({
-    mutationFn: () => api(`/documents/${id}/publish`, {
-      method: 'POST',
-      body: jsonBody({ expectedVersion: query.data?.version }),
-    }),
-    onSuccess: refresh,
-  })
-  const archive = useMutation({
-    mutationFn: () => api(`/documents/${id}/archive`, {
-      method: 'POST',
-      body: jsonBody({ expectedVersion: query.data?.version }),
-    }),
-    onSuccess: refresh,
-  })
-  const restore = useMutation({
-    mutationFn: () => api(`/documents/${id}/restore`, {
-      method: 'POST',
-      body: jsonBody({ expectedVersion: query.data?.version }),
-    }),
-    onSuccess: refresh,
-  })
-  const addVersion = useMutation({
-    mutationFn: async ({ file, summary }: { file: globalThis.File; summary: string }) => {
-      const upload = new FormData()
-      upload.set('file', file)
-      const uploaded = await api<{ id: string; status: string }>(`/files?company=${query.data?.companyId}`, { method: 'POST', body: upload })
-      let status = uploaded.status
-      for (let attempt = 0; attempt < 10 && status !== 'CLEAN'; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 600))
-        status = (await api<{ status: string }>(`/files/${uploaded.id}/status`)).status
-      }
-      if (status !== 'CLEAN') throw new Error('scan')
-      return api(`/documents/${id}/versions`, {
-        method: 'POST',
-        body: jsonBody({ fileId: uploaded.id, changeSummary: summary || undefined, expectedVersion: query.data?.version }),
-      })
-    },
-    onSuccess: () => {
-      setVersionError('')
-      setVersionDirty(false)
-      void query.refetch()
-      void client.invalidateQueries({ queryKey: ['documents'] })
-    },
-    onError: () => setVersionError('Нову версію не додано. Оновіть документ або перевірте файл.'),
-  })
-  const footer = query.data ? (
-    <div className="document-drawer-actions">
-      {query.data.archivedAt ? (
-        <Button variant="secondary" disabled={restore.isPending} onClick={() => restore.mutate()}>
-          <ArchiveRestore size={17} />Відновити
-        </Button>
-      ) : (
-        <>
-          <Button variant="ghost" disabled={archive.isPending} onClick={() => archive.mutate()}>
-            <Archive size={17} />В архів
-          </Button>
-          {query.data.status === 'DRAFT' && (
-            <Button disabled={publish.isPending} onClick={() => publish.mutate()}>
-              <FileCheck2 size={17} />Опублікувати
-            </Button>
-          )}
-        </>
-      )}
-    </div>
-  ) : undefined
-  return (
-    <>
-      <Drawer title={query.data?.number ?? 'Документ'} onRequestClose={closeGuard.requestClose} footer={footer}>
-        {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
-        <div className="detail-stack">
-          <div>
-            <StatusBadge status={query.data.archivedAt ? 'ARCHIVED' : query.data.status} />
-            <h3>{query.data.name}</h3>
-            <p className="privacy-note"><ShieldCheck size={17} />Доступ перевіряється під час кожного відкриття.</p>
-          </div>
-          {!query.data.archivedAt && (
-            <form
-              className="document-version-form"
-              onChange={() => setVersionDirty(true)}
-              onSubmit={(event) => {
-                event.preventDefault()
-                const data = new FormData(event.currentTarget)
-                const file = data.get('file')
-                if (file instanceof globalThis.File && file.size > 0) {
-                  addVersion.mutate({ file, summary: String(data.get('summary') ?? '') })
-                }
-              }}
-            >
-              <h4>Додати нову версію</h4>
-              <label className="file-input">
-                <FilePlus2 /><span>Оберіть оновлений файл</span>
-                <input type="file" name="file" required accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp" />
-              </label>
-              <input name="summary" placeholder="Що змінилося" maxLength={180} />
-              {versionError && <p className="form-error">{versionError}</p>}
-              <Button variant="secondary" disabled={addVersion.isPending}>
-                {addVersion.isPending ? 'Перевіряємо…' : 'Додати версію'}
-              </Button>
-            </form>
-          )}
-          <section>
-            <h4>Версії</h4>
-            <div className="version-list">
-              {query.data.versions.map((version) => (
-                <article key={version.id}>
-                  <FileIcon size={20} />
-                  <span>
-                    <strong>Версія {version.version}</strong>
-                    <small>{version.changeSummary} · {formatDateTime(version.createdAt)}</small>
-                  </span>
-                  <a className="icon-button" aria-label="Завантажити" href={`/api/v1/files/${version.fileId}/download`}>
-                    <Download size={17} />
-                  </a>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
-        )}
-      </Drawer>
-      <UnsavedChangesDialog guard={closeGuard} />
-    </>
-  )
-}
 
 function KnowledgePage() {
-  const { articleSlug } = useParams(); const navigate = useNavigate(); const { user } = useAuth(); const [search, setSearch] = useState('')
-  const query = useQuery({ queryKey: ['knowledge', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`) })
-  return <div><PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={user?.accountType === 'ADMIN' && <Link to="/admin/system?tab=directories" className="button button--secondary">Керувати матеріалами</Link>} /><div className="knowledge-layout"><Card className="knowledge-feature"><BookOpenCheck size={30} /><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></Card><section className="article-grid">{query.isLoading ? <Skeleton rows={6} /> : query.isError ? <ErrorState /> : query.data?.items.map((item) => <Link to={`/knowledge/${item.slug}`} key={item.id}><span className="article-icon"><BookOpenCheck size={20} /></span><div><h3>{item.title}</h3><p>{item.changeSummary || 'Актуальна інструкція BERT CRM'}</p><small>Оновлено {formatDate(item.updatedAt)} · версія {item.version}</small></div></Link>)}</section></div>{articleSlug && <ArticleDrawer slug={articleSlug} onClose={() => navigate('/knowledge')} />}</div>
+  const { articleSlug } = useParams()
+  const { user } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const [search, setSearch] = useState('')
+  const [deleting, setDeleting] = useState<ArticleList | null>(null)
+  const [feedbackSent, setFeedbackSent] = useState(false)
+  const client = useQueryClient()
+  const canManage = user?.accountType === 'ADMIN'
+  const managing = canManage && params.get('manage') === '1'
+  const editor = managing ? params.get('edit') : null
+  const ticketEditor = params.get('feedback') === 'new'
+  const closeTicketEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('feedback'); return next })
+  const query = useQuery({ queryKey: ['knowledge', 'articles', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`), enabled: !articleSlug, staleTime: 0, refetchOnMount: 'always' })
+  const remove = useMutation({
+    mutationFn: (article: ArticleList) => api(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
+    onSuccess: async () => {
+      setDeleting(null)
+      await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+    },
+  })
+  const openEditor = (slug: string) => setParams((previous) => { const next = new URLSearchParams(previous); next.set('edit', slug); return next })
+  const closeEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('edit'); return next })
+
+  if (articleSlug) return <>
+    <ArticlePage slug={articleSlug} backSearch={params.toString()} canManage={canManage} onEdit={() => setParams((previous) => { const next = new URLSearchParams(previous); next.set('manage', '1'); next.set('edit', articleSlug); return next })} />
+    {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
+  </>
+
+  if (query.isLoading) return <div className="knowledge-page-loading"><PageDataLoader /></div>
+
+  return <div>
+    <PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={canManage && <Button className="knowledge-manage-button" variant="secondary" aria-pressed={managing} onClick={() => setParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (managing) { next.delete('manage'); next.delete('edit') } else next.set('manage', '1')
+      return next
+    })}>{managing ? <Check size={17} /> : <Pencil size={17} />}{managing ? 'Завершити керування' : 'Керувати матеріалами'}</Button>} />
+    <div className="knowledge-layout">
+      <Card className="knowledge-feature"><div className="knowledge-feature-content"><div className="knowledge-feature-search"><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input aria-label="Пошук матеріалів" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></div><div className="knowledge-feedback"><span>Зворотний зв’язок</span><strong>Поділіться враженнями та пропозиціями</strong><p>Маєте ідеї, побажання чи хочете поділитися своїми враженнями?</p><Button onClick={() => { setFeedbackSent(false); setParams((previous) => { const next = new URLSearchParams(previous); next.set('feedback', 'new'); next.delete('edit'); return next }) }}>Залишити відгук <ArrowRight size={16} aria-hidden="true" /></Button></div></div></Card>
+      {feedbackSent && <p className="success-note" role="status"><Check size={17} />Звернення надіслано адміністратору. Дякуємо за відгук!</p>}
+      {canManage && <KnowledgeFeedbackTickets renderAttachment={(file) => <KnowledgeAttachmentPreview attachment={file} />} />}
+      <section className="article-grid" aria-label="Матеріали бази знань">
+        {query.isError ? <ErrorState /> : <>
+          {query.data?.items.map((item) => <div className={`knowledge-article-card ${item.requiresAcknowledgement && !item.hasAcknowledged ? 'is-required' : ''}`} key={item.id}>
+            <Link to={{ pathname: `/knowledge/${item.slug}`, search: params.toString() }}><KnowledgeImage fileId={item.imageFileId} className="knowledge-article-image" /><div className="knowledge-article-content"><h3>{item.title}</h3><span className={`knowledge-reading-status ${item.hasAcknowledged ? 'is-confirmed' : 'is-pending'}`}>{item.hasAcknowledged ? <Check size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}{item.hasAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}</span><small className="knowledge-article-created">Створено {formatDate(item.createdAt)}</small></div></Link>
+            {item.requiresAcknowledgement && !item.hasAcknowledged && <span className="knowledge-required-marker" role="img" aria-label="Обов’язкове ознайомлення" title="Обов’язкове ознайомлення"><AlertTriangle size={18} aria-hidden="true" /></span>}
+            {managing && <div className="knowledge-article-actions"><Button variant="secondary" aria-label={`Редагувати ${item.title}`} onClick={() => openEditor(item.slug)}><Pencil size={16} />Редагувати</Button><Button variant="danger" aria-label={`Видалити ${item.title}`} onClick={() => setDeleting(item)}><Trash2 size={16} />Видалити</Button></div>}
+          </div>)}
+          {!query.data?.items.length && <p className="knowledge-empty">{search ? 'За вашим запитом матеріалів не знайдено.' : 'Матеріалів поки немає.'}</p>}
+          {managing && <button type="button" className="knowledge-add-card" onClick={() => openEditor('new')}><span><Plus size={32} /></span><strong>Додати матеріал</strong><small>Створіть нову інструкцію для команди</small></button>}
+        </>}
+      </section>
+    </div>
+    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending} />}
+    {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
+    {ticketEditor && <KnowledgeEditor ticket onClose={closeTicketEditor} onSubmitted={() => setFeedbackSent(true)} />}
+  </div>
 }
 
-function ArticleDrawer({ slug, onClose }: { slug: string; onClose: () => void }) {
-  const client = useQueryClient(); const query = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`) })
-  const ack = useMutation({ mutationFn: () => api(`/knowledge/articles/${slug}/acknowledge`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }) }), onSuccess: () => void client.invalidateQueries({ queryKey: ['article', slug] }) })
-  return <Drawer title="Стаття" onRequestClose={() => onClose()} footer={query.data && !query.data.acknowledgement?.confirmedAt && <Button onClick={() => ack.mutate()}><Check size={17} />Підтвердити ознайомлення</Button>}>{query.isLoading ? <Skeleton /> : query.isError || !query.data?.currentVersion ? <ErrorState /> : <article className="article-detail"><span className="eyebrow">Версія {query.data.version}</span><h2>{query.data.currentVersion.title}</h2><p className="article-meta">Опубліковано {formatDateTime(query.data.currentVersion.publishedAt)}</p><div className="article-body">{query.data.currentVersion.body.split('\n').map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>{query.data.acknowledgement?.confirmedAt && <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(query.data.acknowledgement.confirmedAt)}</p>}</article>}</Drawer>
+function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?: string; ticket?: boolean; onClose: () => void; onSubmitted?: () => void }) {
+  const client = useQueryClient()
+  const [dirty, setDirty] = useState(false)
+  const [newSlug] = useState(() => `article-${randomId()}`)
+  const [draft, setDraft] = useState<ArticleDetail | null>(null)
+  const [attachmentFiles, setAttachmentFiles] = useState<File[]>([])
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [removedAttachmentIds, setRemovedAttachmentIds] = useState<string[]>([])
+  const originalImage = draft?.attachments.find(isKnowledgeImage)
+  const existingImage = originalImage && !removedAttachmentIds.includes(originalImage.id) ? originalImage : null
+  const existingFiles = (draft?.attachments ?? []).filter((file) => file.id !== originalImage?.id && !removedAttachmentIds.includes(file.id))
+  function removeAttachment(fileId: string) {
+    setRemovedAttachmentIds((current) => [...new Set([...current, fileId])])
+    setDirty(true)
+  }
+  function selectImage(files: File[]) {
+    if (!files[0]) return
+    if (originalImage) removeAttachment(originalImage.id)
+    setImageFile(files[0])
+    setAttachmentFiles((current) => current.filter((file) => file.name !== files[0].name || file.size !== files[0].size))
+    setDirty(true)
+  }
+  const closeGuard = useModalCloseGuard({ dirty, onRequestClose: onClose })
+  const article = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`), enabled: Boolean(slug) })
+  useEffect(() => {
+    if (article.data?.currentVersion) setDraft((current) => current ?? article.data)
+  }, [article.data])
+  const companies = useQuery({ queryKey: ['knowledge-company-options'], queryFn: () => api<{ items: KnowledgeCompanyOption[] }>('/admin/companies'), enabled: !ticket })
+  const activeCompanies = (companies.data?.items ?? []).filter((company) => company.isActive)
+  // Null means "not touched yet": a new article reaches every active company and
+  // an existing one keeps the audience it was published with.
+  const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[] | null>(null)
+  const audienceCompanyIds = (selectedCompanyIds
+    ?? (slug ? draft?.companyIds ?? [] : activeCompanies.map((company) => company.id)))
+    .filter((companyId) => activeCompanies.some((company) => company.id === companyId))
+  function toggleCompany(companyId: string, checked: boolean) {
+    setSelectedCompanyIds(checked
+      ? [...audienceCompanyIds, companyId]
+      : audienceCompanyIds.filter((item) => item !== companyId))
+  }
+  async function uploadAttachments() {
+    if (attachmentFiles.length === 0 && !imageFile) return []
+    if (ticket && attachmentFiles.length + (imageFile ? 1 : 0) > 20) throw new Error('До звернення можна додати не більше 20 файлів.')
+    const companyId = audienceCompanyIds[0] ?? activeCompanies[0]?.id
+    if (!ticket && !companyId) throw new Error('Немає активної компанії для завантаження файлу.')
+    const attachmentIds: string[] = []
+    for (const file of [...(imageFile ? [imageFile] : []), ...attachmentFiles]) {
+      const formData = new FormData()
+      formData.set('file', file)
+      const uploaded = await api<{ id: string; scanStatus: string }>(ticket ? '/knowledge/tickets/attachments' : `/files?company=${encodeURIComponent(companyId!)}`, { method: 'POST', body: formData })
+      let scanStatus = uploaded.scanStatus
+      for (let attempt = 0; scanStatus !== 'CLEAN' && attempt < 6; attempt += 1) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500))
+        scanStatus = (await api<{ scanStatus: string }>(`/files/${uploaded.id}/status`)).scanStatus
+      }
+      if (scanStatus !== 'CLEAN') throw new Error(`Файл «${file.name}» ще проходить перевірку. Зачекайте кілька секунд і збережіть матеріал повторно.`)
+      attachmentIds.push(uploaded.id)
+    }
+    return attachmentIds
+  }
+  const save = useMutation({
+    mutationFn: async (data: FormData) => api(ticket ? '/knowledge/tickets' : slug ? `/knowledge/articles/${slug}` : '/knowledge/articles', {
+      method: slug ? 'PATCH' : 'POST',
+      body: jsonBody(ticket ? { title: data.get('title'), body: data.get('body'), attachmentIds: await uploadAttachments() } : { title: data.get('title'), body: data.get('body'), changeSummary: data.get('changeSummary') ?? '', attachmentIds: await uploadAttachments(), companyIds: audienceCompanyIds, requiresAcknowledgement: data.get('requiresAcknowledgement') === 'required', ...(slug ? { expectedVersion: Number(data.get('expectedVersion')), removedAttachmentIds } : { slug: newSlug }) }),
+    }),
+    onSuccess: async () => {
+      if (ticket) {
+        await client.invalidateQueries({ queryKey: ['feedback-tickets'] })
+        onSubmitted?.()
+      } else await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      closeGuard.closeForSuccess(onClose)
+    },
+  })
+  const ready = ticket || (slug ? Boolean(draft?.currentVersion) : activeCompanies.length > 0)
+  return <>
+    <Modal
+      title={ticket ? 'Звернення до адміністратора' : slug ? 'Редагувати матеріал' : 'Додати матеріал'}
+      description={ticket ? 'Поділіться ідеєю, відгуком або опишіть проблему. Запис бачитимуть лише адміністратори.' : slug ? 'Оновіть текст і аудиторію матеріалу.' : 'Опублікуйте інструкцію для потрібних компаній.'}
+      size="xl"
+      closeDisabled={save.isPending}
+      onBeforeClose={closeGuard.shouldClose}
+      onRequestClose={save.isPending ? () => {} : closeGuard.requestClose}
+    >
+      {(!ticket && (slug ? article.isLoading || companies.isLoading : companies.isLoading)) ? <PageDataLoader /> : !ready ? <ErrorState /> : <form className="entity-form knowledge-editor-form" onChange={() => setDirty(true)} onSubmit={(event) => { event.preventDefault(); if (!save.isPending) save.mutate(new FormData(event.currentTarget)) }}>
+        {slug && <input type="hidden" name="expectedVersion" value={draft?.version ?? ''} />}
+        <label className="span-2">{ticket ? 'Тема звернення' : 'Назва'}<input name="title" maxLength={ticket ? 200 : undefined} required defaultValue={draft?.currentVersion?.title ?? ''} autoFocus disabled={save.isPending} /></label>
+        <div className="span-2"><FormattedTextarea label={ticket ? 'Текст звернення' : 'Текст матеріалу'} name="body" rows={4} required defaultValue={draft?.currentVersion?.body ?? ''} disabled={save.isPending} /></div>
+        {!ticket && <><label className="knowledge-editor-acknowledgement">Ознайомлення<select name="requiresAcknowledgement" defaultValue={draft?.requiresAcknowledgement ? 'required' : 'optional'} disabled={save.isPending}>
+          <option value="optional">Необов’язкове ознайомлення</option>
+          <option value="required">Обов’язкове ознайомлення</option>
+        </select></label>
+        <fieldset className="knowledge-audience" disabled={save.isPending}>
+          <legend>Хто побачить статтю</legend>
+          <div className="knowledge-audience__companies">
+            {activeCompanies.map((company) => <label className="check-label" key={company.id}>
+              <input type="checkbox" checked={audienceCompanyIds.includes(company.id)} onChange={(event) => toggleCompany(company.id, event.target.checked)} />
+              {company.name}
+            </label>)}
+          </div>
+          {audienceCompanyIds.length === 0 && <p className="knowledge-audience__hint" role="alert">Оберіть щонайменше одну компанію.</p>}
+        </fieldset></>}
+        <div className="knowledge-image-upload">
+          <strong>Картинка запису</strong>
+          {imageFile || existingImage ? <div className="knowledge-image-slot">
+            {imageFile ? <KnowledgeSelectedImage file={imageFile} /> : <KnowledgeImage fileId={existingImage?.id} className="knowledge-image-preview" />}
+            <div className="knowledge-image-slot__details"><strong>{imageFile?.name ?? existingImage?.safeFilename}</strong><small>Картинку вибрано · 1 з 1</small>
+              <div className="knowledge-image-slot__actions"><FileDropzone className="knowledge-image-replace" label="Замінити картинку" accept="image/png,image/jpeg,image/gif,image/webp" resetAfterSelect disabled={save.isPending} title="Замінити картинку" buttonLabel="Замінити" onFiles={selectImage} /><Button type="button" variant="ghost" aria-label="Прибрати картинку" disabled={save.isPending} onClick={() => { setImageFile(null); if (existingImage) removeAttachment(existingImage.id); setDirty(true) }}><X size={16} />Прибрати</Button></div>
+            </div>
+          </div> : <FileDropzone label="Додати картинку" accept="image/png,image/jpeg,image/gif,image/webp" resetAfterSelect disabled={save.isPending} title="Додайте одну картинку" hint="PNG, JPG, GIF або WebP · 1 файл" onFiles={selectImage} />}
+        </div>
+        <div className="knowledge-attachments-upload">
+          <span className="knowledge-attachments-upload__label">Файли</span>
+          <FileDropzone
+            label="Додати файли"
+            multiple
+            resetAfterSelect
+            disabled={save.isPending}
+            title="Перетягніть файли сюди"
+            hint="Файли буде прикріплено після перевірки безпеки."
+            onFiles={(files) => { setDirty(true); setAttachmentFiles((current) => [
+              ...current,
+              ...files.filter((file) => !(imageFile?.name === file.name && imageFile.size === file.size) && !current.some((picked) => picked.name === file.name && picked.size === file.size)),
+            ]) }}
+          >
+            {attachmentFiles.length > 0 && (
+              <ul className="file-dropzone-files" aria-label="Вибрані файли">
+                {attachmentFiles.map((file) => (
+                  <li key={`${file.name}-${file.size}`}>
+                    <FileFormatIcon mimeType={file.type} fileName={file.name} size={15} />
+                    <span>{file.name}</span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Прибрати ${file.name}`}
+                      disabled={save.isPending}
+                      onClick={() => { setDirty(true); setAttachmentFiles((current) => current.filter((picked) => (
+                        picked.name !== file.name || picked.size !== file.size
+                      ))) }}
+                    >
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </FileDropzone>
+        </div>
+        {existingFiles.length ? <section className="knowledge-existing-files" aria-label="Прикріплені файли"><strong>Прикріплені файли</strong><ul className="knowledge-file-list">{existingFiles.map((file) => <KnowledgeExistingFile key={file.id} file={file} disabled={save.isPending} onRemove={() => removeAttachment(file.id)} />)}</ul></section> : null}
+        {save.isError && <p className="form-error span-2" role="alert">{save.error instanceof Error ? save.error.message : ticket ? 'Не вдалося надіслати звернення. Спробуйте ще раз.' : 'Не вдалося зберегти матеріал. Спробуйте ще раз.'}</p>}
+        <Button type="submit" className="span-2 knowledge-save-button" disabled={save.isPending || (!ticket && audienceCompanyIds.length === 0)}>{save.isPending ? 'Зберігаємо…' : ticket ? 'Надіслати звернення' : slug ? 'Зберегти зміни' : 'Опублікувати матеріал'}</Button>
+      </form>}
+    </Modal>
+    <UnsavedChangesDialog
+      guard={closeGuard}
+      title={ticket ? 'Закрити звернення?' : slug ? 'Закрити редагування матеріалу?' : 'Закрити створення матеріалу?'}
+      description={ticket ? 'Незбережене звернення не буде надіслано.' : slug
+        ? 'Незбережені зміни матеріалу буде втрачено.'
+        : 'Новий матеріал не буде опубліковано.'}
+    />
+  </>
+}
+
+function ArticlePage({ slug, backSearch, canManage, onEdit }: { slug: string; backSearch: string; canManage: boolean; onEdit: () => void }) {
+  const client = useQueryClient()
+  const query = useQuery({ queryKey: ['article', slug], queryFn: () => api<ArticleDetail>(`/knowledge/articles/${slug}`) })
+  const ack = useMutation({
+    mutationFn: () => api<{ confirmed: boolean; confirmedAt: string }>(`/knowledge/articles/${slug}/acknowledge`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }) }),
+    onSuccess: async (result) => {
+      const confirmedArticle = query.data
+      if (confirmedArticle) {
+        client.setQueryData<ArticleDetail>(['article', slug], (current) => current?.version === confirmedArticle.version ? { ...current, acknowledgement: { confirmedAt: result.confirmedAt } } : current)
+        client.setQueriesData<{ items: ArticleList[] }>({ queryKey: ['knowledge', 'articles'] }, (current) => current ? { ...current, items: current.items.map((item) => item.id === confirmedArticle.id && item.version === confirmedArticle.version ? { ...item, hasAcknowledged: true } : item) } : current)
+      }
+      await Promise.all([client.invalidateQueries({ queryKey: ['article', slug] }), client.invalidateQueries({ queryKey: ['knowledge'], refetchType: 'all' }), client.invalidateQueries({ queryKey: ['dashboard'], refetchType: 'all' })])
+    },
+  })
+  const params = new URLSearchParams(backSearch)
+  params.delete('edit')
+  const article = query.data
+  const version = article?.currentVersion
+  const coverImage = article?.attachments.find(isKnowledgeImage)
+  const attachedFiles = (article?.attachments ?? []).filter((file) => file.id !== coverImage?.id)
+  return <div className="knowledge-reading-page">
+    <nav className="knowledge-reading-nav" aria-label="Навігація статті">
+      <Link to={{ pathname: '/knowledge', search: params.toString() }}>← База знань</Link>
+      {canManage && version && <Button variant="secondary" onClick={onEdit}><Pencil size={16} />Редагувати матеріал</Button>}
+    </nav>
+    {query.isLoading ? <PageDataLoader /> : query.isError || !version || !article ? <ErrorState /> : <article className="knowledge-reading-card">
+      <header className="knowledge-reading-header">
+        <span className="eyebrow"><BookOpenCheck size={18} />Матеріал бази знань</span>
+        <h1>{version.title}</h1>
+        <div className="knowledge-reading-meta"><span>Створено {formatDateTime(article.createdAt)}</span>{article.requiresAcknowledgement && <span className="knowledge-required-label"><AlertTriangle size={16} />Обов’язкове ознайомлення</span>}</div>
+      </header>
+      {coverImage && <KnowledgeImage fileId={coverImage.id} className="knowledge-reading-image" />}
+      <div className="knowledge-reading-body"><FormattedText body={version.body} /></div>
+      {attachedFiles.length > 0 && <section className="knowledge-reading-files"><h2>Прикріплені файли</h2><div className="knowledge-attachment-list">{attachedFiles.map((file) => <KnowledgeAttachmentPreview key={file.id} attachment={file} />)}</div></section>}
+      <footer className="knowledge-reading-footer">
+        {article.acknowledgement?.confirmedAt ? <p className="success-note"><Check size={17} />Ви ознайомилися {formatDateTime(article.acknowledgement.confirmedAt)}</p> : <Button disabled={ack.isPending} onClick={() => ack.mutate()}><Check size={17} />{ack.isPending ? 'Підтверджуємо…' : 'Ознайомився'}</Button>}
+        {ack.isError && <p className="form-error" role="alert">Не вдалося підтвердити ознайомлення. Спробуйте ще раз.</p>}
+      </footer>
+    </article>}
+  </div>
+}
+
+function isKnowledgeImage(file: KnowledgeAttachment) {
+  return file.scanStatus === 'CLEAN' && /^image\/(png|jpeg|gif|webp)$/.test(file.mimeType ?? '')
+}
+
+function KnowledgeImage({ fileId, className }: { fileId?: string | null; className: string }) {
+  const [failed, setFailed] = useState<string | null>(null)
+  return fileId && failed !== fileId
+    ? <img className={className} src={apiUrl(`/files/${encodeURIComponent(fileId)}/download?inline=true`)} alt="" loading="lazy" onError={() => setFailed(fileId)} />
+    : <span className="article-icon"><BookOpenCheck size={20} /></span>
+}
+
+function KnowledgeSelectedImage({ file }: { file: File }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    const next = URL.createObjectURL(file)
+    setUrl(next)
+    return () => URL.revokeObjectURL(next)
+  }, [file])
+  return url ? <img className="knowledge-image-preview" src={url} alt="Вибрана картинка запису" /> : null
+}
+
+function KnowledgeExistingFile({ file, disabled, onRemove }: { file: KnowledgeAttachment; disabled: boolean; onRemove: () => void }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return (
+    <li>
+      <FileFormatIcon mimeType={file.mimeType} fileName={file.safeFilename} size={16} />
+      {file.scanStatus === 'CLEAN' ? (
+        <button type="button" className="knowledge-file-list__preview" onClick={() => setPreviewOpen(true)}>
+          {file.safeFilename}
+        </button>
+      ) : <span className="knowledge-file-list__name">{file.safeFilename}</span>}
+      <small>{file.scanStatus === 'CLEAN' ? 'Готовий' : 'Перевіряється'}</small>
+      <button type="button" className="icon-button" aria-label={`Прибрати ${file.safeFilename}`} disabled={disabled} onClick={onRemove}><X size={16} /></button>
+      {previewOpen && (
+        <FilePreviewModal
+          file={{ id: file.id, fileName: file.safeFilename, mimeType: file.mimeType, bytes: file.bytes }}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
+    </li>
+  )
+}
+
+function KnowledgeAttachmentPreview({ attachment }: { attachment: KnowledgeAttachment }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  return <section className="document-preview knowledge-attachment-preview" aria-label={`Прикріплений файл ${attachment.safeFilename}`}><div className="knowledge-attachment-preview__footer"><span title={attachment.safeFilename}>{attachment.safeFilename}</span><div><Button variant="ghost" aria-label={`Переглянути ${attachment.safeFilename}`} disabled={attachment.scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><Eye size={16} />Переглянути</Button><a className="icon-button" aria-label={`Завантажити ${attachment.safeFilename}`} href={`/api/v1/files/${attachment.id}/download`}><Download size={17} /></a></div></div>{previewOpen && <FilePreviewModal file={{ id: attachment.id, fileName: attachment.safeFilename, mimeType: attachment.mimeType, bytes: attachment.bytes }} onClose={() => setPreviewOpen(false)} />}</section>
 }
 
 function EmployeesPage() {
-  const { employeeId } = useParams()
-  const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { user } = useAuth()
   const search = params.get('q') ?? ''
@@ -768,8 +391,10 @@ function EmployeesPage() {
   if (orgUnitId) requestQuery.set('orgUnit', orgUnitId)
   if (managerId) requestQuery.set('manager', managerId)
   if (presence) requestQuery.set('presence', presence)
+  const pages = useCursorPages(requestQuery.toString())
+  if (pages.cursor) requestQuery.set('cursor', pages.cursor)
   const query = useQuery({
-    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence],
+    queryKey: ['employees', search, companyId, orgUnitId, managerId, presence, pages.cursor ?? ''],
     queryFn: () => api<EmployeeDirectory>(`/employees?${requestQuery.toString()}`),
   })
   const updateFilter = (name: string, value: string) => {
@@ -788,7 +413,6 @@ function EmployeesPage() {
     setParams(next, { replace: true })
   }
   const hasFilters = Boolean(search || orgUnitId || managerId || presence)
-  const currentQuery = params.toString()
   const orgUrl = '/employees/org'
 
   return (
@@ -823,13 +447,11 @@ function EmployeesPage() {
                   {query.data?.filters.orgUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
                 </select>
               </label>
-              <label className="directory-filter">
-                <span>Керівник</span>
-                <select value={managerId} onChange={(event) => updateFilter('manager', event.target.value)}>
-                  <option value="">Усі керівники</option>
-                  {query.data?.filters.managers.map((manager) => <option key={manager.id} value={manager.id}>{manager.displayName}</option>)}
-                </select>
-              </label>
+              <div className="directory-filter">
+                <UserSearchCombobox label="Керівник" value={managerId} companyId={companyId || undefined} managersOnly
+                  defaultUser={query.data?.filters.managers.find((manager) => manager.id === managerId)}
+                  placeholder="Усі · введіть ім’я" onChange={(id) => updateFilter('manager', id)} />
+              </div>
             </>
           )}
           <label className="directory-filter">
@@ -842,23 +464,23 @@ function EmployeesPage() {
           </label>
         </div>
         <div className="directory-summary" aria-live="polite">
-          <span><strong>{query.data?.items.length ?? 0}</strong> знайдено</span>
+          <span><strong>{query.data?.total ?? 0}</strong> знайдено</span>
           {query.data && <span>{query.data.counts.available} доступні · {query.data.counts.away} відсутні</span>}
           {hasFilters && <button type="button" onClick={clearFilters}><X size={14} />Очистити</button>}
         </div>
-        {query.isLoading ? <Skeleton rows={6} /> : query.isError ? (
+        {query.isLoading ? <PageDataLoader /> : query.isError ? (
           <ErrorState onRetry={() => void query.refetch()} />
         ) : query.data?.items.length ? (
           <div className="employee-grid">
             {query.data.items.map((item) => (
                 <article className="employee-card" key={item.id}>
-                  <Link
+                  <UserProfileLink
                     className="employee-card__profile"
-                    to={`/employees/${item.id}${currentQuery ? `?${currentQuery}` : ''}`}
+                    userId={item.id}
                   >
-                    <Avatar size="lg" name={item.displayName} src={item.avatarAsset} />
+                    <Avatar size="lg" name={personName(item.displayName)} src={item.avatarAsset} />
                     <span>
-                      <strong>{item.displayName}</strong>
+                      <strong>{personName(item.displayName)}</strong>
                       <small>{item.positionTitle || item.jobTitle}</small>
                       {item.orgUnit && <small className="employee-org"><Building2 size={12} />{item.orgUnit.parent ? `${item.orgUnit.parent.name} → ${item.orgUnit.name}` : item.orgUnit.name}</small>}
                       <em>
@@ -866,12 +488,12 @@ function EmployeesPage() {
                         {item.presence === 'AVAILABLE' ? 'Доступний' : 'Відсутній'}
                       </em>
                     </span>
-                  </Link>
+                  </UserProfileLink>
                   {item.id !== user?.id && (
                     <Link
                       className="employee-card__chat"
-                      aria-label={`Написати ${item.displayName}`}
-                      title={`Написати ${item.displayName}`}
+                      aria-label={`Написати ${personName(item.displayName)}`}
+                      title={`Написати ${personName(item.displayName)}`}
                       to={`/messages?new=1&to=${encodeURIComponent(item.id)}`}
                     >
                       <MessageCircle size={17} />
@@ -888,85 +510,8 @@ function EmployeesPage() {
             action={hasFilters && <Button variant="secondary" onClick={clearFilters}>Очистити фільтри</Button>}
           />
         )}
+        <CursorPager label="Сторінки працівників" hasPrevious={pages.hasPrevious} nextCursor={query.data?.nextCursor} onPrevious={pages.previous} onNext={pages.next} />
       </Card>
-      {employeeId && (
-        <EmployeeDrawer
-          id={employeeId}
-          onClose={() => navigate(`/employees${currentQuery ? `?${currentQuery}` : ''}`)}
-        />
-      )}
     </div>
   )
 }
-
-function EmployeeDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const { user, canUseCapability } = useAuth()
-  const query = useQuery({
-    queryKey: ['employee', id],
-    queryFn: () => api<Employee>(`/employees/${id}`),
-  })
-  return (
-    <Drawer title="Профіль працівника" onRequestClose={() => onClose()}>
-      {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> : (
-        <div className="employee-detail">
-          <Avatar size="lg" name={query.data.displayName} src={query.data.avatarAsset} />
-          <h3>{query.data.displayName}</h3>
-          <p>{query.data.positionTitle || query.data.jobTitle}</p>
-          <div className="employee-actions">
-            {query.data.id !== user?.id && (
-              <Link
-                className="button button--primary"
-                to={`/messages?new=1&to=${encodeURIComponent(query.data.id)}`}
-              >
-                <MessageCircle size={16} />
-                Написати
-              </Link>
-            )}
-            {(
-              <Link
-                className="button button--secondary"
-                to={`/tasks/new?assigneeId=${encodeURIComponent(query.data.id)}`}
-              >
-                <CheckSquare2 size={16} />
-                Поставити завдання
-              </Link>
-            )}
-            {canUseCapability(OrganizationCapability.CalendarWrite)
-              && (
-                <Link
-                  className="button button--secondary"
-                  to={`/calendar?new=1&title=${encodeURIComponent(`Зустріч: ${query.data.displayName}`)}`}
-                >
-                  <CalendarClock size={16} />
-                  Запланувати час
-                </Link>
-            )}
-          </div>
-          {query.data.orgUnit?.parent && <p className="employee-hierarchy"><Building2 size={15} />{query.data.orgUnit.parent.name} → {query.data.orgUnit.name}</p>}
-          <dl className="detail-grid">
-            {query.data.orgUnit && <div><dt>Підрозділ</dt><dd>{query.data.orgUnit.name}</dd></div>}
-            <div><dt>Керівник</dt><dd>{query.data.approver?.displayName ?? 'Не вказано'}</dd></div>
-            <div><dt>Часовий пояс</dt><dd>{query.data.timezone}</dd></div>
-            {query.data.contactEmail && <div><dt>Контакт</dt><dd><a href={`mailto:${query.data.contactEmail}`}>{query.data.contactEmail}</a></dd></div>}
-          </dl>
-          <section>
-            <h4>Найближча присутність</h4>
-            {query.data.upcomingPresence?.length ? query.data.upcomingPresence.map((item) => (
-              <p key={item.startAt}><CalendarClock size={16} />{item.state} · {formatDate(item.startAt)} — {formatDate(item.endAt)}</p>
-            )) : <p className="muted">Особливих статусів немає.</p>}
-          </section>
-        </div>
-      )}
-    </Drawer>
-  )
-}
-
-function AnalyticsPage() {
-  interface Data { kpis: { taskCompletion: number; taskOverdue: number; activeLifecycle: number }; lifecycle: Array<{ processType: string; status: string; _count: { id: number }; _avg: { progress: number | null } }> }
-  const query = useQuery({ queryKey: ['analytics'], queryFn: () => api<Data>('/analytics') })
-  if (query.isLoading) return <><PageHeader title="Аналітика" /><Skeleton rows={7} /></>
-  if (query.isError || !query.data) return <ErrorState />
-  return <div><PageHeader title="Аналітика" description="Агреговані показники лише в межах доступного company scope" /><div className="kpi-grid"><Kpi icon={Check} label="Виконання задач" value={`${query.data.kpis.taskCompletion}%`} /><Kpi icon={CalendarClock} label="Прострочені" value={query.data.kpis.taskOverdue} /><Kpi icon={UsersRound} label="Активні процеси" value={query.data.kpis.activeLifecycle} /></div><div className="analytics-grid"><Card><h2>Онбординг і офбординг</h2>{query.data.lifecycle.length ? query.data.lifecycle.map((item) => <article className="lifecycle-stat" key={`${item.processType}:${item.status}`}><BarChart3 size={19} /><span><strong>{item.processType}</strong><small>{item.status} · середній прогрес {Math.round(item._avg.progress ?? 0)}%</small></span><b>{item._count.id}</b></article>) : <EmptyState title="Процесів немає" description="Дані з’являться після запуску процесу." />}</Card></div></div>
-}
-
-function Kpi({ icon: Icon, label, value }: { icon: typeof Building2; label: string; value: string | number }) { return <Card className="kpi-card"><span><Icon size={20} /></span><div><strong>{value}</strong><small>{label}</small></div></Card> }

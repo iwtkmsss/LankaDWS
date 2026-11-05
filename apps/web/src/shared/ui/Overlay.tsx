@@ -6,6 +6,7 @@ import type {
   RefObject,
 } from 'react'
 import {
+  Children,
   createContext,
   forwardRef,
   useCallback,
@@ -35,6 +36,7 @@ export type ModalRole = 'dialog' | 'alertdialog'
 
 interface OverlayEntry {
   id: string
+  lockScroll: boolean
   requestClose: (reason: ModalCloseReason) => void
   escapeAllowed: () => boolean
   contains: (target: EventTarget | null) => boolean
@@ -94,6 +96,7 @@ export function OverlayProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
+      if (event.target instanceof Element && event.target.closest('[data-date-picker-menu]')) return
       const top = stackRef.current.at(-1)
       if (!top?.escapeAllowed()) return
       event.preventDefault()
@@ -113,8 +116,9 @@ export function OverlayProvider({ children }: PropsWithChildren) {
   }, [])
 
   const hasOverlay = stack.length > 0
+  const hasScrollLock = stack.some((entry) => entry.lockScroll)
   useLayoutEffect(() => {
-    if (!hasOverlay) return
+    if (!hasScrollLock) return
     const body = document.body
     const scrollX = window.scrollX
     const scrollY = window.scrollY
@@ -127,7 +131,9 @@ export function OverlayProvider({ children }: PropsWithChildren) {
       overflow: body.style.overflow,
       paddingRight: body.style.paddingRight,
     }
-    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth)
+    // A stable root gutter already reserves this space, including while the body is fixed.
+    const stableGutter = window.getComputedStyle(document.documentElement).scrollbarGutter.includes('stable')
+    const scrollbarWidth = stableGutter ? 0 : Math.max(0, window.innerWidth - document.documentElement.clientWidth)
     const currentPadding = Number.parseFloat(window.getComputedStyle(body).paddingRight) || 0
     body.style.position = 'fixed'
     body.style.top = `-${scrollY}px`
@@ -140,7 +146,7 @@ export function OverlayProvider({ children }: PropsWithChildren) {
       Object.assign(body.style, previous)
       window.scrollTo(scrollX, scrollY)
     }
-  }, [hasOverlay])
+  }, [hasScrollLock])
 
   const value = useMemo<OverlayContextValue>(() => ({
     register,
@@ -257,6 +263,7 @@ export function ModalHeader({
   titleId,
   descriptionId,
   showClose = true,
+  headerActions,
   closeDisabled = false,
   closeLabel,
   onRequestClose,
@@ -268,6 +275,7 @@ export function ModalHeader({
   titleId?: string
   descriptionId?: string
   showClose?: boolean
+  headerActions?: ReactNode
   closeDisabled?: boolean
   closeLabel?: string
   onRequestClose?: (reason: ModalCloseReason) => void
@@ -281,6 +289,7 @@ export function ModalHeader({
           {description && <p id={descriptionId}>{description}</p>}
         </div>
       )}
+      {headerActions}
       {showClose && onRequestClose && (
         <ModalCloseButton
           label={closeLabel}
@@ -323,9 +332,12 @@ export interface ModalRootProps extends PropsWithChildren {
   size?: ModalSize
   mobileFullscreen?: boolean
   role?: ModalRole
+  lockScroll?: boolean
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
   header?: ReactNode
+  headerActions?: ReactNode
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
   closeDisabled?: boolean
@@ -347,9 +359,12 @@ export function ModalRoot({
   size = 'md',
   mobileFullscreen = false,
   role = 'dialog',
+  lockScroll = true,
+  onBeforeClose,
   onRequestClose,
   footer,
   header,
+  headerActions,
   children,
   closeOnBackdrop = true,
   closeOnEscape = true,
@@ -378,9 +393,11 @@ export function ModalRoot({
   const closingRef = useRef(false)
   const [closing, setClosing] = useState(false)
   const requestCloseRef = useRef(onRequestClose)
+  const beforeCloseRef = useRef(onBeforeClose)
   const closeDisabledRef = useRef(closeDisabled)
   const closeOnEscapeRef = useRef(closeOnEscape)
   requestCloseRef.current = onRequestClose
+  beforeCloseRef.current = onBeforeClose
   closeDisabledRef.current = closeDisabled
   closeOnEscapeRef.current = closeOnEscape
   const surfaceRef = dialogRef ?? internalRef
@@ -395,6 +412,7 @@ export function ModalRoot({
 
   const requestClose = useCallback((reason: ModalCloseReason) => {
     if (closeDisabledRef.current || closingRef.current) return
+    if (beforeCloseRef.current?.(reason) === false) return
     const reducedMotion = typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (reducedMotion) {
@@ -424,6 +442,7 @@ export function ModalRoot({
     }
     const unregister = register({
       id: overlayId,
+      lockScroll,
       escapeAllowed: () => closeOnEscapeRef.current && !closeDisabledRef.current,
       requestClose,
       contains: (target) => target instanceof Node && Boolean(surfaceRef.current?.contains(target)),
@@ -438,7 +457,7 @@ export function ModalRoot({
         restoreTimerRef.current = undefined
       }, 0)
     }
-  }, [focusSurface, overlayId, register, requestClose, surfaceRef])
+  }, [focusSurface, overlayId, register, requestClose, surfaceRef, lockScroll])
 
   function trapFocus(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key !== 'Tab' || !isTop(overlayId) || !surfaceRef.current) return
@@ -501,6 +520,7 @@ export function ModalRoot({
             description={description}
             titleId={titleId}
             descriptionId={descriptionId}
+            headerActions={headerActions}
             showClose={showClose}
             closeDisabled={closeDisabled}
             closeLabel={closeLabel}
@@ -521,7 +541,7 @@ export function ModalRoot({
             {header}
           </ModalHeader>
         )}
-        <ModalBody variant={variant} className={bodyClassName}>{children}</ModalBody>
+        {Children.toArray(children).length > 0 && <ModalBody variant={variant} className={bodyClassName}>{children}</ModalBody>}
         {footer && (
           <ModalFooter variant={variant} className={footerClassName}>{footer}</ModalFooter>
         )}
@@ -542,6 +562,8 @@ export function Modal({
   description,
   children,
   footer,
+  headerActions,
+  onBeforeClose,
   onRequestClose,
   closeDisabled = false,
   initialFocusRef,
@@ -555,7 +577,9 @@ export function Modal({
 }: PropsWithChildren<{
   title: string
   description?: string
+  headerActions?: ReactNode
   footer?: ReactNode
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   closeDisabled?: boolean
   initialFocusRef?: RefObject<HTMLElement | null>
@@ -575,7 +599,9 @@ export function Modal({
       size={size}
       role={role}
       mobileFullscreen={mobileFullscreen}
+      onBeforeClose={onBeforeClose}
       onRequestClose={onRequestClose}
+      headerActions={headerActions}
       footer={footer}
       closeDisabled={closeDisabled}
       className={className}
@@ -593,6 +619,7 @@ export function Drawer({
   title,
   description,
   children,
+  onBeforeClose,
   onRequestClose,
   footer,
   closeDisabled = false,
@@ -603,6 +630,7 @@ export function Drawer({
 }: PropsWithChildren<{
   title: string
   description?: string
+  onBeforeClose?: (reason: ModalCloseReason) => boolean
   onRequestClose: (reason: ModalCloseReason) => void
   footer?: ReactNode
   closeDisabled?: boolean
@@ -618,6 +646,7 @@ export function Drawer({
       variant="drawer"
       size={size}
       mobileFullscreen
+      onBeforeClose={onBeforeClose}
       onRequestClose={onRequestClose}
       footer={footer}
       closeDisabled={closeDisabled}
@@ -640,10 +669,12 @@ export function ConfirmationDialog({
   onConfirm,
   confirmLabel = 'Підтвердити',
   cancelLabel = 'Скасувати',
+  cancelVariant = 'secondary',
   confirmVariant = 'danger',
   confirmDisabled = false,
   footer,
   initialFocusRef,
+  className,
 }: PropsWithChildren<{
   title: string
   description?: string
@@ -651,10 +682,12 @@ export function ConfirmationDialog({
   onConfirm?: () => void
   confirmLabel?: string
   cancelLabel?: string
+  cancelVariant?: 'primary' | 'secondary' | 'danger'
   confirmVariant?: 'primary' | 'danger'
   confirmDisabled?: boolean
   footer?: ReactNode
   initialFocusRef?: RefObject<HTMLElement | null>
+  className?: string
 }>) {
   const cancelRef = useRef<HTMLButtonElement>(null)
   const actions = footer ?? (
@@ -662,7 +695,7 @@ export function ConfirmationDialog({
       <button
         ref={cancelRef}
         type="button"
-        className="button button--secondary"
+        className={`button button--${cancelVariant}`}
         onClick={() => onRequestClose('cancel-button')}
       >
         {cancelLabel}
@@ -684,6 +717,7 @@ export function ConfirmationDialog({
       size="sm"
       role="alertdialog"
       mobileFullscreen={false}
+      className={className}
       onRequestClose={onRequestClose}
       initialFocusRef={initialFocusRef ?? cancelRef}
       footer={actions}
@@ -722,16 +756,19 @@ export function useModalCloseGuard({
     setPendingReason('route-change')
   }, [blocker.state])
 
-  const requestClose = useCallback((reason: ModalCloseReason) => {
-    if (reason === 'success' || !dirtyRef.current) {
-      allowNavigationRef.current = true
-      closeRef.current(reason)
-      resetNavigationAllowance()
-      return
-    }
+  const shouldClose = useCallback((reason: ModalCloseReason) => {
+    if (reason === 'success' || !dirtyRef.current) return true
     pendingReasonRef.current = reason
     setPendingReason(reason)
-  }, [resetNavigationAllowance])
+    return false
+  }, [])
+
+  const requestClose = useCallback((reason: ModalCloseReason) => {
+    if (!shouldClose(reason)) return
+    allowNavigationRef.current = true
+    closeRef.current(reason)
+    resetNavigationAllowance()
+  }, [resetNavigationAllowance, shouldClose])
 
   const cancelClose = useCallback(() => {
     if (blocker.state === 'blocked') blocker.reset()
@@ -761,6 +798,7 @@ export function useModalCloseGuard({
   }, [resetNavigationAllowance])
 
   return {
+    shouldClose,
     requestClose,
     pendingReason,
     isConfirmationOpen: pendingReason !== null,
@@ -776,22 +814,35 @@ export function UnsavedChangesDialog({
   guard,
   title = 'Закрити без збереження?',
   description = 'Незбережені зміни буде втрачено.',
-}: {
+  continueLabel = 'Продовжити редагування',
+  discardLabel = 'Закрити без збереження',
+  footer,
+  initialFocusRef,
+  children,
+}: PropsWithChildren<{
   guard: ModalCloseGuardController
   title?: string
   description?: string
-}) {
+  continueLabel?: string
+  discardLabel?: string
+  footer?: ReactNode
+  initialFocusRef?: RefObject<HTMLElement | null>
+}>) {
   if (!guard.isConfirmationOpen) return null
   return (
     <ConfirmationDialog
       title={title}
       description={description}
-      cancelLabel="Продовжити редагування"
-      confirmLabel="Закрити без збереження"
+      cancelLabel={continueLabel}
+      cancelVariant="primary"
+      confirmLabel={discardLabel}
       onRequestClose={() => guard.cancelClose()}
       onConfirm={() => guard.confirmClose()}
+      footer={footer}
+      initialFocusRef={initialFocusRef}
+      className="unsaved-changes-dialog"
     >
-      <p>Перевірте введені дані або поверніться до форми.</p>
+      {children ?? <p>Перевірте введені дані або поверніться до форми.</p>}
     </ConfirmationDialog>
   )
 }

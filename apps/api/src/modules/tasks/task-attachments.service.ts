@@ -35,6 +35,9 @@ export class TaskAttachmentsService {
       select: { id: true },
     })
     if (alreadyLinked) throw badRequest('task_attachment')
+    const count = await tx.fileObject.count({ where: { id: { in: fileIds } } })
+    if (count !== fileIds.length) throw badRequest('task_attachment')
+    await this.files.markAttachmentsRetained(tx, fileIds)
     await tx.fileLink.createMany({
       data: fileIds.map((fileId) => ({
         id: id('flink'),

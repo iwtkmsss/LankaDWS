@@ -1,9 +1,11 @@
 import { z } from 'zod'
+import { FILE_UPLOAD_MIME_TYPES, MAX_FILE_UPLOAD_BYTES } from '@lankadws/contracts'
 import './load-env.js'
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  HOST: z.string().trim().min(1).default('0.0.0.0'),
   FRONTEND_ORIGIN: z.string().default('http://localhost:5173'),
   FRONTEND_BASE_URL: z.string().url().default('http://localhost:5173'),
   TRUSTED_PROXY: z.enum(['true', 'false']).default('false'),
@@ -26,16 +28,18 @@ const schema = z.object({
   FILE_LINK_SECRET: z.string().default('development-only-file-link-secret'),
   BACKUP_ENCRYPTION_KEY: z.string().default('2'.repeat(64)),
   BREAK_GLASS_SECRET_HASH: z.string().default(''),
-  SESSION_COOKIE_NAME: z.string().default('bert_session'),
-  SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(30),
-  SESSION_ABSOLUTE_HOURS: z.coerce.number().int().positive().default(12),
+  SESSION_COOKIE_NAME: z.string().default('lankadws_session'),
+  SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(60),
   TEMPORARY_PASSWORD_HOURS: z.coerce.number().int().positive().default(24),
   REAUTH_MINUTES: z.coerce.number().int().positive().default(10),
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(8),
-  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(25 * 1024 * 1024),
-  ALLOWED_UPLOAD_MIME: z.string().default('application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/png,image/jpeg,image/webp,text/plain'),
-  MALWARE_SCANNER: z.enum(['development-clean', 'clamav', 'unavailable']).default('development-clean'),
+  MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(MAX_FILE_UPLOAD_BYTES),
+  ALLOWED_UPLOAD_MIME: z.string().default(FILE_UPLOAD_MIME_TYPES.join(',')),
+  MALWARE_SCANNER: z.enum(['development-clean', 'clamav', 'unavailable']).default('clamav'),
+  SCANNER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(45_000).default(30_000),
+  CLAMAV_HOST: z.string().default('127.0.0.1'),
+  CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   JOB_POLL_MS: z.coerce.number().int().min(250).default(1000),
   JOB_LEASE_SECONDS: z.coerce.number().int().min(10).default(60),

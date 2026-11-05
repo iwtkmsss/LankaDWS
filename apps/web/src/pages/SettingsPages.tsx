@@ -1,17 +1,22 @@
+import { DateTimePicker } from '../shared/ui/DateTimePicker'
+import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { SessionView } from '@bert-crm/contracts'
-import { BellRing, Check, KeyRound, Laptop, LogOut, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
+import type { SessionView } from '@lankadws/contracts'
+import { AtSign, BadgeCheck, BellRing, BriefcaseBusiness, Building2, CalendarDays, Check, Clock3, KeyRound, Laptop, Languages, LogOut, Mail, Network, PersonStanding, Phone, Save, ShieldCheck, Smartphone, UserRound } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
+import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
+import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { previewMessageSound, useMessageSoundPreference } from '../features/messages/lib/messageSound'
 
 export default function SettingsPages() {
   const path = useLocation().pathname
   return (
-    <div>
+    <div className={path.endsWith('/profile') ? 'settings-page--profile' : undefined}>
       <PageHeader title="Особисті налаштування" description="Профіль, сповіщення та захист вашого облікового запису" />
       <div className="settings-layout">
         <nav aria-label="Налаштування">
@@ -50,6 +55,7 @@ export default function SettingsPages() {
 
 function ProfileSettings() {
   const { user, refresh } = useAuth()
+  const client = useQueryClient()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [avatarBusy, setAvatarBusy] = useState(false)
@@ -63,9 +69,10 @@ function ProfileSettings() {
       await api('/me/profile', {
         method: 'PATCH',
         body: jsonBody({
-          displayName: data.get('displayName'),
-          jobTitle: data.get('jobTitle'),
           contactEmail: data.get('contactEmail') || null,
+          phone: data.get('phone') || null,
+          gender: data.get('gender') || null,
+          birthDate: data.get('birthDate') || null,
           timezone: data.get('timezone'),
           locale: data.get('locale'),
         }),
@@ -96,7 +103,7 @@ function ProfileSettings() {
       data.set('file', file)
       const result = await api<{ avatarAsset: string }>('/me/avatar', { method: 'POST', body: data })
       await waitForAvatar(result.avatarAsset)
-      await refresh()
+      await Promise.all([refresh(), client.invalidateQueries()])
       setSaved(true)
     } catch {
       setError('Не вдалося завантажити аватар. Оберіть зображення до 2 МБ.')
@@ -110,7 +117,7 @@ function ProfileSettings() {
     setAvatarBusy(true)
     try {
       await api('/me/avatar', { method: 'DELETE' })
-      await refresh()
+      await Promise.all([refresh(), client.invalidateQueries()])
       setSaved(true)
     } catch {
       setError('Не вдалося видалити аватар.')
@@ -118,16 +125,26 @@ function ProfileSettings() {
       setAvatarBusy(false)
     }
   }
+  const avatarDrop = useFileDropTarget({
+    disabled: avatarBusy,
+    accept: 'image/png,image/jpeg,image/webp',
+    multiple: false,
+    onFiles: (files) => void uploadAvatar(files[0]),
+  })
+
   return (
-    <Card className="settings-card">
-      <header>
+    <Card className="settings-card settings-card--profile">
+      <header className="is-file-drop-target" {...avatarDrop.dropTargetProps}>
+        <FileDropOverlay active={avatarDrop.isDragging} label="Відпустіть зображення, щоб змінити фото" />
         <Avatar size="lg" name={user.displayName} src={user.avatarAsset} />
         <div>
           <h2>Профіль</h2>
-          <p>Дані, які колеги бачать у робочих процесах.</p>
           <span className="avatar-actions">
             {avatarBusy && <span className="avatar-progress" role="status">Обробляємо фото…</span>}
-            <label className={`avatar-upload${avatarBusy ? ' is-disabled' : ''}`}>
+            <label
+              className={`avatar-upload${avatarBusy ? ' is-disabled' : ''}`}
+              title="Виберіть зображення або перетягніть його сюди"
+            >
               Змінити фото
               <input
                 type="file"
@@ -144,47 +161,73 @@ function ProfileSettings() {
           </span>
         </div>
       </header>
-      <form className="entity-form" onSubmit={submit}>
-        <label>
-          Ім’я
-          <input name="displayName" defaultValue={user.displayName} required />
-        </label>
-        <label>
-          Нікнейм
-          <input value={`@${user.username}`} disabled readOnly />
-          <small>Змінює лише адміністратор</small>
-        </label>
-        <label>
-          Посада
-          <input name="jobTitle" defaultValue={user.jobTitle} />
-        </label>
-        <label>
-          Тип облікового запису
-          <input value={user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'} disabled readOnly />
-        </label>
-        <label>
-          Компанія
-          <input value={user.company?.name ?? 'Усі компанії'} disabled readOnly />
-        </label>
-        <label>
-          Контактний email
-          <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
-        </label>
-        <label>
-          Часовий пояс
-          <select name="timezone" defaultValue={user.timezone}>
-            <option>Europe/Kyiv</option>
-            <option>Europe/Warsaw</option>
-            <option>Europe/London</option>
-          </select>
-        </label>
-        <label>
-          Мова
-          <select name="locale" defaultValue={user.locale}>
-            <option value="uk-UA">Українська</option>
-            <option value="en-US">English</option>
-          </select>
-        </label>
+      <form className="profile-form" onSubmit={submit}>
+        <div className="profile-fields-list" role="group" aria-label="Робочі дані профілю">
+          <label>
+            <span className="profile-field-label"><UserRound size={15} aria-hidden="true" />Ім’я</span>
+            <input value={user.displayName} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><AtSign size={15} aria-hidden="true" />Нік</span>
+            <input value={`@${user.username}`} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><BadgeCheck size={15} aria-hidden="true" />Тип ОЗ</span>
+            <input value={user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач компанії'} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><BriefcaseBusiness size={15} aria-hidden="true" />Посада</span>
+            <input value={user.positionTitle} disabled readOnly />
+          </label>
+          <label>
+            <span className="profile-field-label"><Building2 size={15} aria-hidden="true" />Компанія</span>
+            <input value={user.company?.name ?? 'Усі компанії'} disabled readOnly />
+          </label>
+          <div className="profile-org-branch">
+            <span><Network size={15} aria-hidden="true" />Підрозділ</span>
+            <p className={user.orgUnitPath.length ? 'profile-org-branch__value' : undefined}>
+              {user.orgUnitPath[user.orgUnitPath.length - 1]?.name ?? (user.company ? UNASSIGNED_DEPARTMENT_LABEL : 'Не призначено')}
+            </p>
+          </div>
+        </div>
+        <div className="profile-fields-list" role="group" aria-label="Особисті та контактні дані профілю">
+          <label>
+            <span className="profile-field-label"><PersonStanding size={15} aria-hidden="true" />Стать</span>
+            <select name="gender" defaultValue={user.gender ?? ''}>
+              <option value="">Не вказувати</option>
+              <option value="FEMALE">Жінка</option>
+              <option value="MALE">Чоловік</option>
+              <option value="OTHER">Інше</option>
+            </select>
+          </label>
+          <label>
+            <span className="profile-field-label"><CalendarDays size={15} aria-hidden="true" />День народження</span>
+            <DateTimePicker name="birthDate" type="date" defaultValue={user.birthDate ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Phone size={15} aria-hidden="true" />Телефон</span>
+            <input name="phone" type="tel" defaultValue={user.phone ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Mail size={15} aria-hidden="true" />Email</span>
+            <input name="contactEmail" type="email" defaultValue={user.contactEmail ?? ''} />
+          </label>
+          <label>
+            <span className="profile-field-label"><Languages size={15} aria-hidden="true" />Мова</span>
+            <select name="locale" defaultValue={user.locale}>
+              <option value="uk-UA">Українська</option>
+              <option value="en-US">English</option>
+            </select>
+          </label>
+          <label>
+            <span className="profile-field-label"><Clock3 size={15} aria-hidden="true" />Часовий пояс</span>
+            <select name="timezone" defaultValue={user.timezone}>
+              <option>Europe/Kyiv</option>
+              <option>Europe/Warsaw</option>
+              <option>Europe/London</option>
+            </select>
+          </label>
+        </div>
         {error && <div className="form-error span-2">{error}</div>}
         {saved && (
           <p className="success-note span-2">
@@ -211,6 +254,9 @@ interface Preference {
   quietEnd: string
 }
 function NotificationSettings() {
+  const { user } = useAuth()
+  const [soundEnabled, setSoundEnabled] = useMessageSoundPreference(user?.id ?? '')
+  const [soundError, setSoundError] = useState(false)
   const query = useQuery({
     queryKey: ['notification-preferences'],
     queryFn: () => api<Preference>('/me/notification-preferences'),
@@ -254,6 +300,17 @@ function NotificationSettings() {
       >
         <label>
           <span>
+            <strong>Звук повідомлень</strong>
+            <small>Нові вхідні повідомлення. Налаштування зберігається в цьому браузері одразу.</small>
+          </span>
+          <input type="checkbox" checked={soundEnabled} onChange={(event) => setSoundEnabled(event.target.checked)} />
+        </label>
+        <Button type="button" variant="secondary" onClick={() => {
+          void previewMessageSound().then((played) => setSoundError(!played))
+        }}>Прослухати звук</Button>
+        {soundError && <p role="status">Не вдалося відтворити звук. Перевірте дозвіл на звук для цього сайту.</p>}
+        <label>
+          <span>
             <strong>У застосунку</strong>
             <small>Задачі, погодження, згадки й безпека</small>
           </span>
@@ -279,11 +336,11 @@ function NotificationSettings() {
         <div className="quiet-hours">
           <label>
             Тихий режим від
-            <input type="time" name="quietStart" defaultValue={query.data.quietStart} />
+            <DateTimePicker type="time" name="quietStart" defaultValue={query.data.quietStart} />
           </label>
           <label>
             до
-            <input type="time" name="quietEnd" defaultValue={query.data.quietEnd} />
+            <DateTimePicker type="time" name="quietEnd" defaultValue={query.data.quietEnd} />
           </label>
         </div>
         <Button disabled={save.isPending}>
@@ -302,70 +359,20 @@ function NotificationSettings() {
 }
 
 function SecuritySettings() {
-  const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    setSaved(false)
-    setError('')
-    try {
-      await api('/auth/password', {
-        method: 'POST',
-        body: jsonBody({
-          currentPassword: data.get('currentPassword'),
-          newPassword: data.get('newPassword'),
-          confirmation: data.get('confirmation'),
-        }),
-      })
-      event.currentTarget.reset()
-      setSaved(true)
-    } catch {
-      setError('Не вдалося змінити пароль. Перевірте поточний пароль і політику нового.')
-    }
-  }
+  const { user } = useAuth()
+  const [openedAt] = useState(Date.now)
+  useEntityNotificationRead('USER', user?.id, openedAt)
   return (
     <div className="settings-stack">
       <Card className="settings-card">
         <header>
-          <span className="settings-icon">
-            <KeyRound />
-          </span>
+          <span className="settings-icon"><KeyRound /></span>
           <div>
-            <h2>Змінити пароль</h2>
-            <p>Щонайменше 15 символів; без передбачуваних фраз і нікнейма.</p>
+            <h2>Пароль керується адміністратором</h2>
+            <p>Адміністратор встановлює пароль під час створення облікового запису та може змінити його в картці користувача.</p>
           </div>
         </header>
-        <form className="security-form" onSubmit={submit}>
-          <label>
-            Поточний пароль
-            <input name="currentPassword" type="password" required autoComplete="current-password" />
-          </label>
-          <label>
-            Новий пароль
-            <input name="newPassword" type="password" minLength={15} required autoComplete="new-password" />
-          </label>
-          <label>
-            Повторіть новий пароль
-            <input name="confirmation" type="password" minLength={15} required autoComplete="new-password" />
-          </label>
-          {error && <div className="form-error">{error}</div>}
-          {saved && (
-            <p className="success-note">
-              <Check size={16} />
-              Пароль змінено, інші сесії завершено.
-            </p>
-          )}
-          <Button>Змінити пароль</Button>
-        </form>
-      </Card>
-      <Card className="security-summary">
-        <ShieldCheck size={25} />
-        <div>
-          <h3>Двофакторна автентифікація</h3>
-          <p>Керування 2FA і recovery codes потребує повторного підтвердження особи.</p>
-        </div>
-        <span>Захищено</span>
+        <p className="privacy-note"><ShieldCheck size={16} />Поточний пароль не зберігається у відкритому вигляді та не може бути показаний нікому.</p>
       </Card>
     </div>
   )

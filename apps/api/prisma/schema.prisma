@@ -22,12 +22,9 @@ enum AccountType {
 
 enum TaskStatus {
   NEW
-  PLANNED
   IN_PROGRESS
   IN_REVIEW
   DONE
-  BLOCKED
-  CANCELLED
   ARCHIVED
 }
 
@@ -113,41 +110,6 @@ enum OutboxState {
   FAILED
 }
 
-enum GroupDiscoverability {
-  LISTED
-  HIDDEN
-}
-
-enum GroupJoinPolicy {
-  OPEN
-  REQUEST
-  INVITE_ONLY
-}
-
-enum GroupStatus {
-  ACTIVE
-  ARCHIVED
-}
-
-enum GroupMemberRole {
-  OWNER
-  MODERATOR
-  MEMBER
-}
-
-enum GroupJoinRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  CANCELLED
-}
-
-enum GroupNotificationMode {
-  ALL
-  MENTIONS
-  NONE
-}
-
 enum FeedPostStatus {
   PUBLISHED
   ARCHIVED
@@ -155,7 +117,6 @@ enum FeedPostStatus {
 
 enum FeedRecipientType {
   COMPANY
-  GROUP
   USER
 }
 
@@ -252,7 +213,6 @@ model Workspace {
   updatedAt             DateTime               @updatedAt
   companies             Company[]
   users                 User[]
-  groups                Group[]
   projects              Project[]
   tags                  Tag[]
   orgUnits              OrgUnit[]
@@ -274,19 +234,22 @@ model Company {
   workspaceId           String
   displayName           String
   legalName             String
+  logoFileId            String?
   code                  String
+  description           String?
   isActive              Boolean                @default(true)
   timezone              String                 @default("Europe/Kyiv")
   locale                String                 @default("uk-UA")
   workingDaysJson       String                 @default("[1,2,3,4,5]")
   holidayJson           String                 @default("[]")
   version               Int                    @default(1)
+  managerId             String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  manager               User?                  @relation("CompanyManager", fields: [managerId], references: [id], onDelete: SetNull)
   primaryUsers          User[]                 @relation("PrimaryCompany")
   capabilities          CompanyCapability[]
-  groups                Group[]
   projects              Project[]
   tags                  Tag[]
   orgUnits              OrgUnit[]
@@ -301,6 +264,14 @@ model Company {
 
   @@unique([workspaceId, code])
   @@index([workspaceId, isActive])
+  @@index([managerId])
+}
+
+enum TaskApprovalStatus {
+  PENDING
+  APPROVED
+  NEEDS_CHANGES
+  INVALIDATED
 }
 
 model User {
@@ -312,6 +283,8 @@ model User {
   lastName                     String                         @default("")
   middleName                   String?
   phone                        String?
+  gender                       String?
+  birthDate                    DateTime?
   displayName                  String
   normalizedDisplayName        String
   username                     String
@@ -336,10 +309,6 @@ model User {
   recoveryCodes                RecoveryCode[]
   sessions                     UserSession[]
   enabledCapabilities          CompanyCapability[]            @relation("CapabilityEnabler")
-  ownedGroups                  Group[]                        @relation("GroupOwner")
-  groupMemberships             GroupMember[]
-  requestedGroupJoins          GroupJoinRequest[]             @relation("GroupJoinRequester")
-  decidedGroupJoins            GroupJoinRequest[]             @relation("GroupJoinDecider")
   authoredFeedPosts            FeedPost[]                     @relation("FeedPostAuthor")
   feedItems                    FeedItem[]                     @relation("FeedItemActor")
   ownedFeedFileShares          FeedFileShare[]                @relation("FeedFileShareOwner")
@@ -353,7 +322,9 @@ model User {
   feedReadCursors              FeedReadCursor[]               @relation("FeedReadCursorUser")
   feedItemStates               FeedUserItemState[]            @relation("FeedUserItemStateUser")
   managedOrgUnits              OrgUnit[]                      @relation("OrgUnitManager")
+  managedCompanies             Company[]                      @relation("CompanyManager")
   orgAssignments               UserOrgAssignment[]
+  eventAcknowledgements        EventAcknowledgement[]
   createdSourceCompanyMappings SourceCompanyMapping[]         @relation("SourceCompanyMappingCreator")
   activatedMigrations          MigrationActivation[]          @relation("MigrationActivator")
   taskParticipations           TaskParticipant[]              @relation("TaskParticipantUser")
@@ -362,9 +333,12 @@ model User {
   tasksReported                Task[]                         @relation("TaskReporter")
   taskRelationsCreated         TaskRelation[]                 @relation("TaskRelationCreator")
   taskTimeEntries              TimeEntry[]
-  taskFollowers                TaskFollower[]
   taskStates                   TaskUserState[]
   taskReminders                TaskReminder[]
+  taskApprovalRequests         TaskApprovalRound[]            @relation("TaskApprovalRequester")
+  taskApprovalsAssigned        TaskApprovalRound[]            @relation("TaskApprovalApprover")
+  taskApprovalInvalidations    TaskApprovalRound[]            @relation("TaskApprovalInvalidator")
+  uiPreferences                UserUiPreference[]
 
   @@unique([workspaceId, normalizedUsername])
   @@index([workspaceId, isActive])
@@ -405,81 +379,13 @@ model CompanyCapability {
   @@index([enabledById])
 }
 
-model Group {
-  id              String               @id
-  workspaceId     String
-  companyId       String
-  key             String
-  name            String
-  description     String?
-  discoverability GroupDiscoverability @default(LISTED)
-  joinPolicy      GroupJoinPolicy      @default(REQUEST)
-  status          GroupStatus          @default(ACTIVE)
-  ownerId         String
-  version         Int                  @default(1)
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  archivedAt      DateTime?
-  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  company         Company              @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  owner           User                 @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  members         GroupMember[]
-  joinRequests    GroupJoinRequest[]
-  feedPosts       FeedPost[]
-  feedFileShares  FeedFileShare[]
-  tasks           Task[]
-
-  @@unique([companyId, key])
-  @@index([workspaceId, companyId, status])
-  @@index([companyId, discoverability, status, updatedAt])
-  @@index([ownerId, status])
-}
-
-model GroupMember {
-  id               String                @id
-  groupId          String
-  userId           String
-  role             GroupMemberRole       @default(MEMBER)
-  notificationMode GroupNotificationMode @default(ALL)
-  joinedAt         DateTime              @default(now())
-  leftAt           DateTime?
-  lastSeenAt       DateTime?
-  version          Int                   @default(1)
-  group            Group                 @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, userId])
-  @@index([userId, leftAt])
-  @@index([groupId, role, leftAt])
-}
-
-model GroupJoinRequest {
-  id          String                 @id
-  groupId     String
-  requesterId String
-  status      GroupJoinRequestStatus @default(PENDING)
-  activeKey   String?                @unique
-  decidedById String?
-  decidedAt   DateTime?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  version     Int                    @default(1)
-  group       Group                  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  requester   User                   @relation("GroupJoinRequester", fields: [requesterId], references: [id], onDelete: Cascade)
-  decidedBy   User?                  @relation("GroupJoinDecider", fields: [decidedById], references: [id], onDelete: SetNull)
-
-  @@index([groupId, status, createdAt])
-  @@index([requesterId, status])
-  @@index([decidedById])
-}
-
 model FeedPost {
   id                        String                         @id
   workspaceId               String
   companyId                 String
-  groupId                   String?
   authorId                  String
   body                      String
+  photoLayout               String?
   status                    FeedPostStatus                 @default(PUBLISHED)
   requiresAcknowledgement   Boolean                        @default(false)
   acknowledgementVersion    Int                            @default(0)
@@ -491,7 +397,6 @@ model FeedPost {
   updatedAt                 DateTime                       @updatedAt
   workspace                 Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   company                   Company                        @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  group                     Group?                         @relation(fields: [groupId], references: [id], onDelete: Restrict)
   author                    User                           @relation("FeedPostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   recipients                FeedPostRecipient[]
   acknowledgementRecipients FeedAcknowledgementRecipient[]
@@ -503,7 +408,6 @@ model FeedPost {
 
   @@index([workspaceId, companyId, status, publishedAt, id])
   @@index([authorId, status, publishedAt])
-  @@index([groupId, status, publishedAt])
 }
 
 model FeedPostRecipient {
@@ -605,7 +509,6 @@ model FeedFileShare {
   ownerId          String
   audienceType     FeedRecipientType
   audienceKey      String
-  groupId          String?
   status           FeedFileShareStatus      @default(ACTIVE)
   version          Int                      @default(1)
   createdAt        DateTime                 @default(now())
@@ -615,14 +518,12 @@ model FeedFileShare {
   company          Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   file             FileObject               @relation(fields: [fileId], references: [id], onDelete: Restrict)
   owner            User                     @relation("FeedFileShareOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  group            Group?                   @relation(fields: [groupId], references: [id], onDelete: Restrict)
   directRecipients FeedFileShareRecipient[]
   items            FeedItem[]
 
   @@index([workspaceId, companyId, status, createdAt])
   @@index([fileId, status, createdAt])
   @@index([ownerId, status, createdAt])
-  @@index([groupId, status])
 }
 
 model FeedFileShareRecipient {
@@ -718,6 +619,22 @@ model FeedMention {
   @@index([userId, createdAt])
 }
 
+model ContentMention {
+  id          String   @id
+  workspaceId String
+  sourceType  String
+  sourceId    String
+  userId      String
+  start       Int
+  end         Int
+  label       String
+  createdAt   DateTime @default(now())
+
+  @@unique([sourceType, sourceId, start])
+  @@index([workspaceId, sourceType, sourceId, start])
+  @@index([userId, createdAt])
+}
+
 model OrgUnit {
   id             String              @id
   workspaceId    String
@@ -725,6 +642,8 @@ model OrgUnit {
   sourceKey      String?
   parentId       String?
   name           String
+  icon           String?
+  description    String?
   normalizedName String
   managerId      String?
   status         RecordStatus        @default(ACTIVE)
@@ -962,7 +881,6 @@ model ImportBinaryTransfer {
   attempt             Int                        @default(0)
   lastErrorCode       String?
   fileObjectId        String?
-  documentVersionId   String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
   run                 ImportRun                  @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -1123,19 +1041,26 @@ model ReauthChallenge {
   @@index([sessionId, purpose, expiresAt])
 }
 
+model TaskNumberSequence {
+  scope      String   @id
+  lastNumber BigInt
+  updatedAt  DateTime @updatedAt
+}
+
 model Task {
   id                     String              @id
   workspaceId            String
   companyId              String
-  groupId                String?
   projectId              String?
   parentTaskId           String?
   number                 String              @unique
   title                  String
   description            String              @default("")
+  photoLayout            String?
   createdById            String
   reporterId             String
   status                 TaskStatus          @default(NEW)
+  requiresAcceptance     Boolean             @default(false)
   priority               Priority            @default(MEDIUM)
   startsAt               DateTime?
   dueAt                  DateTime?
@@ -1149,14 +1074,12 @@ model Task {
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   checklist              TaskChecklistItem[]
-  group                  Group?              @relation(fields: [groupId], references: [id], onDelete: Restrict)
   project                Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
   parent                 Task?               @relation("TaskHierarchy", fields: [parentTaskId], references: [id], onDelete: Restrict)
   subtasks               Task[]              @relation("TaskHierarchy")
   createdBy              User                @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   reporter               User                @relation("TaskReporter", fields: [reporterId], references: [id], onDelete: Restrict)
   participants           TaskParticipant[]
-  followers              TaskFollower[]
   userStates             TaskUserState[]
   reminders              TaskReminder[]
   tags                   TaskTag[]
@@ -1165,15 +1088,52 @@ model Task {
   recurrence             TaskRecurrence?     @relation("TaskOccurrences", fields: [recurrenceId], references: [id], onDelete: SetNull)
   recurrenceTemplate     TaskRecurrence?     @relation("TaskRecurrenceTemplate")
   timeEntries            TimeEntry[]
+  legacyNumbers          TaskNumberAlias[]
+  approvalRounds         TaskApprovalRound[]
 
   @@unique([recurrenceId, recurrenceOccurrenceAt])
   @@index([companyId, status, dueAt, id])
-  @@index([groupId, status, dueAt, id])
   @@index([projectId, status, dueAt, id])
   @@index([parentTaskId, status, dueAt, id])
   @@index([reporterId, status, dueAt])
   @@index([createdById, updatedAt])
   @@index([recurrenceId, recurrenceOccurrenceAt])
+}
+
+model TaskApprovalRound {
+  id                    String             @id
+  taskId                String
+  roundNumber           Int
+  status                TaskApprovalStatus @default(PENDING)
+  approverId            String
+  requestedById         String
+  requestedTaskVersion  Int
+  resolutionTaskVersion Int?
+  requestedAt           DateTime           @default(now())
+  decisionNote          String?
+  decidedAt             DateTime?
+  invalidatedAt         DateTime?
+  invalidatedById       String?
+  task                  Task               @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  approver              User               @relation("TaskApprovalApprover", fields: [approverId], references: [id], onDelete: Restrict)
+  requestedBy           User               @relation("TaskApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  invalidatedBy         User?              @relation("TaskApprovalInvalidator", fields: [invalidatedById], references: [id], onDelete: SetNull)
+
+  @@unique([taskId, roundNumber])
+  @@index([taskId, status, requestedAt])
+  @@index([approverId, status, requestedAt])
+  @@index([requestedById, requestedAt])
+}
+
+model TaskNumberAlias {
+  id           String   @id
+  taskId       String
+  legacyNumber String   @unique
+  createdAt    DateTime @default(now())
+  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, legacyNumber])
+  @@index([taskId])
 }
 
 model TaskParticipant {
@@ -1192,20 +1152,6 @@ model TaskParticipant {
   @@unique([taskId, userId])
   @@index([taskId, role, removedAt, userId])
   @@index([userId, role, removedAt, taskId])
-}
-
-model TaskFollower {
-  id        String    @id
-  taskId    String
-  userId    String
-  createdAt DateTime  @default(now())
-  mutedAt   DateTime?
-  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([taskId, userId])
-  @@index([userId, mutedAt, taskId])
-  @@index([taskId, mutedAt, userId])
 }
 
 model TaskUserState {
@@ -1374,22 +1320,51 @@ model EntityLink {
 }
 
 model Event {
-  id             String   @id
+  id             String          @id
   workspaceId    String
   companyId      String
   ownerId        String
   title          String
+  description    String?
   startAt        DateTime
   endAt          DateTime
   sourceTimezone String
-  allDay         Boolean  @default(false)
-  visibility     String   @default("INTERNAL")
-  version        Int      @default(1)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  allDay         Boolean         @default(false)
+  visibility     String          @default("INTERNAL")
+  version        Int             @default(1)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  recurrenceJson String?
+  audiences      EventAudience[]
+  requiresAcknowledgement Boolean @default(false)
+  acknowledgements EventAcknowledgement[]
 
   @@index([companyId, startAt, endAt])
   @@index([ownerId, startAt])
+}
+
+model EventAcknowledgement {
+  id             String    @id
+  eventId        String
+  userId         String
+  eventVersion   Int
+  acknowledgedAt DateTime?
+  event          Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, eventVersion])
+  @@index([eventId, eventVersion, acknowledgedAt])
+  @@index([userId, eventId])
+}
+
+model EventAudience {
+  id        String @id
+  eventId   String
+  companyId String
+  event     Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, companyId])
+  @@index([companyId])
 }
 
 model PresenceRecord {
@@ -1485,29 +1460,51 @@ model Document {
   ownerId          String
   status           String
   confidentiality  Confidentiality   @default(INTERNAL)
-  currentVersionId String?
+  fileId           String?
+  folderId         String?
   version          Int               @default(1)
   archivedAt       DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  versions         DocumentVersion[]
+  folder           DriveFolder?      @relation(fields: [folderId], references: [id])
 
   @@index([companyId, status, updatedAt, id])
   @@index([ownerId, updatedAt])
+  @@index([companyId, folderId, updatedAt])
 }
 
-model DocumentVersion {
-  id            String   @id
-  documentId    String
-  version       Int
-  fileId        String
-  createdBy     String
-  changeSummary String
-  status        String
-  createdAt     DateTime @default(now())
-  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+model DriveFolder {
+  id          String        @id
+  workspaceId String
+  companyId   String
+  name        String
+  parentId    String?
+  ownerId     String
+  trashedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  parent      DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id])
+  children    DriveFolder[] @relation("DriveFolderTree")
+  documents   Document[]
 
-  @@unique([documentId, version])
+  @@index([companyId, parentId, name])
+  @@index([ownerId, updatedAt])
+}
+
+model DriveShare {
+  id            String   @id
+  workspaceId   String
+  targetType    String
+  targetId      String
+  principalType String
+  principalId   String
+  role          String
+  createdBy     String
+  createdAt     DateTime @default(now())
+
+  @@unique([targetType, targetId, principalType, principalId])
+  @@index([principalType, principalId])
+  @@index([targetType, targetId])
 }
 
 model DocumentAcl {
@@ -1520,6 +1517,18 @@ model DocumentAcl {
   @@unique([documentId, principalType, principalId])
 }
 
+model FeedbackTicket {
+  id          String       @id
+  workspaceId String
+  ownerId     String
+  title       String
+  body        String
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+
+  @@index([workspaceId, status, createdAt, id])
+}
+
 model KnowledgeArticle {
   id               String                    @id
   workspaceId      String
@@ -1527,6 +1536,7 @@ model KnowledgeArticle {
   ownerId          String
   status           RecordStatus              @default(ACTIVE)
   currentVersionId String?
+  requiresAcknowledgement Boolean           @default(false)
   reviewAt         DateTime?
   version          Int                       @default(1)
   createdAt        DateTime                  @default(now())
@@ -1572,59 +1582,6 @@ model Acknowledgement {
 
   @@unique([entityType, entityId, version, userId])
   @@index([userId, confirmedAt, dueAt])
-}
-
-model Announcement {
-  id          String                        @id
-  workspaceId String
-  authorId    String
-  title       String
-  body        String
-  status      String
-  isPinned    Boolean                       @default(false)
-  publishAt   DateTime?
-  expiresAt   DateTime?
-  version     Int                           @default(1)
-  archivedAt  DateTime?
-  createdAt   DateTime                      @default(now())
-  updatedAt   DateTime                      @updatedAt
-  companies   AnnouncementAudienceCompany[]
-  users       AnnouncementAudienceUser[]
-  receipts    AnnouncementReceipt[]
-
-  @@index([workspaceId, status, publishAt])
-}
-
-model AnnouncementAudienceCompany {
-  id             String       @id
-  announcementId String
-  companyId      String
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, companyId])
-}
-
-model AnnouncementAudienceUser {
-  id             String       @id
-  announcementId String
-  userId         String
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, userId])
-}
-
-model AnnouncementReceipt {
-  id                      String       @id
-  announcementId          String
-  userId                  String
-  deliveredAt             DateTime     @default(now())
-  readAt                  DateTime?
-  dismissedAt             DateTime?
-  effectiveContentVersion Int
-  announcement            Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  @@unique([announcementId, userId])
-  @@index([userId, readAt, deliveredAt])
 }
 
 model Notification {
@@ -1697,19 +1654,33 @@ model ThreadParticipant {
 }
 
 model Message {
-  id        String        @id
+  id        String            @id
   threadId  String
   authorId  String
   body      String
   replyToId String?
-  createdAt DateTime      @default(now())
+  createdAt DateTime          @default(now())
   editedAt  DateTime?
   deletedAt DateTime?
-  version   Int           @default(1)
-  thread    MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  version   Int               @default(1)
+  thread    MessageThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  reactions MessageReaction[]
 
   @@index([threadId, createdAt, id])
   @@index([threadId, deletedAt, createdAt, id])
+}
+
+model MessageReaction {
+  id        String           @id
+  messageId String
+  userId    String
+  kind      FeedReactionKind @default(LIKE)
+  createdAt DateTime         @default(now())
+  message   Message          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, kind])
+  @@index([messageId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Comment {
@@ -1726,9 +1697,23 @@ model Comment {
   editedAt         DateTime?
   deletedAt        DateTime?
   version          Int       @default(1)
+  reactions        TaskCommentReaction[]
 
   @@index([entityType, entityId, createdAt])
   @@index([replyToCommentId])
+}
+
+model TaskCommentReaction {
+  id        String           @id
+  commentId String
+  userId    String
+  kind      FeedReactionKind @default(LIKE)
+  createdAt DateTime         @default(now())
+  comment   Comment          @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, kind])
+  @@index([commentId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model SavedView {
@@ -1742,6 +1727,22 @@ model SavedView {
   updatedAt  DateTime @updatedAt
 
   @@unique([userId, module, name])
+}
+
+model UserUiPreference {
+  id            String   @id
+  userId        String
+  module        String
+  key           String
+  schemaVersion Int
+  valueJson     String
+  version       Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module, key])
+  @@index([userId, updatedAt])
 }
 
 model AuditEvent {

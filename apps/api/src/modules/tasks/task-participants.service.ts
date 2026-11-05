@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common'
-import type { TaskParticipantInput, TaskParticipantRoleV2 } from '@bert-crm/contracts'
+import type {
+  MentionCandidateView,
+  MentionSearchQuery,
+  TaskParticipantInput,
+  TaskParticipantRoleV2,
+} from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { badRequest, conflict, forbidden } from '../../common/errors.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { searchUsers } from '../../common/search-users.js'
+import type { Prisma, Task } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
@@ -22,6 +29,10 @@ export class TaskParticipantsService {
     actorId: string,
     participants: TaskParticipantInput[],
   ): Promise<void> {
+    const responsibleCount = participants.filter((participant) => (
+      participant.role === 'RESPONSIBLE'
+    )).length
+    if (responsibleCount !== 1) throw badRequest('task_responsible_required')
     await tx.taskParticipant.createMany({
       data: participants.map((participant) => ({
         id: id('tpart'),
@@ -33,15 +44,106 @@ export class TaskParticipantsService {
     })
   }
 
+  async mentionCandidates(
+    principal: AuthPrincipal,
+    taskId: string,
+    query: MentionSearchQuery,
+  ): Promise<{ items: MentionCandidateView[] }> {
+    await this.access.readableTask(principal, taskId)
+    return { items: await searchUsers(this.prisma, principal, query.q, {
+      where: this.eligibleUserWhere(principal), limit: query.limit,
+    }) }
+  }
+
+  async ensureMentionWatchers(
+    tx: TaskTransaction,
+    principal: AuthPrincipal,
+    task: Pick<Task, 'id' | 'companyId'>,
+    userIds: string[],
+  ): Promise<string[]> {
+    const uniqueUserIds = [...new Set(userIds)]
+    if (!uniqueUserIds.length) return []
+    const eligible = await tx.user.findMany({
+      where: this.eligibleUserWhere(principal, uniqueUserIds),
+      select: { id: true },
+    })
+    if (eligible.length !== uniqueUserIds.length) throw badRequest('task_mention_outside_scope')
+
+    const existing = await tx.taskParticipant.findMany({
+      where: { taskId: task.id, userId: { in: uniqueUserIds } },
+      select: { id: true, userId: true, removedAt: true },
+    })
+    const existingByUserId = new Map(existing.map((participant) => [participant.userId, participant]))
+    const addedUserIds: string[] = []
+    for (const userId of uniqueUserIds) {
+      const participant = existingByUserId.get(userId)
+      if (participant && !participant.removedAt) continue
+      if (participant) {
+        await tx.taskParticipant.update({
+          where: { id: participant.id },
+          data: {
+            role: 'WATCHER',
+            addedById: principal.userId,
+            removedAt: null,
+          },
+        })
+      } else {
+        await tx.taskParticipant.create({
+          data: {
+            id: id('tpart'),
+            taskId: task.id,
+            userId,
+            role: 'WATCHER',
+            addedById: principal.userId,
+          },
+        })
+      }
+      addedUserIds.push(userId)
+    }
+    return addedUserIds
+  }
+
+  async recordMentionWatchersAdded(
+    tx: TaskTransaction,
+    principal: AuthPrincipal,
+    task: Pick<Task, 'id' | 'companyId'>,
+    version: number,
+    userIds: string[],
+    feedItemId: string | null,
+  ): Promise<void> {
+    if (!userIds.length) return
+    await this.recordChange(
+      tx,
+      principal,
+      task.companyId,
+      task.id,
+      version,
+      'task.participant_added',
+      {
+        userIds,
+        role: 'WATCHER',
+        change: 'MENTION_ADDED',
+        feedItemId,
+      },
+    )
+  }
+
   async put(
     principal: AuthPrincipal,
     taskId: string,
     userId: string,
     role: TaskParticipantRoleV2,
     expectedVersion: number,
+    delegate = false,
   ): Promise<{ version: number }> {
-    const task = await this.access.editableTask(principal, taskId)
-    await this.assertEligibleUser(principal, task.companyId, task.groupId, userId)
+    const task = delegate ? await this.access.readableTask(principal, taskId) : await this.access.editableTask(principal, taskId)
+    if (delegate) {
+      const responsible = await this.prisma.taskParticipant.findFirst({ where: { taskId, userId: principal.userId, role: 'RESPONSIBLE', removedAt: null } })
+      if (!responsible && task.reporterId !== principal.userId && !isGlobalAdmin(principal)) throw forbidden()
+      if ((userId === principal.userId && Boolean(responsible)) || role !== 'RESPONSIBLE') throw badRequest('task_delegate')
+    }
+    if (!delegate && task.status === 'IN_REVIEW') throw conflict('task_review_locked')
+    await this.assertEligibleUser(principal, userId)
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     return this.prisma.$transaction(async (tx) => {
@@ -50,10 +152,33 @@ export class TaskParticipantsService {
         data: { version: { increment: 1 } },
       })
       if (!updated.count) throw conflict('task_version')
+      const previousResponsible = delegate ? await tx.taskParticipant.findFirst({
+        where: { taskId, role: 'RESPONSIBLE', removedAt: null },
+        select: { userId: true },
+      }) : null
+      if (delegate && (!previousResponsible || previousResponsible.userId === userId)) throw badRequest('task_delegate')
       const existing = await tx.taskParticipant.findUnique({
         where: { taskId_userId: { taskId, userId } },
         select: { role: true, removedAt: true },
       })
+      if (
+        existing?.role === 'RESPONSIBLE'
+        && !existing.removedAt
+        && role !== 'RESPONSIBLE'
+      ) {
+        throw conflict('task_responsible_required')
+      }
+      if (role === 'RESPONSIBLE') {
+        await tx.taskParticipant.updateMany({
+          where: {
+            taskId,
+            userId: { not: userId },
+            role: 'RESPONSIBLE',
+            removedAt: null,
+          },
+          data: delegate ? { role: 'WATCHER' } : { removedAt: new Date() },
+        })
+      }
       const participant = await tx.taskParticipant.upsert({
         where: { taskId_userId: { taskId, userId } },
         create: {
@@ -78,26 +203,9 @@ export class TaskParticipantsService {
       ])
       const feedItemId = await this.feedProjection.projectTask(tx, versionedTask, {
         action: 'PARTICIPANT_CHANGED',
+        taskDetails: { role, change: delegate ? 'DELEGATED' : existing && !existing.removedAt ? 'ROLE_CHANGED' : 'ADDED' },
         actorId: principal.userId,
         recipientIds: activeParticipants.map((entry) => entry.userId),
-      })
-      await tx.notification.upsert({
-        where: {
-          dedupeKey: `task-participant:${taskId}:${userId}:${expectedVersion + 1}`,
-        },
-        create: {
-          id: id('ntf'),
-          recipientId: userId,
-          category: 'TASKS',
-          safeTitle: this.participantNotificationTitle(role),
-          safeSnippet: task.title.slice(0, 180),
-          entityType: 'TASK',
-          entityId: taskId,
-          requiresAction: false,
-          deliveredAt: new Date(),
-          dedupeKey: `task-participant:${taskId}:${userId}:${expectedVersion + 1}`,
-        },
-        update: {},
       })
       await this.recordChange(
         tx,
@@ -110,7 +218,8 @@ export class TaskParticipantsService {
           userId,
           role,
           previousRole: existing && !existing.removedAt ? existing.role : null,
-          change: existing && !existing.removedAt ? 'ROLE_CHANGED' : 'ADDED',
+          ...(delegate ? { previousResponsibleId: previousResponsible?.userId } : {}),
+          change: delegate ? 'DELEGATED' : existing && !existing.removedAt ? 'ROLE_CHANGED' : 'ADDED',
           participantId: participant.id,
           feedItemId,
         },
@@ -124,8 +233,9 @@ export class TaskParticipantsService {
     taskId: string,
     userId: string,
     expectedVersion: number,
-  ): Promise<{ version: number }> {
-    const task = await this.access.editableTask(principal, taskId)
+  ): Promise<{ version: number; accessRetained: boolean }> {
+    const task = await this.access.readableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('task_version')
 
     const participant = await this.prisma.taskParticipant.findUnique({
@@ -133,28 +243,34 @@ export class TaskParticipantsService {
       select: { role: true, removedAt: true },
     })
     if (!participant || participant.removedAt) throw badRequest('task_participant')
-    if (participant.role === 'RESPONSIBLE') {
-      const responsibleCount = await this.prisma.taskParticipant.count({
-        where: { taskId, role: 'RESPONSIBLE', removedAt: null },
-      })
-      if (responsibleCount <= 1) throw conflict('task_responsible_required')
+    if (participant.role === 'RESPONSIBLE') throw conflict('task_responsible_required')
+    const selfWatcherExit = userId === principal.userId && participant.role === 'WATCHER'
+    if (!selfWatcherExit) {
+      await this.access.editableTask(principal, taskId)
     }
-
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion },
         data: { version: { increment: 1 } },
       })
       if (!updated.count) throw conflict('task_version')
-      await tx.taskParticipant.update({
-        where: { taskId_userId: { taskId, userId } },
-        data: { removedAt: new Date() },
-      })
-      const now = new Date()
-      await tx.taskFollower.updateMany({
-        where: { taskId, userId },
-        data: { mutedAt: now },
-      })
+      if (selfWatcherExit) {
+        const removed = await tx.taskParticipant.updateMany({
+          where: {
+            taskId,
+            userId,
+            role: 'WATCHER',
+            removedAt: null,
+          },
+          data: { removedAt: new Date() },
+        })
+        if (!removed.count) throw conflict('task_participant')
+      } else {
+        await tx.taskParticipant.update({
+          where: { taskId_userId: { taskId, userId } },
+          data: { removedAt: new Date() },
+        })
+      }
       const activeReminders = await tx.taskReminder.findMany({
         where: { taskId, userId, status: 'ACTIVE' },
         select: { id: true },
@@ -183,6 +299,7 @@ export class TaskParticipantsService {
       ])
       const feedItemId = await this.feedProjection.projectTask(tx, versionedTask, {
         action: 'PARTICIPANT_CHANGED',
+        taskDetails: { role: participant.role, change: 'REMOVED' },
         actorId: principal.userId,
         recipientIds: activeParticipants.map((entry) => entry.userId),
       })
@@ -200,7 +317,13 @@ export class TaskParticipantsService {
           feedItemId,
         },
       )
-      return { version: expectedVersion + 1 }
+      return {
+        version: expectedVersion + 1,
+        accessRetained: userId !== principal.userId
+          || task.createdById === principal.userId
+          || task.reporterId === principal.userId
+          || isGlobalAdmin(principal),
+      }
     })
   }
 
@@ -254,25 +377,23 @@ export class TaskParticipantsService {
 
   private async assertEligibleUser(
     principal: AuthPrincipal,
-    companyId: string,
-    groupId: string | null,
     userId: string,
   ): Promise<void> {
     const user = await this.prisma.user.findFirst({
-      where: {
-        id: userId,
-        workspaceId: principal.workspaceId,
-        isActive: true,
-        OR: [
-          { accountType: 'ADMIN' },
-          {
-            primaryCompanyId: companyId,
-            ...(groupId ? { groupMemberships: { some: { groupId, leftAt: null } } } : {}),
-          },
-        ],
-      },
+      where: this.eligibleUserWhere(principal, [userId]),
       select: { id: true },
     })
     if (!user) throw badRequest('task_participant')
+  }
+
+  private eligibleUserWhere(
+    principal: AuthPrincipal,
+    userIds?: string[],
+  ): Prisma.UserWhereInput {
+    return {
+      ...(userIds ? { id: { in: userIds } } : {}),
+      workspaceId: principal.workspaceId,
+      isActive: true,
+    }
   }
 }

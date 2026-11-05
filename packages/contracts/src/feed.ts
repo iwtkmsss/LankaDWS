@@ -1,57 +1,76 @@
 import { z } from 'zod'
+import type { CalendarAcknowledgementView } from './chat.js'
 import { companyScopeSchema } from './domain.js'
+import { mentionSearchQuerySchema, structuredMentionInputSchema, type StructuredMentionView } from './mentions.js'
 
 export const feedPostStatusSchema = z.enum(['PUBLISHED', 'ARCHIVED'])
 export type FeedPostStatus = z.infer<typeof feedPostStatusSchema>
 
-export const feedRecipientTypeSchema = z.enum(['COMPANY', 'GROUP', 'USER'])
+export const feedRecipientTypeSchema = z.enum(['COMPANY', 'USER'])
 export type FeedRecipientType = z.infer<typeof feedRecipientTypeSchema>
 
-export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE', 'FOLLOWING'])
+export const feedListFilterSchema = z.enum(['ALL', 'ACK_REQUIRED', 'MINE'])
 export type FeedListFilter = z.infer<typeof feedListFilterSchema>
 
-export const feedItemTypeSchema = z.enum(['ALL', 'POST', 'TASK', 'EVENT', 'ANNOUNCEMENT', 'FILE'])
+export const feedItemTypeSchema = z.enum(['ALL', 'POST', 'TASK', 'EVENT', 'FILE'])
 export type FeedItemType = z.infer<typeof feedItemTypeSchema>
 
-export const feedSubscriptionModeSchema = z.enum(['ALL', 'MENTIONS', 'NONE'])
-export type FeedSubscriptionMode = z.infer<typeof feedSubscriptionModeSchema>
-
-export const updateFeedSubscriptionSchema = z.object({
-  notificationMode: feedSubscriptionModeSchema,
-})
-export type UpdateFeedSubscriptionInput = z.infer<typeof updateFeedSubscriptionSchema>
-
-export const feedListQuerySchema = z.object({
-  company: companyScopeSchema.optional(),
-  filter: feedListFilterSchema.default('ALL'),
-  type: feedItemTypeSchema.default('ALL'),
-  authorId: z.string().trim().min(1).max(120).optional(),
-  groupId: z.string().trim().min(1).max(120).optional(),
-  audienceId: z.string().trim().min(1).max(120).optional(),
-  mentioned: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  favorite: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  important: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
-  dateFrom: z.string().date().optional(),
-  dateTo: z.string().date().optional(),
-  cursor: z.string().max(500).optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-}).superRefine((value, context) => {
-  if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
-    context.addIssue({
-      code: 'custom',
-      path: ['dateTo'],
-      message: 'dateTo must not be earlier than dateFrom.',
-    })
-  }
-})
+export const feedListQuerySchema = z
+  .object({
+    company: companyScopeSchema.optional(),
+    filter: feedListFilterSchema.default('ALL'),
+    type: feedItemTypeSchema.default('ALL'),
+    authorId: z.string().trim().min(1).max(120).optional(),
+    audienceId: z.string().trim().min(1).max(120).optional(),
+    mentioned: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    important: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
+    dateFrom: z.string().date().optional(),
+    dateTo: z.string().date().optional(),
+    cursor: z.string().max(500).optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .superRefine((value, context) => {
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+      context.addIssue({
+        code: 'custom',
+        path: ['dateTo'],
+        message: 'dateTo must not be earlier than dateFrom.',
+      })
+    }
+  })
 export type FeedListQuery = z.infer<typeof feedListQuerySchema>
+
+export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema
+  .extend({
+    company: companyScopeSchema,
+    audienceType: z.enum(['COMPANY']),
+    companyIds: z.string().max(12100).transform((value) => value.split(',')).pipe(z.array(z.string().trim().min(1).max(120)).min(1).max(100)).optional(),
+    audienceId: z.string().trim().min(1).max(120).optional(),
+  })
+export type FeedMentionCandidatesQuery = z.infer<typeof feedMentionCandidatesQuerySchema>
 
 export const feedAudienceInputSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('COMPANY') }),
-  z.object({ type: z.literal('GROUP'), groupId: z.string().trim().min(1).max(120) }),
+  z.object({
+    type: z.literal('COMPANIES'),
+    companyIds: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(100)
+      .transform((items) => [...new Set(items)]),
+  }),
   z.object({
     type: z.literal('USERS'),
-    userIds: z.array(z.string().trim().min(1).max(120)).min(1).max(100)
+    userIds: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(100)
       .transform((items) => [...new Set(items)]),
   }),
 ])
@@ -63,32 +82,88 @@ export const shareFileToFeedSchema = z.object({
 })
 export type ShareFileToFeedInput = z.infer<typeof shareFileToFeedSchema>
 
-export const createFeedPostSchema = z.object({
-  companyId: z.string().trim().min(1).max(120),
-  body: z.string().trim().min(1).max(10_000),
-  audience: feedAudienceInputSchema,
-  requiresAcknowledgement: z.boolean().default(false),
-  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(10)
-    .transform((items) => [...new Set(items)])
-    .default([]),
-  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
-    .transform((items) => [...new Set(items)])
-    .default([]),
-})
+// Inline photo placement inside the post text block. Every coordinate is a
+// fraction of the text block width, so the layout scales with the card.
+export const feedPhotoPlacementSchema = z.object({
+  fileId: z.string().trim().min(1).max(120),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(20),
+  width: z.number().min(0.05).max(1),
+  height: z.number().min(0.01).max(20),
+}).refine((value) => value.x + value.width <= 1.001, { path: ['x'], message: 'Photo must stay inside the text block.' })
+export type FeedPhotoPlacement = z.infer<typeof feedPhotoPlacementSchema>
+
+const feedPhotoLayoutSchema = z.array(feedPhotoPlacementSchema).max(5)
+  .refine((items) => new Set(items.map((item) => item.fileId)).size === items.length, { message: 'Each photo can be placed once.' })
+
+export const createFeedPostSchema = z
+  .object({
+    companyId: z.string().trim().min(1).max(120),
+    body: z.string().trim().max(10_000),
+    audience: feedAudienceInputSchema,
+    requiresAcknowledgement: z.boolean().default(false),
+    attachmentIds: z
+      .array(z.string().trim().min(1).max(120))
+      .max(10)
+      .transform((items) => [...new Set(items)])
+      .default([]),
+    mentionedUserIds: z
+      .array(z.string().trim().min(1).max(120))
+      .max(100)
+      .transform((items) => [...new Set(items)])
+      .default([]),
+    mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+    photoLayout: feedPhotoLayoutSchema.default([]),
+  })
+  .superRefine((value, context) => {
+    if (!value.body && value.attachmentIds.length === 0) {
+      context.addIssue({ code: 'custom', path: ['body'], message: 'Post requires text or an attachment.' })
+    }
+    if (value.photoLayout.some((placement) => !value.attachmentIds.includes(placement.fileId))) {
+      context.addIssue({ code: 'custom', path: ['photoLayout'], message: 'Placed photos must be attached.' })
+    }
+    if (value.audience.type === 'COMPANIES' && !value.audience.companyIds.includes(value.companyId)) {
+      context.addIssue({ code: 'custom', path: ['companyId'], message: 'Primary company must be selected.' })
+    }
+  })
 export type CreateFeedPostInput = z.infer<typeof createFeedPostSchema>
 
 export const updateFeedPostSchema = z.object({
   body: z.string().trim().min(1).max(10_000),
   expectedVersion: z.number().int().positive(),
+  // New photos to append; existing attachments are preserved.
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(5)
+    .transform((items) => [...new Set(items)]).optional(),
+  mentionedUserIds: z
+    .array(z.string().trim().min(1).max(120))
+    .max(100)
+    .transform((items) => [...new Set(items)])
+    .optional(),
+  mentions: z.array(structuredMentionInputSchema).max(100).optional(),
+  // Replaces the stored inline layout when present; omitted keeps it.
+  photoLayout: feedPhotoLayoutSchema.optional(),
 })
 export type UpdateFeedPostInput = z.infer<typeof updateFeedPostSchema>
 
+export const FEED_COMMENT_PHOTO_LIMIT = 5
+export const FEED_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+export const FEED_PHOTO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+
 export const createFeedCommentSchema = z.object({
-  body: z.string().trim().min(1).max(4_000),
+  body: z.string().trim().max(4_000),
+  attachmentIds: z.array(z.string().trim().min(1).max(120)).max(FEED_COMMENT_PHOTO_LIMIT)
+    .transform((items) => [...new Set(items)]).default([]),
   replyToCommentId: z.string().trim().min(1).max(120).nullable().optional(),
-  mentionedUserIds: z.array(z.string().trim().min(1).max(120)).max(100)
+  mentionedUserIds: z
+    .array(z.string().trim().min(1).max(120))
+    .max(100)
     .transform((items) => [...new Set(items)])
     .default([]),
+  mentions: z.array(structuredMentionInputSchema).max(100).default([]),
+}).superRefine((value, context) => {
+  if (!value.body && value.attachmentIds.length === 0) {
+    context.addIssue({ code: 'custom', path: ['body'], message: 'Comment requires text or a photo.' })
+  }
 })
 export type CreateFeedCommentInput = z.infer<typeof createFeedCommentSchema>
 
@@ -97,21 +172,28 @@ export const acknowledgeFeedPostSchema = z.object({
 })
 export type AcknowledgeFeedPostInput = z.infer<typeof acknowledgeFeedPostSchema>
 
-export const markFeedReadSchema = z.object({
-  markers: z.array(z.object({
-    companyId: z.string().trim().min(1).max(120),
-    lastItemId: z.string().trim().min(1).max(120),
-  })).min(1).max(50),
-}).superRefine((value, context) => {
-  const companyIds = value.markers.map((marker) => marker.companyId)
-  if (new Set(companyIds).size !== companyIds.length) {
-    context.addIssue({ code: 'custom', path: ['markers'], message: 'Each company can appear only once.' })
-  }
-})
+export const markFeedReadSchema = z
+  .object({
+    markers: z
+      .array(
+        z.object({
+          companyId: z.string().trim().min(1).max(120),
+          lastItemId: z.string().trim().min(1).max(120),
+        }),
+      )
+      .min(1)
+      .max(50),
+  })
+  .superRefine((value, context) => {
+    const companyIds = value.markers.map((marker) => marker.companyId)
+    if (new Set(companyIds).size !== companyIds.length) {
+      context.addIssue({ code: 'custom', path: ['markers'], message: 'Each company can appear only once.' })
+    }
+  })
 export type MarkFeedReadInput = z.infer<typeof markFeedReadSchema>
 
 export interface FeedAudienceOption {
-  type: 'COMPANY' | 'GROUP'
+  type: 'COMPANY'
   id: string
   companyId: string
   label: string
@@ -125,11 +207,11 @@ export interface FeedAuthorOption {
 }
 
 export interface FeedAudienceFacetOption {
-  type: 'COMPANY' | 'GROUP' | 'USER'
+  type: 'COMPANY' | 'USER'
   id: string
   label: string
   detail: string
-  queryKey: 'audienceId' | 'groupId'
+  queryKey: 'audienceId'
 }
 
 export interface FeedCommentView {
@@ -140,9 +222,11 @@ export interface FeedCommentView {
     avatarAsset: string | null
   }
   body: string
+  mentions: StructuredMentionView[]
   replyToCommentId: string | null
   createdAt: string
   editedAt: string | null
+  attachments?: FeedAttachmentView[]
 }
 
 export interface FeedAttachmentView {
@@ -155,10 +239,10 @@ export interface FeedAttachmentView {
 
 export interface FeedPostView {
   kind: 'POST'
+  pinnedByMe?: boolean
   id: string
   itemId: string
   companyId: string
-  group: { id: string; name: string } | null
   author: {
     id: string
     displayName: string
@@ -166,6 +250,7 @@ export interface FeedPostView {
   }
   audienceLabel: string
   body: string
+  mentions: StructuredMentionView[]
   status: FeedPostStatus
   requiresAcknowledgement: boolean
   acknowledgementVersion: number
@@ -178,8 +263,7 @@ export interface FeedPostView {
   commentCount: number
   comments: FeedCommentView[]
   attachments: FeedAttachmentView[]
-  subscriptionMode: FeedSubscriptionMode
-  favoritedByMe: boolean
+  photoLayout?: FeedPhotoPlacement[]
   publishedAt: string
   editedAt: string | null
   version: number
@@ -192,13 +276,23 @@ export interface FeedSourceView {
   id: string
   itemId: string
   companyId: string
-  sourceType: 'TASK' | 'EVENT' | 'ANNOUNCEMENT' | 'FILE'
+  pinnedByMe?: boolean
+  sourceType: 'TASK' | 'EVENT' | 'FILE'
   action: string
   actor: {
     id: string
     displayName: string
     avatarAsset: string | null
   } | null
+  taskReporter?: {
+    id: string
+    displayName: string
+    avatarAsset: string | null
+  } | null
+  taskAssignee?: FeedSourceView['taskReporter']
+  taskChanges?: { messages: number; status: number; participants: number }
+  eventAcknowledgement?: CalendarAcknowledgementView | null
+  eventVersion?: number
   label: string
   title: string
   summary: string
@@ -207,15 +301,24 @@ export interface FeedSourceView {
   actionState: 'AVAILABLE' | 'PROCESSING' | 'BLOCKED'
   occurredAt: string
   historical: boolean
-  favoritedByMe: boolean
   version: number
   canRevoke: boolean
 }
 
 export type FeedEntryView = FeedPostView | FeedSourceView
 
+export interface FeedBirthdayView {
+  id: string
+  displayName: string
+  avatarAsset: string | null
+  jobTitle: string
+  birthdayDate: { month: number; day: number }
+  isToday: boolean
+}
+
 export interface FeedListResult {
   items: FeedEntryView[]
+  birthdays: FeedBirthdayView[]
   nextCursor: string | null
   unreadCount: number
   attention: {
@@ -223,4 +326,10 @@ export interface FeedListResult {
     overdueTasks: number
   }
   readMarkers: Array<{ companyId: string; lastItemId: string }>
+  /** Where the viewer's read cursor stood when this page was built. A company without a cursor is absent. */
+  readPositions: Array<{ companyId: string; lastReadAt: string }>
+}
+
+export interface FeedSummary {
+  unreadCount: number
 }

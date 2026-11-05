@@ -1,11 +1,10 @@
 import { Injectable } from '@nestjs/common'
 import type { Request, Response } from 'express'
 import * as OTPAuth from 'otpauth'
-import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@bert-crm/contracts'
+import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@lankadws/contracts'
 import { decryptSecret, encryptSecret, fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
-import { normalizeUserSearchValue } from '../../common/user-search.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
@@ -58,7 +57,7 @@ export class AuthService {
 
     if (temporaryValid) {
       await this.createSession(user, request, response, 0, true)
-      response.cookie('bert_temp_credential', temporaryId ?? '', this.cookieOptions(true))
+      response.cookie('lankadws_temp_credential', temporaryId ?? '', this.cookieOptions(true))
       return { nextStep: 'FIRST_LOGIN', csrfToken: response.locals.csrfToken as string }
     }
     if (user.totpCredential?.confirmedAt) {
@@ -77,7 +76,7 @@ export class AuthService {
     if (!principal.restricted || newPassword !== confirmation) throw badRequest('password_confirmation', 'Паролі не збігаються.')
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId } })
     if (!user) throw notFound()
-    assertPasswordPolicy(newPassword, user.normalizedUsername, user.mustEnroll2FA)
+    assertPasswordPolicy(newPassword, user.normalizedUsername)
     const passwordHash = await hashPassword(newPassword)
     await this.prisma.$transaction(async (tx) => {
       await tx.passwordCredential.upsert({
@@ -86,6 +85,7 @@ export class AuthService {
         update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date() },
       })
       await tx.temporaryCredential.updateMany({ where: { userId: user.id, consumedAt: null, invalidatedAt: null }, data: { consumedAt: new Date() } })
+      await tx.notification.updateMany({ where: { recipientId: user.id, requiresAction: true, dedupeKey: { startsWith: 'credential-reset:' } }, data: { requiresAction: false } })
       await tx.userSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'first_login_completed' } })
       await tx.credentialEvent.create({ data: { id: id('cev'), userId: user.id, actorId: user.id, type: 'first_login_password_changed', result: 'SUCCESS', correlationId: id('corr') } })
     })
@@ -146,7 +146,7 @@ export class AuthService {
     if (input.newPassword !== input.confirmation) throw badRequest('password_confirmation', 'Паролі не збігаються.')
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { passwordCredential: true } })
     if (!user?.passwordCredential || !(await verifyPassword(user.passwordCredential.passwordHash, input.currentPassword))) throw unauthorized('current_password_invalid')
-    assertPasswordPolicy(input.newPassword, user.normalizedUsername, user.mustEnroll2FA)
+    assertPasswordPolicy(input.newPassword, user.normalizedUsername)
     if (await verifyPassword(user.passwordCredential.passwordHash, input.newPassword)) throw badRequest('password_reuse', 'Новий пароль має відрізнятися від поточного.')
     const passwordHash = await hashPassword(input.newPassword)
     await this.prisma.$transaction(async (tx) => {
@@ -156,15 +156,19 @@ export class AuthService {
     })
   }
 
-  async updateProfile(principal: AuthPrincipal, input: { displayName: string; jobTitle: string; contactEmail: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
+  async updateProfile(principal: AuthPrincipal, input: { contactEmail: string | null; phone: string | null; gender: 'FEMALE' | 'MALE' | 'OTHER' | null; birthDate: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
     try { Intl.DateTimeFormat('uk-UA', { timeZone: input.timezone }).format(new Date()) } catch { throw badRequest('timezone_invalid') }
     const user = await this.prisma.user.update({
       where: { id: principal.userId },
       data: {
-        ...input,
-        normalizedDisplayName: normalizeUserSearchValue(input.displayName),
+        contactEmail: input.contactEmail,
+        phone: input.phone?.trim() || null,
+        gender: input.gender,
+        birthDate: input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null,
+        timezone: input.timezone,
+        locale: input.locale,
       },
-      select: { displayName: true, jobTitle: true, contactEmail: true, timezone: true, locale: true },
+      select: { contactEmail: true, phone: true, gender: true, birthDate: true, timezone: true, locale: true },
     })
     await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'profile.updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     return user
@@ -210,21 +214,59 @@ export class AuthService {
   async me(principal: AuthPrincipal, csrfToken: string): Promise<PrincipalView> {
     const user = await this.prisma.user.findUnique({
       where: { id: principal.userId },
-      include: { primaryCompany: true },
+      include: {
+        primaryCompany: true,
+        orgAssignments: {
+          where: { endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } },
+          orderBy: [{ isPrimary: 'desc' }, { startedAt: 'asc' }],
+          select: { companyId: true, orgUnitId: true, positionTitle: true },
+        },
+        managedOrgUnits: {
+          where: { status: 'ACTIVE' },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, companyId: true },
+        },
+      },
     })
     if (!user) throw notFound()
-    const capabilities = user.primaryCompanyId
-      ? await this.capabilities.forOrganization(user.primaryCompanyId)
-      : await this.capabilities.forOrganizations(principal.allowedCompanyIds)
+    const assignment = user.primaryCompanyId
+      ? user.orgAssignments.find((item) => item.companyId === user.primaryCompanyId)
+      : undefined
+    // A manager belongs to the units they manage (docs/decisions.md 2026-11-04).
+    const homeUnitId = assignment?.orgUnitId ?? user.managedOrgUnits.find((unit) => unit.companyId === user.primaryCompanyId)?.id
+    const [capabilities, orgUnits] = await Promise.all([
+      this.capabilities.forOrganizations(principal.allowedCompanyIds),
+      homeUnitId && user.primaryCompanyId
+        ? this.prisma.orgUnit.findMany({
+            where: { workspaceId: principal.workspaceId, companyId: user.primaryCompanyId },
+            select: { id: true, name: true, parentId: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const unitsById = new Map(orgUnits.map((unit) => [unit.id, unit]))
+    const orgUnitPath: Array<{ id: string; name: string }> = []
+    const visited = new Set<string>()
+    let currentUnit = homeUnitId ? unitsById.get(homeUnitId) : undefined
+    while (currentUnit && !visited.has(currentUnit.id)) {
+      visited.add(currentUnit.id)
+      orgUnitPath.unshift({ id: currentUnit.id, name: currentUnit.name })
+      currentUnit = currentUnit.parentId ? unitsById.get(currentUnit.parentId) : undefined
+    }
     return {
       id: user.id,
       displayName: user.displayName,
+      firstName: user.firstName,
       username: user.username,
       jobTitle: user.jobTitle,
       avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset,
-      company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
+      company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName, slug: user.primaryCompany.code, description: user.primaryCompany.description, isActive: user.primaryCompany.isActive, timezone: user.primaryCompany.timezone } : null,
+      positionTitle: assignment?.positionTitle ?? user.jobTitle,
+      orgUnitPath,
       accountType: user.accountType,
       contactEmail: user.contactEmail,
+      phone: user.phone,
+      gender: user.gender as 'FEMALE' | 'MALE' | 'OTHER' | null,
+      birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null,
       timezone: user.timezone,
       locale: user.locale as 'uk-UA' | 'en-US',
       capabilities,
@@ -265,7 +307,7 @@ export class AuthService {
   private async createSession(user: SessionTarget, request: Request, response: Response, assurance: number, restricted: boolean): Promise<void> {
     const token = randomToken()
     const csrfToken = randomToken(24)
-    const expiresAt = new Date(Date.now() + getConfig().SESSION_ABSOLUTE_HOURS * 3_600_000)
+    const expiresAt = new Date(Date.now() + getConfig().SESSION_IDLE_MINUTES * 60_000)
     await this.prisma.userSession.create({ data: {
       id: id('ses'), sessionHash: fingerprint(token, 'session'), userId: user.id, authAssurance: assurance,
       authorizationVersion: user.authorizationVersion, csrfHash: fingerprint(csrfToken, 'csrf'),
@@ -274,7 +316,9 @@ export class AuthService {
       revokeReason: restricted ? 'restricted' : null,
     } })
     response.cookie(getConfig().SESSION_COOKIE_NAME, token, this.cookieOptions(true, expiresAt))
-    response.cookie('bert_csrf', csrfToken, this.cookieOptions(false, expiresAt))
+    // Cookie names are part of the LankaDWS cutover. Existing pre-cutover browser sessions are
+    // intentionally invalidated so the session and CSRF cookies always use the same namespace.
+    response.cookie('lankadws_csrf', csrfToken, this.cookieOptions(false, expiresAt))
     response.locals.csrfToken = csrfToken
   }
 
@@ -289,8 +333,8 @@ export class AuthService {
 
   private clearCookies(response: Response): void {
     response.clearCookie(getConfig().SESSION_COOKIE_NAME, this.cookieOptions(true))
-    response.clearCookie('bert_csrf', this.cookieOptions(false))
-    response.clearCookie('bert_temp_credential', this.cookieOptions(true))
+    response.clearCookie('lankadws_csrf', this.cookieOptions(false))
+    response.clearCookie('lankadws_temp_credential', this.cookieOptions(true))
   }
 
   private deviceLabel(request: Request): string {
@@ -299,7 +343,7 @@ export class AuthService {
   }
 
   private totp(secret: string, label: string): OTPAuth.TOTP {
-    return new OTPAuth.TOTP({ issuer: 'BERT CRM', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
+    return new OTPAuth.TOTP({ issuer: 'Lanka', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
   }
 
   private totpValidate(secret: string, label: string, token: string): number | null {

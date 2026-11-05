@@ -1,27 +1,7 @@
-# Task 02 — project discovery
+# Task 02 — task project catalog discovery
 
-## Goal
+Read `AGENTS.md`, `CODEX_CONTEXT_MAP.md`, `docs/decisions.md`, `apps/api/prisma/schema.prisma`, `packages/contracts/src/tasks.ts`, and `apps/api/src/modules/tasks/task-catalog.service.ts` before changing project behavior.
 
-Produce a bounded design decision for a requested “project” capability before implementation.
+`Project` and `Tag` are existing task catalog records. Do not introduce a standalone project-management aggregate, page, route, or authorization scope. Work groups were removed on 2026-10-08; group chats use their own thread participants.
 
-## Read first
-
-`AGENTS.md`, `CODEX_CONTEXT_MAP.md`, `docs/architecture.md`, `docs/decisions.md`, `apps/api/prisma/schema.prisma`, `packages/contracts/src/groups.ts`, `apps/api/src/modules/groups/groups.controller.ts`, `apps/api/src/modules/groups/groups.service.ts`, `apps/api/src/modules/tasks/tasks.controller.ts`, `apps/api/src/modules/tasks/tasks.service.ts`, `apps/web/src/pages/ContentPages.tsx`, and `apps/web/src/pages/TasksPage.tsx`.
-
-## Existing behavior
-
-Groups are an existing aggregate and tasks have optional `groupId`. The schema has no `Project` model.
-
-## Deliverable
-
-Compare these options against permissions, lifecycle, membership, task linkage, search, migration cost, and UI/API impact:
-
-1. A separate `Project` aggregate.
-2. A `Group` kind such as `TEAM | PROJECT`.
-3. A saved task/group view with no new persistence.
-
-State the recommended option, affected files, migration/contract impact, and a follow-up implementation slice. Do not implement the capability in this task.
-
-## Stop conditions
-
-Ask before schema/migration, new permission, external write, dependency, CI, or material scope expansion.
+For a requested project enhancement, identify the smallest slice within the existing task catalog and report the concrete behavior, affected files and validation. Ask before a material expansion of that scope.

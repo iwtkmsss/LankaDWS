@@ -1,49 +1,58 @@
 import { describe, expect, it } from 'vitest'
-import { navigationRoutes, routes, routeTitle } from './routes'
+import { mobileNavigation, mobileNavigationLabels, navigationRoutes, routes, routeTitle } from './routes'
 
 describe('canonical route registry', () => {
   it('contains unique browser-history paths and account-type metadata for protected domains', () => {
     expect(new Set(routes.map((route) => route.path)).size).toBe(routes.length)
     expect(routes.find((route) => route.path === '/requests/:requestId')).toBeUndefined()
-    expect(routes.find((route) => route.path === '/groups')).toMatchObject({
-      capability: 'GROUPS_UI',
-      releaseState: 'released',
-    })
+    expect(routes.find((route) => route.path === '/groups')).toBeUndefined()
     expect(routes.find((route) => route.path === '/drive')).toMatchObject({ releaseState: 'released' })
-    expect(routes.find((route) => route.path === '/employees/org')).toBeDefined()
-    expect(routes.find((route) => route.path === '/admin/import')).toMatchObject({ adminOnly: true, adminChild: true })
-    expect(routes.find((route) => route.path === '/overview')).toMatchObject({
-      title: 'Огляд',
-      navGroup: 'primary',
-      navOrder: 1,
+    expect(routes.find((route) => route.path === '/organization')).toMatchObject({
+      title: 'Організація',
+      nav: true,
+      navGroup: 'company',
+      navOrder: 2,
     })
+    expect(routes.find((route) => route.path === '/employees/org')?.nav).toBeUndefined()
+    expect(routes.find((route) => route.path === '/companies')).toMatchObject({ title: 'Організація' })
+    expect(routes.find((route) => route.path === '/companies')?.nav).toBeUndefined()
+    expect(routes.find((route) => route.path === '/overview')).toBeUndefined()
+    expect(routes.find((route) => route.path === '/analytics')).toBeUndefined()
     expect(routes.find((route) => route.path === '/feed')).toMatchObject({
       title: 'Жива стрічка',
-      capability: 'FEED',
-      navGroup: 'communication',
+      navGroup: 'primary',
     })
-    expect(routes.find((route) => route.path === '/notifications')).toMatchObject({ navGroup: 'communication' })
+    expect(routes.find((route) => route.path === '/feed')?.capability).toBeUndefined()
+    expect(routes.find((route) => route.path === '/notifications')).toBeUndefined()
   })
 
   it('resolves stable titles for list and deep-link routes', () => {
-    expect(routeTitle('/overview')).toBe('Огляд')
+    expect(routeTitle('/overview')).toBe('Сторінку не знайдено')
+    expect(routeTitle('/analytics')).toBe('Сторінку не знайдено')
     expect(routeTitle('/feed')).toBe('Жива стрічка')
     expect(routeTitle('/requests/req_123')).toBe('Сторінку не знайдено')
     expect(routeTitle('/admin/users/usr_123')).toBe('Користувач')
     expect(routeTitle('/does-not-exist')).toBe('Сторінку не знайдено')
   })
 
-  it('keeps the daily mobile workflow explicit instead of depending on sidebar groups', () => {
-    const core = routes
-      .filter((route) => route.mobileOrder !== undefined)
-      .sort((left, right) => left.mobileOrder! - right.mobileOrder!)
-      .map((route) => route.path)
-    expect(core).toEqual(['/overview', '/tasks', '/messages', '/calendar'])
+  it('keeps the approved mobile footer and overflow order explicit', () => {
+    expect(mobileNavigation.primary).toEqual(['/feed', '/tasks', '/messages', '/drive'])
+    expect(mobileNavigation.more).toEqual(['/calendar', '/organization', '/knowledge'])
+    expect(mobileNavigationLabels['/organization']).toBe('Організація')
+    const configuredRoutes = [...mobileNavigation.primary, ...mobileNavigation.more]
+    expect(new Set(configuredRoutes).size).toBe(configuredRoutes.length)
+    expect(configuredRoutes.every((path) => routes.some((route) => route.path === path && route.nav))).toBe(true)
+  })
+
+  it('exposes preloaders for the primary desktop destinations', () => {
+    for (const path of ['/feed', '/tasks', '/messages', '/drive', '/calendar', '/organization']) {
+      expect(routes.find((route) => route.path === path)?.preload).toEqual(expect.any(Function))
+    }
   })
 
   it('groups each sidebar destination once in the requested information architecture', () => {
     const pathsByGroup = Object.fromEntries(
-      ['primary', 'communication', 'company', 'management', 'administration'].map((group) => [
+      ['primary', 'company', 'management', 'administration'].map((group) => [
         group,
         routes
           .filter((route) => route.navGroup === group)
@@ -52,18 +61,12 @@ describe('canonical route registry', () => {
       ]),
     )
     expect(pathsByGroup).toEqual({
-      primary: ['/overview'],
-      communication: ['/feed', '/messages', '/calendar', '/notifications'],
-      company: ['/employees', '/groups', '/drive'],
-      management: ['/tasks', '/knowledge', '/analytics'],
+      primary: ['/feed', '/tasks', '/messages', '/drive', '/calendar'],
+      company: ['/organization'],
+      management: ['/knowledge'],
       administration: [
-        '/admin',
-        '/admin/companies',
         '/admin/users',
-        '/admin/security',
         '/admin/audit',
-        '/admin/import',
-        '/admin/system',
       ],
     })
     const sidebarPaths = routes.filter((route) => route.nav).map((route) => route.path)
@@ -73,10 +76,11 @@ describe('canonical route registry', () => {
   it('applies account-type and capability gates to the shared sidebar configuration', () => {
     const visiblePaths = navigationRoutes(
       false,
-      (capability) => capability !== 'FEED' && capability !== 'GROUPS_UI',
+      () => true,
     ).map((route) => route.path)
-    expect(visiblePaths).toContain('/overview')
-    expect(visiblePaths).not.toContain('/feed')
+    expect(visiblePaths).not.toContain('/overview')
+    expect(visiblePaths).not.toContain('/analytics')
+    expect(visiblePaths).toContain('/feed')
     expect(visiblePaths).not.toContain('/groups')
   })
 })

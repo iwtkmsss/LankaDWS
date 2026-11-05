@@ -1,3 +1,4 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
@@ -60,6 +61,7 @@ export class TaskChecklistService {
           position: (last?.position ?? -1) + 1,
         },
       })
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: `Чекліст: додано «${normalizedTitle}»` })
       return { id: itemId, version: expectedVersion + 1 }
     })
   }
@@ -82,6 +84,11 @@ export class TaskChecklistService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, input.expectedVersion)
+      const existing = await tx.taskChecklistItem.findFirst({
+        where: { id: itemId, taskId },
+        select: { title: true, isCompleted: true },
+      })
+      if (!existing) throw badRequest('task_checklist')
       const updated = await tx.taskChecklistItem.updateMany({
         where: { id: itemId, taskId },
         data: {
@@ -97,6 +104,7 @@ export class TaskChecklistService {
         },
       })
       if (!updated.count) throw badRequest('task_checklist')
+      await notifyTaskParticipants(tx, taskId, principal.userId, input.expectedVersion + 1, 'task.checklist_changed', { detail: `${input.isCompleted === undefined ? 'Чекліст: змінено пункт' : input.isCompleted ? 'Чекліст: виконано' : 'Чекліст: повернуто до виконання'} «${title ?? existing.title}»` })
       return { version: input.expectedVersion + 1 }
     })
   }
@@ -121,6 +129,7 @@ export class TaskChecklistService {
         select: { id: true },
       })
       await this.reposition(tx, remaining.map((item) => item.id))
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: 'Чекліст: вилучено пункт' })
       return { version: expectedVersion + 1 }
     })
   }
@@ -143,6 +152,7 @@ export class TaskChecklistService {
     const existing = await this.prisma.taskChecklistItem.findMany({
       where: { taskId },
       select: { id: true },
+      orderBy: { position: 'asc' },
     })
     if (
       existing.length !== itemIds.length
@@ -154,6 +164,7 @@ export class TaskChecklistService {
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
       await this.reposition(tx, itemIds)
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: 'Чекліст: змінено порядок пунктів' })
       return { version: expectedVersion + 1 }
     })
   }

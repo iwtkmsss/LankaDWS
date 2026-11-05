@@ -6,7 +6,7 @@ Implementation. Work end-to-end, but keep the change narrow. Do not perform gene
 
 ## Goal
 
-Improve the existing BertCRM search surfaces without duplicating forms or introducing a new domain model:
+Improve the existing LankaDWS search surfaces without duplicating forms or introducing a new domain model:
 
 1. global `Ctrl/Cmd+K` must find existing entities and show relevant canonical create actions while the user types;
 2. chat search must show matching existing conversations and matching employees; clicking an employee must immediately open the canonical direct conversation, creating an empty thread only when none exists;
@@ -27,7 +27,7 @@ Do not rebuild these mechanisms:
 - Employee search already exists:
   `GET /api/v1/employees?search=...`.
 - Org hierarchy already exists through `OrgUnit.parentId`.
-- Canonical create pages/drawers already exist for Task, Chat, Calendar, Request, Group, Drive and Announcement.
+- Canonical create pages/drawers already exist for Task, Chat, Calendar, Request, Group and Drive.
 
 ## Read first — do not scan the whole repository
 
@@ -39,7 +39,7 @@ apps/api/AGENTS.md
 apps/web/src/layout/AppShell.tsx
 apps/web/src/pages/CommunicationPages.tsx
 apps/web/src/pages/ContentPages.tsx
-apps/web/src/pages/OrganizationPage.tsx
+apps/web/src/pages/OrganizationUniversePage.tsx
 apps/api/src/modules/communication/search.controller.ts
 apps/api/src/modules/communication/messages.controller.ts
 apps/api/src/modules/communication/messages.service.ts
@@ -211,17 +211,17 @@ Minimum focused coverage:
 During implementation run only touched workspace checks.
 
 ```bash
-npm run typecheck --workspace @bert-crm/contracts
-npm run typecheck --workspace @bert-crm/api
-npm run typecheck --workspace @bert-crm/web
-npm run lint --workspace @bert-crm/api
-npm run lint --workspace @bert-crm/web
+npm run typecheck --workspace @lankadws/contracts
+npm run typecheck --workspace @lankadws/api
+npm run typecheck --workspace @lankadws/web
+npm run lint --workspace @lankadws/api
+npm run lint --workspace @lankadws/web
 ```
 
 Run focused tests only. For Playwright start with:
 
 ```bash
-npm run test:e2e --workspace @bert-crm/web -- \
+npm run test:e2e --workspace @lankadws/web -- \
   --project=desktop-chromium \
   --grep "chat search|global search|employee"
 ```

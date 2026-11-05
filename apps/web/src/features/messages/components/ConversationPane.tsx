@@ -1,14 +1,19 @@
+import { conversationName } from '../../../shared/lib/personName'
 import type {
+  ChatAttachmentView,
   ChatMessageView,
   ChatThreadDetail,
   ChatThreadListItem,
-} from '@bert-crm/contracts'
+  StructuredMentionInput,
+} from '@lankadws/contracts'
 import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
 import { useState } from 'react'
+import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
 import { ConversationSearch } from './ConversationSearch'
 import { MessageComposer } from './MessageComposer'
 import { MessageStream } from './MessageStream'
+import { useReadingMessageThread } from '../lib/messageSound'
 
 interface ConversationPaneProps {
   thread?: ChatThreadDetail
@@ -20,13 +25,12 @@ interface ConversationPaneProps {
   highlightedMessageId?: string | null
   canLoadOlder: boolean
   loadingOlder: boolean
-  canConvertToTask: boolean
-  canConvertToEvent: boolean
   replyTo: ChatMessageView | null
   attachments: Parameters<typeof MessageComposer>[0]['attachments']
   sending: boolean
   uploading: boolean
-  composerError: string
+  initialComposerBody?: string
+  onInitialComposerBodyConsumed?: () => void
   onBack: () => void
   onInfo: () => void
   onToggleMute: () => void
@@ -34,13 +38,15 @@ interface ConversationPaneProps {
   onLatest: () => void
   onLoadOlder: () => Promise<unknown>
   onReply: (message: ChatMessageView) => void
+  onLike: (message: ChatMessageView) => void
+  onForward: (message: ChatMessageView) => void
   onReplyCancel: () => void
-  onEdit: (message: ChatMessageView, body: string) => Promise<void>
+  onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
-  onConvert: (kind: 'task' | 'event', message: ChatMessageView) => void
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
-  onSend: (body: string) => Promise<boolean>
+  onDriveAttachment?: (attachment: ChatAttachmentView) => void
+  onSend: (input: { body: string; mentions: StructuredMentionInput[] }) => Promise<boolean>
   onRetry: () => void
 }
 
@@ -52,7 +58,7 @@ function ConversationAvatar({
     const other = thread?.participants.find((participant) =>
       participant.displayName === thread.title,
     )
-    return <Avatar name={thread?.title ?? preview?.title ?? ''} src={other?.avatarAsset ?? preview?.avatarAsset} />
+    return <Avatar name={thread ? conversationName(thread) : preview ? conversationName(preview) : ''} src={other?.avatarAsset ?? preview?.avatarAsset} />
   }
   return (
     <span className="conversation-header__group-avatar" aria-hidden="true">
@@ -62,8 +68,13 @@ function ConversationAvatar({
 }
 
 export function ConversationPane(props: ConversationPaneProps) {
+  useReadingMessageThread(props.currentUserId, !props.loading && !props.error ? props.thread?.id : undefined)
   const [searchOpen, setSearchOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const { isDragging, dropTargetProps } = useFileDropTarget({
+    disabled: !props.thread?.canPost || props.uploading || props.sending,
+    onFiles: props.onFiles,
+  })
 
   if (props.loading) {
     return <section className="conversation-pane conversation-pane--loading"><Skeleton rows={8} /></section>
@@ -79,23 +90,34 @@ export function ConversationPane(props: ConversationPaneProps) {
     ? props.thread.participants.find((participant) => participant.id !== props.currentUserId)
     : null
   const subtitle = props.thread.kind === 'DIRECT'
-    ? [
-        directParticipant?.username ? `@${directParticipant.username}` : '',
-        directParticipant?.jobTitle ?? '',
-      ].filter(Boolean).join(' · ')
+    ? directParticipant?.jobTitle ?? ''
     : `${props.thread.participants.length} учасників`
 
   return (
-    <section className="conversation-pane" aria-label={`Діалог: ${props.thread.title}`}>
+    <section
+      className="conversation-pane is-file-drop-target"
+      aria-label={`Діалог: ${conversationName(props.thread)}`}
+      {...dropTargetProps}
+    >
+      <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити їх до повідомлення" />
       <header className="conversation-header">
         <IconButton className="conversation-header__back" label="До списку діалогів" onClick={props.onBack}>
           <ArrowLeft size={21} />
         </IconButton>
-        <ConversationAvatar thread={props.thread} preview={props.preview} />
-        <div className="conversation-header__copy">
-          <h1>{props.thread.title}</h1>
-          <span>{subtitle}</span>
-        </div>
+        <h1 className="conversation-header__person-heading">
+          <button
+            type="button"
+            className="conversation-header__person"
+            aria-label={`Інформація та файли: ${conversationName(props.thread)}`}
+            onClick={props.onInfo}
+          >
+            <ConversationAvatar thread={props.thread} preview={props.preview} />
+            <span className="conversation-header__copy">
+              <strong>{conversationName(props.thread)}</strong>
+              <span>{subtitle}</span>
+            </span>
+          </button>
+        </h1>
         <div className="conversation-header__actions">
           <IconButton
             label="Пошук у діалозі"
@@ -164,31 +186,37 @@ export function ConversationPane(props: ConversationPaneProps) {
       )}
 
       <MessageStream
+        key={`stream:${props.thread.id}`}
+        threadId={props.thread.id}
         messages={props.messages}
         currentUserId={props.currentUserId}
         lastReadMessageId={props.thread.lastReadMessageId}
         highlightedMessageId={props.highlightedMessageId}
         canLoadOlder={props.canLoadOlder}
         loadingOlder={props.loadingOlder}
-        canConvertToTask={props.canConvertToTask}
-        canConvertToEvent={props.canConvertToEvent}
         onLoadOlder={props.onLoadOlder}
         onReply={props.onReply}
+        onLike={props.onLike}
+        onForward={props.onForward}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
-        onConvert={props.onConvert}
       />
 
       {props.thread.canPost && (
         <MessageComposer
+          currentUserId={props.currentUserId}
+          key={`composer:${props.thread.id}`}
+          threadId={props.thread.id}
+          initialBody={props.initialComposerBody}
+          onInitialBodyConsumed={props.onInitialComposerBodyConsumed}
           replyTo={props.replyTo}
           attachments={props.attachments}
           sending={props.sending}
           uploading={props.uploading}
-          error={props.composerError}
           onReplyCancel={props.onReplyCancel}
           onRemoveAttachment={props.onRemoveAttachment}
           onFiles={props.onFiles}
+          onDriveAttachment={props.onDriveAttachment}
           onSend={props.onSend}
         />
       )}

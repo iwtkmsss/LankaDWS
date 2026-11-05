@@ -1,0 +1,2 @@
+ALTER TABLE "Company" ADD COLUMN "logoFileId" TEXT;
+ALTER TABLE "OrgUnit" ADD COLUMN "icon" TEXT;

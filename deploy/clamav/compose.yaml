@@ -1,0 +1,28 @@
+services:
+  clamav:
+    image: ${CLAMAV_IMAGE:-clamav/clamav:stable}
+    restart: unless-stopped
+    environment:
+      FRESHCLAM_CHECKS: "12"
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - signatures:/var/lib/clamav
+      - ./clamd.conf:/etc/clamav/clamd.conf:ro
+    mem_limit: 4g
+    cpus: 2
+    networks:
+      - scanner
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 6m
+      retries: 3
+
+volumes:
+  signatures:
+
+networks:
+  scanner:
+    name: lankadws-scanner

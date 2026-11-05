@@ -1,5 +1,6 @@
+import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
-import type { ManualTimeEntryInput, UpdateTimeEntryInput } from '@bert-crm/contracts'
+import type { ManualTimeEntryInput, UpdateTimeEntryInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
@@ -227,6 +228,10 @@ export class TaskTimeService {
     action: string,
     safeDiff: Record<string, unknown>,
   ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const task = await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } } })
+      await notifyTaskParticipants(tx, taskId, principal.userId, task.version, action, safeDiff)
+    })
     await this.prisma.auditEvent.create({
       data: {
         id: id('aud'),

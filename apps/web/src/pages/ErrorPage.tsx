@@ -32,7 +32,7 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
             : status === 'maintenance'
               ? {
                   title: 'Триває технічне обслуговування',
-                  text: 'BERT CRM тимчасово не приймає зміни. Спробуйте ще раз за кілька хвилин.',
+                  text: 'Lanka тимчасово не приймає зміни. Спробуйте ще раз за кілька хвилин.',
                   icon: Wrench,
                 }
               : {
@@ -46,7 +46,7 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
     <main className="error-page">
       <div className="error-brand">
         <BrandMark />
-        <strong>BERT CRM</strong>
+        <strong>Lanka</strong>
       </div>
       <section>
         <img src="/assets/errors/error-orbit.png" alt="" width="440" height="320" />
@@ -56,9 +56,9 @@ export default function ErrorPage({ status }: { status: 403 | 404 | 500 | 'offli
           <h1>{config.title}</h1>
           <p>{config.text}</p>
           <div className="button-row">
-            <Link className="button button--primary" to="/overview">
+            <Link className="button button--primary" to="/feed">
               <House size={17} />
-              До огляду
+              До стрічки
             </Link>
             {status !== 403 && (
               <Button variant="secondary" onClick={() => (retry ? location.reload() : navigate(-1))}>

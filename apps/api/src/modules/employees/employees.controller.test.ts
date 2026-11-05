@@ -1,0 +1,162 @@
+import { describe, expect, it, vi } from 'vitest'
+import type { LankaDWSRequest } from '../../common/request-context.js'
+import type { PrismaService } from '../../prisma/prisma.service.js'
+import type { ScopeService } from '../authorization/scope.service.js'
+import { EmployeesController } from './employees.controller.js'
+
+function setup() {
+  const findMany = vi.fn().mockResolvedValue([])
+  const controller = new EmployeesController(
+    { user: { findMany } } as unknown as PrismaService,
+    { allowedCompanies: vi.fn().mockReturnValue(['company-a', 'company-b']) } as unknown as ScopeService,
+  )
+  const request = { principal: { workspaceId: 'workspace-a', userId: 'me' } } as LankaDWSRequest
+  return {
+    findMany,
+    controller,
+    request,
+    search: (value: string, limit = '5', accountType?: string, exclude?: string) =>
+      controller.list(request, undefined, value, undefined, undefined, undefined, limit, accountType, exclude),
+  }
+}
+
+describe('bounded employee selector search', () => {
+  it('applies company, membership and selected-user restrictions before the recommendation cap', async () => {
+    const { controller, request, findMany } = setup()
+    await controller.search(request, { q: '', recommendations: true, limit: 1000,
+      accountType: 'USER', excludeIds: ['selected'], excludeOrgUnitId: 'unit', managersOnly: true })
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ take: 5, where: {
+      workspaceId: 'workspace-a', isActive: true, AND: [
+        { AND: [
+          { OR: [{ accountType: 'USER', primaryCompanyId: { in: ['company-a', 'company-b'] } }] },
+          expect.any(Object),
+          { orgAssignments: { none: { orgUnitId: 'unit', endedAt: null } } },
+        ] }, {}, { id: { notIn: ['selected'] } },
+      ],
+    } })
+  })
+
+  it('does not query users for an empty or whitespace-only search', async () => {
+    const { search, findMany } = setup()
+    expect(await search('')).toEqual({ items: [] })
+    expect(await search('  \t ')).toEqual({ items: [] })
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it('searches from one Unicode character, caps SQL results and retains scope', async () => {
+    const { search, findMany } = setup()
+    await search(' А ', '1000', undefined, 'selected-user')
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: {
+        workspaceId: 'workspace-a', isActive: true,
+        AND: [
+          { AND: [{ OR: [{ accountType: 'USER', primaryCompanyId: { in: ['company-a', 'company-b'] } }, { accountType: 'ADMIN' }] }] },
+          { OR: [{ normalizedDisplayName: 'а' }, { normalizedUsername: 'а' }] },
+          { id: { notIn: ['selected-user'] } },
+        ],
+      },
+      select: { id: true, displayName: true, username: true, jobTitle: true, avatarAsset: true, accountType: true, primaryCompanyId: true },
+      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
+      take: 5,
+    })
+  })
+
+  it('can explicitly restrict selectors to employee accounts', async () => {
+    const { search, findMany } = setup()
+    await search('a', '5', 'USER')
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { workspaceId: 'workspace-a', AND: [{ AND: [{ OR: [
+        { accountType: 'USER', primaryCompanyId: { in: ['company-a', 'company-b'] } },
+      ] }] }, { OR: [{ normalizedDisplayName: 'a' }, { normalizedUsername: 'a' }] }, { id: { notIn: [] } }] }, take: 5,
+    })
+  })
+
+  it.each(['0', '-1', '1.5', 'bad'])('rejects invalid limit %s', async (limit) => {
+    const { search, findMany } = setup()
+    await expect(search('a', limit)).rejects.toMatchObject({ status: 400 })
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it('uses the same bounded search for large exclusion bodies and excludes membership in SQL', async () => {
+    const { controller, request, findMany } = setup()
+    const excludeIds = Array.from({ length: 1000 }, (_, index) => `user-${index}`)
+    await controller.search(request, { q: 'а', excludeIds, excludeOrgUnitId: 'large-unit', limit: 1000 })
+    expect(findMany.mock.calls[0]?.[0] as unknown).toMatchObject({ take: 5, where: { AND: [
+      { AND: [expect.any(Object), { orgAssignments: { none: { orgUnitId: 'large-unit', endedAt: null } } }] },
+      expect.any(Object), { id: { notIn: excludeIds } },
+    ] } })
+  })
+})
+
+describe('employee department projection', () => {
+  it('reads only active primary assignments and keeps users without a department in their company', async () => {
+    const { request, findMany } = setup()
+    const employee = { id: 'employee', displayName: 'Марія', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', orgAssignments: [], managedOrgUnits: [], approver: null }
+    findMany.mockResolvedValueOnce([employee])
+    const presence = { findMany: vi.fn().mockResolvedValue([]) }
+    // The directory's presence query is independent of department membership.
+    const count = vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    const prisma = { user: { findMany, count }, presenceRecord: presence, orgUnit: { findMany: vi.fn().mockResolvedValue([]) } }
+    const directory = new EmployeesController(prisma as unknown as PrismaService, { allowedCompanies: () => ['company-a'] } as unknown as ScopeService)
+    const result = await directory.list(request, 'company-a')
+    expect(result.items).toEqual([expect.objectContaining({ primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', positionTitle: 'Дизайнерка', orgUnit: null })])
+    expect(result).toMatchObject({ counts: { all: 1 } })
+    expect(findMany.mock.calls[0]?.[0] as unknown).toMatchObject({
+      where: { primaryCompanyId: { in: ['company-a'] } },
+      select: { orgAssignments: {
+        where: { companyId: { in: ['company-a'] }, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } },
+      } },
+    })
+  })
+
+  it('treats a manager without an assignment as a member of the units they manage', async () => {
+    const { request, findMany } = setup()
+    const managed = (id: string) => ({ id, name: id, companyId: 'company-a', parent: null })
+    const manager = { id: 'manager', displayName: 'Марко', primaryCompanyId: 'company-a', jobTitle: 'Керівник', orgAssignments: [], approver: null,
+      managedOrgUnits: [managed('first'), managed('second'), { ...managed('foreign'), companyId: 'company-b' }] }
+    const colleague = { id: 'colleague', displayName: 'Олена', primaryCompanyId: 'company-a', jobTitle: 'HR', orgAssignments: [], managedOrgUnits: [], approver: null }
+    // Which rows match is covered against SQLite in employee-pagination.persistence.test.ts.
+    findMany.mockResolvedValue([manager, colleague])
+    const directory = new EmployeesController({
+      user: { findMany, count: vi.fn().mockResolvedValue(2) },
+      presenceRecord: { findMany: vi.fn().mockResolvedValue([]) },
+      orgUnit: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService, { allowedCompanies: () => ['company-a', 'company-b'] } as unknown as ScopeService)
+    const list = (orgUnit?: string) => directory.list(request, 'company-a', undefined, orgUnit)
+
+    const everyone = await list()
+    expect(everyone.items).toEqual([
+      expect.objectContaining({ id: 'manager', orgUnit: { id: 'first', name: 'first', parent: null } }),
+      expect.objectContaining({ id: 'colleague', orgUnit: null }),
+    ])
+    expect(everyone.items[0]).not.toHaveProperty('managedOrgUnits')
+    findMany.mockResolvedValue([manager])
+    expect((await list('second')).items).toEqual([expect.objectContaining({ id: 'manager', orgUnit: { id: 'second', name: 'second', parent: null } })])
+    expect((await list('foreign')).items).toEqual([expect.objectContaining({ id: 'manager', orgUnit: { id: 'first', name: 'first', parent: null } })])
+  })
+
+  it('shows a managed unit in the profile of a manager without an assignment', async () => {
+    const user = { id: 'manager', primaryCompanyId: 'company-a', jobTitle: 'Керівник', orgAssignments: [], managedOrgUnits: [{ id: 'unit', name: 'Відділ', companyId: 'company-a', parent: null }] }
+    const controller = new EmployeesController({ user: { findFirst: vi.fn().mockResolvedValue(user) }, presenceRecord: { findMany: vi.fn().mockResolvedValue([]) } } as unknown as PrismaService,
+      { allowedCompanies: () => ['company-a'] } as unknown as ScopeService)
+    const { request } = setup()
+    const result = await controller.detail(request, user.id)
+    expect(result).toMatchObject({ orgUnit: { id: 'unit', name: 'Відділ', parent: null } })
+    expect(result).not.toHaveProperty('managedOrgUnits')
+  })
+
+  it('does not show an assignment from another company in the employee profile', async () => {
+    const user = { id: 'employee', primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', managedOrgUnits: [], orgAssignments: [
+      { positionTitle: 'Інша посада', orgUnit: { id: 'other-unit', companyId: 'company-b', name: 'Інший відділ', parent: null, manager: null } },
+    ] }
+    const findFirst = vi.fn().mockResolvedValue(user)
+    const controller = new EmployeesController({ user: { findFirst }, presenceRecord: { findMany: vi.fn().mockResolvedValue([]) } } as unknown as PrismaService,
+      { allowedCompanies: () => ['company-a', 'company-b'] } as unknown as ScopeService)
+    const { request } = setup()
+    const result = await controller.detail(request, user.id)
+    expect(result).toMatchObject({ primaryCompanyId: 'company-a', jobTitle: 'Дизайнерка', positionTitle: 'Дизайнерка', orgUnit: null })
+    expect(findFirst.mock.calls[0]?.[0] as unknown).toMatchObject({ select: {
+      orgAssignments: { where: { companyId: { in: ['company-a', 'company-b'] }, endedAt: null, isPrimary: true, orgUnit: { status: 'ACTIVE' } } },
+    } })
+  })
+})

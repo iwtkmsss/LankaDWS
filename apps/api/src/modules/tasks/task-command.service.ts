@@ -1,9 +1,12 @@
+import { notifyTaskParticipants, settleTaskActions } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
-import type { CreateTaskInput, UpdateTaskInput } from '@bert-crm/contracts'
+import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { id, sha256 } from '../../common/crypto.js'
-import { badRequest, conflict, forbidden } from '../../common/errors.js'
-import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { badRequest, conflict } from '../../common/errors.js'
+import { isLayoutPhoto, serializePhotoLayout } from '../../common/photo-layout.js'
+import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
@@ -19,6 +22,7 @@ import { TaskValidationService } from './task-validation.service.js'
 export class TaskCommandService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly taskNumbers: TaskNumberAllocator,
     private readonly access: TaskAccessService,
     private readonly validation: TaskValidationService,
     private readonly hierarchy: TaskHierarchyService,
@@ -65,26 +69,39 @@ export class TaskCommandService {
       ),
     ])
 
+    const placedIds = input.photoLayout.map((placement) => placement.fileId)
+    if (placedIds.length) {
+      const placed = await this.prisma.fileObject.findMany({
+        where: { id: { in: placedIds } },
+        select: { detectedMime: true, declaredMime: true },
+      })
+      if (placed.length !== placedIds.length || !placed.every(isLayoutPhoto)) {
+        throw badRequest('task_photo_layout_invalid')
+      }
+    }
+
     const taskId = id('tsk')
-    const number = this.taskNumber()
-    await this.prisma.$transaction(async (tx) => {
+    const number = await this.taskNumbers.runInTransaction(
+      this.prisma,
+      async (tx, allocatedNumber) => {
       const task = await tx.task.create({
         data: {
           id: taskId,
           workspaceId: principal.workspaceId,
           companyId: context.companyId,
-          groupId: context.groupId,
           projectId: context.projectId,
           parentTaskId: context.parentTaskId,
-          number,
+          number: allocatedNumber,
           title: input.title,
           description: input.description,
+          photoLayout: serializePhotoLayout(input.photoLayout),
           createdById: principal.userId,
           reporterId: context.reporterId,
           priority: input.priority,
           startsAt: context.startsAt,
           dueAt: context.dueAt,
           estimatedMinutes: input.estimatedMinutes ?? null,
+          requiresAcceptance: input.requiresAcceptance ?? false,
         },
       })
       await this.participants.createMany(tx, taskId, principal.userId, context.participants)
@@ -122,6 +139,7 @@ export class TaskCommandService {
         )
       }
       await this.attachments.linkMany(tx, taskId, attachmentIds)
+      await notifyTaskParticipants(tx, taskId, principal.userId, task.version, 'task.created')
       const feedItemId = await this.feedProjection.projectTask(tx, task, {
         action: 'ASSIGNED',
         actorId: principal.userId,
@@ -138,14 +156,14 @@ export class TaskCommandService {
           data: { version: { increment: 1 } },
         })
         if (!parentUpdate.count) throw conflict('task_version')
-        const [parent, parentParticipants] = await Promise.all([
-          tx.task.findUniqueOrThrow({ where: { id: context.parentTaskId } }),
-          tx.taskParticipant.findMany({
-            where: { taskId: context.parentTaskId, removedAt: null },
-            select: { userId: true },
-          }),
-        ])
-        const parentFeedItemId = await this.feedProjection.projectTask(tx, parent, {
+        const parentParticipants = await tx.taskParticipant.findMany({
+          where: { taskId: context.parentTaskId, removedAt: null },
+          select: { userId: true },
+        })
+        const versionedParent = await tx.task.findUniqueOrThrow({
+          where: { id: context.parentTaskId },
+        })
+        const parentFeedItemId = await this.feedProjection.projectTask(tx, versionedParent, {
           action: 'SUBTASK_CREATED',
           actorId: principal.userId,
           recipientIds: parentParticipants.map((participant) => participant.userId),
@@ -171,7 +189,7 @@ export class TaskCommandService {
             id: id('out'),
             aggregateType: 'TASK',
             aggregateId: context.parentTaskId,
-            aggregateVersion: parent.version,
+            aggregateVersion: versionedParent.version,
             eventType: 'task.subtask_created',
             safePayload: JSON.stringify({
               taskId: context.parentTaskId,
@@ -234,7 +252,9 @@ export class TaskCommandService {
           }),
         },
       })
-    })
+        return allocatedNumber
+      },
+    )
     return { id: taskId, number, version: 1 }
   }
 
@@ -244,15 +264,31 @@ export class TaskCommandService {
     input: UpdateTaskInput,
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.editableTask(principal, taskId)
+    if (task.status === 'IN_REVIEW') throw conflict('task_review_locked')
     const dates = this.validation.validateUpdateDates(task, input)
     const scope = await this.validation.validateUpdateScope(principal, task, input)
     const nextParentTaskId = input.parentTaskId === undefined ? task.parentTaskId : input.parentTaskId
+    const changedFields = [
+      ...(input.title !== undefined && input.title !== task.title ? ['title'] : []),
+      ...(input.description !== undefined && input.description !== task.description ? ['description'] : []),
+      ...(input.projectId !== undefined && input.projectId !== task.projectId ? ['projectId'] : []),
+      ...(input.parentTaskId !== undefined && input.parentTaskId !== task.parentTaskId ? ['parentTaskId'] : []),
+      ...(input.reporterId !== undefined && scope.reporterId !== task.reporterId ? ['reporterId'] : []),
+      ...(input.priority !== undefined && input.priority !== task.priority ? ['priority'] : []),
+      ...(input.startsAt !== undefined && dates.startsAt?.getTime() !== task.startsAt?.getTime() ? ['startsAt'] : []),
+      ...(input.dueAt !== undefined && dates.dueAt?.getTime() !== task.dueAt?.getTime() ? ['dueAt'] : []),
+      ...(input.estimatedMinutes !== undefined && input.estimatedMinutes !== task.estimatedMinutes
+        ? ['estimatedMinutes']
+        : []),
+      ...(input.requiresAcceptance !== undefined && input.requiresAcceptance !== task.requiresAcceptance
+        ? ['requiresAcceptance']
+        : []),
+    ]
 
-    if (input.groupId !== undefined || input.projectId !== undefined || input.parentTaskId !== undefined) {
+    if (input.projectId !== undefined || input.parentTaskId !== undefined) {
       await this.hierarchy.assertValidParent(principal, {
         id: task.id,
         companyId: task.companyId,
-        groupId: scope.groupId,
         projectId: scope.projectId,
       }, nextParentTaskId)
     }
@@ -263,7 +299,6 @@ export class TaskCommandService {
         data: {
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.description === undefined ? {} : { description: input.description }),
-          ...(input.groupId === undefined ? {} : { groupId: input.groupId }),
           ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
           ...(input.parentTaskId === undefined ? {} : { parentTaskId: input.parentTaskId }),
           ...(input.reporterId === undefined ? {} : { reporterId: input.reporterId }),
@@ -273,6 +308,9 @@ export class TaskCommandService {
           ...(input.estimatedMinutes === undefined
             ? {}
             : { estimatedMinutes: input.estimatedMinutes }),
+          ...(input.requiresAcceptance === undefined
+            ? {}
+            : { requiresAcceptance: input.requiresAcceptance }),
           version: { increment: 1 },
         },
       })
@@ -289,7 +327,16 @@ export class TaskCommandService {
           entityId: taskId,
           result: 'SUCCESS',
           risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ fields: Object.keys(input).filter((key) => key !== 'expectedVersion') }),
+          safeDiffJson: JSON.stringify({
+            changedFields,
+            changes: {
+              ...(input.title !== undefined && input.title !== task.title ? { title: input.title } : {}),
+              ...(input.description !== undefined && input.description !== task.description ? { description: true } : {}),
+              ...(input.dueAt !== undefined ? { dueAt: input.dueAt } : {}),
+              ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+              ...(input.priority !== undefined ? { priority: input.priority } : {}),
+            },
+          }),
           correlationId: id('corr'),
         },
       })
@@ -300,7 +347,10 @@ export class TaskCommandService {
           aggregateId: taskId,
           aggregateVersion: input.expectedVersion + 1,
           eventType: 'task.updated',
-          safePayload: JSON.stringify({ taskId, actorId: principal.userId }),
+          safePayload: JSON.stringify({ taskId, actorId: principal.userId, notificationDiff: {
+            changedFields,
+            changes: { title: input.title, dueAt: input.dueAt, startsAt: input.startsAt, priority: input.priority },
+          } }),
         },
       })
       return { id: taskId, version: input.expectedVersion + 1 }
@@ -313,14 +363,7 @@ export class TaskCommandService {
     taskId: string,
     expectedVersion: number,
   ): Promise<{ id: string; version: number }> {
-    const task = await this.access.readableTask(principal, taskId)
-    if (
-      task.createdById !== principal.userId
-      && task.reporterId !== principal.userId
-      && !isGlobalAdmin(principal)
-    ) {
-      throw forbidden()
-    }
+    const task = await this.access.editableTask(principal, taskId)
     return this.prisma.$transaction(async (tx) => {
       const result = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion, archivedAt: null },
@@ -331,6 +374,16 @@ export class TaskCommandService {
         },
       })
       if (!result.count) throw conflict('task_version')
+      await settleTaskActions(tx, taskId)
+      await tx.taskApprovalRound.updateMany({
+        where: { taskId, status: 'PENDING' },
+        data: {
+          status: 'INVALIDATED',
+          invalidatedAt: new Date(),
+          invalidatedById: principal.userId,
+          resolutionTaskVersion: expectedVersion + 1,
+        },
+      })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -378,9 +431,5 @@ export class TaskCommandService {
       where: { id: existing.resultId },
       select: { id: true, number: true, version: true },
     })
-  }
-
-  private taskNumber(): string {
-    return `TSK-${Date.now().toString(36).toUpperCase()}-${id('n').slice(-4).toUpperCase()}`
   }
 }

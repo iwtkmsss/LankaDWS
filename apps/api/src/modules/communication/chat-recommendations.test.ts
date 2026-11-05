@@ -5,7 +5,6 @@ const now = new Date('2026-07-28T12:00:00.000Z')
 const base = {
   sentCount: 0,
   receivedCount: 0,
-  sharedGroup: false,
   activeTaskRelationship: false,
   sharedOrgUnit: false,
 }
@@ -49,11 +48,10 @@ describe('chat recommendation score', () => {
     const context = scoreChatRecommendation({
       ...base,
       lastInteractionAt: null,
-      sharedGroup: true,
       activeTaskRelationship: true,
       sharedOrgUnit: true,
     }, now)
-    expect(context.score).toBeCloseTo(0.15, 6)
+    expect(context.score).toBeCloseTo(0.0825, 6)
     expect(context.reason).toBe('SHARED_CONTEXT')
     expect(scoreChatRecommendation({
       ...base,

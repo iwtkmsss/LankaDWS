@@ -3,7 +3,7 @@ import {
   allOrganizationCapabilityCodes,
   type OrganizationCapabilityCode,
   type OrganizationCapabilityView,
-} from '@bert-crm/contracts'
+} from '@lankadws/contracts'
 import { capabilityDisabled } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'

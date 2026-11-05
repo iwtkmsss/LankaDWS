@@ -1,0 +1,134 @@
+.calendar-event-popover {
+  --overlay-width: 420px;
+  position: fixed;
+  z-index: 119;
+  height: min(520px, calc(100dvh - 32px));
+  max-height: calc(100dvh - 32px);
+  border-top: 3px solid var(--calendar-color, var(--accent-solid));
+}
+
+/* A calendar preview is a popover, without a modal backdrop or close timer. */
+.calendar-event-popover.overlay-surface {
+  transform: none;
+  animation: calendar-popover-appear .14s ease-out;
+  transition: none;
+}
+
+@keyframes calendar-popover-appear {
+  from { opacity: .65; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-event-popover.overlay-surface {
+    animation: none;
+  }
+}
+
+.calendar-popover-loading {
+  color: var(--fg-muted);
+  font-size: var(--text-ui);
+}
+
+.calendar-event-popover .overlay__header h2 {
+  overflow-wrap: anywhere;
+}
+
+.calendar-event-popover .overlay__header p {
+  color: var(--calendar-color, var(--fg-muted));
+}
+
+.calendar-event-popover.calendar-item-task .overlay__header p {
+  font-size: var(--text-ui);
+}
+
+.calendar-event-popover .overlay__header .calendar-event-detail__time {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+}
+
+.calendar-event-popover .overlay__header .calendar-event-owner {
+  margin: var(--space-2) 0 0;
+  color: var(--fg-muted);
+}
+
+.calendar-event-popover .overlay__body {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.calendar-task-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.calendar-task-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.calendar-task-summary dt {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+}
+
+.calendar-task-summary dt svg {
+  flex-shrink: 0;
+  color: var(--calendar-color);
+}
+
+.calendar-task-summary dd {
+  margin: 0;
+  color: var(--fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.calendar-task-summary__person {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  text-decoration: none;
+}
+
+.calendar-task-summary__person:hover,
+.calendar-task-summary__person:focus-visible {
+  color: var(--fg-link);
+  text-decoration: none;
+}
+
+.calendar-task-summary__person > span:last-child {
+  min-width: 0;
+}
+
+.calendar-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .calendar-event-popover {
+    width: min(420px, calc(100vw - 32px));
+  }
+}
+
+.calendar-create .calendar-event-timing select:disabled {
+  color: var(--fg-muted);
+  background-color: var(--surface-soft);
+  border-color: var(--line);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 1;
+}
