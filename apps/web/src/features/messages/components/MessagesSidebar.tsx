@@ -236,11 +236,12 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                   <time>{props.drafts[thread.id]?.createdAt
                     ? formatChatListTime(new Date(props.drafts[thread.id]!.createdAt).toISOString())
                     : thread.lastMessageAt ? formatChatListTime(thread.lastMessageAt) : ''}</time>
-                  {thread.unreadCount > 0 ? (
-                    <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>
-                  ) : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
-                    disabled={Boolean(props.pinPending) || !props.onPinThread}
-                    onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
+                  <div className="message-thread-meta__actions">
+                    {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
+                      disabled={Boolean(props.pinPending) || !props.onPinThread}
+                      onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
+                    {thread.unreadCount > 0 && <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>}
+                  </div>
                   </div>
                   </div>
                 ))}

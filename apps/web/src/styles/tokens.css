@@ -1,18 +1,20 @@
 :root {
   color-scheme: light;
   /* Minimum UI text size on desktop and mobile; file-icon artwork is separate. */
-  --text-min: 11px;
+  --text-min: 12px;
   --text-caption: 12px;
   --text-small: 14px;
   --text-body: 16px;
   /* Type roles (docs/typography-color-plan.md): pick by role, not by look. */
-  --text-title: 30px;
+  --text-title: 24px;
   --text-heading: 14px;
   --text-reading: 14px;
+  /* Authored rich text: the editor's «12 pt» default, identical in reading and editing. */
+  --text-rich: 12pt;
   --text-ui: 14px;
   --text-person: 13px;
   --text-meta: 12px;
-  --text-label: 11px;
+  --text-label: 12px;
   --weight-regular: 400;
   --weight-medium: 600;
   --weight-bold: 700;

@@ -26,6 +26,7 @@ import {
   BellRing,
   BriefcaseBusiness,
   Building2,
+  Check,
   CheckCircle2,
   CircleAlert,
   ChevronDown,
@@ -44,7 +45,7 @@ import {
   UsersRound,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentProps, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import {
   getMessagePage,
@@ -561,6 +562,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
   }
 
   function openNotification(item: NotificationItem) {
+    if (!item.readAt) markNotification.mutate({ id: item.id, read: true })
     if (item.entityType === 'MESSAGE_THREAD' && item.entityId) {
       setTab('chat')
       selectThread(item.entityId)
@@ -568,7 +570,6 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
     }
     const route = notificationRoute(item)
     if (route) navigate(route)
-    else if (!item.readAt) markNotification.mutate({ id: item.id, read: true })
   }
 
   return (
@@ -645,10 +646,11 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 <time>{drafts[thread.id]?.createdAt
                   ? formatChatListTime(new Date(drafts[thread.id]!.createdAt).toISOString())
                   : thread.lastMessageAt ? formatChatListTime(thread.lastMessageAt) : ''}</time>
-                {thread.unreadCount > 0
-                  ? <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>
-                  : <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
+                <div className="message-thread-meta__actions">
+                  {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                     disabled={chatPin.pending} onClick={() => chatPin.toggle(thread.id, !thread.pinned)} />}
+                  {thread.unreadCount > 0 && <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>}
+                </div>
                 </div>
                 </div>
               ))}
@@ -840,8 +842,12 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
             <ErrorState title="Не вдалося завантажити сповіщення" onRetry={() => void notifications.refetch()} />
           ) : notifications.data?.items.length ? (
             <div className="right-panel__notification-list">
-              {notifications.data.items.map((item) => (
-                <article className={`notification-state ${item.readAt ? 'is-read' : 'is-unread'}`} key={item.id}>
+              {notifications.data.items.map((item, index, items) => (
+                <Fragment key={item.id}>
+                {items.some((other) => !other.readAt) && items.some((other) => other.readAt) && (index === 0 || (item.readAt && !items[index - 1].readAt)) && (
+                  <h3 className="right-panel__notification-group">{item.readAt ? 'Раніше' : 'Нові'}</h3>
+                )}
+                <article className={`notification-state ${item.readAt ? 'is-read' : 'is-unread'}`}>
                   <span className={`right-panel__notification-icon right-panel__notification-icon--${item.category.toLowerCase()}`}>{notificationIcon(item.category)}</span>
                   <button type="button" onClick={() => openNotification(item)}>
                     <span><strong>{personNamesInLabel(item.safeTitle)}</strong>{item.requiresAction && <em>Потрібна дія</em>}</span>
@@ -852,15 +858,17 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                     type="button"
                     className="right-panel__read-toggle"
                     aria-label={item.readAt ? 'Позначити непрочитаним' : 'Позначити прочитаним'}
+                    title={item.readAt ? 'Позначити непрочитаним' : 'Позначити прочитаним'}
                     onClick={() => markNotification.mutate({ id: item.id, read: !item.readAt })}
-                  ><span /></button>
+                  >{item.readAt ? <Mail size={14} aria-hidden /> : <Check size={14} aria-hidden />}</button>
                 </article>
+                </Fragment>
               ))}
             </div>
-          ) : <div className="right-panel__empty"><Bell size={28} /><strong>Нових сповіщень немає</strong></div>}
+          ) : <div className="right-panel__empty"><Bell size={28} /><strong>{notificationFilter === 'unread' ? 'Нових сповіщень немає' : notificationFilter === 'mentions' ? 'Згадок немає' : 'Сповіщень ще немає'}</strong></div>}
           {Boolean(notifications.data?.items.some((item) => !item.readAt)) && (
             <footer className="right-panel__notifications-footer">
-              <button type="button" disabled={markAllNotifications.isPending} onClick={() => markAllNotifications.mutate()}>Прочитати всі</button>
+              <button type="button" disabled={markAllNotifications.isPending} onClick={() => markAllNotifications.mutate()}>{notificationFilter === 'mentions' ? 'Прочитати згадки' : 'Прочитати всі'}</button>
             </footer>
           )}
         </section>

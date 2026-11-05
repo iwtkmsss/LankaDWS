@@ -78,10 +78,15 @@ describe('MessagesSidebar', () => {
     rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)
     expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toHaveAttribute('aria-pressed', 'true')
   })
-  it('replaces the pin with the unread count until the chat is read', () => {
+  it('hides the pin action behind the unread count only while the chat is not pinned', () => {
+    renderSidebar({ threads: [{ ...thread, pinned: false }] })
+    expect(document.querySelector('.message-thread-meta .message-thread-unread')).toHaveTextContent('2')
+    expect(screen.queryByRole('button', { name: 'Закріпити чат: Марко Литвин' })).not.toBeInTheDocument()
+  })
+  it('keeps the pin of a pinned chat next to the unread count', () => {
     const { props, rerender, container } = renderSidebar({ threads: [{ ...thread, pinned: true }] })
     expect(container.querySelector('.message-thread-meta .message-thread-unread')).toHaveTextContent('2')
-    expect(screen.queryByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Відкріпити чат: Марко Литвин' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Марко Литвин, 2 непрочитаних' }))
     expect(props.onSelectThread).toHaveBeenCalledWith('thread-1')
     rerender(<MessagesSidebar {...props} threads={[{ ...thread, pinned: true, unread: false, unreadCount: 0 }]} />)

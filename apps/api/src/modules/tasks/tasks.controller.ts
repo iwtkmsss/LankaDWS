@@ -38,6 +38,7 @@ import { badRequest } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
+import { TaskChangeSignalInterceptor } from './task-change-signal.interceptor.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
@@ -54,6 +55,7 @@ import {
   type TaskUserStateInput,
 } from './tasks.service.js'
 
+@UseInterceptors(TaskChangeSignalInterceptor)
 @Controller('tasks')
 export class TasksController {
   constructor(

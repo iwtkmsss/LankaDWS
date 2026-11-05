@@ -1,3 +1,4 @@
+import { isLayoutPhoto, parsePhotoLayout, serializePhotoLayout } from '../../common/photo-layout.js';
 import { Injectable } from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import {
@@ -19,10 +20,8 @@ import {
   type UpdateFeedPostInput,
   type StructuredMentionInput,
   type StructuredMentionView,
-  type FeedPhotoPlacement,
   FEED_PHOTO_MAX_BYTES,
   FEED_PHOTO_MIME_TYPES,
-  feedPhotoPlacementSchema,
 } from '@lankadws/contracts';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { id } from '../../common/crypto.js';
@@ -376,6 +375,7 @@ export class FeedService {
         unreadCount: 0,
         attention: { pendingAcknowledgements: 0, overdueTasks: 0 },
         readMarkers: [],
+        readPositions: [],
       };
     }
     const cursor = query.cursor ? this.decodeCursor(query.cursor) : null;
@@ -402,17 +402,17 @@ export class FeedService {
         : {}),
     };
     const itemAccess = this.feedItemAccessWhere(principal, postFilters, query);
-    // Personal pins follow the task ID across immutable feed projections.
-    // Current task authorization is still checked before returning any card.
+    // Pins follow the source across immutable feed projections; access is checked separately.
     const personalPins = await this.prisma.feedUserItemState.findMany({ where: {
       userId: principal.userId, favoritedAt: { not: null },
-      feedItem: { workspaceId: principal.workspaceId, sourceType: 'TASK' },
-    }, select: { feedItem: { select: { sourceId: true } } } });
-    const personalTaskIds = [...new Set(personalPins.map((state) => state.feedItem.sourceId))];
+      feedItem: { workspaceId: principal.workspaceId, sourceType: { in: ['TASK', 'EVENT', 'POST'] } },
+    }, select: { feedItem: { select: { sourceId: true, sourceType: true } } } });
     const personalPinWhere: Prisma.FeedItemWhereInput = {
-      sourceType: 'TASK', sourceId: { in: personalTaskIds },
+      OR: ['TASK', 'EVENT', 'POST'].map((sourceType) => ({
+        sourceType, sourceId: { in: personalPins.filter((state) => state.feedItem.sourceType === sourceType).map((state) => state.feedItem.sourceId) },
+      })),
     };
-    const hasPersonalPins = personalTaskIds.length > 0;
+    const hasPersonalPins = personalPins.length > 0;
     const pendingPostIds = await this.pendingAcknowledgementPostIds(principal, access);
     const pendingEvents = await this.prisma.event.findMany({
       where: {
@@ -435,6 +435,12 @@ export class FeedService {
       { postId: { in: pendingPostIds } },
       { sourceType: 'EVENT', sourceId: { in: pendingEventIds } },
     ] };
+    // Not `NOT: pendingItemWhere`: task and event items have no postId, so SQL's
+    // `NOT (NULL IN (...))` is NULL and would drop all of them from the timeline.
+    const notPendingItemWhere: Prisma.FeedItemWhereInput = { AND: [
+      { OR: [{ postId: null }, { postId: { notIn: pendingPostIds } }] },
+      { NOT: { sourceType: 'EVENT', sourceId: { in: pendingEventIds } } },
+    ] };
     const scanLimit = Math.min(query.limit * 10 + 1, 501);
     const loadHeads = (section: 'ACK' | 'PIN' | 'REGULAR', take: number) => this.prisma.feedSourceHead.findMany({
       where: {
@@ -445,10 +451,9 @@ export class FeedService {
             item: {
               is: {
                 AND: [itemAccess, ...(dateAccess ? [dateAccess] : []),
-                  ...(section === 'PIN' ? [personalPinWhere] : section === 'REGULAR' ? [{ NOT: personalPinWhere }] : [])],
-                ...(section === 'ACK'
-                  ? pendingItemWhere
-                  : { NOT: pendingItemWhere }),
+                  ...(section === 'PIN' ? [personalPinWhere] : section === 'REGULAR' ? [{ NOT: personalPinWhere }] : []),
+                  ...(section === 'ACK' ? [] : [notPendingItemWhere])],
+                ...(section === 'ACK' ? pendingItemWhere : {}),
               },
             },
           },
@@ -533,7 +538,7 @@ export class FeedService {
     const pageEntries = visibleEntries.slice(0, query.limit);
     const pageItemIds = new Set(pageEntries.map((entry) => entry.itemId));
     const page = currentItems.filter((item) => pageItemIds.has(item.id));
-    const [pendingAcknowledgements, overdueTasks, unreadCount, birthdays] =
+    const [pendingAcknowledgements, overdueTasks, unreadCount, birthdays, readCursors] =
       await Promise.all([
         Promise.resolve(pendingPostIds.length + pendingEventIds.length),
         this.prisma.task.count({
@@ -553,6 +558,9 @@ export class FeedService {
         }),
         this.unreadCount(principal, companyIds, access),
         this.birthdayHighlights(principal, companyIds, query),
+        this.prisma.feedReadCursor.findMany({
+          where: { userId: principal.userId, companyId: { in: companyIds } },
+        }),
       ]);
     const readMarkers = new Map<string, string>();
     // Advance the read marker for every accessible company in the scanned set.
@@ -598,6 +606,10 @@ export class FeedService {
       readMarkers: [...readMarkers].map(([companyId, lastItemId]) => ({
         companyId,
         lastItemId,
+      })),
+      readPositions: readCursors.map((position) => ({
+        companyId: position.companyId,
+        lastReadAt: position.lastReadOccurredAt.toISOString(),
       })),
     };
   }
@@ -672,6 +684,41 @@ export class FeedService {
     });
   }
 
+  async setOtherPinned(principal: AuthPrincipal, sourceType: 'POST' | 'EVENT', sourceId: string, pinned: boolean) {
+    return this.prisma.$transaction(async (tx) => {
+      if (sourceType === 'POST') {
+        const post = await tx.feedPost.findFirst({ where: {
+          ...this.accessiblePostWhere(principal, principal.allowedCompanyIds), id: sourceId, status: 'PUBLISHED',
+        } });
+        if (!post) throw notFound();
+      } else {
+        const event = await tx.event.findFirst({ where: {
+          id: sourceId, workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds },
+          audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
+          OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
+        } });
+        if (!event) throw notFound();
+      }
+      const item = await tx.feedItem.findFirst({ where: {
+        workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds }, sourceType, sourceId,
+        sourceHead: { isNot: null },
+        ...this.feedItemAccessWhere(principal, { ...this.accessiblePostWhere(principal, principal.allowedCompanyIds), status: 'PUBLISHED' }),
+      } });
+      if (!item) throw notFound();
+      if (pinned) {
+        await tx.feedUserItemState.upsert({
+          where: { userId_feedItemId: { userId: principal.userId, feedItemId: item.id } },
+          create: { id: id('fis'), userId: principal.userId, feedItemId: item.id, favoritedAt: new Date() },
+          update: { favoritedAt: new Date() },
+        });
+      } else {
+        await tx.feedUserItemState.deleteMany({ where: { userId: principal.userId,
+          feedItem: { workspaceId: principal.workspaceId, sourceType, sourceId } } });
+      }
+      return { pinnedByMe: pinned };
+    });
+  }
+
   async create(
     principal: AuthPrincipal,
     input: CreateFeedPostInput,
@@ -711,7 +758,7 @@ export class FeedService {
       input.attachmentIds,
     );
     const placedIds = new Set(input.photoLayout.map((placement) => placement.fileId));
-    if (attachedFiles.some((file) => placedIds.has(file.id) && !isFeedPhoto(file))) {
+    if (attachedFiles.some((file) => placedIds.has(file.id) && !isLayoutPhoto(file))) {
       throw badRequest('feed_post_photo_layout_invalid');
     }
     const postId = id('feed');
@@ -1480,8 +1527,17 @@ export class FeedService {
           },
         ),
       });
+      await tx.notification.updateMany({
+        where: {
+          recipientId: principal.userId,
+          dedupeKey: `feed-post:${postId}:ack:${principal.userId}`,
+          requiresAction: true,
+        },
+        data: { requiresAction: false },
+      });
       return created;
     });
+    this.realtime?.publishSummary([principal.userId], ['notifications']);
     return {
       acknowledged: true,
       acknowledgedAt: acknowledgement.acknowledgedAt.toISOString(),
@@ -1659,9 +1715,9 @@ export class FeedService {
           sourceType: 'TASK',
           AND: [
             ...(actorFilter ? [{ actorId: actorFilter }] : []),
-            ...(isGlobalAdmin(principal)
-              ? []
-              : [{ recipients: { some: { userId: principal.userId } } }]),
+            // An administrator may open any task, but the feed is about their own
+            // work: every change anywhere would otherwise flood it.
+            { recipients: { some: { userId: principal.userId } } },
           ],
         });
       }
@@ -1933,9 +1989,6 @@ export class FeedService {
       });
       for (const notification of notifications) {
         const key = notification.dedupeKey ?? '';
-        // Editing a mention also sends a dedicated mention alert. The task
-        // event below already counts that same edit once for every participant.
-        if (key.startsWith('task-comment-edited:')) continue;
         // Earlier worker deliveries duplicated the canonical task-comment alert.
         // Keep those stored inbox rows out of the count without deleting data.
         if (key.startsWith('task-event:') && key.includes(':task.comment_created:')) continue;
@@ -1946,12 +1999,13 @@ export class FeedService {
         taskChanges.set(notification.entityId, counts);
       }
     }
-    const pinnedStates = tasks.length ? await this.prisma.feedUserItemState.findMany({
+    const pinnedStates = (tasks.length || events.length) ? await this.prisma.feedUserItemState.findMany({
       where: { userId: principal.userId, favoritedAt: { not: null },
-        feedItem: { workspaceId: principal.workspaceId, sourceType: 'TASK', sourceId: { in: tasks.map((task) => task.id) } } },
-      select: { feedItem: { select: { sourceId: true } } },
+        feedItem: { workspaceId: principal.workspaceId, OR: [{ sourceType: 'TASK', sourceId: { in: tasks.map((task) => task.id) } }, { sourceType: 'EVENT', sourceId: { in: events.map((event) => event.id) } }] } },
+      select: { feedItem: { select: { sourceId: true, sourceType: true } } },
     }) : [];
-    const pinnedTaskIds = new Set(pinnedStates.map((state) => state.feedItem.sourceId));
+    const pinnedTaskIds = new Set(pinnedStates.filter((state) => state.feedItem.sourceType === 'TASK').map((state) => state.feedItem.sourceId));
+    const pinnedEventIds = new Set(pinnedStates.filter((state) => state.feedItem.sourceType === 'EVENT').map((state) => state.feedItem.sourceId));
     const taskById = new Map(tasks.map((task) => [task.id, task]));
     const eventById = new Map(events.map((event) => [event.id, event]));
 
@@ -2016,6 +2070,7 @@ export class FeedService {
             itemId: item.id,
             companyId: event.companyId,
             sourceType: 'EVENT',
+            pinnedByMe: pinnedEventIds.has(event.id),
             action: item.action,
             actor,
             label: historical ? 'Історична подія' : item.action === 'CREATED' ? 'Створено подію календаря' : 'Подія календаря',
@@ -2044,6 +2099,11 @@ export class FeedService {
     const posts = items.flatMap((item) => (item.post ? [item.post] : []));
     if (posts.length === 0) return [];
     const postIds = posts.map((post) => post.id);
+    const postPins = await this.prisma.feedUserItemState.findMany({ where: {
+      userId: principal.userId, favoritedAt: { not: null },
+      feedItem: { workspaceId: principal.workspaceId, sourceType: 'POST', sourceId: { in: postIds } },
+    }, select: { feedItem: { select: { sourceId: true } } } });
+    const pinnedPostIds = new Set(postPins.map((state) => state.feedItem.sourceId));
     const directUserIds = posts.flatMap((post) =>
       post.recipients
         .filter((entry) => entry.type === 'USER')
@@ -2220,6 +2280,7 @@ export class FeedService {
       return [
         {
           kind: 'POST',
+          pinnedByMe: pinnedPostIds.has(post.id),
           id: post.id,
           itemId: item.id,
           companyId: post.companyId,
@@ -2445,6 +2506,14 @@ export class FeedService {
         };
       },
     );
+    // A task card is news only while its own notifications are unread. Opening
+    // the task reads them, so changes the viewer made or watched happen inside
+    // an open task never reach this counter.
+    const unreadTasks = await this.prisma.notification.findMany({
+      where: { recipientId: principal.userId, entityType: 'TASK', readAt: null },
+      select: { entityId: true },
+      distinct: ['entityId'],
+    });
     return this.prisma.feedSourceHead.count({
       where: {
         workspaceId: principal.workspaceId,
@@ -2461,6 +2530,12 @@ export class FeedService {
             },
           },
           { OR: positionFilters },
+          {
+            OR: [
+              { sourceType: { not: 'TASK' } },
+              { sourceId: { in: unreadTasks.map((task) => task.entityId) } },
+            ],
+          },
         ],
       },
     });
@@ -2701,37 +2776,4 @@ export class FeedService {
     const time = Date.parse(left.occurredAt) - Date.parse(right.occurredAt);
     return time === 0 ? left.id.localeCompare(right.id) : time;
   }
-}
-
-function isFeedPhoto(file: { detectedMime: string | null; declaredMime: string | null }): boolean {
-  const mime = file.detectedMime ?? file.declaredMime;
-  return FEED_PHOTO_MIME_TYPES.some((photoMime) => photoMime === mime);
-}
-
-function serializePhotoLayout(layout: FeedPhotoPlacement[]): string | null {
-  return layout.length ? JSON.stringify(layout) : null;
-}
-
-// Stored layout is trusted only for photos that are still attached.
-function parsePhotoLayout(
-  stored: string | null,
-  attachments: Array<{ id: string; mimeType: string }>,
-): FeedPhotoPlacement[] {
-  if (!stored) return [];
-  let raw: unknown;
-  try {
-    raw = JSON.parse(stored);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(raw)) return [];
-  const photoIds = new Set(
-    attachments
-      .filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.mimeType))
-      .map((file) => file.id),
-  );
-  return raw.flatMap((entry) => {
-    const parsed = feedPhotoPlacementSchema.safeParse(entry);
-    return parsed.success && photoIds.has(parsed.data.fileId) ? [parsed.data] : [];
-  });
 }

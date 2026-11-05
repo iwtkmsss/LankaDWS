@@ -47,6 +47,7 @@ describe('FeedService acknowledgement priority', () => {
       feedUserItemState: { findMany: vi.fn().mockResolvedValue([]) },
       feedSourceHead: { findMany, count: vi.fn().mockResolvedValue(0) },
       feedReadCursor: { findMany: vi.fn().mockResolvedValue([]) },
+      notification: { findMany: vi.fn().mockResolvedValue([]) },
       feedAcknowledgementRecipient: { findMany: recipients },
       feedPostAcknowledgement: { findMany: acknowledgements },
       event: { findMany: vi.fn().mockResolvedValue([]) },
@@ -87,8 +88,9 @@ describe('FeedService acknowledgement priority', () => {
     expect(result.items.map((item) => item.id)).toEqual(['new_task', 'mandatory_1', 'mandatory_2'])
     expect(result.attention.pendingAcknowledgements).toBe(0)
     expect(findMany).toHaveBeenCalledOnce()
-    expect((findMany.mock.calls[0][0] as { where: { AND: Array<{ item: { is: { NOT: unknown } } }> } }).where.AND[0].item.is.NOT).toEqual({ OR: [
-      { postId: { in: [] } }, { sourceType: 'EVENT', sourceId: { in: [] } },
+    expect((findMany.mock.calls[0][0] as { where: { AND: Array<{ item: { is: { AND: unknown[] } } }> } }).where.AND[0].item.is.AND).toContainEqual({ AND: [
+      { OR: [{ postId: null }, { postId: { notIn: [] } }] },
+      { NOT: { sourceType: 'EVENT', sourceId: { in: [] } } },
     ] })
   })
 
@@ -121,7 +123,7 @@ describe('FeedService acknowledgement priority', () => {
   it('paginates personal pins after acknowledgements and before the regular timeline', async () => {
     const { service, findMany, acknowledgements, viewer, personalPins, newer } = setup()
     acknowledgements.mockResolvedValue([{ postId: 'mandatory_1', acknowledgementVersion: 1 }, { postId: 'mandatory_2', acknowledgementVersion: 1 }])
-    personalPins.mockResolvedValue([{ feedItem: { sourceId: 'personal_1' } }, { feedItem: { sourceId: 'personal_2' } }])
+    personalPins.mockResolvedValue([{ feedItem: { sourceId: 'personal_1', sourceType: 'TASK' } }, { feedItem: { sourceId: 'personal_2', sourceType: 'TASK' } }])
     const personal = ['personal_1', 'personal_2'].map((id, index) => ({
       ...newer, itemId: id, occurredAt: new Date(`2026-09-0${2 - index}`),
       item: { ...newer.item, id, sourceType: 'TASK', sourceId: id, occurredAt: new Date(`2026-09-0${2 - index}`) },
@@ -157,6 +159,7 @@ interface PrismaMock {
   user: { findMany: ReturnType<typeof vi.fn> }
   feedReadCursor: { findMany: ReturnType<typeof vi.fn> }
   feedSourceHead: { count: ReturnType<typeof vi.fn> }
+  notification?: { findMany: ReturnType<typeof vi.fn> }
 }
 
 function makeService(prisma: PrismaMock) {
@@ -321,12 +324,34 @@ describe('FeedService.audienceLabel', () => {
 })
 
 describe('FeedService.unreadCount', () => {
+  it('counts a task card only while the viewer has unread notifications about that task', async () => {
+    const count = vi.fn().mockResolvedValue(1)
+    const findMany = vi.fn().mockResolvedValue([{ entityId: 'tsk_unseen' }])
+    const { internal } = makeService({
+      user: { findMany: vi.fn() },
+      feedReadCursor: { findMany: vi.fn().mockResolvedValue([]) },
+      feedSourceHead: { count },
+      notification: { findMany },
+    })
+
+    await internal.unreadCount(principal(), ['cmp_a'], {})
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recipientId: principal().userId, entityType: 'TASK', readAt: null },
+    }))
+    const where = (count.mock.calls as Array<[{ where: { AND: unknown[] } }]>)[0][0].where
+    expect(where.AND).toContainEqual({
+      OR: [{ sourceType: { not: 'TASK' } }, { sourceId: { in: ['tsk_unseen'] } }],
+    })
+  })
+
   it('counts every unread head for a company with no read cursor', async () => {
     const count = vi.fn().mockResolvedValue(4)
     const { internal } = makeService({
       user: { findMany: vi.fn() },
       feedReadCursor: { findMany: vi.fn().mockResolvedValue([]) },
       feedSourceHead: { count },
+      notification: { findMany: vi.fn().mockResolvedValue([]) },
     })
 
     const total = await internal.unreadCount(principal(), ['cmp_a', 'cmp_b'], {})
@@ -353,6 +378,7 @@ describe('FeedService.unreadCount', () => {
         ]),
       },
       feedSourceHead: { count },
+      notification: { findMany: vi.fn().mockResolvedValue([]) },
     })
 
     await internal.unreadCount(principal(), ['cmp_a', 'cmp_b'], {})
@@ -411,6 +437,27 @@ describe('task feed event labels', () => {
 })
 
 
+it('addresses a task card to its participants from any company of the workspace', async () => {
+  const findMany = vi.fn().mockResolvedValue([{ id: 'usr_elsewhere' }])
+  const createMany = vi.fn()
+  const tx = {
+    feedItem: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
+    feedSourceHead: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
+    user: { findMany },
+    feedItemRecipient: { createMany },
+  }
+  await writeFeedProjection(tx as never, {
+    workspaceId: 'ws_1', companyId: 'cmp_1', sourceType: 'TASK', sourceId: 'tsk_1',
+    sourceVersion: 2, action: 'UPDATED', actorId: 'usr_1', recipientIds: ['usr_elsewhere'],
+    visibility: 'PARTICIPANTS', occurredAt: new Date('2026-10-06T10:00:00Z'),
+  })
+  expect(findMany).toHaveBeenCalledWith({
+    where: { id: { in: ['usr_elsewhere'] }, workspaceId: 'ws_1', isActive: true },
+    select: { id: true },
+  })
+  expect(createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ userId: 'usr_elsewhere' })] })
+})
+
 it('stores immutable task change details and deduplicates projection retries', async () => {
   const tx = {
     feedItem: { findUnique: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'existing' }), create: vi.fn() },
@@ -439,7 +486,7 @@ it('renders a calendar creation reference and rechecks the canonical event audie
       { eventVersion: 3, userId: principal().userId, acknowledgedAt: null },
       { eventVersion: 3, userId: 'another_user', acknowledgedAt: new Date() },
     ] }
-  const prisma = { event: { findMany: vi.fn().mockResolvedValue([event]) }, user: { findMany: vi.fn().mockResolvedValue([]) } }
+  const prisma = { event: { findMany: vi.fn().mockResolvedValue([event]) }, user: { findMany: vi.fn().mockResolvedValue([]) }, feedUserItemState: { findMany: vi.fn().mockResolvedValue([]) } }
   const service = new FeedService(prisma as unknown as PrismaService, new ScopeService(), null as unknown as FilesService)
   const internal = service as unknown as { toSourceViews(principal: AuthPrincipal, items: unknown[]): Promise<FeedSourceView[]> }
   const items = [{ id: 'feed', sourceType: 'EVENT', sourceId: 'event', sourceVersion: 1,
@@ -473,7 +520,6 @@ it('shows the task reporter before the responsible person even when someone else
     notification: { findMany: vi.fn().mockResolvedValue([
       { entityId: 'task', dedupeKey: 'task-comment:c1:usr_maria' },
       { entityId: 'task', dedupeKey: 'task-event:task:1:task.comment_created:usr_maria' },
-      { entityId: 'task', dedupeKey: 'task-event:task:2:task.comment_updated:usr_maria' },
       { entityId: 'task', dedupeKey: 'task-comment-edited:c1:2:usr_maria' },
       { entityId: 'task', dedupeKey: 'task-event:task:3:task.participant_changed:usr_maria' },
       { entityId: 'task', dedupeKey: 'task-event:task:4:task.checklist_changed:usr_maria' },
@@ -574,5 +620,24 @@ describe('FeedService mention audience', () => {
     expect(findMany).toHaveBeenCalledWith({ where: { id: { in: ['admin'] }, workspaceId: 'ws_lankadws', accountType: 'ADMIN', isActive: true }, select: { id: true } })
     findMany.mockResolvedValue([])
     await expect(policy.assertMentions(['outsider'], ['employee'], 'author', principal())).rejects.toThrow()
+  })
+})
+
+describe('FeedService event and post pins', () => {
+  it.each(['EVENT', 'POST'] as const)('checks access and saves private %s pins across revisions', async (sourceType) => {
+    const state = { upsert: vi.fn(), deleteMany: vi.fn() }
+    const tx = { event: { findFirst: vi.fn().mockResolvedValue({ id: 'entry' }) },
+      feedPost: { findFirst: vi.fn().mockResolvedValue({ id: 'entry' }) },
+      feedItem: { findFirst: vi.fn().mockResolvedValue({ id: 'current' }) }, feedUserItemState: state }
+    const prisma = { $transaction: vi.fn((run: (client: typeof tx) => Promise<unknown>) => run(tx)) }
+    const service = new FeedService(prisma as unknown as PrismaService, new ScopeService(), null as unknown as FilesService)
+    await expect(service.setOtherPinned(principal(), sourceType, 'entry', true)).resolves.toEqual({ pinnedByMe: true })
+    expect(state.upsert).toHaveBeenCalledOnce()
+    await service.setOtherPinned(principal(), sourceType, 'entry', false)
+    expect(state.deleteMany).toHaveBeenCalledWith({ where: { userId: principal().userId, feedItem: { workspaceId: principal().workspaceId, sourceType, sourceId: 'entry' } } })
+    const lookup = sourceType === 'EVENT' ? tx.event.findFirst : tx.feedPost.findFirst
+    lookup.mockResolvedValue(null)
+    await expect(service.setOtherPinned(principal(), sourceType, 'entry', true)).rejects.toThrow()
+    expect(state.upsert).toHaveBeenCalledOnce()
   })
 })

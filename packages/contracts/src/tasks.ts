@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { feedPhotoPlacementSchema } from './feed.js'
 import { structuredMentionInputSchema } from './mentions.js'
 
 const entityIdSchema = z.string().trim().min(1).max(120)
@@ -170,6 +171,10 @@ export const taskRecurrenceInputSchema = z.object({
 })
 export type TaskRecurrenceInput = z.infer<typeof taskRecurrenceInputSchema>
 
+// Photos placed over the task description; each one is also a task attachment.
+export const taskPhotoLayoutSchema = z.array(feedPhotoPlacementSchema).max(20)
+  .refine((items) => new Set(items.map((item) => item.fileId)).size === items.length, { message: 'Each photo can be placed once.' })
+
 const createTaskBaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(20_000).default(''),
@@ -188,9 +193,17 @@ const createTaskBaseSchema = z.object({
   reminders: z.array(taskReminderInputSchema).max(20).default([]),
   recurrence: taskRecurrenceInputSchema.nullable().optional(),
   attachmentIds: z.array(entityIdSchema).max(10).default([]),
+  photoLayout: taskPhotoLayoutSchema.default([]),
 })
 
 export const createTaskSchema = createTaskBaseSchema.superRefine((value, context) => {
+  if (value.photoLayout.some((placement) => !value.attachmentIds.includes(placement.fileId))) {
+    context.addIssue({
+      code: 'custom',
+      path: ['photoLayout'],
+      message: 'Placed photos must be attached.',
+    })
+  }
   const participantIds = value.participants.map((participant) => participant.userId)
   if (new Set(participantIds).size !== participantIds.length) {
     context.addIssue({

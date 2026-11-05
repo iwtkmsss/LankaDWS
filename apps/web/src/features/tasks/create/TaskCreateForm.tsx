@@ -82,6 +82,7 @@ function defaultDraft(
     reminders: [],
     recurrence: null,
     attachments: [],
+    photoPlacements: [],
   }
 }
 

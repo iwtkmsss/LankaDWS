@@ -239,6 +239,7 @@ export interface FeedAttachmentView {
 
 export interface FeedPostView {
   kind: 'POST'
+  pinnedByMe?: boolean
   id: string
   itemId: string
   companyId: string
@@ -325,6 +326,8 @@ export interface FeedListResult {
     overdueTasks: number
   }
   readMarkers: Array<{ companyId: string; lastItemId: string }>
+  /** Where the viewer's read cursor stood when this page was built. A company without a cursor is absent. */
+  readPositions: Array<{ companyId: string; lastReadAt: string }>
 }
 
 export interface FeedSummary {

@@ -450,6 +450,16 @@ describe('transport schemas', () => {
       attachmentIds: [],
     })
 
+    const placedTask = {
+      title: 'З фото',
+      participants: [{ userId: 'usr_one', role: 'RESPONSIBLE' }],
+      attachmentIds: ['file_one'],
+      photoLayout: [{ fileId: 'file_one', x: 0.1, y: 0.2, width: 0.5, height: 0.25 }],
+    }
+    expect(createTaskSchema.parse(placedTask).photoLayout).toHaveLength(1)
+    expect(createTaskSchema.parse({ ...placedTask, photoLayout: undefined }).photoLayout).toEqual([])
+    expect(createTaskSchema.safeParse({ ...placedTask, attachmentIds: ['file_two'] }).success).toBe(false)
+    expect(createTaskSchema.safeParse({ ...placedTask, photoLayout: [placedTask.photoLayout[0], placedTask.photoLayout[0]] }).success).toBe(false)
     expect(() => createTaskSchema.parse({
       title: 'Без відповідального',
       participants: [{ userId: 'usr_one', role: 'WATCHER' }],

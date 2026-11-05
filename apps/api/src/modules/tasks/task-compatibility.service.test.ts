@@ -87,6 +87,36 @@ describe('TaskCompatibilityService', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['an administrator outside the task follows it', 'ADMIN', 'someone', ['usr_viewer']],
+    ['an administrator who set the task needs no watcher row', 'ADMIN', 'usr_viewer', []],
+    ['a regular participant is unchanged', 'USER', 'someone', []],
+  ] as const)('after commenting, %s', async (_label, accountType, reporterId, watchers) => {
+    const task = { id: 'task_1', companyId: 'cmp_1', reporterId, title: 'Task' }
+    const tx = {
+      comment: { create: vi.fn().mockImplementation(({ data }: { data: unknown }) => Promise.resolve(data)) },
+      fileLink: { createMany: vi.fn(), count: vi.fn().mockResolvedValue(0), findFirst: vi.fn().mockResolvedValue(null) },
+      task: { update: vi.fn().mockResolvedValue({ version: 2 }), findUniqueOrThrow: vi.fn().mockResolvedValue(task) },
+      taskParticipant: { findMany: vi.fn().mockResolvedValue([]) },
+      notification: { upsert: vi.fn() },
+      auditEvent: { create: vi.fn() },
+      outboxEvent: { create: vi.fn() },
+    }
+    const ensureMentionWatchers = vi.fn().mockResolvedValue([])
+    const service = new TaskCompatibilityService(
+      { fileLink: { findMany: vi.fn().mockResolvedValue([]) },
+        $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)) } as never,
+      {} as never,
+      { readableTask: vi.fn().mockResolvedValue(task) } as never,
+      { assertTaskStagedAttachments: vi.fn().mockResolvedValue([]), retainStagedAttachments: vi.fn(), markAttachmentsRetained: vi.fn() } as never,
+      {} as never,
+      { projectTask: vi.fn().mockResolvedValue('feed_1') } as never,
+      { ensureMentionWatchers } as never,
+    )
+    await service.addComment({ ...principal(), accountType }, 'task_1', { body: 'Коментар', attachmentIds: [], mentions: [] })
+    expect(ensureMentionWatchers.mock.calls[0]?.[3]).toEqual(watchers)
+  })
+
   it.each(['linked', 'staged'])('creates an attachment-only comment with %s files atomically', async (source) => {
     const task = { id: 'task_1', companyId: 'cmp_1', reporterId: 'usr_viewer', title: 'Task' }
     const tx = {
@@ -328,6 +358,73 @@ describe('TaskCompatibilityService', () => {
     }))
   })
 
+  describe('description photo layout', () => {
+    const placement = { fileId: 'file_1', x: 0.1, y: 0.2, width: 0.5, height: 0.25 }
+    function layoutService(overrides: { linked?: string[]; stagedRejected?: boolean; files?: Array<{ detectedMime: string | null; declaredMime: string | null }> } = {}) {
+      const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+      const createMany = vi.fn().mockResolvedValue({ count: 1 })
+      const retainStagedAttachments = vi.fn().mockResolvedValue(undefined)
+      const tx = {
+        task: { updateMany },
+        fileLink: { count: vi.fn().mockResolvedValue(0), findFirst: vi.fn().mockResolvedValue(null), createMany },
+        taskParticipant: { upsert: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        auditEvent: { create: vi.fn().mockResolvedValue({}) },
+        outboxEvent: { create: vi.fn().mockResolvedValue({}) },
+      }
+      const task = { id: 'task_1', workspaceId: 'wrk_1', companyId: 'cmp_1', createdById: 'usr_viewer', reporterId: 'usr_viewer', title: 'T', description: '', photoLayout: null, status: 'NEW', priority: 'MEDIUM', version: 2 }
+      const service = serviceWith({
+        user: { findMany: vi.fn().mockResolvedValue([{ id: 'usr_viewer' }]) },
+        taskParticipant: { findUnique: vi.fn().mockResolvedValue({ role: 'RESPONSIBLE', removedAt: null }) },
+        fileLink: { findMany: vi.fn().mockResolvedValue((overrides.linked ?? ['file_1']).map((fileId) => ({ fileId }))) },
+        fileObject: { findMany: vi.fn().mockResolvedValue(overrides.files ?? [{ detectedMime: 'image/png', declaredMime: 'image/png' }]) },
+        $transaction: vi.fn((callback: (client: typeof tx) => unknown) => Promise.resolve(callback(tx))),
+      }, { editableTask: vi.fn().mockResolvedValue(task) }, {
+        assertTaskStagedAttachments: overrides.stagedRejected
+          ? vi.fn().mockRejectedValue(Object.assign(new Error('invalid'), { code: 'task_photo_layout_invalid' }))
+          : vi.fn().mockResolvedValue([]),
+        retainStagedAttachments,
+      })
+      const update = (photoLayout?: unknown) => service.updateLegacy(principal(), task.id, {
+        title: 'T', description: '', assigneeId: 'usr_viewer', deadline: null, priority: 'MEDIUM', expectedVersion: 2,
+        ...(photoLayout === undefined ? {} : { photoLayout }),
+      })
+      return { update, updateMany, createMany, retainStagedAttachments }
+    }
+
+    it('stores the layout of photos attached to the task', async () => {
+      const { update, updateMany } = layoutService()
+      await update([placement])
+      expect(updateMany.mock.calls[0]?.[0]).toMatchObject({ data: { photoLayout: JSON.stringify([placement]) } })
+    })
+
+    it('links a staged photo only when the edit is saved', async () => {
+      const { update, updateMany, createMany, retainStagedAttachments } = layoutService({ linked: [] })
+      await update([placement])
+      expect(retainStagedAttachments).toHaveBeenCalledWith(expect.anything(), expect.anything(), ['file_1'])
+      expect(createMany.mock.calls[0]?.[0]).toMatchObject({ data: [{ fileId: 'file_1', entityType: 'TASK', entityId: 'task_1', purpose: 'ATTACHMENT' }] })
+      expect(updateMany).toHaveBeenCalledOnce()
+    })
+
+    it('keeps the stored layout when the request does not send one and clears it on an empty list', async () => {
+      const kept = layoutService()
+      await kept.update()
+      expect((kept.updateMany.mock.calls[0]?.[0] as { data: object }).data).not.toHaveProperty('photoLayout')
+      const cleared = layoutService()
+      await cleared.update([])
+      expect(cleared.updateMany.mock.calls[0]?.[0]).toMatchObject({ data: { photoLayout: null } })
+    })
+
+    it.each([
+      ['a file from outside the task', { linked: [], stagedRejected: true }, [placement]],
+      ['a file that is not a photo', { files: [{ detectedMime: 'application/pdf', declaredMime: 'application/pdf' }] }, [placement]],
+      ['a malformed layout', {}, [{ ...placement, x: 0.9 }]],
+    ])('rejects %s', async (_label, overrides, layout) => {
+      const { update, updateMany } = layoutService(overrides)
+      await expect(update(layout)).rejects.toMatchObject({ code: 'task_photo_layout_invalid' })
+      expect(updateMany).not.toHaveBeenCalled()
+    })
+  })
+
   it('replaces the active responsible selected through the legacy form', async () => {
     const task = {
       id: 'task_1',
@@ -437,7 +534,7 @@ describe('TaskCompatibilityService', () => {
 describe('completed task restoration', () => {
   function setup(responsible = true, status = 'DONE', version = 2, reporterId = 'poster') {
     const task = { id: 'tsk_1', reporterId, version, status, companyId: 'cmp_1' }
-    const tx = { task: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue({ ...task, version: 3, status: 'IN_PROGRESS' }) }, taskParticipant: { findMany: vi.fn().mockResolvedValue([]) }, auditEvent: { create: vi.fn() }, outboxEvent: { create: vi.fn() } }
+    const tx = { task: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue({ ...task, version: 3, status: 'IN_PROGRESS' }) }, taskParticipant: { findMany: vi.fn().mockResolvedValue([]) }, notification: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, auditEvent: { create: vi.fn() }, outboxEvent: { create: vi.fn() } }
     const service = new TaskCompatibilityService({ taskParticipant: { findFirst: vi.fn().mockResolvedValue(responsible ? { id: 'participant' } : null) }, $transaction: vi.fn((fn: (transaction: typeof tx) => Promise<unknown>) => fn(tx)) } as never, {} as never, { readableTask: vi.fn().mockResolvedValue(task) } as never, {} as never, {} as never, { projectTask: vi.fn() } as never, {} as never)
     return { service, tx }
   }
@@ -446,6 +543,10 @@ describe('completed task restoration', () => {
     await expect(service.transition(principal(), 'tsk_1', { action: 'RETURN_TO_WORK', expectedVersion: 2 })).resolves.toEqual({ version: 3, status: 'IN_PROGRESS' })
     expect(tx.task.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'IN_PROGRESS', completedAt: null, version: { increment: 1 } } }))
     expect(tx.outboxEvent.create).toHaveBeenCalled()
+    expect(tx.notification.updateMany).toHaveBeenCalledWith({
+      where: { entityType: 'TASK', entityId: 'tsk_1', requiresAction: true },
+      data: { requiresAction: false },
+    })
   })
   it('allows the poster to restore a completed task without being responsible', async () => {
     const { service } = setup(false, 'DONE', 2, 'usr_viewer')

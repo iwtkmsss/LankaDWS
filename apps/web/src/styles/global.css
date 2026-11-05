@@ -21,6 +21,7 @@ input, select, textarea { width: 100%; min-height: 42px; border: 1px solid var(-
 /* Keep dropdown arrows inset consistently, including controls with local background/padding rules. */
 select:where(:not([multiple])):where(:not([size]), [size='1']) {
   appearance: none;
+  align-items: center;
   padding-right: var(--space-8) !important;
   background-image: var(--select-arrow) !important;
   background-position: right 11px center !important;

@@ -1,9 +1,9 @@
-.feed-list { display: grid; gap: var(--space-2); container: feed-preview / inline-size; }
+.feed-list { display: grid; gap: var(--space-4); container: feed-preview / inline-size; }
 .feed-overview { display: grid; gap: var(--space-4); container: feed-overview / inline-size; }
-.feed-overview .focus-panel { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); grid-template-areas: 'intro kpis'; align-items: center; }
+.feed-overview .focus-panel { grid-template-columns: minmax(0, 1fr) var(--overview-kpi-width, minmax(0, 1fr)); grid-template-areas: 'intro kpis'; align-items: center; }
 .feed-overview .focus-panel__intro { min-width: 0; }
 .feed-overview .focus-panel__intro p { font-size: var(--text-ui); line-height: 1.6; color: var(--fg-muted); }
-.feed-overview .dashboard-kpis { grid-area: kpis; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: 0; }
+.feed-overview .dashboard-kpis { grid-area: kpis; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--feed-grid-gap); margin: 0; }
 .feed-overview .dashboard-kpi { min-height: 0; }
 .feed-overview .dashboard-kpi > i { width: 41px; height: 41px; }
 .feed-overview .dashboard-kpi > span { min-width: 0; min-height: 41px; align-content: center; }
@@ -47,6 +47,22 @@
 .stream-pagination p { margin: 0; color: var(--fg-muted); font-size: var(--text-meta); text-align: center; }
 @media (max-width: 680px) {
   .feed-page .feed-attention__actions, .feed-page .feed-birthday-highlight { padding: var(--space-4); }
+}
+@media (width > 780px) {
+  @container feed-overview (width >= 480px) {
+    .feed-overview .focus-panel {
+      --feed-layout-width: 100cqw;
+      --overview-padding: clamp(var(--space-5), 3vw, var(--space-8));
+      --overview-inset: calc(var(--overview-padding) + 1px);
+      /* Align the midpoint between the KPI columns with the feed's column gap. */
+      --overview-kpi-width: calc(2 * (var(--feed-aside-width) - var(--overview-inset)) + var(--feed-grid-gap));
+      padding-inline: var(--overview-padding);
+    }
+    .feed-overview .dashboard-kpis {
+      width: var(--overview-kpi-width);
+      justify-self: end;
+    }
+  }
 }
 @container feed-overview (max-width: 760px) {
   .feed-overview .focus-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'intro' 'kpis'; }

@@ -85,6 +85,7 @@ export class AuthService {
         update: { passwordHash, credentialVersion: { increment: 1 }, changedAt: new Date() },
       })
       await tx.temporaryCredential.updateMany({ where: { userId: user.id, consumedAt: null, invalidatedAt: null }, data: { consumedAt: new Date() } })
+      await tx.notification.updateMany({ where: { recipientId: user.id, requiresAction: true, dedupeKey: { startsWith: 'credential-reset:' } }, data: { requiresAction: false } })
       await tx.userSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'first_login_completed' } })
       await tx.credentialEvent.create({ data: { id: id('cev'), userId: user.id, actorId: user.id, type: 'first_login_password_changed', result: 'SUCCESS', correlationId: id('corr') } })
     })

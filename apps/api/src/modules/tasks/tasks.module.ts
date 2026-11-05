@@ -4,6 +4,7 @@ import { FilesModule } from '../files/files.module.js'
 import { RealtimeModule } from '../realtime/realtime.module.js'
 import { TaskAttachmentsService } from './task-attachments.service.js'
 import { TaskCatalogService } from './task-catalog.service.js'
+import { TaskChangeSignalInterceptor } from './task-change-signal.interceptor.js'
 import { TaskChecklistService } from './task-checklist.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskHierarchyService } from './task-hierarchy.service.js'
@@ -20,6 +21,7 @@ import { TasksService } from './tasks.service.js'
 
 const taskServices = [
   TaskCatalogService,
+  TaskChangeSignalInterceptor,
   TaskAttachmentsService,
   TaskChecklistService,
   TaskCommandService,

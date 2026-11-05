@@ -13,7 +13,7 @@ import { FormattedText } from '../../shared/text/FormattedText'
 import { RichTextEditor } from '../../shared/text/RichTextEditor'
 import { formatDateTime } from '../../shared/lib/format'
 import { FileThumbnail } from '../../shared/files/FileThumbnail'
-import { FeedInlineCanvas, placedPhotos } from './FeedInlineCanvas'
+import { InlinePhotoCanvas, placedPhotos } from '../../shared/inline-photos/InlinePhotoCanvas'
 import './feed-card-design.css'
 
 export type AcknowledgementState = 'pending' | 'loading' | 'error' | 'done' | 'observer'
@@ -230,13 +230,13 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
             </div>
           </div>}
         <div className="stream-card__badges">
-          {item.canPin && item.kind === 'TASK' && <IconButton
+          {item.canPin && (item.kind !== 'POST' || !item.canManage) && <IconButton
             label={item.pinned ? 'Відкріпити' : 'Закріпити для себе'}
             title={item.pinned ? 'Відкріпити' : 'Закріпити для себе'}
             aria-pressed={Boolean(item.pinned)} disabled={item.pinning}
             className={item.pinned ? 'stream-card__pin-button is-pinned' : 'stream-card__pin-button'}
             onClick={() => onAction('pin')}
-          ><Pin size={18} fill={item.pinned ? 'currentColor' : 'none'} /></IconButton>}
+          ><Pin size={15} fill={item.pinned ? 'currentColor' : 'none'} /></IconButton>}
           {item.acknowledgement && ['pending', 'loading', 'error'].includes(item.acknowledgement.state) && <span className="stream-card__pin" title="Закріплено до ознайомлення">
             <Pin size={14} aria-label="Закріплено до ознайомлення" />
           </span>}
@@ -252,6 +252,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
               buttons[next]?.focus()
             }
           }}><IconButton id={`${editorId}-menu-trigger`} label="Дії з записом" aria-haspopup="menu" aria-expanded={state.menuOpen} aria-controls={`${editorId}-menu`} onClick={() => onAction('menu')}><MoreHorizontal size={19} /></IconButton>{state.menuOpen && <div id={`${editorId}-menu`} role="menu" className="stream-menu">
+            {item.canPin && item.kind === 'POST' && <button type="button" role="menuitem" disabled={item.pinning} onClick={() => onAction('pin')}><Pin size={15} />{item.pinned ? 'Відкріпити' : 'Закріпити для себе'}</button>}
             {item.canManage && item.kind === 'POST' && <button type="button" role="menuitem" onClick={() => onAction('edit')}><Pencil size={15} />Редагувати</button>}
             {item.canManage && <button type="button" role="menuitem" className="stream-menu__danger" onClick={() => onAction('archive')}><Archive size={15} />Архівувати</button>}
           </div>}</div>}
@@ -261,10 +262,10 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
       <div className="stream-card__content">
         {item.title && !titleInHeader && <Heading>{item.title}</Heading>}
         {editing ? <form id={`${editorId}-edit-form`} onSubmit={(event) => { event.preventDefault(); if (!busy && item.body.trim()) onAction('save') }} className="stream-card__editor">{editor ?? <RichTextEditor id={`${editorId}-edit`} label="Текст публікації" value={item.body} onChange={(value) => onBodyChange?.(value)} rows={4} disabled={busy} maxLength={10000} />}</form>
-          : (item.body || inlinePhotos.length > 0) && <FeedInlineCanvas photos={inlinePhotos} renderPhoto={(file) => renderInlinePhoto ? renderInlinePhoto(file)
+          : (item.body || inlinePhotos.length > 0) && <InlinePhotoCanvas photos={inlinePhotos} renderPhoto={(file) => renderInlinePhoto ? renderInlinePhoto(file)
             : <button type="button" aria-label={`Переглянути ${file.fileName}`} onClick={() => onFile(file, 'preview')}><FileThumbnail file={file} /></button>}>
             {item.body && <div className="stream-card__text"><FormattedText body={item.body} mentions={item.mentions} /></div>}
-          </FeedInlineCanvas>}
+          </InlinePhotoCanvas>}
         {item.kind === 'TASK' && <div className="stream-changes" aria-label="Непрочитані зміни завдання">{[
           { key: 'messages' as const, label: 'Нові повідомлення', Icon: MessageCircle },
           { key: 'status' as const, label: 'Зміни завдання', Icon: FileText },

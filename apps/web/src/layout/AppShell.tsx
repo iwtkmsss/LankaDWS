@@ -124,7 +124,7 @@ export function AppShell({ children }: PropsWithChildren) {
       })
     } else if (route.path === '/organization') {
       void queryClient.prefetchQuery({
-        queryKey: ['employees', '', company, '', '', '', ''],
+        queryKey: ['employees', '', company, '', '', ''],
         queryFn: () => api(`/employees?company=${encodeURIComponent(company)}`),
       })
     }
@@ -239,7 +239,7 @@ export function AppShell({ children }: PropsWithChildren) {
   })
   const knowledgePending = knowledgeSummary.data?.unreadCount ?? 0
   const chatUnread = chatSummary.data?.unread ?? 0
-  useDocumentTitle(routeTitle(location.pathname), notificationSummary.data?.unread ?? 0)
+  useDocumentTitle(routeTitle(location.pathname), chatUnread + (notificationSummary.data?.unread ?? 0))
   const taskUnread = notificationSummary.data?.tasks ?? 0
   const feedUnread = feedSummary.data?.unreadCount ?? 0
   useEffect(() => {

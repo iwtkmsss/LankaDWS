@@ -1,4 +1,11 @@
-.drive-page { position: relative; display: grid; min-height: 0; gap: var(--space-4); }
+/* The card reaches the bottom of the screen like the chat workspace; longer content still scrolls the page. */
+.main-content:has(> .drive-page) { padding-bottom: var(--space-page); }
+.drive-page { position: relative; display: grid; min-height: calc(100dvh - var(--topbar) - 2 * var(--space-page)); gap: var(--space-4); }
+@media (max-width: 720px) {
+  /* Keep the space reserved for the fixed bottom navigation. */
+  .main-content:has(> .drive-page) { padding-bottom: 96px; }
+  .drive-page { min-height: calc(100dvh - var(--topbar) - var(--space-4) - 96px); }
+}
 .drive-layout { display: grid; min-height: 0; padding: var(--space-5); gap: var(--space-4); grid-template-columns: 210px minmax(0, 1fr); align-items: start; }
 .drive-main { display: grid; min-width: 0; gap: var(--space-3); }
 .drive-main .empty-state .button--primary svg { color: inherit; }

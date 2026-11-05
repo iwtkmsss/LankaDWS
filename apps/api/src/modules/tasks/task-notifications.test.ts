@@ -3,7 +3,52 @@ import { notifyTaskParticipants, taskNotificationTitle } from './task-notificati
 import type { TaskTransaction } from './task-types.js'
 
 describe('task notifications', () => {
-  it.each(['task.checklist_changed', 'task.relation_changed', 'task.reminder_changed', 'task.recurrence_changed', 'task.timer_started', 'task.comment_updated', 'task.comment_deleted', 'task.reaction_changed', 'task.future_change'])('advances the task card and deduplicates delivery for %s', async (action) => {
+  it.each(['task.reminder_changed', 'task.timer_started', 'task.timer_stopped', 'task.time_added', 'task.time_updated', 'task.time_deleted'])('stays silent for %s', async (action) => {
+    const tx = { task: { findUnique: vi.fn() }, feedItem: { create: vi.fn() }, notification: { upsert: vi.fn() } }
+    expect(await notifyTaskParticipants(tx as unknown as TaskTransaction, 'task', 'actor', 2, action)).toEqual([])
+    expect(tx.feedItem.create).not.toHaveBeenCalled()
+    expect(tx.notification.upsert).not.toHaveBeenCalled()
+  })
+
+  it('adds no alert of its own when a mention makes someone a watcher', async () => {
+    const tx = { task: { findUnique: vi.fn() }, feedItem: { create: vi.fn() }, notification: { upsert: vi.fn() } }
+    expect(await notifyTaskParticipants(tx as unknown as TaskTransaction, 'task', 'actor', 2, 'task.participant_added', { userIds: ['mentioned'], role: 'WATCHER', change: 'MENTION_ADDED' })).toEqual([])
+    expect(tx.notification.upsert).not.toHaveBeenCalled()
+  })
+
+  it('tells only the comment author about a like and leaves the feed card in place', async () => {
+    const upsert = vi.fn().mockResolvedValue({})
+    const create = vi.fn()
+    const tx = {
+      task: { findUnique: vi.fn().mockResolvedValue({ id: 'task', number: '42', title: 'Task', workspaceId: 'workspace', companyId: 'company', createdById: 'poster', reporterId: 'poster', updatedAt: new Date(), participants: [{ userId: 'author', role: 'WATCHER' }, { userId: 'other', role: 'WATCHER' }] }) },
+      feedItem: { findUnique: vi.fn(), create },
+      user: { findMany: vi.fn(({ where }: { where: { id: { in: string[] } } }) => Promise.resolve(where.id.in.map((id) => ({ id })))) },
+      notification: { upsert },
+    } as unknown as TaskTransaction
+    expect(await notifyTaskParticipants(tx, 'task', 'liker', 3, 'task.reaction_changed', { commentAuthorId: 'author' })).toEqual(['author'])
+    expect(create).not.toHaveBeenCalled()
+    expect(upsert).toHaveBeenCalledOnce()
+    expect(await notifyTaskParticipants(tx, 'task', 'author', 4, 'task.reaction_changed', { commentAuthorId: 'author' })).toEqual([])
+  })
+
+  it.each([
+    ['task.status_changed', { status: { from: 'IN_PROGRESS', to: 'IN_REVIEW' } }, { in: ['task-review:task:5', 'task-returned:task:5'] }],
+    ['task.status_changed', { status: { from: 'IN_REVIEW', to: 'IN_PROGRESS' } }, { in: ['task-review:task:5', 'task-returned:task:5'] }],
+    ['task.comment_updated', { commentId: 'comment', commentVersion: 2 }, { startsWith: 'task-comment-edited:comment:2:' }],
+  ])('sends one alert per person for %s %j', async (action, diff, dedupeKey) => {
+    const upsert = vi.fn().mockResolvedValue({})
+    const findMany = vi.fn().mockResolvedValue([{ recipientId: 'alerted' }])
+    const tx = {
+      task: { findUnique: vi.fn().mockResolvedValue({ id: 'task', number: '42', title: 'Task', workspaceId: 'workspace', companyId: 'company', createdById: 'actor', reporterId: 'alerted', updatedAt: new Date(), participants: [{ userId: 'other', role: 'WATCHER' }] }) },
+      feedItem: { findUnique: vi.fn().mockResolvedValue({ id: 'existing_projection' }) },
+      user: { findMany: vi.fn(({ where }: { where: { id: { in: string[] } } }) => Promise.resolve(where.id.in.map((id) => ({ id })))) },
+      notification: { upsert, findMany },
+    } as unknown as TaskTransaction
+    expect(await notifyTaskParticipants(tx, 'task', 'actor', 5, action, diff)).toEqual(['other'])
+    expect(findMany).toHaveBeenCalledWith({ where: { dedupeKey }, select: { recipientId: true } })
+  })
+
+  it.each(['task.checklist_changed', 'task.relation_changed', 'task.recurrence_changed', 'task.comment_updated', 'task.comment_deleted', 'task.future_change'])('advances the task card and deduplicates delivery for %s', async (action) => {
     const projections = new Map<string, { id: string }>()
     const notifications = new Map<string, unknown>()
     const upsertHead = vi.fn().mockResolvedValue({})
@@ -74,15 +119,20 @@ describe('task notifications', () => {
 describe('delegation notifications', () => {
   it.each(['former', 'poster'])('notifies the replaced responsible when delegation is performed by %s', async (actorId) => {
     const upsert = vi.fn().mockResolvedValue({})
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
     const tx = {
       feedItem: { findUnique: vi.fn().mockResolvedValue({ id: 'existing_projection' }) },
       task: { findUnique: vi.fn().mockResolvedValue({ number: '42', title: 'Task', workspaceId: 'workspace', createdById: 'poster', reporterId: 'poster', participants: [{ userId: 'former', role: 'WATCHER' }, { userId: 'new', role: 'RESPONSIBLE' }] }) },
       user: { findUnique: vi.fn().mockResolvedValue({ displayName: 'Новий виконавець' }), findMany: vi.fn().mockImplementation((input: { where: { id: { in: string[] } } }) => Promise.resolve(input.where.id.in.map((id) => ({ id })))) },
-      notification: { upsert },
+      notification: { upsert, updateMany },
     } as unknown as TaskTransaction
     await notifyTaskParticipants(tx, 'task', actorId, 4, 'task.participant_changed', { change: 'DELEGATED', userId: 'new', role: 'RESPONSIBLE', previousResponsibleId: 'former' })
     const notifications = upsert.mock.calls.map(([input]) => (input as { create: { recipientId: string; safeTitle: string; requiresAction: boolean } }).create)
     expect(notifications.find((item) => item.recipientId === 'former')).toMatchObject({ safeTitle: 'Завдання делеговано — ви тепер спостерігач', requiresAction: false })
     expect(notifications.find((item) => item.recipientId === 'new')).toMatchObject({ requiresAction: true })
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { entityType: 'TASK', entityId: 'task', requiresAction: true, recipientId: 'former' },
+      data: { requiresAction: false },
+    })
   })
 })

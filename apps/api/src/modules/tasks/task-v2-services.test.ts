@@ -45,6 +45,7 @@ function createInput(overrides: Partial<CreateTaskInput> = {}): CreateTaskInput 
     reminders: [],
     recurrence: null,
     attachmentIds: [],
+    photoLayout: [],
     ...overrides,
   }
 }

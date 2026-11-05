@@ -186,6 +186,12 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
     dragging ? '' : 'file-preview-modal__image-stage--animated',
   ].filter(Boolean).join(' ')
 
+  const openLink = openInNewTab && (isImage || isPdf) ? (
+    <a className="icon-button file-preview-modal__open" href={inlineUrl} target="_blank" rel="noopener noreferrer" aria-label="Відкрити файл у новій вкладці" title="Відкрити файл у новій вкладці">
+      <ExternalLink size={18} aria-hidden />
+    </a>
+  ) : undefined
+
   return (
     <Modal
       title={file.fileName}
@@ -196,11 +202,28 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
       onRequestClose={onClose}
       headerActions={isText && !textTooLarge ? (
         <span className="file-preview-modal__header-actions" ref={setHeaderActionsTarget} />
-      ) : openInNewTab && (isImage || isPdf) ? (
-        <a className="icon-button file-preview-modal__open" href={inlineUrl} target="_blank" rel="noopener noreferrer" aria-label="Відкрити файл у новій вкладці" title="Відкрити файл у новій вкладці">
-          <ExternalLink size={18} aria-hidden />
-        </a>
-      ) : undefined}
+      ) : isImage ? <>
+        <div className="file-preview-modal__toolbar" role="group" aria-label="Масштаб зображення">
+          <IconButton
+            label="Зменшити"
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => applyZoom(zoom - ZOOM_STEP)}
+          >
+            <ZoomOut size={18} />
+          </IconButton>
+          <button type="button" onClick={() => applyZoom(MIN_ZOOM)} aria-label="Вмістити зображення у вікно">
+            {Math.round(zoom * 100)}%
+          </button>
+          <IconButton
+            label="Збільшити"
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => applyZoom(zoom + ZOOM_STEP)}
+          >
+            <ZoomIn size={18} />
+          </IconButton>
+        </div>
+        {openLink}
+      </> : openLink}
       footer={(
         <div className="file-preview-modal__footer">
           <div className="file-preview-modal__metadata"><span>{fileType}{size ? ` · ${size}` : ''}</span>{metadata}</div>
@@ -225,25 +248,6 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
             if (gallery.index < gallery.count - 1) gallery.onNext()
           }
         }}>
-          <div className="file-preview-modal__toolbar" aria-label="Масштаб зображення">
-            <IconButton
-              label="Зменшити"
-              disabled={zoom <= MIN_ZOOM}
-              onClick={() => applyZoom(zoom - ZOOM_STEP)}
-            >
-              <ZoomOut size={18} />
-            </IconButton>
-            <button type="button" onClick={() => applyZoom(MIN_ZOOM)} aria-label="Вмістити зображення у вікно">
-              {Math.round(zoom * 100)}%
-            </button>
-            <IconButton
-              label="Збільшити"
-              disabled={zoom >= MAX_ZOOM}
-              onClick={() => applyZoom(zoom + ZOOM_STEP)}
-            >
-              <ZoomIn size={18} />
-            </IconButton>
-          </div>
           <div
             ref={stageRef}
             className={stageClass}

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { OrganizationCapabilityView } from './capabilities.js'
 import type { AccountType } from './accounts.js'
+import type { FeedPhotoPlacement } from './feed.js'
 import type { StructuredMentionView } from './mentions.js'
 
 export const companyScopeSchema = z.union([z.literal('all'), z.string().regex(/^cmp_[a-zA-Z0-9_-]+$/)])
@@ -154,6 +155,7 @@ export interface TaskReference {
 
 export interface TaskDetailView extends TaskListItem {
   description: string
+  photoLayout: FeedPhotoPlacement[]
   blockReason: string | null
   creator: Pick<UserSummary, 'id' | 'displayName'>
   checklist: Array<{

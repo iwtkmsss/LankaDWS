@@ -28,6 +28,23 @@ describe('FeedSourceCard', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/feed/tasks/task_1/pin', expect.objectContaining({ method: pinnedByMe ? 'DELETE' : 'POST' }))
   })
 
+  it('pins an event from its card', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ pinnedByMe: true })))
+    vi.stubGlobal('fetch', fetch)
+    const changed = vi.fn()
+    render(<QueryClientProvider client={new QueryClient()}><MemoryRouter>
+      <FeedSourceCard isNew={false} onChanged={changed} item={{
+        kind: 'SOURCE', id: 'event_1', itemId: 'feed_event', companyId: 'company_1',
+        sourceType: 'EVENT', action: 'CREATED', actor: null, label: 'Подія', title: 'Подія',
+        summary: '', metadata: [], href: '/calendar/events/event_1', actionState: 'AVAILABLE',
+        occurredAt: '2026-10-21T08:00:00Z', historical: false, version: 1, canRevoke: false,
+      }} />
+    </MemoryRouter></QueryClientProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Закріпити для себе' }))
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenCalledWith('/api/v1/feed/events/event_1/pin', expect.objectContaining({ method: 'POST' }))
+  })
+
   it('omits the task description and keeps the unread changes block', () => {
     const { container } = render(<QueryClientProvider client={new QueryClient()}><MemoryRouter>
       <FeedSourceCard isNew={false} onChanged={vi.fn()} item={{

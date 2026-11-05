@@ -58,6 +58,9 @@ export function FeedPage() {
   const readKey = useRef('')
   const initialFeedItemIdsRef = useRef<Set<string> | null>(null)
   const [newFeedItemIds, setNewFeedItemIds] = useState<Set<string>>(() => new Set())
+  // Opening the feed advances the read cursor at once, so remember where it stood
+  // on arrival: what was news then stays marked until the person leaves the page.
+  const [readPositionsOnArrival, setReadPositionsOnArrival] = useState<FeedListResult['readPositions'] | null>(null)
   const company = organizationQueryScope(user?.company?.id)
   const targetPostId = params.get('post')
   const targetPost = useQuery({
@@ -140,13 +143,19 @@ export function FeedPage() {
       const leftPinned = needsAcknowledgement(left)
       const rightPinned = needsAcknowledgement(right)
       if (leftPinned !== rightPinned) return leftPinned ? -1 : 1
-      const leftPersonal = left.kind === 'SOURCE' && left.sourceType === 'TASK' && Boolean(left.pinnedByMe)
-      const rightPersonal = right.kind === 'SOURCE' && right.sourceType === 'TASK' && Boolean(right.pinnedByMe)
+      const leftPersonal = Boolean(left.pinnedByMe)
+      const rightPersonal = Boolean(right.pinnedByMe)
       if (!leftPinned && leftPersonal !== rightPersonal) return leftPersonal ? -1 : 1
       const leftAt = left.kind === 'POST' ? left.editedAt ?? left.publishedAt : left.occurredAt
       const rightAt = right.kind === 'POST' ? right.editedAt ?? right.publishedAt : right.occurredAt
       return Date.parse(rightAt) - Date.parse(leftAt) || right.itemId.localeCompare(left.itemId)
     })
+
+  useEffect(() => {
+    // Cached pages from an earlier visit hold an old cursor, so wait for a fresh one.
+    if (readPositionsOnArrival || !firstPage || !pages.isFetchedAfterMount || pages.isPlaceholderData) return
+    setReadPositionsOnArrival(firstPage.readPositions ?? [])
+  }, [firstPage, pages.isFetchedAfterMount, pages.isPlaceholderData, readPositionsOnArrival])
 
   useEffect(() => {
     initialFeedItemIdsRef.current = null
@@ -161,7 +170,7 @@ export function FeedPage() {
       return
     }
     const newIds = firstPage.items
-      .filter((item) => !knownIds.has(item.itemId) && !isOwnFeedItem(item, user.id))
+      .filter((item) => !knownIds.has(item.itemId) && isNewsForViewer(item, user.id))
       .map((item) => item.itemId)
     firstPage.items.forEach((item) => knownIds.add(item.itemId))
     if (newIds.length) setNewFeedItemIds((current) => new Set([...current, ...newIds]))
@@ -260,14 +269,14 @@ export function FeedPage() {
                     viewerId={user.id}
                     item={item}
                     loadedAt={item.id === targetPost.data?.id ? targetPost.dataUpdatedAt : pages.dataUpdatedAt}
-                    isNew={newFeedItemIds.has(item.itemId)}
+                    isNew={newFeedItemIds.has(item.itemId) || wasUnreadOnArrival(item, user.id, readPositionsOnArrival)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
                   />
                 ) : (
                   <FeedSourceCard
                     key={item.itemId}
                     item={item}
-                    isNew={newFeedItemIds.has(item.itemId)}
+                    isNew={newFeedItemIds.has(item.itemId) || wasUnreadOnArrival(item, user.id, readPositionsOnArrival)}
                     onChanged={() => void queryClient.invalidateQueries({ queryKey: ['feed'] })}
                   />
                 ),
@@ -377,7 +386,7 @@ export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceVie
   const editorId = useId()
   const queryClient = useQueryClient()
   const pin = useMutation({
-    mutationFn: () => api(`/feed/tasks/${item.id}/pin`, { method: item.pinnedByMe ? 'DELETE' : 'POST' }),
+    mutationFn: () => api(`/feed/${item.sourceType === 'EVENT' ? 'events' : 'tasks'}/${encodeURIComponent(item.id)}/pin`, { method: item.pinnedByMe ? 'DELETE' : 'POST' }),
     onSuccess: onChanged,
   })
   const acknowledgeEvent = useMutation({
@@ -406,7 +415,7 @@ export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceVie
   if (item.sourceType === 'EVENT' && item.summary) metadata.unshift({ label: 'Дата і час', value: item.summary })
   const model: FeedCardModel = {
     kind: item.sourceType, title: item.title, body: '',
-    canPin: item.sourceType === 'TASK', pinned: item.sourceType === 'TASK' && item.pinnedByMe, pinning: pin.isPending,
+    canPin: true, pinned: item.pinnedByMe, pinning: pin.isPending,
     date: formatDateTime(item.occurredAt), dateTime: item.occurredAt, audience: '',
     href: item.href, metadata, changes: item.taskChanges, historical: item.historical, isNew,
     author: item.sourceType === 'EVENT' && item.actor ? { ...item.actor, displayName: personName(item.actor.displayName) } : undefined,
@@ -417,7 +426,7 @@ export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceVie
   return <FeedCardDesign item={model} state={readCardState} editorId={editorId} headingLevel="h2"
     renderPerson={renderFeedPerson} onReply={() => {}} onFile={() => {}}
     onAction={(action) => {
-      if (action === 'pin' && item.sourceType === 'TASK' && !pin.isPending) pin.mutate()
+      if (action === 'pin' && !pin.isPending) pin.mutate()
       if (action === 'acknowledge' && needsAcknowledgement(item) && !acknowledgeEvent.isPending) acknowledgeEvent.mutate()
     }}
     error={pin.isError ? 'Не вдалося змінити закріплення. Спробуйте ще раз.' : undefined}
@@ -426,6 +435,26 @@ export function FeedSourceCard({ item, isNew, onChanged }: { item: FeedSourceVie
 
 function isOwnFeedItem(item: FeedPostView | FeedSourceView, userId: string): boolean {
   return item.kind === 'POST' ? item.author.id === userId : item.actor?.id === userId
+}
+
+/** A task update the viewer has already read, for example in an open task, is not news. */
+export function isNewsForViewer(item: FeedPostView | FeedSourceView, userId: string): boolean {
+  if (isOwnFeedItem(item, userId)) return false
+  if (item.kind === 'SOURCE' && item.sourceType === 'TASK') return Object.values(item.taskChanges ?? {}).some(Boolean)
+  return true
+}
+
+/** Was this card unread when the person arrived? A first visit marks nothing: everything would be new. */
+export function wasUnreadOnArrival(
+  item: FeedPostView | FeedSourceView,
+  userId: string | undefined,
+  readPositions: FeedListResult['readPositions'] | null,
+): boolean {
+  const lastReadAt = readPositions?.find((position) => position.companyId === item.companyId)?.lastReadAt
+  if (!lastReadAt || !userId) return false
+  if (item.kind === 'SOURCE' && item.historical) return false
+  const occurredAt = item.kind === 'POST' ? item.editedAt ?? item.publishedAt : item.occurredAt
+  return Date.parse(occurredAt) > Date.parse(lastReadAt) && isNewsForViewer(item, userId)
 }
 
 export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item: FeedPostView; isNew: boolean; onChanged: () => void; loadedAt: number; viewerId?: string }) {
@@ -449,6 +478,10 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
   )
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const pin = useMutation({
+    mutationFn: () => api(`/feed/posts/${encodeURIComponent(item.id)}/pin`, { method: item.pinnedByMe ? 'DELETE' : 'POST' }),
+    onSuccess: onChanged,
+  })
   const like = useMutation({
     mutationFn: () => api(`/feed/${item.id}/reactions/like`, { method: 'POST' }),
     onSuccess: onChanged,
@@ -533,7 +566,7 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
     mentions: item.mentions, attachments: item.attachments, photoLayout: item.photoLayout,
     comments: item.comments.map((entry) => ({ ...entry, author: { ...entry.author, displayName: personName(entry.author.displayName) } })),
     commentCount: item.commentCount, likes: item.likeCount, liked: item.likedByMe,
-    canManage: item.canEdit, isNew, edited: Boolean(item.editedAt),
+    canManage: item.canEdit, canPin: true, pinned: item.pinnedByMe, pinning: pin.isPending, isNew, edited: Boolean(item.editedAt),
     acknowledgement: !item.requiresAcknowledgement ? undefined
       : item.author.id === viewerId
         ? { state: 'summary', acknowledgedCount: item.acknowledgementCount, recipientCount: item.acknowledgementRecipientCount }
@@ -554,6 +587,7 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
     onFile={() => {}}
     onReply={(id) => { setReplyTo(id); setComment(''); setCommentMentions([]) }}
     onAction={(action) => {
+      if (action === 'pin' && !pin.isPending) { setMenuOpen(false); pin.mutate() }
       if (action === 'like' && !like.isPending) like.mutate()
       if (action === 'comments') setCommentsOpen((value) => !value)
       if (action === 'menu') setMenuOpen((value) => !value)
@@ -597,7 +631,7 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
         {addComment.isPending ? 'Надсилаємо…' : 'Надіслати'}
       </Button></div>
     </form>}
-    error={update.isError ? 'Не вдалося зберегти зміни. Оновіть стрічку та спробуйте ще раз.'
+    error={pin.isError ? 'Не вдалося змінити закріплення. Спробуйте ще раз.' : update.isError ? 'Не вдалося зберегти зміни. Оновіть стрічку та спробуйте ще раз.'
       : archive.isError ? 'Не вдалося архівувати публікацію. Спробуйте ще раз.'
         : addComment.isError ? 'Не вдалося надіслати коментар. Спробуйте ще раз.'
           : like.isError ? 'Не вдалося зберегти реакцію. Спробуйте ще раз.' : undefined}

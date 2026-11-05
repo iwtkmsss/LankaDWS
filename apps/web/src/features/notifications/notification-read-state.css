@@ -39,3 +39,26 @@
   background: currentColor;
   content: '';
 }
+
+.task-unread-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: var(--space-2);
+  border-radius: 999px;
+  background: var(--cobalt-100);
+  color: var(--fg-link);
+  padding: 1px var(--space-2);
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.task-unread-badge::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}

@@ -6,8 +6,8 @@ import { personName } from '../shared/lib/personName'
 import { UNASSIGNED_DEPARTMENT_LABEL } from '../shared/lib/organization'
 import type { AdminOrgUnitView, OrgCompanyView, OrgUnitEmployeeView, OrgUnitIcon } from '@lankadws/contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Building2, List, Network, PencilRuler, Plus, RotateCcw, Users, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Archive, Building2, List, Network, Pencil, PencilRuler, Plus, RotateCcw, Users, X } from 'lucide-react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { OrganizationMap } from '../features/organization/OrganizationMap'
 import { useTopbarContent } from '../layout/TopbarContent'
@@ -272,6 +272,13 @@ export default function AdminOrganizationPage() {
   )
 }
 
+function EditableSymbol({ label, expanded, disabled, onToggle, children }: { label: string; expanded: boolean; disabled?: boolean; onToggle: () => void; children: ReactNode }) {
+  return <button type="button" className="organization-panel-symbol organization-panel-symbol--editable" aria-label={label} aria-expanded={expanded} title={label} disabled={disabled} onClick={onToggle}>
+    {children}
+    <span className="organization-panel-symbol__badge" aria-hidden="true"><Pencil size={11} /></span>
+  </button>
+}
+
 function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: { company: OrgCompanyView; companyId: string; childCount: number; onSaved: () => Promise<void>; onArchived: () => void }) {
   const client = useQueryClient()
   const [managerId, setManagerId] = useState<string | null>(company.manager?.id ?? null)
@@ -279,6 +286,7 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
   const [description, setDescription] = useState(company.description ?? '')
   const [logoFileId, setLogoFileId] = useState<string | null>(null)
   const [logoBusy, setLogoBusy] = useState(false)
+  const [logoPickerOpen, setLogoPickerOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const settings = useQuery({
     queryKey: ['admin-company', companyId],
@@ -322,14 +330,14 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
   if (settings.isLoading) return <Skeleton rows={5} />
   if (settings.isError || !settings.data) return <ErrorState onRetry={() => void settings.refetch()} />
   return <>
-    <header className="admin-org-company-header"><span className="eyebrow">Компанія · {settings.data.isActive ? 'Активна' : 'Архівована'}</span><h2>Редагувати компанію</h2></header>
+    <header className="admin-org-panel-header--title-in-form"><span className="eyebrow">Компанія · {settings.data.isActive ? 'Активна' : 'Архівована'}</span><h2 className="sr-only">Редагувати компанію</h2></header>
     <form className="entity-form admin-org-form admin-org-company-form" onSubmit={(event) => {
       event.preventDefault()
       if (logoBusy) return
       mutation.mutate({ name: name.trim(), description: description.trim(), nextManagerId: managerId })
     }}>
-      <div className="organization-panel-identity span-2"><span className="organization-panel-symbol"><CompanyLogo src={logoFileId ? settings.data.logoAsset : null} size={32} /></span><label>Назва<input name="name" required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label></div>
-      <CompanyLogoPicker value={logoFileId} src={settings.data.logoAsset} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending || status.isPending} showPreview={false} />
+      <div className="organization-panel-identity organization-panel-identity--title span-2"><EditableSymbol label="Змінити логотип" expanded={logoPickerOpen} disabled={logoBusy} onToggle={() => setLogoPickerOpen((open) => !open)}><CompanyLogo src={logoFileId ? settings.data.logoAsset : null} size={32} /></EditableSymbol><label><span className="sr-only">Назва</span><input name="name" required minLength={2} maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label></div>
+      <div className="span-2" hidden={!logoPickerOpen}><CompanyLogoPicker value={logoFileId} src={settings.data.logoAsset} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending || status.isPending} showPreview={false} /></div>
       <label className="span-2">Опис<ResizableTextarea name="description" rows={3} maxLength={320} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Чим займається компанія та за що відповідає команда" /></label>
       <dl className="organization-unit-stats" aria-label="Показники компанії"><div><dt>Працівники</dt><dd>{settings.data.counts.users}</dd></div><div><dt>Підрозділи</dt><dd>{childCount}</dd></div></dl>
       <div className="admin-org-person-picker organization-panel-section">
@@ -340,7 +348,7 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
       <section className="organization-panel-section organization-company-employees" aria-label="Працівники компанії">{settings.data.counts.users ? <Link className="organization-company-employees-link" to={`/organization?companyId=${encodeURIComponent(companyId)}&view=people`}><Users size={16} aria-hidden="true" />Переглянути працівників компанії</Link> : <p>У компанії ще немає працівників.</p>}</section>
       <UnassignedEmployees key={companyId} companyId={companyId} draggable />
       {mutation.isError && <p role="alert">{mutation.error instanceof Error ? mutation.error.message : 'Не вдалося зберегти зміни. Оновіть структуру та повторіть.'}</p>}
-      <Button disabled={logoBusy || mutation.isPending || status.isPending}>Зберегти зміни</Button>
+      <div className="admin-org-form-footer"><Button disabled={logoBusy || mutation.isPending || status.isPending}>Зберегти зміни</Button></div>
     </form>
     <details className="admin-org-danger">
       <summary><Archive size={14} aria-hidden /> {settings.data.isActive ? 'Архівація' : 'Відновлення'}</summary>
@@ -360,6 +368,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
   const [managerId, setManagerId] = useState<string | null>(unit?.manager?.id ?? null)
   const [description, setDescription] = useState(unit?.description ?? '')
   const [icon, setIcon] = useState<OrgUnitIcon | null>(unit?.icon ?? null)
+  const [iconPickerOpen, setIconPickerOpen] = useState(false)
   const [addedEmployeeIds, setAddedEmployeeIds] = useState<string[]>([])
   const employeePages = useCursorPages(`${companyId}:${unit?.id ?? ''}`)
   const employees = useQuery({
@@ -402,10 +411,10 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
     })
   }
   return <>
-    <header><span className="eyebrow">Підрозділ</span><h2>{unit ? 'Редагувати підрозділ' : 'Новий підрозділ'}</h2></header>
+    <header className={unit ? 'admin-org-panel-header--title-in-form' : undefined}><span className="eyebrow">Підрозділ</span><h2 className={unit ? 'sr-only' : undefined}>{unit ? 'Редагувати підрозділ' : 'Новий підрозділ'}</h2></header>
     <form className="entity-form admin-org-form" onSubmit={submit}>
-      <div className="organization-panel-identity span-2"><span className="organization-panel-symbol"><UnitIcon icon={icon} size={28} /></span><label>Назва<input name="name" required maxLength={120} defaultValue={unit?.name} /></label></div>
-      <details className="organization-panel-visual-picker span-2"><summary>Змінити значок</summary><UnitIconPicker value={icon} onChange={setIcon} /></details>
+      <div className={`organization-panel-identity${unit ? ' organization-panel-identity--title' : ''} span-2`}><EditableSymbol label="Змінити значок" expanded={iconPickerOpen} onToggle={() => setIconPickerOpen((open) => !open)}><UnitIcon icon={icon} size={28} /></EditableSymbol><label>{unit ? <span className="sr-only">Назва</span> : 'Назва'}<input name="name" required maxLength={120} defaultValue={unit?.name} /></label></div>
+      {iconPickerOpen && <div className="organization-panel-visual-picker span-2"><UnitIconPicker value={icon} onChange={setIcon} /></div>}
       {!unit && <label className="span-2">Компанія<select value={targetCompanyId} onChange={(event) => {
         setTargetCompanyId(event.target.value)
         setManagerId(null)
@@ -423,7 +432,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
       </div>
       <section className="span-2 admin-org-employees-picker organization-panel-section">
         <h3>Працівники</h3>
-        <UserSearchCombobox label="Додати працівника" value="" clearOnSelect includeAdmins={false} companyId={targetCompanyId}
+        <UserSearchCombobox label="Додати працівника" placeholder="Додати працівника за ім’ям" value="" clearOnSelect includeAdmins={false} companyId={targetCompanyId}
           excludeOrgUnitId={unit?.id} excludeIds={addedEmployeeIds}
           onSelect={(person) => { setAddedEmployeeIds((ids) => [...ids, person.id]); setAddedPeople((people) => [...people, person]) }} />
         {employees.isLoading ? <small>Завантажуємо працівників…</small> : selectedEmployees.length ? <div className="admin-org-employees-picker__list">
@@ -432,7 +441,7 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
         <CursorPager label="Сторінки працівників підрозділу" hasPrevious={employeePages.hasPrevious} nextCursor={employees.data?.nextCursor} onPrevious={employeePages.previous} onNext={employeePages.next} />
       </section>
       {mutation.isError && <p className="span-2" role="alert">Не вдалося зберегти. Перевірте назву, вибраних працівників і актуальність даних.</p>}
-      <Button className="span-2" disabled={mutation.isPending}>{unit ? 'Зберегти зміни' : 'Створити підрозділ'}</Button>
+      <div className="span-2 admin-org-form-footer"><Button disabled={mutation.isPending}>{unit ? 'Зберегти зміни' : 'Створити підрозділ'}</Button></div>
     </form>
   </>
 }
@@ -476,10 +485,9 @@ function UnitDetail({ unit, units, companyId, companies, onChanged }: {
       <p>У працівників зміниться лише підрозділ на «{UNASSIGNED_DEPARTMENT_LABEL}». Компанія, посада, активність та інші дані збережуться.</p>
       <fieldset className="admin-org-archive-mode">
         <legend>Що архівувати?</legend>
-        <label className={!archiveBranch ? 'is-selected' : ''}><input type="radio" name="archive-mode" checked={!archiveBranch} onChange={() => setArchiveBranch(false)} /><span><strong>Лише цей підрозділ</strong><small>Працівники залишаться в компанії без підрозділу. Дочірні вузли піднімуться на рівень вище.</small></span></label>
-        <label className={archiveBranch ? 'is-selected' : ''}><input type="radio" name="archive-mode" checked={archiveBranch} onChange={() => setArchiveBranch(true)} /><span><strong>Усю гілку</strong><small>Цей підрозділ та всі дочірні підрозділи. Працівники залишаться в компанії без підрозділу.</small></span></label>
+        <label className={!archiveBranch ? 'is-selected' : ''}><input type="radio" name="archive-mode" checked={!archiveBranch} onChange={() => setArchiveBranch(false)} /><span><strong>Лише цей підрозділ</strong><small>Дочірні підрозділи піднімуться на рівень вище.</small></span></label>
+        <label className={archiveBranch ? 'is-selected' : ''}><input type="radio" name="archive-mode" checked={archiveBranch} onChange={() => setArchiveBranch(true)} /><span><strong>Усю гілку</strong><small>До архіву перейде підрозділів: {units.filter((candidate) => candidate.status === 'ACTIVE' && excluded.has(candidate.id)).length}.</small></span></label>
       </fieldset>
-      {archiveBranch ? <p>До архіву перейде підрозділів: <b>{units.filter((candidate) => candidate.status === 'ACTIVE' && excluded.has(candidate.id)).length}</b>. Структура збережеться. Працівники залишаться активними в компанії без підрозділу.</p> : <p>Працівники залишаться в компанії без призначення до підрозділу. Їх можна буде додати до потрібного відділу. Дочірні підрозділи піднімуться на рівень вище.</p>}
       {archive.isError && <p role="alert">Архівацію заблоковано через конфлікт структури або версії.</p>}
       <Button variant="danger" disabled={archive.isPending} onClick={() => setConfirmArchive(true)}><Archive size={16} />{archiveBranch ? 'Архівувати всю гілку' : 'Архівувати підрозділ'}</Button>
     </details>

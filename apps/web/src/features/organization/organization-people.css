@@ -19,30 +19,24 @@
   align-items: center;
   color: var(--fg-link);
 }
+/* The dropdown arrow comes from the global select style (global.css); only the
+   leading company icon is drawn here. */
 .organization-universe-page .organization-company-picker > svg {
   position: absolute;
   z-index: 1;
   top: 50%;
+  left: var(--space-3);
   transform: translateY(-50%);
   pointer-events: none;
-}
-.organization-universe-page .organization-company-picker > svg:first-of-type {
-  left: var(--space-3);
-}
-.organization-universe-page .organization-company-picker > svg:last-of-type {
-  right: var(--space-3);
-  color: var(--fg-muted);
 }
 .organization-universe-page .organization-context-bar > .organization-company-picker select {
   width: 100%;
   min-height: 42px;
-  appearance: none;
   border-color: transparent;
   border-radius: 10px;
-  background: var(--surface-soft);
-  background-image: none;
+  background-color: var(--surface-soft);
   color: var(--fg-strong);
-  padding: var(--space-2) var(--space-10) var(--space-2) 42px;
+  padding: var(--space-2) var(--space-8) var(--space-2) 42px;
   font-size: var(--text-body);
   font-weight: var(--weight-medium);
   cursor: pointer;
@@ -274,9 +268,9 @@
   font-weight: var(--weight-bold);
 }
 
-/* Filters: three labelled controls of equal height on one row. */
+/* Filters: search and manager, labelled and of equal height on one row. */
 .organization-universe-page .directory-card--people .directory-toolbar {
-  grid-template-columns: minmax(220px, 1.5fr) minmax(170px, 1fr) minmax(140px, .7fr);
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
   align-items: end;
   gap: var(--space-3);
   border-top: 1px solid var(--line);
@@ -326,35 +320,14 @@
   outline: none;
 }
 
-/* Summary chips. */
+/* Shown only while filters are active: holds the «Очистити фільтри» action. */
 .organization-universe-page .directory-summary {
   min-height: 0;
   flex-direction: row;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+  justify-content: flex-end;
   border-top: 1px solid var(--line);
-  padding: var(--space-2) var(--space-5);
-}
-.organization-universe-page .directory-summary__stat {
-  gap: var(--space-2);
-  border-radius: 999px;
-  background: var(--surface-soft);
-  color: var(--fg-body);
-  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
-}
-.organization-universe-page .directory-summary__stat i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--success);
-}
-.organization-universe-page .directory-summary__stat.is-away i {
-  background: var(--warning);
-}
-.organization-universe-page .directory-summary__stat strong {
-  color: var(--fg-strong);
-  font-variant-numeric: tabular-nums;
+  padding: var(--space-1) var(--space-4);
 }
 .organization-universe-page .directory-summary button {
   margin: 0 0 0 auto;
@@ -379,10 +352,14 @@
 .organization-universe-page .directory-people-list__head,
 .organization-universe-page .directory-person {
   display: grid;
-  grid-template-columns: minmax(220px, 1.3fr) minmax(160px, 1fr) 112px 40px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
   align-items: center;
   gap: var(--space-4);
   padding-inline: var(--space-5);
+}
+/* The unit column sits on the right edge of the card. */
+.organization-universe-page .directory-people-list__head > span:last-child {
+  justify-self: end;
 }
 .organization-universe-page .directory-people-list__head {
   min-height: 36px;
@@ -415,25 +392,12 @@
 .organization-universe-page .directory-person__profile:hover strong {
   color: var(--fg-link);
 }
-.organization-universe-page .directory-person__avatar {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-}
-.organization-universe-page .directory-person__avatar .presence {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 11px;
-  height: 11px;
-  border: 2px solid var(--surface);
-}
 .organization-universe-page .directory-person__profile strong {
   font-size: var(--text-ui);
 }
 .organization-universe-page .directory-person__unit {
-  justify-self: start;
-  max-width: 100%;
+  justify-self: end;
+  max-width: min(320px, 100%);
   gap: var(--space-2);
   color: var(--fg-body);
 }
@@ -458,45 +422,6 @@
 }
 .organization-universe-page .directory-person__unit.is-unassigned > svg {
   color: var(--warning);
-}
-.organization-universe-page .directory-person__presence {
-  justify-self: start;
-  gap: var(--space-1);
-  border-radius: 999px;
-  background: var(--success-bg);
-  color: var(--success);
-  padding: var(--space-0_5) var(--space-2);
-  font-size: var(--text-caption);
-  font-weight: var(--weight-medium);
-}
-.organization-universe-page .directory-person__presence.is-away {
-  background: var(--warning-bg);
-  color: var(--warning);
-}
-.organization-universe-page .directory-person__chat {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--fg-muted);
-  transition: background-color .12s ease, color .12s ease;
-}
-.organization-universe-page .directory-person:hover .directory-person__chat {
-  color: var(--fg-link);
-}
-.organization-universe-page .directory-person__chat:hover,
-.organization-universe-page .directory-person__chat:focus-visible {
-  background: var(--cobalt-50);
-  color: var(--fg-link);
-}
-.organization-universe-page .directory-person__self {
-  justify-self: center;
-  border-radius: 999px;
-  background: var(--cobalt-50);
-  color: var(--fg-link);
-  padding: var(--space-0_5) var(--space-2);
-  font-size: var(--text-label);
-  font-weight: var(--weight-medium);
 }
 .organization-universe-page .directory-card--people > .empty-state {
   margin: var(--space-6) var(--space-4);
@@ -603,20 +528,6 @@
   .organization-universe-page .organization-people-workspace {
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .organization-universe-page .directory-people-list__head,
-  .organization-universe-page .directory-person {
-    grid-template-columns: minmax(200px, 1.2fr) minmax(140px, 1fr) 40px;
-  }
-  .organization-universe-page .directory-people-list__head > span:nth-child(3),
-  .organization-universe-page .directory-person__presence {
-    display: none;
-  }
-  .organization-universe-page .directory-card--people .directory-toolbar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .organization-universe-page .directory-toolbar .directory-filter--search {
-    grid-column: 1 / -1;
-  }
 }
 @media (max-width: 780px) {
   .organization-universe-page .organization-people-workspace {
@@ -653,23 +564,18 @@
     display: none;
   }
   .organization-universe-page .directory-person {
-    grid-template-columns: minmax(0, 1fr) 40px;
-    gap: 0 var(--space-2);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
     padding: var(--space-2) var(--space-4);
   }
   .organization-universe-page .directory-person__profile {
     padding-bottom: var(--space-1);
   }
   .organization-universe-page .directory-person__unit {
-    grid-column: 1;
-    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
     padding: 0 0 var(--space-1) 50px;
     font-size: var(--text-meta);
-  }
-  .organization-universe-page .directory-person__chat,
-  .organization-universe-page .directory-person__self {
-    grid-column: 2;
-    grid-row: 1 / span 2;
   }
   .organization-universe-page .organization-people-workspace > .organization-unassigned li {
     padding-inline: var(--space-4);

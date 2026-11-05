@@ -165,6 +165,26 @@ export class FeedController {
     return this.feed.setTaskPinned(principalFrom(request), taskId, false)
   }
 
+  @Post('events/:id/pin')
+  pinEvent(@Req() request: LankaDWSRequest, @Param('id') id: string) {
+    return this.feed.setOtherPinned(principalFrom(request), 'EVENT', id, true)
+  }
+
+  @Delete('events/:id/pin')
+  unpinEvent(@Req() request: LankaDWSRequest, @Param('id') id: string) {
+    return this.feed.setOtherPinned(principalFrom(request), 'EVENT', id, false)
+  }
+
+  @Post('posts/:id/pin')
+  pinPost(@Req() request: LankaDWSRequest, @Param('id') id: string) {
+    return this.feed.setOtherPinned(principalFrom(request), 'POST', id, true)
+  }
+
+  @Delete('posts/:id/pin')
+  unpinPost(@Req() request: LankaDWSRequest, @Param('id') id: string) {
+    return this.feed.setOtherPinned(principalFrom(request), 'POST', id, false)
+  }
+
   @Post(':id/acknowledge')
   acknowledge(@Req() request: LankaDWSRequest, @Param('id') postId: string, @Body() rawBody: unknown) {
     const parsed = acknowledgeFeedPostSchema.safeParse(rawBody)

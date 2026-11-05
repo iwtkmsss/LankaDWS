@@ -8,6 +8,7 @@ import type {
   TaskRecurrenceFrequency,
   TaskRelationType,
 } from '@lankadws/contracts'
+import { toPhotoLayout, type InlinePhoto } from '../../../shared/inline-photos/inlinePhotos'
 
 export type TaskCreateSection =
   | 'main'
@@ -65,6 +66,8 @@ export interface TaskAttachmentDraft {
   stagedAt: string
 }
 
+export type TaskPhotoPlacementDraft = Pick<InlinePhoto, 'id' | 'ratio' | 'x' | 'y' | 'width'>
+
 export interface TaskRecurrenceDraft {
   frequency: TaskRecurrenceFrequency
   interval: string
@@ -93,6 +96,7 @@ export interface TaskCreateDraft {
   reminders: TaskReminderDraft[]
   recurrence: TaskRecurrenceDraft | null
   attachments: TaskAttachmentDraft[]
+  photoPlacements: TaskPhotoPlacementDraft[]
 }
 
 export type UpdateTaskCreateDraft = (
@@ -176,6 +180,9 @@ export function mapTaskCreatePayload(draft: TaskCreateDraft): CreateTaskInput {
         }
       : null,
     attachmentIds: draft.attachments.map((attachment) => attachment.id),
+    photoLayout: toPhotoLayout(draft.photoPlacements.filter((photo) => (
+      draft.attachments.some((attachment) => attachment.id === photo.id)
+    ))),
   }
 }
 

@@ -60,6 +60,7 @@ function draft(): TaskCreateDraft {
       scanStatus: 'QUARANTINED',
       stagedAt: '2026-08-01T08:00:00.000Z',
     }],
+    photoPlacements: [],
   }
 }
 
@@ -93,6 +94,7 @@ describe('task create payload', () => {
         maxOccurrences: 6,
       },
       attachmentIds: ['file_1'],
+      photoLayout: [],
     })
     expect(payload.startsAt).toMatch(/Z$/)
   })

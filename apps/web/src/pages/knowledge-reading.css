@@ -107,5 +107,4 @@
 .knowledge-editor-form .knowledge-audience__companies { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
 
 .knowledge-editor-form .file-dropzone > svg { width: 20px; height: 20px; }
-.knowledge-editor-form .formatted-editor > label,
-.knowledge-editor-form .formatting-toolbar { margin-bottom: var(--space-2); }
+.knowledge-editor-form .formatted-editor > label { margin-bottom: var(--space-2); }

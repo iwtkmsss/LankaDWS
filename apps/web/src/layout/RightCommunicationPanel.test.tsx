@@ -129,6 +129,39 @@ describe('RightCommunicationPanel notifications', () => {
     expect(fireEvent.keyDown(document.body, { key: 'PageDown' })).toBe(true)
   })
 
+  it('separates new notifications from earlier ones only when both exist', async () => {
+    const base = { category: 'TASKS', safeSnippet: 'Задача', entityType: 'TASK', entityId: 'task', requiresAction: false, createdAt: '2026-10-20T10:00:00Z' }
+    renderNotifications()
+    vi.mocked(api).mockResolvedValue({ items: [
+      { ...base, id: 'unread', safeTitle: 'Нове сповіщення', readAt: null },
+      { ...base, id: 'read', safeTitle: 'Старе сповіщення', readAt: '2026-10-21T10:00:00Z' },
+    ] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Згадки' }))
+    expect(await screen.findByRole('heading', { name: 'Нові' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Раніше' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Прочитати згадки' })).toBeVisible()
+    vi.mocked(api).mockResolvedValue({ items: [{ ...base, id: 'unread', safeTitle: 'Нове сповіщення', readAt: null }] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Непрочитані' }))
+    await screen.findByRole('button', { name: 'Прочитати всі' })
+    expect(screen.queryByRole('heading', { name: 'Нові' })).not.toBeInTheDocument()
+  })
+
+  it('names what is missing when a filter is empty', async () => {
+    vi.mocked(api).mockResolvedValue({ items: [] })
+    renderNotifications()
+    vi.mocked(api).mockResolvedValue({ items: [] })
+    fireEvent.click(screen.getByRole('tab', { name: 'Згадки' }))
+    expect(await screen.findByText('Згадок немає')).toBeVisible()
+  })
+
+  it('marks a notification read when it is opened, whatever its source', async () => {
+    renderNotifications('EVENT')
+    fireEvent.click(await screen.findByRole('button', { name: /Вам відкрито доступ/ }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/notifications/notification-1', {
+      method: 'PATCH', body: JSON.stringify({ read: true }),
+    }))
+  })
+
   it('filters and marks notifications read without linking to the removed page', async () => {
     renderNotifications()
     await screen.findByText('Вам відкрито доступ')

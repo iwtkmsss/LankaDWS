@@ -2,10 +2,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FeedPostView } from '@lankadws/contracts'
+import type { FeedPostView, FeedSourceView } from '@lankadws/contracts'
 import { api } from '../shared/api/client'
 import { OverlayProvider } from '../shared/ui'
-import { FeedCard } from './FeedPage'
+import { FeedCard, isNewsForViewer, wasUnreadOnArrival } from './FeedPage'
 
 vi.mock('../shared/api/client', async (original) => ({ ...await original<typeof import('../shared/api/client')>(), api: vi.fn() }))
 
@@ -36,7 +36,67 @@ beforeEach(() => {
 })
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals() })
 
+describe('isNewsForViewer', () => {
+  const taskCard = (changes: FeedSourceView['taskChanges'], actorId = 'other') => ({
+    kind: 'SOURCE', sourceType: 'TASK', actor: { id: actorId }, taskChanges: changes,
+  }) as unknown as FeedSourceView
+
+  it('does not treat an already read task update as new', () => {
+    expect(isNewsForViewer(taskCard({ messages: 0, status: 0, participants: 0 }), 'me')).toBe(false)
+  })
+  it('treats a task update with unread changes as new', () => {
+    expect(isNewsForViewer(taskCard({ messages: 1, status: 0, participants: 0 }), 'me')).toBe(true)
+  })
+  it('never treats the viewer\'s own change as new', () => {
+    expect(isNewsForViewer(taskCard({ messages: 1, status: 0, participants: 0 }, 'me'), 'me')).toBe(false)
+  })
+})
+
+describe('wasUnreadOnArrival', () => {
+  const positions = [{ companyId: 'company', lastReadAt: '2026-11-01T10:00:00.000Z' }]
+  const post = (publishedAt: string, overrides: Partial<FeedPostView> = {}) => ({
+    kind: 'POST', companyId: 'company', publishedAt, editedAt: null, author: { id: 'other' }, ...overrides,
+  }) as unknown as FeedPostView
+
+  it('marks a post published after the read position', () => {
+    expect(wasUnreadOnArrival(post('2026-11-02T10:00:00.000Z'), 'me', positions)).toBe(true)
+  })
+  it('does not mark a post the person had already passed', () => {
+    expect(wasUnreadOnArrival(post('2026-11-01T10:00:00.000Z'), 'me', positions)).toBe(false)
+  })
+  it('counts an edit as news', () => {
+    expect(wasUnreadOnArrival(post('2026-10-01T10:00:00.000Z', { editedAt: '2026-11-02T10:00:00.000Z' }), 'me', positions)).toBe(true)
+  })
+  it('does not mark the person\'s own post', () => {
+    expect(wasUnreadOnArrival(post('2026-11-02T10:00:00.000Z', { author: { id: 'me' } as FeedPostView['author'] }), 'me', positions)).toBe(false)
+  })
+  it('marks nothing on a first visit or before the positions are known', () => {
+    expect(wasUnreadOnArrival(post('2026-11-02T10:00:00.000Z'), 'me', [])).toBe(false)
+    expect(wasUnreadOnArrival(post('2026-11-02T10:00:00.000Z'), 'me', null)).toBe(false)
+  })
+  it('leaves historical cards unmarked', () => {
+    const historical = { kind: 'SOURCE', sourceType: 'EVENT', companyId: 'company', occurredAt: '2026-11-02T10:00:00.000Z', actor: { id: 'other' }, historical: true } as unknown as FeedSourceView
+    expect(wasUnreadOnArrival(historical, 'me', positions)).toBe(false)
+  })
+})
+
 describe('FeedCard production actions', () => {
+  it.each([false, true])('lets readers change a post pin without a one-item menu (pinned=%s)', async (pinnedByMe) => {
+    const changed = mount({ ...item, canEdit: false, pinnedByMe })
+    expect(screen.queryByRole('button', { name: 'Дії з записом' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: pinnedByMe ? 'Відкріпити' : 'Закріпити для себе' }))
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce())
+    expect(api).toHaveBeenCalledWith('/feed/posts/post/pin', { method: pinnedByMe ? 'DELETE' : 'POST' })
+  })
+
+  it('keeps the post pin in the menu when the author also has other actions', () => {
+    mount({ ...item, canEdit: true })
+    expect(screen.queryByRole('button', { name: 'Закріпити для себе' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Дії з записом' }))
+    expect(screen.getByRole('menuitem', { name: 'Закріпити для себе' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Редагувати' })).toBeInTheDocument()
+  })
+
   it('adds editor photos to the versioned save and keeps them when saving fails', async () => {
     const changed = mount()
     vi.mocked(api).mockImplementation(async (path) => path.startsWith('/feed/attachments?')
@@ -71,18 +131,12 @@ describe('FeedCard production actions', () => {
     const { container } = render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><OverlayProvider>
       <FeedCard item={{ ...item, attachments: [photo, file], photoLayout: [{ fileId: 'photo', x: .25, y: .1, width: .5, height: .25 }] }} viewerId="reader" isNew={false} loadedAt={0} onChanged={vi.fn()} />
     </OverlayProvider></MemoryRouter></QueryClientProvider>)
-    const placed = container.querySelector<HTMLElement>('.feed-inline-canvas__photo')!
+    const placed = container.querySelector<HTMLElement>('.inline-photos-canvas__photo')!
     expect(within(placed).getByRole('button', { name: 'Переглянути схема.png' })).toBeEnabled()
     expect(placed.style.getPropertyValue('--x')).toBe('0.25')
     const attachments = screen.getByRole('region', { name: 'Вкладення' })
     expect(within(attachments).getByText('Вкладення · 1')).toBeInTheDocument()
     expect(within(attachments).queryByText('схема.png')).not.toBeInTheDocument()
-  })
-
-  it('does not offer personal pinning for publications', () => {
-    mount()
-    fireEvent.click(screen.getByRole('button', { name: 'Дії з записом' }))
-    expect(screen.queryByRole('menuitem', { name: 'Закріпити для себе' })).not.toBeInTheDocument()
   })
 
   it('uses real profile links, reactions and versioned acknowledgements with the shared design', async () => {

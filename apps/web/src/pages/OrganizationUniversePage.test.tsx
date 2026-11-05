@@ -61,6 +61,20 @@ it.each([
   await waitFor(() => expect(document.querySelector('.directory-people-count')).toHaveTextContent(count))
 })
 
+it('removes focus after selecting a company', async () => {
+  api.mockImplementation(async (path: string) => {
+    if (path === '/companies') return { items: [active, { ...active, id: 'other', name: 'Інша' }] }
+    if (path.startsWith('/org/units')) return { company: active, items: [] }
+    return { items: [], counts: { all: 0, available: 0, away: 0 }, filters: { orgUnits: [], managers: [] } }
+  })
+  openPage()
+  const select = await screen.findByRole('combobox', { name: 'Оберіть компанію' })
+  select.focus()
+  fireEvent.change(select, { target: { value: 'other' } })
+  expect(select).not.toHaveFocus()
+  await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('?companyId=other'))
+})
+
 it('shows restoration when all companies are archived without making forbidden requests', async () => {
   api.mockImplementation(async () => ({ items: [archived] }))
   openPage()
@@ -95,15 +109,15 @@ function mockDirectory() {
 
 it('pages the directory through the URL and counts the whole filtered set', async () => {
   mockDirectory()
-  openUrl('/organization?companyId=active&presence=AWAY')
+  openUrl('/organization?companyId=active&manager=boss')
   await screen.findByText('Перша Сторінка')
   expect(document.querySelector('.directory-people-count')).toHaveTextContent('Знайдено: 41')
   expect(screen.getByRole('button', { name: 'Назад' })).toHaveAttribute('aria-disabled', 'true')
 
   fireEvent.click(screen.getByRole('button', { name: 'Далі' }))
   await screen.findByText('Друга Сторінка')
-  expect(api).toHaveBeenCalledWith('/employees?company=active&presence=AWAY&cursor=first')
-  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&presence=AWAY&cursor=first')
+  expect(api).toHaveBeenCalledWith('/employees?company=active&manager=boss&cursor=first')
+  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&manager=boss&cursor=first')
   expect(document.querySelector('.directory-people-count')).toHaveTextContent('Знайдено: 41')
 
   fireEvent.click(screen.getByRole('button', { name: 'Далі' }))
@@ -112,10 +126,10 @@ it('pages the directory through the URL and counts the whole filtered set', asyn
 
   fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
   await screen.findByText('Друга Сторінка')
-  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&presence=AWAY&cursor=first')
+  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&manager=boss&cursor=first')
   fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
   await screen.findByText('Перша Сторінка')
-  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&presence=AWAY')
+  expect(screen.getByTestId('location').textContent).toBe('?companyId=active&manager=boss')
 })
 
 it('keeps the page when opening a person and leaves it when a filter changes', async () => {
@@ -123,9 +137,9 @@ it('keeps the page when opening a person and leaves it when a filter changes', a
   openUrl('/organization?companyId=active&cursor=first')
   fireEvent.click((await screen.findByText('Друга Сторінка')).closest('button')!)
   await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?companyId=active&cursor=first&employeeId=second'))
-  fireEvent.change(screen.getByLabelText('Доступність'), { target: { value: 'AWAY' } })
-  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?companyId=active&employeeId=second&presence=AWAY'))
-  await waitFor(() => expect(api).toHaveBeenCalledWith('/employees?company=active&presence=AWAY'))
+  fireEvent.change(screen.getByLabelText('Знайти працівника'), { target: { value: 'Анна' } })
+  await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('?companyId=active&employeeId=second&q=%D0%90%D0%BD%D0%BD%D0%B0'))
+  await waitFor(() => expect(api).toHaveBeenCalledWith('/employees?company=active&search=%D0%90%D0%BD%D0%BD%D0%B0'))
 })
 
 it('opens a shared page link directly and returns to the first page from it', async () => {

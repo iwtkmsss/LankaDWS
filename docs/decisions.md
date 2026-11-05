@@ -322,6 +322,47 @@ This records the routing state shipped on 2026-09-04 and supersedes the 2026-07-
 
 The mobile bottom navigation keeps Feed, Tasks, Chat and Drive as primary items. Its «Ще» menu lists Calendar, Organization and Knowledge, so the Knowledge base and its required-acknowledgement records are reachable without the side menu. Administration stays in the side menu.
 
+## 2026-11-03 — Field captions do not focus their fields
+
+Clicking a text caption (a `<label>` for a text, search, select, textarea or combobox field) must not move focus into that field anywhere in the web app; only the field box itself, including its inline icon, activates it. `installLabelClickGuard` (`apps/web/src/shared/lib/labelClickGuard.ts`) enforces this once for the whole app in `main.tsx`, so forms keep using ordinary `<label>` elements and their accessible names. Checkbox, radio and file inputs keep native label behaviour: their captions remain the click target, and upload buttons stay styled labels.
+
 ## 2026-11-04 — A unit manager is a member of the units they manage
 
 `OrgUnit.managerId` and `UserOrgAssignment` stay independent, and no assignment is created when a manager is set. On reads, a person belongs to a unit if they have an active primary assignment there or they are its valid manager (active `USER` whose primary company is that company), and each person counts once per unit. So `activeEmployeeCount` includes the manager, the `orgUnit` filter on `GET /employees` matches them, and "Не у підрозділі" lists only people with no assignment who also manage no active unit in their company. A person with no assignment shows their first managed unit in the directory, the employee profile and their own profile; a unit's own directory list shows that unit for its manager. Because one person can manage several units, unit counts may add up to more than the company headcount. `GET /org/units/:id/employees` still returns assignments only; panels show the manager separately. Chat recommendations (`sharedOrgUnit`) still use assignments only.
+
+## 2026-11-04 — Authored rich text has one size in reading and editing
+
+Task descriptions, feed posts and knowledge articles use `--text-rich` (`12pt`, line-height 1.5, no paragraph margin) both in `.formatted-text` and in the editor, so text does not change size or rhythm when edit mode opens and the toolbar's «12 pt» default is true. Chat messages and task and feed comments stay on `--text-reading` (14px). 
+
+## 2026-11-04 — Photos can be placed over a task description
+
+Task creation and editing reuse the publication photo editor from `shared/inline-photos`. `Task.photoLayout` stores placements the same way as `FeedPost.photoLayout`; the server accepts only image files attached to that task, and a request without the field keeps the stored layout. A photo pasted or picked while editing stays staged: it joins the materials and notifies people only when the edit is saved, and an abandoned staged file is left to the staged-file cleanup. Placed photos also stay in the task's materials, so removing a saved photo from the description does not delete the file, and deleting the file removes its placement. Subtask creation has no photo button; other editors keep the toolbar without it.
+
+
+## 2026-11-05 — An open task never produces unread updates
+
+A notification stays the only per-user read state of a task. The Feed unread counter counts a task card only while the viewer has an unread notification about that task, so opening the task clears it there as well, and the viewer's own changes never count. Posts and events still use the per-company read cursor; the wider read-cursor model from 2026-09-09 stays open.
+
+Every committed task mutation signals the other people on the task (`TaskChangeSignalInterceptor`), because several task services write notifications without a realtime event. While a loaded task is on screen in a visible tab, the counters refresh after its read request rather than alongside the reload, so an update the person is looking at does not flash in a badge. A hidden tab counts as not looking. `read-entity` takes the loaded age (`loadedAgoMs`) so its cutoff does not depend on the client clock.
+
+## 2026-11-05 — One change, one alert; the inbox holds alerts rather than chat messages
+
+Unread chat messages are counted and listed by the chat. Their stored notification rows remain only for read reconciliation, so `GET /notifications`, `/notifications/summary` and read-all ignore them, and the top badge and document title are the sum of unread chat messages and inbox alerts. Mentions, reactions and being added to a chat stay inbox alerts.
+
+A task change gives each person one alert: whoever has a dedicated alert (review requested, returned to work, mentioned in an edit) gets no generic task event for the same change. A like reaches only the comment author and does not move the Feed card. Setting a reminder alerts nobody; the reminder is delivered when due. Opening a notification reads it whatever its source, opening a chat reads its reactions, and notifications for a task the person can no longer open are read automatically, because no page can read them.
+
+"Action required" means an open action. A task status change or archive settles a task's actions, delegation settles the previous responsible person's, and acknowledging a post or setting the new password settles those alerts. Reminders are not actions. The list shows unread first and each group newest first, never ordered by when something was read.
+
+The Feed list excludes pending items with an explicit null check on `postId`: `NOT (postId IN (...))` is NULL for task and event items, which used to hide every task card and freeze the read cursor for anyone with an unconfirmed mandatory post.
+
+## 2026-11-05 — People can see where the news is
+
+A task row in the list carries an «Нове» badge with its unread count, read from the shared unread notifications, and the right panel separates «Нові» from «Раніше» when it holds both. Marking a notification read is a visible button rather than a dot. An archived task is off the task list, so of its unread notifications only the archive alert stays news; the rest are read automatically and no longer inflate the badge.
+
+Time tracking and reminders produce no alerts and do not move the Feed card. A task card is addressed to its participants from any company of the workspace, matching the 2026-08-31 decision that `companyId` is not an authorization boundary; reads still re-authorize through the task. Cards already written before this change gain the person only with the task's next update.
+
+A Feed card that was unread on arrival says «Нове оновлення» until the person leaves the page. `GET /feed` reports the read cursor (`readPositions`) as it stood when the page was built, because opening the feed advances it immediately and later pages and refreshes could no longer tell. A first visit, with no cursor yet, marks nothing.
+
+An administrator can have any task open without being on it, so every task change also signals active administrators and an open page stays current. A mention that makes someone a watcher adds no alert of its own; the comment's alerts cover it. An administrator reading a chat they are not in has no read position, so the page does not try to mark it read.
+
+The Feed shows an administrator only the task cards addressed to them, as for everyone else; any task can still be opened and is listed under «Усі доступні». An administrator who comments on a task they are not on becomes its watcher and follows it from then on.

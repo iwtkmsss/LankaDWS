@@ -359,11 +359,8 @@ export async function writeFeedProjection(
       ? await tx.user.findMany({
           where: {
             id: { in: requestedRecipients },
+            workspaceId: input.workspaceId,
             isActive: true,
-            OR: [
-              { primaryCompanyId: input.companyId },
-              { accountType: 'ADMIN' },
-            ],
           },
           select: { id: true },
         })

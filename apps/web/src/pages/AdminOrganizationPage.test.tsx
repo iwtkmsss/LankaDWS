@@ -102,6 +102,8 @@ it('edits a department in the map panel and closes selected entities on backgrou
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
   fireEvent.change(name, { target: { value: 'Нові операції' } })
+  expect(screen.queryByRole('radio', { name: 'Ваги' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Змінити значок' }))
   fireEvent.click(screen.getByRole('radio', { name: 'Ваги' }))
 
   fireEvent.click(screen.getByRole('button', { name: 'Зберегти зміни' }))
@@ -109,6 +111,7 @@ it('edits a department in the map panel and closes selected entities on backgrou
   await waitFor(() => expect(api).toHaveBeenCalledWith('/admin/companies/cmp_test/org-units/root', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('Нові операції') })))
 
   await screen.findByDisplayValue('Нові операції')
+  fireEvent.click(screen.getByRole('button', { name: 'Змінити значок' }))
   expect(screen.getByRole('radio', { name: 'Ваги' })).toBeChecked()
   expect(api.mock.calls.some(([, options]) => options?.body && JSON.parse(options.body).icon === 'scales')).toBe(true)
 

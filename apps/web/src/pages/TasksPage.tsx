@@ -1,9 +1,10 @@
 import { DateTimePicker } from '../shared/ui/DateTimePicker'
 import { personName } from '../shared/lib/personName'
 import { FormattedTextarea } from '../shared/text/FormattedTextarea'
-import { stageTaskAttachment } from '../features/tasks/create/api'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
+import { TaskUnreadBadge, useUnreadTaskCounts } from '../features/notifications/TaskUnreadBadge'
 import { queryOptions, useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
 import type {
   PageResult,
   StructuredMentionInput,
@@ -54,7 +55,7 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, ApiProblem, idempotencyKey, jsonBody } from '../shared/api/client'
+import { api, ApiProblem, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
@@ -73,6 +74,10 @@ import { MessageLikeButton } from '../shared/messages/MessageLikeButton'
 import { formatChatTime } from '../features/messages/lib/chatDates'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
+import { InlinePhotoButton, useObjectUrls } from '../shared/inline-photos/InlinePhotoButton'
+import { InlinePhotoCanvas, placedPhotos } from '../shared/inline-photos/InlinePhotoCanvas'
+import { InlinePhotoEditor } from '../shared/inline-photos/InlinePhotoEditor'
+import { imageRatio, initialPlacement, placementToPhoto, toPhotoLayout, type InlinePhoto } from '../shared/inline-photos/inlinePhotos'
 import { FileThumbnail } from '../shared/files/FileThumbnail'
 import { isPreviewableImage } from '../shared/files/filePreview'
 import { FileFormatIcon } from '../shared/files/FileFormatIcon'
@@ -82,6 +87,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ConfirmationDialog,
   ErrorState,
   PageDataLoader,
   PageHeader,
@@ -91,6 +97,22 @@ import {
   useModalCloseGuard,
 } from '../shared/ui'
 import '../features/tasks/detail/task-detail.css'
+
+type TaskRolePerson = { id: string; displayName: string }
+type TaskPersonAction =
+  | { kind: 'assign'; person: TaskRolePerson }
+  | { kind: 'add' | 'remove'; person: TaskRolePerson; role: TaskParticipantRole }
+
+function taskPersonActionCopy(action: TaskPersonAction, assigneeName: string) {
+  const name = personName(action.person.displayName)
+  if (action.kind === 'assign') {
+    return { title: 'Змінити відповідального?', description: `Відповідальним за завдання стане ${name} замість ${assigneeName}.`, confirmLabel: 'Змінити', confirmVariant: 'primary' as const }
+  }
+  const [accusative, instrumental] = action.role === 'CO_EXECUTOR' ? ['співвиконавця', 'співвиконавцем'] : ['спостерігача', 'спостерігачем']
+  return action.kind === 'add'
+    ? { title: `Додати ${accusative}?`, description: `${name} стане ${instrumental} цього завдання.`, confirmLabel: 'Додати', confirmVariant: 'primary' as const }
+    : { title: `Вилучити ${accusative}?`, description: `${name} більше не буде ${instrumental} цього завдання.`, confirmLabel: 'Вилучити', confirmVariant: 'danger' as const }
+}
 
 function contextMenuPosition(x: number, y: number): { left: number; top: number } {
   const menuWidth = 248
@@ -109,6 +131,7 @@ export default function TasksPage() {
 }
 
 function TasksListPage() {
+  const unreadTaskCounts = useUnreadTaskCounts()
   const [params, setParams] = useSearchParams()
   const pendingParams = useRef(new URLSearchParams(params))
   useEffect(() => {
@@ -565,7 +588,7 @@ function TasksListPage() {
                     <td data-label="Завдання">
                       <Link to={`/tasks/${task.id}${location.search}`}>
                         <span>
-                          <strong>{task.title}</strong>
+                          <strong>{task.title}<TaskUnreadBadge count={unreadTaskCounts.get(task.id) ?? 0} /></strong>
                           <small>
                             {task.number}
                             {task.parentTaskId ? ' · Підзадача' : ''}
@@ -667,6 +690,9 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const [personAction, setPersonAction] = useState<TaskPersonAction | null>(null)
+  const [editPhotos, setEditPhotos] = useState<InlinePhoto[]>([])
+  const objectUrl = useObjectUrls()
   const [discussionExpanded, setDiscussionExpanded] = useState(false)
   const [showDiscussionTop, setShowDiscussionTop] = useState(false)
   const discussionRef = useRef<HTMLElement>(null)
@@ -734,12 +760,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const [editMessage, setEditMessage] = useState('')
   const [subtaskFormOpen, setSubtaskFormOpen] = useState(false)
   const [subtaskError, setSubtaskError] = useState('')
-  const [subtaskPhotos, setSubtaskPhotos] = useState<Array<{ id: string; fileName: string }>>([])
-  const subtaskPhotoUpload = useMutation({
-    mutationFn: stageTaskAttachment,
-    onSuccess: (file) => { setSubtaskPhotos((current) => [...current, file]); markDirty('subtask') },
-    onError: () => setSubtaskError('Не вдалося додати фото до підзадачі.'),
-  })
   const [participantMessage, setParticipantMessage] = useState('')
   const [statusError, setStatusError] = useState('')
   const [recurrenceMessage, setRecurrenceMessage] = useState('')
@@ -810,6 +830,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     mutationFn: (input: {
       title: string
       description: string
+      photoLayout: ReturnType<typeof toPhotoLayout>
       assigneeId: string
       creatorId?: string
       deadline: string | null
@@ -837,12 +858,15 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       )
     },
   })
+  const closeDelegate = () => {
+    setDelegateOpen(false)
+    setDelegateId('')
+    setDelegateError('')
+  }
   const delegateTask = useMutation({
     mutationFn: () => api(`/tasks/${id}/delegate`, { method: 'POST', body: jsonBody({ userId: delegateId, expectedVersion: query.data?.version }) }),
     onSuccess: () => {
-      setDelegateOpen(false)
-      setDelegateId('')
-      setDelegateError('')
+      closeDelegate()
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['task-activity', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
@@ -938,7 +962,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       deadline?: string
       priority: string
       expectedVersion: number
-      attachmentIds?: string[]
     }) => api<{ id: string }>(`/tasks/${id}/subtasks`, {
       method: 'POST',
       headers: { 'idempotency-key': idempotencyKey('subtask') },
@@ -946,7 +969,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     }),
     onSuccess: () => {
       setSubtaskError('')
-      setSubtaskPhotos([])
       clearDirty('subtask')
       setSubtaskFormOpen(false)
       void client.invalidateQueries({ queryKey: ['task', id] })
@@ -985,6 +1007,14 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     },
     onError: () => setContentMessage('Не вдалося додати файл. Перевірте формат, розмір або ліміт.'),
   })
+  const stageEditPhoto = useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData()
+      body.append('file', file)
+      return api<TaskAttachmentView>(`/tasks/${id}/attachments?draft=true`, { method: 'POST', body })
+    },
+    onError: () => setEditMessage('Не вдалося додати фото. Перевірте формат, розмір або ліміт.'),
+  })
   const removeAttachment = useMutation({
     mutationFn: (fileId: string) =>
       api(`/tasks/${id}/attachments/${encodeURIComponent(fileId)}`, {
@@ -992,6 +1022,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       }),
     onSuccess: (_result, fileId) => {
       setContentMessage('Файл вилучено із завдання та коментарів.')
+      setEditPhotos((current) => current.filter((photo) => photo.id !== fileId))
       setCommentAttachments((current) => current.filter((attachment) => attachment.id !== fileId))
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
@@ -1209,6 +1240,17 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
   const canAttachFiles = Boolean(query.data?.canAttachFiles)
     && !uploadAttachment.isPending
     && !attachDriveFile.isPending
+  // Photos stay staged until the edit is saved: no attachment, no notification before that.
+  async function placeEditPhotos(files: File[]) {
+    for (const file of files.filter((item) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === item.type))) {
+      const attachment = await stageEditPhoto.mutateAsync(file).catch(() => null)
+      if (!attachment) continue
+      const src = objectUrl(file)
+      const ratio = await imageRatio(src)
+      setEditPhotos((current) => [...current, { id: attachment.id, name: attachment.fileName, src, ratio, ...initialPlacement(current.length) }])
+      markDirty('edit')
+    }
+  }
   async function uploadFiles(files: File[], selectForComment: boolean) {
     for (const file of files) {
       await uploadAttachment.mutateAsync({ file, selectForComment }).catch(() => undefined)
@@ -1330,13 +1372,10 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
           <div className="task-detail-main">
           <section className="task-detail-overview">
           <div className="task-detail-heading">
-            <div>
-              <span className="task-detail-number">Завдання {query.data.number}</span>
-              <h2>{query.data.title}</h2>
-              <FormattedText body={query.data.description || 'Опис не додано.'} />
-            </div>
+            <div className="task-detail-heading__bar">
+            <span className="task-detail-number">Завдання {query.data.number}</span>
             <div className="task-detail-heading-actions">
-              {query.data.availableStatusActions.length > 0 && (
+              {!editOpen && query.data.availableStatusActions.length > 0 && (
                 <div className="task-detail-status-actions">
                   {query.data.availableStatusActions.includes('START') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'START', expectedVersion: query.data.version })}><Play size={16} />Почати роботу</Button>}
                   {query.data.availableStatusActions.includes('COMPLETE') && <Button type="button" disabled={status.isPending} onClick={() => status.mutate({ action: 'COMPLETE', expectedVersion: query.data.version })}><CheckCircle2 size={16} />Завершити</Button>}
@@ -1359,16 +1398,20 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 <div role="menu">
                 <button type="button" role="menuitem" onClick={() => navigate(`/tasks/new?copyFrom=${encodeURIComponent(id)}`)}><Copy size={16} />Копіювати задачу</button>
                 {query.data.status === 'DONE' && query.data.availableStatusActions.includes('RETURN_TO_WORK') && <button type="button" role="menuitem" disabled={status.isPending} onClick={() => { setActionsOpen(false); status.mutate({ action: 'RETURN_TO_WORK', expectedVersion: query.data.version }) }}><RotateCcw size={16} />Відновити завдання</button>}
-                {(query.data.canReassign || query.data.assignee.id === user?.id) && <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setDelegateError(''); setDelegateOpen(true) }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 13h7m-3-3 3 3-3 3" /><circle cx="16" cy="6" r="3" /><path d="M11 21v-2a5 5 0 0 1 10 0v2" /></svg>Делегувати</button>}
+                {!editOpen && (query.data.canReassign || query.data.assignee.id === user?.id) && <button type="button" role="menuitem" onClick={() => { setActionsOpen(false); setDelegateError(''); setDelegateOpen(true) }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 13h7m-3-3 3 3-3 3" /><circle cx="16" cy="6" r="3" /><path d="M11 21v-2a5 5 0 0 1 10 0v2" /></svg>Делегувати</button>}
                 {canManageTask && query.data.status !== 'IN_REVIEW' && (
                   <button
                     type="button"
                     role="menuitem"
                     onClick={() => {
                       setActionsOpen(false)
+                      closeDelegate()
                       setEditMessage('')
                       setEditCreatorId(query.data.creator.id)
                       if (editOpen) clearDirty('edit')
+                      else setEditPhotos(placedPhotos(query.data.photoLayout, query.data.attachments).map(({ placement, file }) => (
+                        placementToPhoto(placement, file, apiUrl(`/files/${encodeURIComponent(file.id)}/download?inline=true`))
+                      )))
                       setEditOpen((value) => !value)
                     }}
                   >
@@ -1410,16 +1453,45 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 </div>
               </details>
             </div>
+            </div>
+            <div className="task-detail-heading__body">
+              <h2 className={editOpen ? 'sr-only' : undefined}>{query.data.title}</h2>
+              {editOpen ? <label className="task-detail-title-field">
+                <span className="sr-only">Назва</span>
+                <textarea
+                  form="task-edit-form"
+                  name="title"
+                  rows={1}
+                  defaultValue={query.data.title}
+                  maxLength={180}
+                  required
+                  onChange={(event) => {
+                    const singleLine = event.currentTarget.value.replace(/\r?\n/g, ' ')
+                    if (singleLine !== event.currentTarget.value) event.currentTarget.value = singleLine
+                    markDirty('edit')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }}
+                />
+              </label> : <InlinePhotoCanvas photos={placedPhotos(query.data.photoLayout, query.data.attachments)} renderPhoto={(file) => <TaskInlinePhoto attachment={file} />}>
+                <FormattedText body={query.data.description || (query.data.photoLayout?.length ? '' : 'Опис не додано.')} />
+              </InlinePhotoCanvas>}
+            </div>
           </div>
-          {delegateOpen && <form className="task-edit-form" onSubmit={(event) => { event.preventDefault(); delegateTask.mutate() }}>
-            <UserSearchCombobox label="Новий відповідальний" value={delegateId} onChange={setDelegateId} excludeIds={[query.data.assignee.id]} />
-            <p className="muted">Попередній відповідальний залишиться спостерігачем завдання.</p>
-            {delegateError && <p role="alert">{delegateError}</p>}
-            <div className="form-actions"><Button type="button" variant="ghost" onClick={() => setDelegateOpen(false)}>Скасувати</Button><Button disabled={!delegateId || delegateTask.isPending}>Делегувати</Button></div>
+          {delegateOpen && <form className="task-delegate-form" onSubmit={(event) => { event.preventDefault(); delegateTask.mutate() }}>
+            <div className="task-delegate-form__row">
+              <UserSearchCombobox label="Новий відповідальний" value={delegateId} onChange={setDelegateId} excludeIds={[query.data.assignee.id]} />
+              <div className="form-actions"><Button type="button" variant="ghost" onClick={closeDelegate}>Скасувати</Button><Button disabled={!delegateId || delegateTask.isPending}>Делегувати</Button></div>
+            </div>
+            {delegateError && <div className="form-error" role="alert">{delegateError}</div>}
           </form>}
           {editOpen && (
             <form
-              className="task-edit-form"
+              id="task-edit-form"
+              className="task-edit-form task-edit-form--inline"
               onChange={() => markDirty('edit')}
               onSubmit={(event) => {
                 event.preventDefault()
@@ -1429,6 +1501,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 updateTask.mutate({
                   title: String(form.get('title') ?? ''),
                   description: String(form.get('description') ?? ''),
+                  photoLayout: toPhotoLayout(editPhotos),
                   assigneeId: String(form.get('assigneeId') ?? query.data.assignee.id),
                   creatorId: creatorId || undefined,
                   deadline: deadline ? new Date(deadline).toISOString() : null,
@@ -1439,35 +1512,27 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 })
               }}
             >
-              <div className="task-edit-form__intro">
-                <strong>Редагування завдання</strong>
-              </div>
-              <label className="span-2">
-                <span>
-                  Назва <span aria-hidden="true">*</span>
-                </span>
-                <input
-                  name="title"
-                  defaultValue={query.data.title}
-                  maxLength={180}
-                  required
-                  autoFocus
-                />
-              </label>
-              <div className="span-2"><FormattedTextarea label="Опис"
+              <div className="span-2"><InlinePhotoEditor photos={editPhotos} disabled={updateTask.isPending}
+                onRemove={(photoId) => { setEditPhotos((current) => current.filter((photo) => photo.id !== photoId)); markDirty('edit') }}
+                onUpdate={(photoId, placement) => { setEditPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, ...placement } : photo)); markDirty('edit') }}
+              ><FormattedTextarea label="Опис"
                   candidateUrl={`/tasks/${id}/mention-candidates`}
-                  onPhotos={(files) => void uploadFiles(files, false)}
-                  photosDisabled={!canAttachFiles || uploadAttachment.isPending}
+                  toolbarActions={<InlinePhotoButton disabled={!canAttachFiles || stageEditPhoto.isPending || updateTask.isPending} onFiles={(files) => void placeEditPhotos(files)} />}
+                  onPasteImages={(files) => { if (canAttachFiles && !stageEditPhoto.isPending && !updateTask.isPending) void placeEditPhotos(files) }}
                   name="description"
                   defaultValue={query.data.description}
-                  rows={4}
+                  rows={3}
                   maxLength={20000}
                   placeholder="Опис завдання"
-                />
+                /></InlinePhotoEditor>
               </div>
               <input type="hidden" name="assigneeId" value={query.data.assignee.id} />
               {query.data.canTransferCreator && <input type="hidden" name="creatorId" value={editCreatorId} />}
-              <div className="task-edit-form__workflow span-2">
+              {editMessage && (
+                <div className="form-error span-2" role="alert">{editMessage}</div>
+              )}
+              <div className="task-edit-form__footer span-2">
+              <div className="task-edit-form__workflow">
                 <label>
                   <span className="task-edit-field-label"><Flag size={14} aria-hidden="true" />Пріоритет</span>
                   <select name="priority" defaultValue={query.data.priority}>
@@ -1493,10 +1558,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   <input name="requiresAcceptance" type="checkbox" defaultChecked={query.data.requiresAcceptance} />
                 </label>
               </div>
-              {editMessage && (
-                <div className="form-error span-2" role="alert">{editMessage}</div>
-              )}
-              <div className="form-actions span-2">
+              <div className="form-actions">
                 <Button
                   type="button"
                   variant="ghost"
@@ -1507,9 +1569,10 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                 >
                   Скасувати
                 </Button>
-                <Button disabled={updateTask.isPending}>
+                <Button disabled={updateTask.isPending || stageEditPhoto.isPending}>
                   Зберегти зміни
                 </Button>
+              </div>
               </div>
             </form>
           )}
@@ -2346,7 +2409,6 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                       deadline: deadline ? new Date(deadline).toISOString() : undefined,
                       priority: String(form.get('priority') ?? 'MEDIUM'),
                       expectedVersion: query.data.version,
-                      ...(subtaskPhotos.length ? { attachmentIds: subtaskPhotos.map((file) => file.id) } : {}),
                     })
                   }}
                 >
@@ -2386,19 +2448,12 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                   </label>
                   <div className="span-2"><FormattedTextarea label="Опис"
                       candidateUrl={`/tasks/${id}/mention-candidates`}
-                      onPhotos={(files) => { void (async () => {
-                        for (const file of files.slice(0, 10 - subtaskPhotos.length)) await subtaskPhotoUpload.mutateAsync(file).catch(() => undefined)
-                      })() }}
-                      photosDisabled={subtaskPhotoUpload.isPending || subtaskPhotos.length >= 10}
                       name="description"
                       rows={3}
                       maxLength={20000}
                       placeholder="Опис завдання"
                     />
                   </div>
-                  {subtaskPhotos.length > 0 && <ul className="span-2" aria-label="Фото підзадачі">{subtaskPhotos.map((file) => <li key={file.id}>{file.fileName}
-                    <button type="button" aria-label={`Прибрати ${file.fileName}`} onClick={() => setSubtaskPhotos((current) => current.filter((item) => item.id !== file.id))}><X size={14} /></button>
-                  </li>)}</ul>}
                   {subtaskError && (
                     <div className="form-error span-2" role="alert">{subtaskError}</div>
                   )}
@@ -2413,7 +2468,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
                     >
                       Скасувати
                     </Button>
-                    <Button disabled={createSubtask.isPending || subtaskPhotoUpload.isPending}>
+                    <Button disabled={createSubtask.isPending}>
                       <CirclePlus size={16} />
                       Створити підзадачу
                     </Button>
@@ -2443,7 +2498,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               label="Відповідальний"
               person={query.data.assignee}
               canChange={editOpen && query.data.canReassign && query.data.status !== 'IN_REVIEW'}
-              onChange={(userId) => reassignResponsible.mutate(userId)}
+              onChange={(person) => setPersonAction({ kind: 'assign', person })}
             />
             <TaskParticipantGroup
               label="Співвиконавці"
@@ -2458,16 +2513,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               ]}
               addPending={addParticipant.isPending}
               removePending={removeParticipant.isPending}
-              onAdd={(userId) => addParticipant.mutate({
-                userId,
-                role: 'CO_EXECUTOR',
-                expectedVersion: query.data.version,
-              })}
-              onRemove={(userId) => removeParticipant.mutate({
-                userId,
-                role: 'CO_EXECUTOR',
-                expectedVersion: query.data.version,
-              })}
+              onAdd={(person) => setPersonAction({ kind: 'add', person, role: 'CO_EXECUTOR' })}
+              onRemove={(person) => setPersonAction({ kind: 'remove', person, role: 'CO_EXECUTOR' })}
             />
             <TaskParticipantGroup
               label="Спостерігачі"
@@ -2482,16 +2529,8 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
               ]}
               addPending={addParticipant.isPending}
               removePending={removeParticipant.isPending}
-              onAdd={(userId) => addParticipant.mutate({
-                userId,
-                role: 'OBSERVER',
-                expectedVersion: query.data.version,
-              })}
-              onRemove={(userId) => removeParticipant.mutate({
-                userId,
-                role: 'OBSERVER',
-                expectedVersion: query.data.version,
-              })}
+              onAdd={(person) => setPersonAction({ kind: 'add', person, role: 'OBSERVER' })}
+              onRemove={(person) => setPersonAction({ kind: 'remove', person, role: 'OBSERVER' })}
             />
             {participantMessage && (
               <p className="task-participant-message" aria-live="polite">{participantMessage}</p>
@@ -2501,6 +2540,19 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
         )}
       </TaskDetailLayout>
+      {personAction && query.data && <ConfirmationDialog
+        {...taskPersonActionCopy(personAction, personName(query.data.assignee.displayName))}
+        onRequestClose={() => setPersonAction(null)}
+        onConfirm={() => {
+          setPersonAction(null)
+          if (personAction.kind === 'assign') {
+            reassignResponsible.mutate(personAction.person.id)
+            return
+          }
+          const participant = personAction.kind === 'add' ? addParticipant : removeParticipant
+          participant.mutate({ userId: personAction.person.id, role: personAction.role, expectedVersion: query.data.version })
+        }}
+      />}
       <UnsavedChangesDialog
         guard={closeGuard}
         title="Повернутися до списку завдань?"
@@ -2625,6 +2677,16 @@ function TaskAttachment({
   )
 }
 
+function TaskInlinePhoto({ attachment }: { attachment: TaskAttachmentView }) {
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const status = useQuery(taskFileStatusOptions(attachment))
+  const scanStatus = status.data?.scanStatus ?? attachment.scanStatus
+  return <>
+    <button type="button" aria-label={`Переглянути ${attachment.fileName}`} disabled={scanStatus !== 'CLEAN'} onClick={() => setPreviewOpen(true)}><FileThumbnail file={{ ...attachment, scanStatus }} /></button>
+    {previewOpen && <FilePreviewModal file={attachment} onClose={() => setPreviewOpen(false)} />}
+  </>
+}
+
 function TaskSingleRoleCard({
   label,
   person,
@@ -2635,7 +2697,7 @@ function TaskSingleRoleCard({
   label: 'Постановник' | 'Відповідальний'
   person: TaskDetailView['reporter']
   canChange?: boolean
-  onChange?: (userId: string) => void
+  onChange?: (person: TaskRolePerson) => void
   children?: ReactNode
 }) {
   const headingId = label === 'Постановник' ? 'task-reporter' : 'task-responsible'
@@ -2650,14 +2712,16 @@ function TaskSingleRoleCard({
         <strong>{personName(person.displayName)}</strong>
       </UserProfileLink>
       {canChange && onChange && (
+        <div className="task-role-card__add">
           <UserSearchCombobox
             label="Змінити відповідального"
             value=""
             clearOnSelect
             placeholder="Почніть вводити ім’я"
             excludeIds={[person.id]}
-            onChange={(userId) => { if (userId) onChange(userId) }}
+            onSelect={onChange}
           />
+        </div>
       )}
       {children}
     </section>
@@ -2684,8 +2748,8 @@ function TaskParticipantGroup({
   excludedUserIds: string[]
   addPending: boolean
   removePending: boolean
-  onAdd: (userId: string) => void
-  onRemove: (userId: string) => void
+  onAdd: (person: TaskRolePerson) => void
+  onRemove: (person: TaskRolePerson) => void
 }) {
   const headingId = `task-role-${role.toLowerCase()}`
   return (
@@ -2713,7 +2777,7 @@ function TaskParticipantGroup({
                   className="task-participant-remove"
                   aria-label={`Вилучити ${personName(participant.user.displayName)} з ролі «${label}»`}
                   disabled={removePending}
-                  onClick={() => onRemove(participant.user.id)}
+                  onClick={() => onRemove(participant.user)}
                 >
                   <X size={15} />
                 </button>
@@ -2733,7 +2797,7 @@ function TaskParticipantGroup({
             disabled={addPending}
             placeholder="Почніть вводити ім’я"
             excludeIds={excludedUserIds}
-            onChange={(userId) => { if (userId && !addPending) onAdd(userId) }}
+            onSelect={(person) => { if (!addPending) onAdd(person) }}
           />
         </div>
       )}

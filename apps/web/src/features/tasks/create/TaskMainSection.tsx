@@ -3,6 +3,11 @@ import { FormattedTextarea } from '../../../shared/text/FormattedTextarea'
 import { useMutation } from '@tanstack/react-query'
 import { CalendarDays, CalendarClock, Flag, FilePlus2, Plus, Trash2 } from 'lucide-react'
 import { useCallback, useState, type CSSProperties, type RefObject } from 'react'
+import { FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
+import { apiUrl } from '../../../shared/api/client'
+import { InlinePhotoButton, useObjectUrls } from '../../../shared/inline-photos/InlinePhotoButton'
+import { InlinePhotoEditor } from '../../../shared/inline-photos/InlinePhotoEditor'
+import { imageRatio, initialPlacement } from '../../../shared/inline-photos/inlinePhotos'
 import { Button } from '../../../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
@@ -42,6 +47,30 @@ export function TaskBasicsSection({
       await upload.mutateAsync(file).catch(() => undefined)
     }
   }, [freeAttachmentSlots, upload])
+  const objectUrl = useObjectUrls()
+  const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({})
+  const placePhotos = async (files: File[]) => {
+    const photos = files.filter((file) => FEED_PHOTO_MIME_TYPES.some((mime) => mime === file.type))
+    for (const file of photos.slice(0, freeAttachmentSlots)) {
+      const attachment = await upload.mutateAsync(file).catch(() => null)
+      if (!attachment) continue
+      const src = objectUrl(file)
+      const ratio = await imageRatio(src)
+      setPhotoPreviews((current) => ({ ...current, [attachment.id]: src }))
+      update((current) => ({
+        ...current,
+        photoPlacements: [...current.photoPlacements, { id: attachment.id, ratio, ...initialPlacement(current.photoPlacements.length) }],
+      }))
+    }
+  }
+  const inlinePhotos = draft.photoPlacements.flatMap((photo) => {
+    const attachment = draft.attachments.find((item) => item.id === photo.id)
+    return attachment ? [{
+      ...photo,
+      name: attachment.fileName,
+      src: photoPreviews[photo.id] ?? apiUrl(`/files/${encodeURIComponent(photo.id)}/download?inline=true`),
+    }] : []
+  })
   const { isDragging, dropTargetProps } = useFileDropTarget({
     disabled: upload.isPending || freeAttachmentSlots <= 0,
     onFiles: (files) => void uploadFiles(files),
@@ -80,10 +109,16 @@ export function TaskBasicsSection({
             }))}
           />
         </label>
-        <div className="span-2"><FormattedTextarea label="Опис"
+        <div className="span-2"><InlinePhotoEditor photos={inlinePhotos} disabled={upload.isPending}
+          onRemove={(photoId) => update((current) => ({ ...current, photoPlacements: current.photoPlacements.filter((photo) => photo.id !== photoId) }))}
+          onUpdate={(photoId, placement) => update((current) => ({
+            ...current,
+            photoPlacements: current.photoPlacements.map((photo) => photo.id === photoId ? { ...photo, ...placement } : photo),
+          }))}
+        ><FormattedTextarea label="Опис"
             candidateUrl="/employees"
-            onPhotos={(files) => void uploadFiles(files)}
-            photosDisabled={upload.isPending || freeAttachmentSlots <= 0}
+            toolbarActions={<InlinePhotoButton disabled={upload.isPending || freeAttachmentSlots <= 0} onFiles={(files) => void placePhotos(files)} />}
+            onPasteImages={(files) => { if (!upload.isPending && freeAttachmentSlots > 0) void placePhotos(files) }}
             value={draft.description}
             rows={10}
             maxLength={20_000}
@@ -92,7 +127,7 @@ export function TaskBasicsSection({
               ...current,
               description: event.target.value,
             }))}
-          />
+          /></InlinePhotoEditor>
         </div>
       </div>
       <div className="task-create-attachments-layout">
@@ -135,6 +170,7 @@ export function TaskBasicsSection({
                     onClick={() => update((current) => ({
                       ...current,
                       attachments: current.attachments.filter((item) => item.id !== attachment.id),
+                      photoPlacements: current.photoPlacements.filter((photo) => photo.id !== attachment.id),
                     }))}
                   >
                     <Trash2 size={15} />

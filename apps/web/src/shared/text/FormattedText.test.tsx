@@ -137,6 +137,13 @@ it('keeps nested sizes and rejects unsupported formatting values', () => {
   expect(container.textContent).toContain('[align=evil]текст[/align]')
 })
 
+it('lets every formatted editor change its height with the shared handle', () => {
+  const { rerender } = render(<FormattedTextarea id="body" label="Опис" />)
+  expect(screen.getByRole('separator', { name: 'Змінити висоту редактора', hidden: true })).toHaveAttribute('aria-controls', 'body')
+  rerender(<FormattedTextarea id="body" label="Опис" disabled />)
+  expect(screen.queryByRole('separator', { name: 'Змінити висоту редактора' })).not.toBeInTheDocument()
+})
+
 it('offers sizes 10 through 36 and places undo and redo last', () => {
   render(<FormattedTextarea label="Опис" />)
   expect(screen.getAllByRole('option')).toHaveLength(27)

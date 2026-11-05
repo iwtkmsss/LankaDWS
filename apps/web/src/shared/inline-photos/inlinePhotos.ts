@@ -1,7 +1,7 @@
 import type { FeedPhotoPlacement } from '@lankadws/contracts'
 
 // Every placement coordinate is a fraction of the text block width, so a
-// layout drawn in the composer scales proportionally inside any feed card.
+// layout drawn in an editor scales proportionally wherever the text is shown.
 export interface InlinePhoto {
   id: string
   src: string
@@ -49,7 +49,7 @@ export function resizePhoto(rect: PhotoRect, ratio: number, bounds: PhotoBounds,
 }
 
 /** Serializes draft photos into the contract layout, keeping each photo inside the block. */
-export function toPhotoLayout(photos: InlinePhoto[]): FeedPhotoPlacement[] {
+export function toPhotoLayout(photos: Pick<InlinePhoto, 'id' | 'ratio' | 'x' | 'y' | 'width'>[]): FeedPhotoPlacement[] {
   return photos.map((photo) => {
     const width = clamp(photo.width, .05, 1)
     return {
@@ -65,6 +65,24 @@ export function toPhotoLayout(photos: InlinePhoto[]): FeedPhotoPlacement[] {
 /** Height of the placed photos, as a fraction of the block width. */
 export function layoutDepth(layout: Pick<FeedPhotoPlacement, 'y' | 'height'>[]): number {
   return layout.reduce((depth, placement) => Math.max(depth, placement.y + placement.height), 0)
+}
+
+/** The stored height keeps the photo proportions, so an editor can restore them. */
+export function placementToPhoto(placement: FeedPhotoPlacement, file: { id: string; fileName: string }, src: string): InlinePhoto {
+  return { id: file.id, name: file.fileName, src, ratio: placement.width / placement.height, x: placement.x, y: placement.y, width: placement.width }
+}
+
+const DEFAULT_RATIO = 4 / 3
+
+// Waits for the load event: image.decode() can stall while the page is in a background tab.
+export function imageRatio(src: string): Promise<number> {
+  const image = new Image()
+  if (typeof image.decode !== 'function') return Promise.resolve(DEFAULT_RATIO)
+  return new Promise((resolve) => {
+    image.onload = () => resolve(image.naturalWidth && image.naturalHeight ? image.naturalWidth / image.naturalHeight : DEFAULT_RATIO)
+    image.onerror = () => resolve(DEFAULT_RATIO)
+    image.src = src
+  })
 }
 
 function round(value: number) {

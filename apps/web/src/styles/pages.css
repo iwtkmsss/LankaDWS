@@ -575,6 +575,7 @@
 }
 .calendar-card {
   overflow: hidden;
+  container-type: inline-size;
 }
 /* Flex-wrap instead of a 1fr/auto/1fr grid: the scope tabs are wider than a
    third of the card on common desktop widths and used to slide under the
@@ -591,6 +592,15 @@
 .calendar-view-switch > .calendar-scope-tabs {
   min-width: 0;
   margin-left: auto;
+}
+.calendar-view-switch > .calendar-nav {
+  margin-inline: auto;
+}
+@container (min-width: 1150px) {
+  .calendar-view-switch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
 }
 .calendar-weekdays,
 .calendar-grid {
@@ -1144,9 +1154,6 @@
 .knowledge-feature input {
   background: transparent;
   color: #fff;
-}
-.knowledge-manage-button {
-  width: 208px;
 }
 .article-grid {
   display: grid;
@@ -3476,12 +3483,18 @@ button.organization-unassigned__person:focus-visible strong {
   display: flex;
   justify-content: flex-end;
 }
-.admin-org-panel-actions:has(+ .admin-org-company-header) {
+.admin-org-page .admin-org-panel-actions:has(+ header) {
   position: absolute;
   top: 13px;
   right: 13px;
 }
-.admin-org-company-header > .eyebrow {
+.admin-org-page .organization-map__panel > div > header h2 {
+  margin: var(--space-0_5) 0 var(--space-1);
+  font-size: 20px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.admin-org-page .organization-map__panel > div > header > .eyebrow {
   display: flex;
   align-items: center;
   min-height: 30px;
@@ -3630,7 +3643,91 @@ button.organization-unassigned__person:focus-visible strong {
 .organization-unit-stats dt { color: var(--fg-muted); font-size: var(--text-meta); white-space: nowrap; }
 .organization-unit-stats dd { margin: 0; color: var(--fg-strong); font-size: 18px; font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .admin-org-form {
-  margin-top: var(--space-1);
+  margin-top: var(--space-3);
+}
+.admin-org-page .organization-map__panel > div > header.admin-org-panel-header--title-in-form {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.admin-org-panel-header--title-in-form + .admin-org-form {
+  margin-top: var(--space-2);
+}
+.organization-panel-identity--title {
+  align-items: center;
+}
+.organization-panel-identity--title .organization-panel-symbol {
+  align-self: center;
+}
+.organization-panel-identity--title > label {
+  display: block;
+}
+.admin-org-page .organization-map__panel .entity-form .organization-panel-identity--title input {
+  width: 100%;
+  color: var(--fg-strong);
+  font-size: var(--text-body);
+  font-weight: var(--weight-bold);
+  text-overflow: ellipsis;
+}
+.organization-panel-identity .organization-panel-symbol--editable {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--cobalt-100);
+  color: var(--fg-link);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.organization-panel-identity .organization-panel-symbol--editable:hover:not(:disabled),
+.organization-panel-identity .organization-panel-symbol--editable[aria-expanded='true'] {
+  border-color: var(--fg-link);
+}
+.organization-panel-symbol--editable:focus-visible {
+  outline: 2px solid var(--cobalt-700);
+  outline-offset: 2px;
+}
+.organization-panel-symbol--editable:disabled {
+  cursor: progress;
+}
+.organization-panel-symbol__badge {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 2px solid var(--surface-raised);
+  border-radius: 50%;
+  background: var(--fg-link);
+  color: var(--surface-raised);
+}
+.admin-org-form .organization-unit-stats > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+}
+.admin-org-form .organization-unit-stats dd {
+  font-size: var(--text-ui);
+}
+.admin-org-employees-picker > .async-task-combobox > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.admin-org-form-footer {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  padding-block: var(--space-2);
+  background: var(--surface-raised);
+}
+.admin-org-form-footer > .button {
+  width: 100%;
 }
 .admin-org-person-picker {
   position: relative;
@@ -3728,10 +3825,20 @@ button.organization-unassigned__person:focus-visible strong {
 }
 .admin-org-danger:not([open]) {
   display: block;
-  padding: 0;
+  padding: var(--space-2) 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
 }
 .admin-org-danger:not([open]) > summary {
-  padding: var(--space-4);
+  width: fit-content;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-regular);
+}
+.admin-org-danger:not([open]) > summary:hover {
+  color: var(--danger);
 }
 .admin-org-danger[open] > summary {
   margin-bottom: var(--space-0_5);
@@ -3763,6 +3870,7 @@ button.organization-unassigned__person:focus-visible strong {
 }
 .admin-org-archive-mode legend {
   margin-bottom: var(--space-2);
+  padding: 0;
   color: var(--fg-body);
   font-size: var(--text-meta);
   font-weight: var(--weight-medium);
@@ -3774,7 +3882,7 @@ button.organization-unassigned__person:focus-visible strong {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
-  padding: var(--space-3);
+  padding: var(--space-2);
   cursor: pointer;
 }
 .admin-org-danger .admin-org-archive-mode > label.is-selected {
@@ -4022,6 +4130,9 @@ button.organization-unassigned__person:focus-visible strong {
   .calendar-view-switch > .calendar-scope-tabs {
     margin-left: 0;
   }
+  .calendar-view-switch > .calendar-nav {
+    align-self: center;
+  }
   .calendar-view-switch .tabs {
     width: 100%;
   }
@@ -4090,9 +4201,12 @@ button.organization-unassigned__person:focus-visible strong {
 /* Live feed */
 .feed-page {
   --feed-grid-gap: var(--space-4);
-  --feed-aside-width: max(230px, calc((100% - 4 * var(--feed-grid-gap)) / 5));
   display: grid;
   gap: var(--feed-grid-gap);
+}
+.feed-layout,
+.feed-overview .focus-panel {
+  --feed-aside-width: max(230px, calc((var(--feed-layout-width, 100%) - 4 * var(--feed-grid-gap)) / 5));
 }
 .overview-focus-frame {
   min-width: 0;
@@ -4326,7 +4440,7 @@ button.organization-unassigned__person:focus-visible strong {
 }
 .feed-attention {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-4);
 }
 .feed-attention > .feed-attention__actions {
   padding: var(--space-4);
@@ -4521,7 +4635,7 @@ button.organization-unassigned__person:focus-visible strong {
 /* Compact structure detail panels keep the full title above their counts. */
 .organization-map__panel .organization-unit-header { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
 .organization-panel-heading { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: var(--space-1) var(--space-3); padding-top: var(--space-2); }
-.organization-panel-heading__symbol { display: grid; width: 42px; height: 42px; place-items: center; align-self: start; border: 1px solid var(--cobalt-100); border-radius: 12px; background: var(--surface); color: var(--fg-link); }
+.organization-panel-heading__symbol { display: grid; width: 42px; height: 42px; place-items: center; align-self: start; border: 1px solid var(--cobalt-100); border-radius: 12px; background: var(--cobalt-100); color: var(--fg-link); }
 .organization-map__panel .organization-panel-heading .organization-panel-title { grid-column: 2; min-width: 0; margin: 0; font-size: var(--text-title); line-height: 1.3; overflow-wrap: anywhere; }
 .organization-panel-heading > p { grid-column: 2; min-width: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .organization-panel-section { min-width: 0; padding-top: var(--space-4); margin-top: var(--space-4); border-top: 1px solid var(--line); }
@@ -4539,8 +4653,6 @@ button.organization-unassigned__person:focus-visible strong {
 .organization-panel-identity > label { flex: 1; min-width: 0; }
 .organization-panel-symbol { display: grid; flex: 0 0 42px; align-self: flex-end; width: 42px; height: 42px; place-items: center; border-radius: 10px; color: var(--accent-solid); background: var(--surface-soft); }
 .organization-panel-visual-picker { min-width: 0; font-size: var(--text-meta); color: var(--fg-muted); }
-.organization-panel-visual-picker > summary { cursor: pointer; }
-.organization-panel-visual-picker[open] > summary { margin-bottom: var(--space-3); }
 .organization-map__panel .organization-panel-visual-picker .organization-icon-picker label > span { min-height: 44px; }
 .organization-map__panel .entity-form .organization-panel-section { margin-top: 0; }
 

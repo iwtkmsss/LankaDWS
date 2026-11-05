@@ -1,7 +1,9 @@
-import { notifyTaskParticipants } from './task-notifications.js'
+import { notifyTaskParticipants, settleTaskActions } from './task-notifications.js'
 import { Injectable, Optional } from '@nestjs/common'
 import { taskListSortExpressions, taskListSortQuery } from './task-list-sort.js'
 import {
+  taskPhotoLayoutSchema,
+  type FeedPhotoPlacement,
   type StructuredMentionInput,
   type StructuredMentionView,
   type PageResult,
@@ -18,6 +20,7 @@ import {
 } from '@lankadws/contracts'
 import type { EntityLink, FileObject, Prisma, Task } from '../../generated/prisma/client.js'
 import { id, sha256 } from '../../common/crypto.js'
+import { isLayoutPhoto, parsePhotoLayout, serializePhotoLayout } from '../../common/photo-layout.js'
 import { listReactionUsers } from '../../common/reaction-users.js'
 import type { ReactionUsersQuery } from '@lankadws/contracts'
 import {
@@ -103,6 +106,7 @@ export interface CreateSubtaskInput {
 export interface LegacyUpdateTaskInput {
   title: string
   description?: string
+  photoLayout?: unknown
   assigneeId: string
   creatorId?: string
   deadline?: string | null
@@ -552,6 +556,7 @@ export class TaskCompatibilityService {
       parentTaskId: task.parentTaskId,
       title: task.title,
       description: task.description,
+      photoLayout: parsePhotoLayout(task.photoLayout, taskAttachments),
       blockReason: task.blockReason,
       creator: task.reporter,
       assignee: primaryResponsible,
@@ -655,6 +660,36 @@ export class TaskCompatibilityService {
     }
   }
 
+  // A placed photo is either attached already or staged by the editor; staged
+  // photos become task attachments only when the edit is saved.
+  private async resolvePhotoLayout(
+    principal: AuthPrincipal,
+    task: { id: string; companyId: string },
+    input: unknown,
+  ): Promise<{ layout: FeedPhotoPlacement[]; stagedIds: string[] }> {
+    const parsed = taskPhotoLayoutSchema.safeParse(input)
+    if (!parsed.success) throw badRequest('task_photo_layout_invalid')
+    const fileIds = parsed.data.map((placement) => placement.fileId)
+    if (!fileIds.length) return { layout: parsed.data, stagedIds: [] }
+    const links = await this.prisma.fileLink.findMany({
+      where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', fileId: { in: fileIds } },
+      select: { fileId: true },
+    })
+    const linkedIds = new Set(links.map((link) => link.fileId))
+    const stagedIds = fileIds.filter((fileId) => !linkedIds.has(fileId))
+    if (stagedIds.length) {
+      await this.files.assertTaskStagedAttachments(principal, task.companyId, stagedIds, 'task_photo_layout_invalid')
+    }
+    const files = await this.prisma.fileObject.findMany({
+      where: { id: { in: fileIds } },
+      select: { detectedMime: true, declaredMime: true },
+    })
+    if (files.length !== fileIds.length || !files.every(isLayoutPhoto)) {
+      throw badRequest('task_photo_layout_invalid')
+    }
+    return { layout: parsed.data, stagedIds }
+  }
+
   async updateLegacy(
     principal: AuthPrincipal,
     taskId: string,
@@ -672,6 +707,12 @@ export class TaskCompatibilityService {
     if (!title || title.length > 200) throw badRequest('task_title')
     if (description.length > 20_000) throw badRequest('task_description')
     if (blockReason.length > 1_000) throw badRequest('task_block_reason')
+    const resolvedPhotos = input.photoLayout === undefined ? undefined : await this.resolvePhotoLayout(principal, task, input.photoLayout)
+    const photoLayout = resolvedPhotos?.layout
+    const stagedPhotoIds = resolvedPhotos?.stagedIds ?? []
+    const serializedPhotoLayout = photoLayout && serializePhotoLayout(photoLayout)
+    const descriptionChanged = description !== task.description
+      || (photoLayout !== undefined && serializedPhotoLayout !== task.photoLayout)
     const priority = this.normalizePriority(input.priority)
     if (!priority) throw badRequest('task_priority')
     const dueAt = input.deadline ? new Date(input.deadline) : null
@@ -702,7 +743,7 @@ export class TaskCompatibilityService {
     }
     const changedFields = [
       ...(title !== task.title ? ['title'] : []),
-      ...(description !== task.description ? ['description'] : []),
+      ...(descriptionChanged ? ['description'] : []),
       ...(currentResponsible?.role !== 'RESPONSIBLE' || currentResponsible.removedAt
         ? ['assignee']
         : []),
@@ -715,11 +756,26 @@ export class TaskCompatibilityService {
         : []),
     ]
     await this.prisma.$transaction(async (tx) => {
+      if (stagedPhotoIds.length) {
+        const [attachmentCount, alreadyLinked] = await Promise.all([
+          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT' } }),
+          tx.fileLink.findFirst({ where: { fileId: { in: stagedPhotoIds } }, select: { id: true } }),
+        ])
+        if (alreadyLinked) throw badRequest('task_photo_layout_invalid')
+        if (attachmentCount + stagedPhotoIds.length > 20) throw badRequest('task_attachment_limit')
+        await this.files.retainStagedAttachments(tx, principal, stagedPhotoIds)
+        await tx.fileLink.createMany({
+          data: stagedPhotoIds.map((fileId) => ({
+            id: id('fln'), fileId, entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', aclMode: 'ENTITY',
+          })),
+        })
+      }
       const result = await tx.task.updateMany({
         where: { id: task.id, version: input.expectedVersion },
         data: {
           title,
           description,
+          ...(photoLayout === undefined ? {} : { photoLayout: serializedPhotoLayout }),
           reporterId,
           dueAt,
           priority,
@@ -758,7 +814,7 @@ export class TaskCompatibilityService {
         changedFields,
         changes: {
           ...(title !== task.title ? { title } : {}),
-          ...(description !== task.description ? { description: true } : {}),
+          ...(descriptionChanged ? { description: true } : {}),
           ...(currentResponsible?.role !== 'RESPONSIBLE' || currentResponsible.removedAt
             ? { assigneeId: input.assigneeId, assigneeName: users.find((user) => user.id === input.assigneeId)?.displayName }
             : {}),
@@ -809,6 +865,7 @@ export class TaskCompatibilityService {
       reminders: [],
       recurrence: null,
       attachmentIds: [...new Set(input.attachmentIds ?? [])],
+      photoLayout: [],
     }, idempotencyKey, { expectedParentVersion: input.expectedVersion })
     const currentParent = await this.prisma.task.findUniqueOrThrow({
       where: { id: parent.id },
@@ -1175,6 +1232,7 @@ export class TaskCompatibilityService {
         },
       })
       if (!result.count) throw conflict('task_version')
+      await settleTaskActions(tx, task.id)
       if (nextStatus === 'IN_REVIEW') {
         const last = await tx.taskApprovalRound.aggregate({ where: { taskId }, _max: { roundNumber: true } })
         await tx.taskApprovalRound.create({
@@ -1323,11 +1381,14 @@ export class TaskCompatibilityService {
         })
       }
       await this.files.markAttachmentsRetained(tx, [...linkedIds])
+      // Only an administrator can comment without being on the task. Having joined
+      // the discussion, they follow it from then on, like the people mentioned in it.
+      const commentingAdminId = isGlobalAdmin(principal) && task.reporterId !== principal.userId ? [principal.userId] : []
       const addedWatcherIds = await this.participants.ensureMentionWatchers(
         tx,
         principal,
         task,
-        mentionedUserIds,
+        [...mentionedUserIds, ...commentingAdminId],
       )
       const comment = await tx.comment.create({
         data: {
@@ -1505,7 +1566,7 @@ export class TaskCompatibilityService {
         await tx.taskCommentReaction.deleteMany({ where: { commentId: comment.id, userId: principal.userId, kind: 'LIKE' } })
       }
       const updated = await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } } })
-      await notifyTaskParticipants(tx, taskId, principal.userId, updated.version, 'task.reaction_changed')
+      if (liked) await notifyTaskParticipants(tx, taskId, principal.userId, updated.version, 'task.reaction_changed', { commentAuthorId: comment.authorId })
     })
     this.realtime?.publishSummary([task.createdById, task.reporterId, comment.authorId], ['notifications', 'feed'])
     const [likeCount, ownReaction] = await Promise.all([
@@ -1615,6 +1676,7 @@ export class TaskCompatibilityService {
       )
       await this.recordEvent(tx, principal, task, 'task.comment_updated', updatedTask.version, {
         commentId: comment.id,
+        commentVersion: input.expectedVersion + 1,
         mentionCount: mentionedUserIds.length,
         watcherAddedCount: addedWatcherIds.length,
       })

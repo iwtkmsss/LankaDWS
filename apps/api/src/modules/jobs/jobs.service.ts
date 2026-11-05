@@ -663,7 +663,7 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
           safeSnippet: `${task.number} · ${task.title}`.slice(0, 180),
           entityType: 'TASK',
           entityId: task.id,
-          requiresAction: true,
+          requiresAction: false,
           deliveredAt: new Date(),
           dedupeKey: `task-reminder:${reminder.id}:${reminderUserId}`,
         },

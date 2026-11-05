@@ -27,6 +27,7 @@ export function loadTaskDraft(key: string): TaskCreateDraft | null {
       attachments: stored.value.attachments.filter((attachment) => (
         Date.now() - new Date(attachment.stagedAt).getTime() < attachmentLifetimeMs
       )),
+      photoPlacements: stored.value.photoPlacements ?? [],
     }
   } catch {
     localStorage.removeItem(key)

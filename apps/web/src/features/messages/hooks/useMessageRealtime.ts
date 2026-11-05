@@ -2,6 +2,7 @@ import { chatRealtimeEventSchema, realtimeSummaryChangedSchema } from '@lankadws
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { apiUrl } from '../../../shared/api/client'
+import { hasVisibleOpenTask } from '../../notifications/useEntityNotificationRead'
 import { getMessage, getThreadPreview } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
 import { upsertMessageCache, upsertThreadPreview } from '../lib/messageCache'
@@ -104,19 +105,25 @@ export function useMessageRealtime(enabled = true, userId?: string): boolean {
       }
       const parsed = realtimeSummaryChangedSchema.safeParse(payload)
       if (!parsed.success) return
+      // An open, visible task reads its notifications as soon as it reloads, and
+      // useEntityNotificationRead then refreshes the counters. Refreshing them
+      // here as well would flash an update the person is already looking at.
+      const countersFollowTaskRead = parsed.data.kinds.includes('notifications') && hasVisibleOpenTask()
       const invalidations = parsed.data.kinds.flatMap((kind) => {
         if (kind === 'messages') {
           return [client.invalidateQueries({ queryKey: [...messageKeys.all, 'threads'] })]
         }
         if (kind === 'feed') {
-          return [
+          return countersFollowTaskRead ? [] : [
             client.invalidateQueries({ queryKey: ['feed'] }),
             client.invalidateQueries({ queryKey: ['feed', 'summary'] }),
           ]
         }
         return [
-          client.invalidateQueries({ queryKey: ['notifications'] }),
-          client.invalidateQueries({ queryKey: ['feed'] }),
+          ...(countersFollowTaskRead ? [] : [
+            client.invalidateQueries({ queryKey: ['notifications'] }),
+            client.invalidateQueries({ queryKey: ['feed'] }),
+          ]),
           client.invalidateQueries({ queryKey: ['task'] }),
           client.invalidateQueries({ queryKey: ['task-activity'] }),
         ]

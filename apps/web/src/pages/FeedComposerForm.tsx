@@ -18,8 +18,8 @@ import {
   Send,
 } from 'lucide-react'
 import { FEED_COMMENT_PHOTO_LIMIT, FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
-import { FeedInlinePhotoEditor } from '../features/feed/FeedInlinePhotoEditor'
-import { initialPlacement, toPhotoLayout, type InlinePhoto } from '../features/feed/feedInlinePhotos'
+import { InlinePhotoEditor } from '../shared/inline-photos/InlinePhotoEditor'
+import { imageRatio, initialPlacement, toPhotoLayout, type InlinePhoto } from '../shared/inline-photos/inlinePhotos'
 import { feedPhotoError } from '../features/feed/useFeedCommentPhotos'
 import { FeedFileRow } from '../features/feed/FeedCardDesign'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
@@ -263,7 +263,7 @@ export function FeedComposerForm({
   return (
     <form className="feed-composer stream-composer is-file-drop-target" onSubmit={submit} {...dropTargetProps}>
       <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб прикріпити до публікації" />
-      <FeedInlinePhotoEditor photos={photoPreviews} disabled={busy} onRemove={removeAttachment}
+      <InlinePhotoEditor photos={photoPreviews} disabled={busy} onRemove={removeAttachment}
         onUpdate={(id, placement) => setPhotoPreviews((current) => current.map((photo) => photo.id === id ? { ...photo, ...placement } : photo))}>
         <MentionTextarea formatting className="feed-composer__body" label="Текст публікації" value={body}
           mentions={mentions} candidateUrl={mentionCandidateUrl} maxLength={10000} rows={5}
@@ -271,7 +271,7 @@ export function FeedComposerForm({
           toolbarActions={<button type="button" className="stream-composer__insert-photo" aria-label="Вставити фото" title="Вставити фото · до 5 фото · до 10 МБ" disabled={busy || attachmentCount >= 10} onClick={() => photoInput.current?.click()}><ImagePlus size={16} /></button>}
           onPaste={(event) => { const files = Array.from(event.clipboardData.files); if (files.length) { event.preventDefault(); selectPhotos(files) } }}
           onChange={(nextBody, nextMentions) => { setBody(nextBody); setMentions(nextMentions) }} />
-      </FeedInlinePhotoEditor>
+      </InlinePhotoEditor>
       <input ref={photoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} disabled={busy || attachmentCount >= 10} aria-label="Фото в публікацію" onChange={(event) => { selectPhotos(Array.from(event.target.files ?? [])); event.target.value = '' }} />
       {(pendingFiles.length > 0 || attachments.some((file) => !photoPreviews.some((photo) => photo.id === file.id))) && <section className="stream-composer__files" aria-label="Додані файли">
         {pendingFiles.map((file, index) => <div key={index}><FileFormatIcon mimeType={file.type} fileName={file.name} size={24} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)} · очікує вибору аудиторії</small></span><IconButton label={'Прибрати ' + file.name} disabled={busy} onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}><X size={15} /></IconButton></div>)}
@@ -319,17 +319,6 @@ export function FeedComposerForm({
       )}
     </form>
   )
-}
-
-async function imageRatio(src: string): Promise<number> {
-  try {
-    const image = new Image()
-    image.src = src
-    await image.decode()
-    return image.naturalWidth && image.naturalHeight ? image.naturalWidth / image.naturalHeight : 4 / 3
-  } catch {
-    return 4 / 3
-  }
 }
 
 export function formatBytes(bytes: number): string {

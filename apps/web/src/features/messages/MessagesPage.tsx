@@ -295,11 +295,13 @@ export function MessagesPage() {
     const marker = threadId && lastMessageId && !highlightedMessageId
       ? `${threadId}:${lastMessageId}:${messages.map((message) => `${message.id}:${message.version}:${message.reactions.likeCount}`).join('|')}`
       : ''
+    // An administrator can read a chat without being in it, and has no read position there.
     if (!marker || markedReadRef.current === marker || !documentVisible
+      || !detail.data?.participants.some((participant) => participant.id === user?.id)
       || !messages.some((message) => message.id === lastMessageId)) return
     markedReadRef.current = marker
     markRead.mutate(lastMessageId!)
-  }, [detail.data?.lastMessageId, highlightedMessageId, threadId, messages, documentVisible])
+  }, [detail.data?.lastMessageId, detail.data?.participants, highlightedMessageId, threadId, messages, documentVisible, user?.id])
 
   useEffect(() => {
     setReplyTo(null)

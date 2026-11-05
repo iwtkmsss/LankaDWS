@@ -1,8 +1,9 @@
-import { notifyTaskParticipants } from './task-notifications.js'
+import { notifyTaskParticipants, settleTaskActions } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import type { CreateTaskInput, UpdateTaskInput } from '@lankadws/contracts'
 import { id, sha256 } from '../../common/crypto.js'
 import { badRequest, conflict } from '../../common/errors.js'
+import { isLayoutPhoto, serializePhotoLayout } from '../../common/photo-layout.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
@@ -68,6 +69,17 @@ export class TaskCommandService {
       ),
     ])
 
+    const placedIds = input.photoLayout.map((placement) => placement.fileId)
+    if (placedIds.length) {
+      const placed = await this.prisma.fileObject.findMany({
+        where: { id: { in: placedIds } },
+        select: { detectedMime: true, declaredMime: true },
+      })
+      if (placed.length !== placedIds.length || !placed.every(isLayoutPhoto)) {
+        throw badRequest('task_photo_layout_invalid')
+      }
+    }
+
     const taskId = id('tsk')
     const number = await this.taskNumbers.runInTransaction(
       this.prisma,
@@ -82,6 +94,7 @@ export class TaskCommandService {
           number: allocatedNumber,
           title: input.title,
           description: input.description,
+          photoLayout: serializePhotoLayout(input.photoLayout),
           createdById: principal.userId,
           reporterId: context.reporterId,
           priority: input.priority,
@@ -361,6 +374,7 @@ export class TaskCommandService {
         },
       })
       if (!result.count) throw conflict('task_version')
+      await settleTaskActions(tx, taskId)
       await tx.taskApprovalRound.updateMany({
         where: { taskId, status: 'PENDING' },
         data: {

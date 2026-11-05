@@ -478,6 +478,7 @@ test('task role views explain why a task is visible and participant management s
   await participantSection
     .getByRole('button', { name: new RegExp(`Вилучити ${participantName}`) })
     .click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Вилучити' }).click()
   await expect(page.getByText('Учасника вилучено.')).toBeVisible()
   await expect(participantChip).toHaveCount(0)
 })

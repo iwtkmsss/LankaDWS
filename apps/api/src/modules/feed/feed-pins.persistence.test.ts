@@ -87,6 +87,15 @@ it('persists private pins across revisions and paginates back into the regular t
   expect((await service.list(viewer, feedListQuerySchema.parse({}))).items.map((item) => item.id)).toEqual(['new', 'old'])
 })
 
+it('shows an administrator only the task cards addressed to them', async () => {
+  await prisma.user.create({ data: { id: 'boss', workspaceId: 'workspace', displayName: 'boss', normalizedDisplayName: 'boss',
+    username: 'boss', normalizedUsername: 'boss', accountType: 'ADMIN' } })
+  const admin = { ...viewer, userId: 'boss', accountType: 'ADMIN' } as AuthPrincipal
+  expect((await service.list(admin, feedListQuerySchema.parse({}))).items).toEqual([])
+  await prisma.feedItemRecipient.create({ data: { id: 'new_1_boss', itemId: 'new_1', userId: 'boss' } })
+  expect((await service.list(admin, feedListQuerySchema.parse({}))).items.map((item) => item.id)).toEqual(['new'])
+})
+
 it('never treats a pin as an access grant after audience or company access is revoked', async () => {
   await service.setTaskPinned(viewer, 'old', true)
   await prisma.taskParticipant.updateMany({ where: { taskId: 'old', userId: viewer.userId }, data: { removedAt: new Date() } })

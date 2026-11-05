@@ -271,6 +271,7 @@ test('optional options failures stay local and do not block basic task creation'
     reminders: [],
     recurrence: null,
     attachmentIds: [],
+    photoLayout: [],
   })
   expect(payload.participants).toEqual([
     { userId: 'usr_maria', role: 'RESPONSIBLE' },

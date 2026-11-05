@@ -51,7 +51,7 @@ export async function deliverCalendarReminder(prisma: PrismaService, eventId: st
     await tx.notification.upsert({ where: { dedupeKey }, create: {
       id: id('ntf'), recipientId: event.ownerId, category: 'CALENDAR',
       safeTitle: 'Нагадування про подію', safeSnippet: event.title.slice(0, 180),
-      entityType: 'EVENT', entityId: event.id, requiresAction: true, deliveredAt: new Date(), dedupeKey,
+      entityType: 'EVENT', entityId: event.id, requiresAction: false, deliveredAt: new Date(), dedupeKey,
     }, update: {} })
     const next = event.recurrenceJson ? nextOccurrence(event, minutes, new Date(Math.max(Date.now(), Date.parse(occurrenceAt) - minutes * 60_000) + 1)) : null
     if (next) {

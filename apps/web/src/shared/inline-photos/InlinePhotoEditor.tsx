@@ -1,9 +1,8 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { Move, X } from 'lucide-react'
-import { IconButton } from '../../shared/ui'
-import { ResizeHandle } from '../../shared/ui/ResizeHandle'
-import { fitPhoto, rectToPlacement, resizePhoto, type InlinePhoto, type PhotoBounds, type PhotoRect } from './feedInlinePhotos'
-import './feed-inline-photos.css'
+import { IconButton } from '../ui'
+import { fitPhoto, rectToPlacement, resizePhoto, type InlinePhoto, type PhotoBounds, type PhotoRect } from './inlinePhotos'
+import './inline-photos.css'
 
 const resizeCorners = [
   ['top-left', 'зверху ліворуч'], ['top-right', 'зверху праворуч'],
@@ -13,7 +12,7 @@ const resizeCorners = [
 type Placement = Partial<Pick<InlinePhoto, 'x' | 'y' | 'width'>>
 
 /** Overlays draggable, resizable photos on the rich text editor rendered as `children`. */
-export function FeedInlinePhotoEditor({ photos, onUpdate, onRemove, disabled, children }: {
+export function InlinePhotoEditor({ photos, onUpdate, onRemove, disabled, children }: {
   photos: InlinePhoto[]
   onUpdate: (id: string, placement: Placement) => void
   onRemove: (id: string) => void
@@ -23,12 +22,10 @@ export function FeedInlinePhotoEditor({ photos, onUpdate, onRemove, disabled, ch
   const root = useRef<HTMLDivElement>(null)
   const [bounds, setBounds] = useState<PhotoBounds & { top: number; left: number }>({ width: 0, height: 0, top: 0, left: 0 })
   const [selected, setSelected] = useState<string | null>(null)
-  const [editorId, setEditorId] = useState('')
   const drag = useRef<{ id: string; corner: string | null; startX: number; startY: number; rect: PhotoRect; ratio: number; pointerId: number } | null>(null)
   useLayoutEffect(() => {
     const editor = root.current?.querySelector<HTMLElement>('.rich-editor__input')
     if (!editor) return
-    setEditorId(editor.id)
     function measure() {
       const wrapperRect = root.current!.getBoundingClientRect(), rect = editor!.getBoundingClientRect()
       setBounds({ width: editor!.clientWidth, height: editor!.clientHeight, top: rect.top - wrapperRect.top + editor!.clientTop, left: rect.left - wrapperRect.left + editor!.clientLeft })
@@ -66,14 +63,14 @@ export function FeedInlinePhotoEditor({ photos, onUpdate, onRemove, disabled, ch
   }
   const current = photos.find((photo) => photo.id === selected)
   const currentWidth = current && bounds.width ? Math.round(fitPhoto(current, bounds).width / bounds.width * 100) : 10
-  return <div className="feed-inline-editor">
-    <div ref={root} className={`feed-inline-editor__canvas${photos.length ? ' has-photos' : ''}`} onPointerDown={() => setSelected(null)}>
+  return <div className="inline-photos-editor">
+    <div ref={root} className={`inline-photos-editor__canvas${photos.length ? ' has-photos' : ''}`} onPointerDown={() => setSelected(null)}>
       {children}
-      <div className="feed-inline-editor__images" style={{ top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height }}>
+      <div className="inline-photos-editor__images" style={{ top: bounds.top, left: bounds.left, width: bounds.width, height: bounds.height }}>
         {photos.map((photo) => {
           const rect = fitPhoto(photo, bounds)
-          return <div key={photo.id} className={`feed-inline-photo${selected === photo.id ? ' is-selected' : ''}`} style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}>
-            <button type="button" className="feed-inline-photo__move" disabled={disabled} aria-label={`Перемістити ${photo.name}`} onFocus={() => setSelected(photo.id)} onPointerDown={(event) => start(event, photo, null)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={() => { drag.current = null }} onKeyDown={(event) => {
+          return <div key={photo.id} className={`inline-photos-photo${selected === photo.id ? ' is-selected' : ''}`} style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}>
+            <button type="button" className="inline-photos-photo__move" disabled={disabled} aria-label={`Перемістити ${photo.name}`} onFocus={() => setSelected(photo.id)} onPointerDown={(event) => start(event, photo, null)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={() => { drag.current = null }} onKeyDown={(event) => {
               if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); onRemove(photo.id); return }
               if (event.key === 'Escape') { event.preventDefault(); setSelected(null); root.current?.querySelector<HTMLElement>('.rich-editor__input')?.focus(); return }
               const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key]
@@ -82,22 +79,21 @@ export function FeedInlinePhotoEditor({ photos, onUpdate, onRemove, disabled, ch
               const step = event.shiftKey ? 10 : 2
               place(photo.id, { ...rect, x: rect.x + direction[0]! * step, y: rect.y + direction[1]! * step }, photo.ratio)
             }}><img src={photo.src} alt={photo.name} draggable={false} /></button>
-            {selected === photo.id && resizeCorners.map(([corner, label]) => <button key={corner} type="button" className={`feed-inline-photo__handle is-${corner}`} aria-label={`Змінити розмір ${photo.name}: ${label}`} disabled={disabled} onPointerDown={(event) => start(event, photo, corner)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={() => { drag.current = null }} onKeyDown={(event) => {
+            {selected === photo.id && resizeCorners.map(([corner, label]) => <button key={corner} type="button" className={`inline-photos-photo__handle is-${corner}`} aria-label={`Змінити розмір ${photo.name}: ${label}`} disabled={disabled} onPointerDown={(event) => start(event, photo, corner)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={() => { drag.current = null }} onKeyDown={(event) => {
               if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) || !bounds.width) return
               event.preventDefault()
               const delta = ['ArrowRight', 'ArrowUp'].includes(event.key) ? 8 : -8
               place(photo.id, resizePhoto(rect, photo.ratio, bounds, corner, corner.includes('left') ? -delta : delta, 0), photo.ratio)
             }} />)}
-            {selected === photo.id && <IconButton className="feed-inline-editor__remove" label="Прибрати вибране фото" disabled={disabled} onPointerDown={(event) => event.stopPropagation()} onClick={() => { onRemove(photo.id); setSelected(null) }}><X size={12} /></IconButton>}
+            {selected === photo.id && <IconButton className="inline-photos-editor__remove" label="Прибрати вибране фото" disabled={disabled} onPointerDown={(event) => event.stopPropagation()} onClick={() => { onRemove(photo.id); setSelected(null) }}><X size={12} /></IconButton>}
           </div>
         })}
       </div>
-      {photos.length > 0 && editorId && <ResizeHandle targetRef={root} selector=".rich-editor__input" controls={editorId} label="Змінити висоту редактора" disabled={disabled} />}
     </div>
-    {current && <label className="feed-inline-size">Ширина фото<input type="range" min={Math.min(currentWidth, Math.ceil(64 / Math.max(1, bounds.width) * 100))} max="100" value={currentWidth} disabled={disabled} onChange={(event) => {
+    {current && <label className="inline-photos-size">Ширина фото<input type="range" min={Math.min(currentWidth, Math.ceil(64 / Math.max(1, bounds.width) * 100))} max="100" value={currentWidth} disabled={disabled} onChange={(event) => {
       const rect = fitPhoto(current, bounds)
       place(current.id, { ...rect, width: Number(event.target.value) / 100 * bounds.width }, current.ratio)
     }} /><span>{currentWidth}%</span></label>}
-    {photos.length > 0 && <p className="feed-inline-hint"><Move size={14} />Перетягуйте фото в межах тексту. Розмір — за кути або повзунком. Стрілки — переміщення, Delete — прибрати.</p>}
+    {photos.length > 0 && <p className="inline-photos-hint"><Move size={14} />Перетягуйте фото в межах тексту. Розмір — за кути або повзунком. Стрілки — переміщення, Delete — прибрати.</p>}
   </div>
 }

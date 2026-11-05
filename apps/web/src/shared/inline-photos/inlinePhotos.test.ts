@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { fitPhoto, layoutDepth, rectToPlacement, resizePhoto, toPhotoLayout } from './feedInlinePhotos'
+import { fitPhoto, layoutDepth, placementToPhoto, rectToPlacement, resizePhoto, toPhotoLayout } from './inlinePhotos'
+
+describe('stored placements', () => {
+  it('restores an editable photo that serializes back to the same placement', () => {
+    const placement = { fileId: 'photo', x: 0.1, y: 0.2, width: 0.5, height: 0.25 }
+    const photo = placementToPhoto(placement, { id: 'photo', fileName: 'plan.png' }, '/plan.png')
+    expect(photo).toMatchObject({ id: 'photo', name: 'plan.png', src: '/plan.png', ratio: 2 })
+    expect(toPhotoLayout([photo])).toEqual([placement])
+  })
+})
 
 it('keeps moved and responsive photos inside the text block without changing their proportions', () => {
   for (const bounds of [{ width: 900, height: 360 }, { width: 280, height: 360 }]) {
@@ -39,7 +48,7 @@ describe.each(['top-left', 'top-right', 'bottom-left', 'bottom-right'])('resize 
 })
 
 it('serializes a contract-valid layout and measures its depth', () => {
-  const layout = toPhotoLayout([{ id: 'photo', src: '', name: 'photo', ratio: 2, x: .9, y: -1, width: .5 }])
+  const layout = toPhotoLayout([{ id: 'photo', ratio: 2, x: .9, y: -1, width: .5 }])
   expect(layout).toEqual([{ fileId: 'photo', x: .5, y: 0, width: .5, height: .25 }])
   expect(layoutDepth([...layout, { y: .5, height: .3 }])).toBeCloseTo(.8)
 })

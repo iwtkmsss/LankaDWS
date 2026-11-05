@@ -1,5 +1,6 @@
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import type { StructuredMentionInput } from '@lankadws/contracts'
+import { ResizeHandle } from '../ui/ResizeHandle'
 import { FormattingToolbar } from './FormattingToolbar'
 import { editorMarkup, readEditor, selectEditorRange } from './richTextDom'
 
@@ -140,5 +141,6 @@ export function RichTextEditor({ ref, value, mentions = [], onChange, onCaret, o
         publish()
       }} onBlur={onBlur}
     />
+    <ResizeHandle targetRef={elementRef} controls={id} label="Змінити висоту редактора" disabled={disabled} />
   </div>
 }

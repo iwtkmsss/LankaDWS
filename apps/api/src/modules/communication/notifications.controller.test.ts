@@ -10,14 +10,75 @@ describe('NotificationsController chat read reconciliation', () => {
     ['mentions', { category: 'MENTION' }],
   ])('lists %s notifications only for the current recipient', async (tab, filter) => {
     const items = [{ id: 'notification-1' }]
-    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce(items)
+    // Two reconciliations find nothing, then the list itself runs.
+    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(items).mockResolvedValue([])
     const controller = new NotificationsController({ notification: { findMany } } as unknown as PrismaService)
     expect(await controller.list({ principal: { userId: 'user-1' } } as LankaDWSRequest, tab)).toEqual({ items })
-    expect(findMany).toHaveBeenLastCalledWith({
-      where: { recipientId: 'user-1', ...filter },
-      orderBy: [{ readAt: { sort: 'desc', nulls: 'first' } }, { createdAt: 'desc' }],
+    expect(findMany).toHaveBeenNthCalledWith(3, {
+      where: { recipientId: 'user-1', NOT: { category: 'CHAT', dedupeKey: { startsWith: 'chat:' } }, ...filter, readAt: null },
+      orderBy: { createdAt: 'desc' },
       take: 100,
     })
+  })
+
+  it('lists unread first and each group newest first, not by when it was read', async () => {
+    const unread = [{ id: 'unread-new' }, { id: 'unread-old' }]
+    const read = [{ id: 'read-new' }]
+    const findMany = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce(unread).mockResolvedValueOnce(read)
+    const controller = new NotificationsController({ notification: { findMany } } as unknown as PrismaService)
+    expect(await controller.list({ principal: { userId: 'user-1' } } as LankaDWSRequest, 'all')).toEqual({ items: [...unread, ...read] })
+    expect(findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ readAt: { not: null } }) as unknown, orderBy: { createdAt: 'desc' }, take: 98,
+    }))
+  })
+
+  it('reads the notifications of a task the person can no longer open', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 })
+    const taskFindMany = vi.fn().mockResolvedValue([{ id: 'open' }])
+    const controller = new NotificationsController({
+      notification: { findMany: vi.fn().mockResolvedValue([{ entityId: 'open' }, { entityId: 'revoked' }]), updateMany },
+      task: { findMany: taskFindMany },
+    } as unknown as PrismaService)
+    await (controller as unknown as { reconcileTaskAccess(principal: unknown): Promise<void> })
+      .reconcileTaskAccess({ userId: 'user-1', workspaceId: 'workspace', accountType: 'USER' })
+    expect(taskFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ OR: expect.arrayContaining([{ participants: { some: { userId: 'user-1', removedAt: null } } }]) as unknown }) as unknown,
+    }))
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { recipientId: 'user-1', entityType: 'TASK', entityId: { in: ['revoked'] }, readAt: null },
+      data: { readAt: expect.any(Date) as unknown },
+    })
+  })
+
+  it('keeps only the archive alert of an archived task as news', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 5 })
+    const controller = new NotificationsController({
+      notification: { findMany: vi.fn().mockResolvedValue([{ entityId: 'finished' }]), updateMany },
+      task: { findMany: vi.fn().mockResolvedValue([{ id: 'finished', archivedAt: new Date('2026-10-30T10:00:00Z') }]) },
+    } as unknown as PrismaService)
+    await (controller as unknown as { reconcileTaskAccess(principal: unknown): Promise<void> })
+      .reconcileTaskAccess({ userId: 'user-1', workspaceId: 'workspace', accountType: 'USER' })
+    expect(updateMany).toHaveBeenCalledOnce()
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        recipientId: 'user-1', entityType: 'TASK', entityId: { in: ['finished'] }, readAt: null,
+        NOT: { dedupeKey: { contains: ':task.archived:' } },
+      },
+      data: { readAt: expect.any(Date) as unknown },
+    })
+  })
+
+  it('reads reactions but not messages when a thread is opened', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const controller = new NotificationsController({ notification: { updateMany } } as unknown as PrismaService)
+    await controller.readEntity({ principal: { userId: 'user-1' } } as LankaDWSRequest, {
+      entityType: 'MESSAGE_THREAD', entityId: 'thread-1', before: '2026-09-01T10:00:00.000Z',
+    })
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{ OR: [{ dedupeKey: { startsWith: 'chat-participant-added:' } }, { category: 'REACTION' }] }],
+      }) as unknown,
+    }))
   })
 
   it('reads only the current recipient and opened entity through the loaded snapshot', async () => {
@@ -38,6 +99,23 @@ describe('NotificationsController chat read reconciliation', () => {
   })
 
   it.each([
+    ['ahead of', '2099-01-01T10:00:00.000Z'],
+    ['behind', '2000-01-01T10:00:00.000Z'],
+  ])('uses the server clock when the client clock is %s it', async (_label, before) => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const controller = new NotificationsController({ notification: { updateMany } } as unknown as PrismaService)
+    const started = Date.now()
+    expect(await controller.readEntity({ principal: { userId: 'user-1' } } as LankaDWSRequest, {
+      entityType: 'TASK', entityId: 'task-1', before, loadedAgoMs: 1_000,
+    })).toEqual({ updated: 1 })
+    const calls = updateMany.mock.calls as Array<[{ where: { createdAt: { lte: Date } } }]>
+    const cutoff = calls[0][0].where.createdAt.lte.getTime()
+    expect(cutoff).toBeGreaterThanOrEqual(started - 1_000)
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - 1_000)
+  })
+
+  it.each([
+    { entityType: 'TASK', entityId: 'task-1', before: '2026-09-01T10:00:00.000Z', loadedAgoMs: -1 },
     { entityType: 'UNKNOWN', entityId: 'thread-1', before: '2026-09-01T10:00:00.000Z' },
     { entityType: 'TASK', entityId: '', before: '2026-09-01T10:00:00.000Z' },
     { entityType: 'TASK', entityId: 'task-1', before: '2099-01-01T10:00:00.000Z' },
