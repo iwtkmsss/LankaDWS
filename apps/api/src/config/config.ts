@@ -40,6 +40,9 @@ const schema = z.object({
   SCANNER_TIMEOUT_MS: z.coerce.number().int().min(1000).max(45_000).default(30_000),
   CLAMAV_HOST: z.string().default('127.0.0.1'),
   CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  // Office preview: LibreOffice converts Word/Excel/PowerPoint to PDF on the server. An empty path turns it off.
+  OFFICE_PREVIEW_SOFFICE: z.string().trim().default('soffice'),
+  OFFICE_PREVIEW_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(300_000).default(60_000),
   JOB_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
   JOB_POLL_MS: z.coerce.number().int().min(250).default(1000),
   JOB_LEASE_SECONDS: z.coerce.number().int().min(10).default(60),

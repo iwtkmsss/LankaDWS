@@ -1,6 +1,7 @@
 import { Controller, Delete, Get, Param, Post, Query, Req, Res, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import * as archiver from 'archiver'
+import { createReadStream } from 'node:fs'
 import { createCleanFileReadStream } from './storage.js'
 import type { Response } from 'express'
 import type { LankaDWSRequest } from '../../common/request-context.js'
@@ -41,6 +42,18 @@ export class FilesController {
   @Delete(':id/draft')
   discardDraft(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.files.discardStagedAttachment(principalFrom(request), id)
+  }
+
+  @Get(':id/preview')
+  async preview(@Req() request: LankaDWSRequest, @Param('id') id: string, @Res() response: Response) {
+    const preview = await this.files.officePreview(principalFrom(request), id)
+    response.setHeader('Content-Type', 'application/pdf')
+    response.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(preview.name)}`)
+    response.setHeader('X-Content-Type-Options', 'nosniff')
+    response.setHeader('Cache-Control', 'private, no-store')
+    const stream = createReadStream(preview.path)
+    stream.on('error', () => response.destroy())
+    stream.pipe(response)
   }
 
   @Get(':id/download')

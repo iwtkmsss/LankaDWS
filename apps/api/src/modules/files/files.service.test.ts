@@ -10,6 +10,11 @@ vi.mock('./storage.js', () => ({
   readCleanFile: vi.fn(),
   writeQuarantine: vi.fn(),
 }))
+const { officePreviewPdf, OfficePreviewUnavailable } = vi.hoisted(() => ({ officePreviewPdf: vi.fn(), OfficePreviewUnavailable: class OfficePreviewUnavailable extends Error {} }))
+vi.mock('./office-preview.js', () => ({
+  officePreviewPdf,
+  OfficePreviewUnavailable,
+}))
 
 const principal: AuthPrincipal = {
   userId: 'viewer',
@@ -273,5 +278,45 @@ describe('FilesService ZIP archives', () => {
     await expect(files.archiveFiles(principal, ['private'])).rejects.toThrow('inaccessible')
     authorize.mockResolvedValue({ scanStatus: 'QUARANTINED' })
     await expect(files.archiveFiles(principal, ['pending'])).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('FilesService Office preview', () => {
+  const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  const clean = { id: 'file', companyId: 'company-1', scanStatus: 'CLEAN', detectedMime: docx, bytes: 1024, sha256: 'a'.repeat(64), storageKey: 'company-1/file', safeFilename: 'Звіт.v2.docx' }
+  function service() {
+    const prisma = { auditEvent: { create: vi.fn() } }
+    const files = new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never)
+    const authorize = vi.spyOn(files as unknown as { authorizedFile: (p: AuthPrincipal, id: string) => Promise<unknown> }, 'authorizedFile')
+    return { files, authorize, prisma }
+  }
+  beforeEach(() => { officePreviewPdf.mockReset() })
+
+  it('returns the converted PDF under the download access rules and audits the read', async () => {
+    const { files, authorize, prisma } = service()
+    authorize.mockResolvedValue(clean)
+    officePreviewPdf.mockResolvedValue('/tmp/office-previews/a.pdf')
+    await expect(files.officePreview(principal, 'file')).resolves.toEqual({ path: '/tmp/office-previews/a.pdf', name: 'Звіт.v2.pdf' })
+    expect(officePreviewPdf).toHaveBeenCalledWith({ storageKey: 'company-1/file', sha256: clean.sha256, mime: docx })
+    expect(prisma.auditEvent.create.mock.calls).toMatchObject([[{ data: { action: 'file.downloaded', entityId: 'file' } }]])
+  })
+
+  it('refuses unscanned, non-Office and oversized files before converting', async () => {
+    const { files, authorize } = service()
+    authorize.mockResolvedValueOnce({ ...clean, scanStatus: 'QUARANTINED' })
+    await expect(files.officePreview(principal, 'file')).rejects.toMatchObject({ status: 403 })
+    authorize.mockResolvedValueOnce({ ...clean, detectedMime: 'application/pdf' })
+    await expect(files.officePreview(principal, 'file')).rejects.toMatchObject({ status: 400 })
+    authorize.mockResolvedValueOnce({ ...clean, bytes: 31 * 1024 * 1024 })
+    await expect(files.officePreview(principal, 'file')).rejects.toMatchObject({ status: 400 })
+    expect(officePreviewPdf).not.toHaveBeenCalled()
+  })
+
+  it('reports an unavailable converter as a temporary service problem', async () => {
+    const { files, authorize, prisma } = service()
+    authorize.mockResolvedValue(clean)
+    officePreviewPdf.mockImplementation(() => Promise.reject(new OfficePreviewUnavailable('ConverterMissing')))
+    await expect(files.officePreview(principal, 'file')).rejects.toMatchObject({ status: 503 })
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled()
   })
 })

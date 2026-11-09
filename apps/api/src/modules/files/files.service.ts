@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import { fileTypeFromBuffer } from 'file-type'
 import { extname } from 'node:path'
 import { id } from '../../common/crypto.js'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { isOfficePreviewMime, OFFICE_PREVIEW_MAX_BYTES } from '@lankadws/contracts'
+import { badRequest, forbidden, notFound, unavailable } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -12,6 +13,7 @@ import { JobsService } from '../jobs/jobs.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { DriveSharingService } from '../documents/drive-sharing.service.js'
+import { officePreviewPdf, OfficePreviewUnavailable } from './office-preview.js'
 import { deleteStoredFile, linkCleanFile, readCleanFile, writeQuarantine } from './storage.js'
 
 export interface UploadedBinary {
@@ -232,6 +234,23 @@ export class FilesService {
     const bytes = await readCleanFile(file.storageKey)
     await this.recordDownload(principal, file)
     return { bytes, mime: file.detectedMime ?? 'application/octet-stream', name: file.safeFilename }
+  }
+
+  /** A PDF rendering of a Word, Excel or PowerPoint file, under the same access rules as a download. */
+  async officePreview(principal: AuthPrincipal, fileId: string): Promise<{ path: string; name: string }> {
+    const file = await this.authorizedFile(principal, fileId)
+    if (file.scanStatus !== 'CLEAN') throw forbidden('Файл перебуває на перевірці або недоступний.')
+    if (!file.detectedMime || !isOfficePreviewMime(file.detectedMime)) throw badRequest('preview_unsupported', 'Для цього типу файлу перегляд недоступний.')
+    if (file.bytes > OFFICE_PREVIEW_MAX_BYTES) throw badRequest('preview_too_large', 'Файл завеликий для перегляду. Завантажте його.')
+    let path: string
+    try {
+      path = await officePreviewPdf({ storageKey: file.storageKey, sha256: file.sha256, mime: file.detectedMime })
+    } catch (error) {
+      if (error instanceof OfficePreviewUnavailable) throw unavailable('Перегляд цього файлу зараз недоступний. Завантажте файл, щоб відкрити його.')
+      throw error
+    }
+    await this.recordDownload(principal, file)
+    return { path, name: `${file.safeFilename.replace(/\.[^.]+$/, '')}.pdf` }
   }
 
   private async recordDownload(principal: AuthPrincipal, file: { id: string; companyId: string | null }) {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { isOfficePreviewMime, OFFICE_PREVIEW_MAX_BYTES } from '@lankadws/contracts'
 import { ChevronLeft, ChevronRight, Download, ExternalLink, ZoomIn, ZoomOut } from 'lucide-react'
 import { FileFormatIcon } from './FileFormatIcon'
 import { fileFormat } from './fileFormat'
@@ -66,12 +67,16 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
 
   const inlineUrl = apiUrl(`/files/${encodeURIComponent(file.id)}/download?inline=true`)
   const downloadUrl = apiUrl(`/files/${encodeURIComponent(file.id)}/download`)
+  const officePreviewUrl = apiUrl(`/files/${encodeURIComponent(file.id)}/preview`)
   const mimeType = file.mimeType?.split(';')[0].trim().toLowerCase() ?? ''
   const isImage = isPreviewableImage(mimeType)
   const isPdf = mimeType === 'application/pdf'
   const isText = isTextPreview(file.mimeType)
   const textTooLarge = isText && file.bytes != null && file.bytes > MAX_TEXT_PREVIEW_BYTES
-  const compact = !isImage && !isPdf && (!isText || textTooLarge)
+  // Word, Excel and PowerPoint are shown as a PDF the server renders with LibreOffice.
+  const isOffice = isOfficePreviewMime(mimeType)
+  const officeTooLarge = isOffice && file.bytes != null && file.bytes > OFFICE_PREVIEW_MAX_BYTES
+  const compact = !isImage && !isPdf && (!isText || textTooLarge) && (!isOffice || officeTooLarge)
   const isArchive = fileFormat(file.mimeType, file.fileName) === 'archive'
   const fileType = FILE_TYPE_NAMES[mimeType] || file.fileName.match(/\.([a-z\d]{1,12})$/i)?.[1].toUpperCase()
     || (isArchive ? 'Архів' : isImage ? mimeType.slice(6).toUpperCase() : 'Файл')
@@ -186,8 +191,8 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
     dragging ? '' : 'file-preview-modal__image-stage--animated',
   ].filter(Boolean).join(' ')
 
-  const openLink = openInNewTab && (isImage || isPdf) ? (
-    <a className="icon-button file-preview-modal__open" href={inlineUrl} target="_blank" rel="noopener noreferrer" aria-label="Відкрити файл у новій вкладці" title="Відкрити файл у новій вкладці">
+  const openLink = openInNewTab && (isImage || isPdf || (isOffice && !officeTooLarge)) ? (
+    <a className="icon-button file-preview-modal__open" href={isOffice ? officePreviewUrl : inlineUrl} target="_blank" rel="noopener noreferrer" aria-label="Відкрити файл у новій вкладці" title="Відкрити файл у новій вкладці">
       <ExternalLink size={18} aria-hidden />
     </a>
   ) : undefined
@@ -283,9 +288,9 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
             </span>
           </>}
         </div>
-      ) : isPdf || (isText && !textTooLarge) ? (
-        <FileDocumentPreview key={`${file.id}:${mimeType}`} kind={isPdf ? 'pdf' : 'text'} fileName={file.fileName}
-          downloadUrl={downloadUrl} headerActionsTarget={headerActionsTarget} />
+      ) : isPdf || (isText && !textTooLarge) || (isOffice && !officeTooLarge) ? (
+        <FileDocumentPreview key={`${file.id}:${mimeType}`} kind={isPdf ? 'pdf' : isOffice ? 'office' : 'text'} fileName={file.fileName}
+          downloadUrl={isOffice ? officePreviewUrl : downloadUrl} headerActionsTarget={headerActionsTarget} />
       ) : (
         <div className="file-preview-modal__unsupported">
           <FileFormatIcon mimeType={file.mimeType} fileName={file.fileName} size={42} />
@@ -293,6 +298,8 @@ export function FilePreviewModal({ file, onClose, metadata, footerActions, openI
           <span>{fileType}{size ? ` · ${size}` : ''}</span>
           <p>{textTooLarge
             ? 'Перегляд тексту доступний для файлів до 1 МБ. Завантажте файл, щоб прочитати його повністю.'
+            : officeTooLarge
+            ? 'Перегляд документів доступний для файлів до 30 МБ. Завантажте файл, щоб відкрити його.'
             : 'Завантажте файл, щоб відкрити його у відповідній програмі.'}</p>
         </div>
       )}

@@ -37,7 +37,8 @@ type PreviewState =
   | { status: 'ready'; content: string }
 
 export function FileDocumentPreview({ kind, fileName, downloadUrl, headerActionsTarget }: {
-  kind: 'text' | 'pdf'
+  /** `office` is a PDF the server renders from a Word, Excel or PowerPoint file. */
+  kind: 'text' | 'pdf' | 'office'
   fileName: string
   downloadUrl: string
   headerActionsTarget: HTMLElement | null
@@ -94,16 +95,18 @@ export function FileDocumentPreview({ kind, fileName, downloadUrl, headerActions
       </IconButton>, headerActionsTarget,
     )}
     {state.status === 'loading' ? <div className="file-preview-modal__notice" role="status">
-      <LoaderCircle size={28} className="is-spinning" aria-hidden />Завантажуємо файл…
+      <LoaderCircle size={28} className="is-spinning" aria-hidden />{kind === 'office' ? 'Готуємо перегляд документа…' : 'Завантажуємо файл…'}
     </div> : state.status === 'error' ? <div className="file-preview-modal__notice" role="alert">
-      <FileFormatIcon mimeType={kind === 'pdf' ? 'application/pdf' : 'text/plain'} fileName={fileName} size={36} />
-      <strong>Не вдалося відкрити файл</strong>
-      <span>Перевірте з’єднання та доступ до файлу. Спробуйте ще раз або завантажте його.</span>
+      <FileFormatIcon mimeType={kind === 'text' ? 'text/plain' : kind === 'pdf' ? 'application/pdf' : null} fileName={fileName} size={36} />
+      <strong>{kind === 'office' ? 'Не вдалося підготувати перегляд' : 'Не вдалося відкрити файл'}</strong>
+      <span>{kind === 'office'
+        ? 'Спробуйте ще раз або завантажте файл, щоб відкрити його у відповідній програмі.'
+        : 'Перевірте з’єднання та доступ до файлу. Спробуйте ще раз або завантажте його.'}</span>
       <button type="button" className="button button--secondary" onClick={() => setAttempt((value) => value + 1)}>Повторити</button>
     </div> : state.status === 'too-large' ? <div className="file-preview-modal__notice" role="status">
       <FileFormatIcon mimeType="text/plain" fileName={fileName} size={36} /><strong>Текстовий файл завеликий для перегляду</strong>
       <span>Перегляд доступний для файлів до 1 МБ. Завантажте файл, щоб прочитати його повністю.</span>
-    </div> : state.status === 'ready' && (kind === 'pdf'
+    </div> : state.status === 'ready' && (kind !== 'text'
       ? <iframe title={`Перегляд ${fileName}`} src={state.content} />
       : <pre className="file-preview-modal__text" tabIndex={0} aria-label={`Текст ${fileName}`}>{state.content || 'Файл порожній'}</pre>)}
     {copyStatus && <p className="file-preview-modal__copy-status" role="status">{copyStatus}</p>}

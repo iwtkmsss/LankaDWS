@@ -43,6 +43,11 @@ export async function filePathForScan(key: string): Promise<string> {
   }
 }
 
+/** Absolute path of a scanned file, for tools that read it in place (the Office preview converter). */
+export function cleanFilePath(key: string): string {
+  return safePath(getConfig().FILE_STORAGE_DIR, key)
+}
+
 export async function readCleanFile(key: string): Promise<Buffer> {
   return readFile(safePath(getConfig().FILE_STORAGE_DIR, key))
 }

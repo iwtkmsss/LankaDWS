@@ -150,6 +150,23 @@ cd ~/LankaDWS && npx tsx apps/api/scripts/check-file-scanner.ts
 
 Остання команда має вивести `ClamAV: clean sample accepted; EICAR blocked.`
 
+## 8. LibreOffice (перегляд Word, Excel і PowerPoint)
+
+Сервер перетворює документи Office на PDF, щоб їх можна було переглянути, не завантажуючи. Готовий PDF
+кешується в `FILE_TEMP_DIR/office-previews`, тож кожен файл конвертується лише раз. Без LibreOffice
+документи просто завантажуються, як і раніше.
+
+```bash
+apt install -y --no-install-recommends libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui fonts-dejavu fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea
+which soffice
+grep -q '^OFFICE_PREVIEW_SOFFICE=' ~/LankaDWS/.env || echo 'OFFICE_PREVIEW_SOFFICE=soffice' >> ~/LankaDWS/.env
+systemctl restart lankadws
+```
+
+`which soffice` має вивести шлях (зазвичай `/usr/bin/soffice`). Шрифти Carlito й Caladea метрично
+сумісні з Calibri й Cambria, тож документи зберігають розмітку. Щоб вимкнути перегляд, залиште
+`OFFICE_PREVIEW_SOFFICE=` порожнім.
+
 ## Оновлення
 
 ```bash

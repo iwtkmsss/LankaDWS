@@ -215,6 +215,33 @@ describe('document previews', () => {
     ['report.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
     ['table.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['old.doc', 'application/msword'],
+  ])('shows %s as the PDF the server renders', async (fileName, mimeType) => {
+    fetchFile.mockResolvedValue(new Response('%PDF-1.4'))
+    mount({ id: 'office-1', fileName, mimeType, bytes: 4096 })
+    expect(screen.getByRole('status')).toHaveTextContent('Готуємо перегляд документа…')
+    expect(await screen.findByTitle(`Перегляд ${fileName}`)).toHaveAttribute('src', 'blob:local-pdf')
+    expect(fetchFile).toHaveBeenCalledWith('/api/v1/files/office-1/preview', expect.objectContaining({ credentials: 'include' }))
+    expect(screen.getByRole('dialog')).not.toHaveClass('file-preview-modal--compact')
+    expect(screen.getByRole('link', { name: 'Відкрити файл у новій вкладці' })).toHaveAttribute('href', '/api/v1/files/office-1/preview')
+  })
+
+  it('offers a download when the server cannot render the document', async () => {
+    fetchFile.mockResolvedValue(new Response('{}', { status: 503 }))
+    mount({ id: 'office-1', fileName: 'report.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+    expect(await screen.findByText('Не вдалося підготувати перегляд')).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Повторити' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Завантажити' })).toHaveAttribute('href', '/api/v1/files/office-1/download')
+  })
+
+  it('does not render Office files above the preview limit', () => {
+    mount({ fileName: 'huge.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', bytes: 31 * 1024 * 1024 })
+    expect(screen.getByRole('dialog')).toHaveClass('file-preview-modal--compact')
+    expect(screen.getByText(/доступний для файлів до 30 МБ/)).toBeVisible()
+    expect(fetchFile).not.toHaveBeenCalled()
+  })
+
+  it.each([
     ['archive.zip', 'application/zip'],
     ['unknown', null],
   ])('uses a compact download card for %s', (fileName, mimeType) => {
