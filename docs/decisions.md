@@ -366,3 +366,9 @@ A Feed card that was unread on arrival says «Нове оновлення» unti
 An administrator can have any task open without being on it, so every task change also signals active administrators and an open page stays current. A mention that makes someone a watcher adds no alert of its own; the comment's alerts cover it. An administrator reading a chat they are not in has no read position, so the page does not try to mark it read.
 
 The Feed shows an administrator only the task cards addressed to them, as for everyone else; any task can still be opened and is listed under «Усі доступні». An administrator who comments on a task they are not on becomes its watcher and follows it from then on.
+
+## 2026-11-09 — A fresh production install can be filled with demo data on purpose
+
+`npm run prisma:seed` stays forbidden when `NODE_ENV=production`. A test installation on a real host uses `npm run demo:seed`, which applies migrations and runs the same seed with an explicit `--allow-production` flag. Because those accounts are reachable from the internet, the production path refuses the repository's development password or any password shorter than 12 characters, and refuses to run at all once the database holds a user that is not one of the demo accounts, so a real installation is never overwritten. Re-running it updates the same demo records. The production web build never shows demo credentials.
+
+Production deployment without containers is documented in `deploy/README.md`: one systemd service for the API/worker, an hourly backup timer and Caddy for HTTPS, static files and the API proxy with unbuffered server-sent events.

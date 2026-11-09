@@ -29,6 +29,7 @@
     "prisma:migrate": "npm run prisma:migrate --workspace @lankadws/api",
     "prisma:deploy": "npm run prisma:deploy --workspace @lankadws/api",
     "prisma:seed": "npm run prisma:seed --workspace @lankadws/api",
+    "demo:seed": "npm run demo:seed --workspace @lankadws/api",
     "prisma:studio": "npm run prisma:studio --workspace @lankadws/api",
     "lankadws": "npm run lankadws --workspace @lankadws/api --",
     "backup": "npm run backup --workspace @lankadws/api",

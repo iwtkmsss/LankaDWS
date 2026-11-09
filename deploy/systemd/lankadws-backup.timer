@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly LankaDWS encrypted backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
