@@ -3,6 +3,6 @@ Description=LankaDWS encrypted backup
 
 [Service]
 Type=oneshot
-User=lankadws
-WorkingDirectory=/opt/lankadws
+User=root
+WorkingDirectory=/root/LankaDWS
 ExecStart=/usr/bin/npm run backup

@@ -4,7 +4,6 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3'
 import { stdout } from 'node:process'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { AppModule } from '../app.module.js'
 import { hashPassword, id, randomTemporaryPassword, verifyPassword } from '../common/crypto.js'
 import { normalizeUserSearchValue } from '../common/user-search.js'
 import { getConfig } from '../config/config.js'
@@ -384,6 +383,9 @@ async function main(): Promise<void> {
     }
     return
   }
+  // Loaded only here: importing the app reads and validates the full configuration, which
+  // recovery:hash must not require (it is what replaces the placeholder secrets).
+  const { AppModule } = await import('../app.module.js')
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false })
   try {
     const prisma = app.get(PrismaService)

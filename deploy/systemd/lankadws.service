@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust user and path to your install; the app reads /opt/lankadws/.env itself.
-User=lankadws
-WorkingDirectory=/opt/lankadws/apps/api
+# Adjust user and path to your install; the app reads ~/LankaDWS/.env itself.
+User=root
+WorkingDirectory=/root/LankaDWS/apps/api
 ExecStart=/usr/bin/node dist/src/main.js
 Restart=on-failure
 RestartSec=5
