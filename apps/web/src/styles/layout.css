@@ -34,7 +34,11 @@
 .sidebar-more__menu { position: absolute; z-index: 70; bottom: 76px; left: calc(100% + 10px); overflow-y: auto; width: 248px; max-height: calc(100vh - 96px); border: 1px solid rgba(111, 129, 201, .3); border-radius: 13px; background: linear-gradient(165deg, rgba(17, 27, 55, .99), rgba(10, 18, 38, .99)); padding: var(--space-2); box-shadow: 0 18px 48px rgba(3, 8, 24, .38), 0 0 0 1px rgba(82, 104, 212, .08); }
 .sidebar-more__menu .nav-section + .nav-section { margin-top: var(--space-2); padding-top: var(--space-2); }
 .sidebar__profile { position: relative; border-top: 1px solid #202a41; padding: var(--space-3); }
-.profile-button { display: flex; width: 100%; align-items: center; gap: var(--space-2); border: 0; border-radius: 10px; background: transparent; color: #fff; padding: var(--space-2); text-align: left; }
+.profile-button { display: flex; width: 100%; align-items: center; gap: var(--space-2); border: 0; border-radius: 10px; background: transparent; color: #fff; padding: var(--space-2); text-align: left; transition: background .14s; }
+/* Avatar sits at the same x in both sidebar states (centred on the 72px rail), so collapsing never moves it. */
+.sidebar__profile .profile-button { padding-left: calc((72px - 2 * var(--space-3) - 38px) / 2); }
+.profile-button > span:not(.avatar), .profile-button > svg { animation: profile-copy-in .18s ease .14s both; }
+@keyframes profile-copy-in { from { opacity: 0; } }
 .profile-button:hover { background: rgba(255, 255, 255, .05); }
 .profile-button > span:not(.avatar) { display: flex; overflow: hidden; flex: 1; flex-direction: column; }
 .profile-button strong, .profile-button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -74,6 +78,7 @@
 .topbar .button:active:not(:disabled) { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 24%, transparent), inset 0 0 20px color-mix(in srgb, currentColor 10%, transparent); }
 @media (prefers-reduced-motion: reduce) {
   .topbar .button { transition: none; }
+  .profile-button > span:not(.avatar), .profile-button > svg { animation: none; }
 }
 .search-trigger { display: flex; width: 100%; min-width: 0; align-items: center; justify-self: center; gap: var(--space-icon); border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--fg-muted); padding: var(--space-2); }
 .search-trigger span { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
@@ -122,7 +127,7 @@ kbd { border: 1px solid var(--line); border-radius: 5px; background: var(--surfa
   .sidebar-collapsed .sidebar__nav .sidebar-more__trigger > span { opacity: 0; transform: translate(-4px, -50%); visibility: hidden; transition: opacity .08s ease, transform .14s ease, visibility 0s linear .1s; }
   .sidebar-collapsed .sidebar__nav .nav-unread-badge { top: 4px; right: 3px; min-width: 16px; height: 16px; padding-inline: var(--space-1); font-size: var(--text-min); opacity: 1; transform: none; visibility: visible; }
   .sidebar-collapsed .sidebar__profile { padding: var(--space-3); }
-  .sidebar-collapsed .profile-button { justify-content: center; padding: var(--space-1) 0; }
+  .sidebar-collapsed .profile-button { padding-right: calc((72px - 2 * var(--space-3) - 38px) / 2); }
   .sidebar-collapsed .profile-button > span:not(.avatar),
   .sidebar-collapsed .profile-button > svg { display: none; }
   .sidebar-collapsed .profile-popover { bottom: 10px; left: 60px; }
