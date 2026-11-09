@@ -33,15 +33,21 @@ export function KnowledgeFeedbackTickets({ renderAttachment }: { renderAttachmen
       await client.invalidateQueries({ queryKey: ['feedback-tickets'] })
     },
   })
-  return <section className="knowledge-tickets" aria-label="Звернення до адміністратора">
-    <header><div><h2><MessageCircle size={20} />Звернення до адміністратора</h2><p>Ці записи бачать лише адміністратори.</p></div></header>
-    {query.isPending ? <PageDataLoader /> : query.isError ? <ErrorState /> : <>
-      {query.data.pages.flatMap((page) => page.items).map((ticket) => <div className="knowledge-ticket-row" key={ticket.id}>
-        <button type="button" className="knowledge-ticket-open" onClick={() => setSelected(ticket.id)}><strong>{ticket.title}</strong><small>{ticket.author} · {formatDateTime(ticket.createdAt)}</small></button>
-        <Button variant="ghost" aria-label={`Видалити звернення ${ticket.title}`} onClick={() => { remove.reset(); setDeleting(ticket) }}><Trash2 size={17} /></Button>
-      </div>)}
-      {!query.data.pages[0].items.length && <p className="knowledge-empty">Нових звернень поки немає.</p>}
-      {query.hasNextPage && <Button variant="secondary" disabled={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{query.isFetchingNextPage ? 'Завантажуємо…' : 'Показати ще'}</Button>}
+  const tickets = query.data?.pages.flatMap((page) => page.items) ?? []
+  return <section className="card knowledge-tickets" aria-labelledby="knowledge-tickets-title">
+    <header>
+      <h2 id="knowledge-tickets-title"><MessageCircle size={18} aria-hidden />Звернення до адміністратора</h2>
+      <p>Відгуки й пропозиції команди. Їх бачать лише адміністратори.</p>
+    </header>
+    {query.isPending ? <PageDataLoader /> : query.isError ? <ErrorState onRetry={() => void query.refetch()} /> : <>
+      {tickets.length > 0 && <ul className="knowledge-ticket-list">
+        {tickets.map((ticket) => <li className="knowledge-ticket-row" key={ticket.id}>
+          <button type="button" className="knowledge-ticket-open" onClick={() => setSelected(ticket.id)}><strong>{ticket.title}</strong><small>{ticket.author} · {formatDateTime(ticket.createdAt)}</small></button>
+          <Button variant="ghost" className="knowledge-ticket-delete" aria-label={`Видалити звернення ${ticket.title}`} title="Видалити звернення" onClick={() => { remove.reset(); setDeleting(ticket) }}><Trash2 size={16} aria-hidden /></Button>
+        </li>)}
+      </ul>}
+      {!tickets.length && <p className="knowledge-tickets__empty">Нових звернень поки немає.</p>}
+      {query.hasNextPage && <Button variant="secondary" className="knowledge-tickets__more" disabled={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>{query.isFetchingNextPage ? 'Завантажуємо…' : 'Показати ще'}</Button>}
     </>}
     {selected && <Modal title="Звернення до адміністратора" size="lg" onRequestClose={() => setSelected(null)}>
       {detail.isPending ? <PageDataLoader /> : detail.isError ? <ErrorState /> : <div className="knowledge-ticket-detail">

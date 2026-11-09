@@ -64,7 +64,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--fg-muted);
   padding: var(--space-2) var(--space-2) var(--space-1);
@@ -185,7 +185,7 @@
   align-self: end;
   gap: var(--space-3);
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   padding: var(--space-1) var(--space-2);
 }
@@ -211,7 +211,7 @@
 
 .task-create-primary-participants {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   padding: var(--space-4);
 }
@@ -224,7 +224,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--cobalt-300);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
   padding: var(--space-2);
   cursor: pointer;
@@ -269,7 +269,7 @@
 .task-create-disclosure {
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
@@ -301,7 +301,7 @@
   width: 36px;
   height: 36px;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
   color: var(--fg-link);
 }
@@ -414,7 +414,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: var(--space-2);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   padding: var(--space-3);
 }
@@ -450,7 +450,7 @@
 .task-create-chips span,
 .task-create-weekdays span {
   border: 1px solid color-mix(in srgb, var(--tag-color, var(--cobalt-500)) 35%, var(--line));
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--tag-color, var(--cobalt-500)) 10%, var(--surface));
   color: var(--fg-body);
   padding: var(--space-1) var(--space-2);
@@ -505,7 +505,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 
@@ -532,7 +532,7 @@
 }
 
 .task-create-local-state {
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--fg-muted);
   padding: var(--space-2) var(--space-3);
@@ -544,7 +544,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   background: var(--danger-bg);
   color: var(--danger);
   padding: var(--space-2) var(--space-3);
@@ -572,7 +572,7 @@
   justify-items: center;
   gap: var(--space-2);
   border: 1px dashed var(--line-strong);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--fg-muted);
   padding: var(--space-4);
@@ -588,7 +588,7 @@
 .task-parent-tree-shell {
   overflow-x: auto;
   border: 1px dashed var(--line-strong);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   padding: var(--space-4);
 }
@@ -641,7 +641,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg-body);
   padding: var(--space-2) var(--space-3);
@@ -677,7 +677,7 @@
   width: 34px;
   height: 34px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--fg-muted);
 }
@@ -694,7 +694,7 @@
   justify-content: center;
   gap: var(--space-2);
   border: 1px dashed var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg-muted);
   padding: var(--space-2);
@@ -720,7 +720,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--cobalt-50);
   color: var(--fg-body);
   padding: var(--space-3);
@@ -745,7 +745,7 @@
   min-width: 0;
   gap: var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   padding: var(--space-3);
   transition: border-color .16s ease, box-shadow .16s ease;
@@ -768,7 +768,7 @@
   width: 34px;
   height: 34px;
   place-items: center;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
   color: var(--fg-link);
 }
@@ -803,7 +803,7 @@
 }
 
 .task-create-role-card__count i {
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--cobalt-50);
   color: var(--fg-link);
   padding: var(--space-1) var(--space-2);
@@ -825,7 +825,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   padding: var(--space-2);
 }
@@ -857,7 +857,7 @@
 .task-create-role-card__empty {
   margin: 0;
   border: 1px dashed var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   color: var(--fg-muted);
   padding: var(--space-2);
   font-size: var(--text-meta);
@@ -888,7 +888,7 @@
   align-content: center;
   gap: var(--space-2);
   border: 1px dashed var(--line-strong);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--fg-muted);
   padding: var(--space-5);
@@ -918,7 +918,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: var(--space-2);
 }
 
@@ -944,7 +944,7 @@
   height: 27px;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg-muted);
 }
@@ -998,7 +998,7 @@
   grid-template-columns: auto repeat(2, minmax(130px, 1fr)) minmax(130px, 1fr) auto;
   align-items: end;
   gap: var(--space-2);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   padding: var(--space-2);
 }
@@ -1009,7 +1009,7 @@
   height: 25px;
   place-items: center;
   align-self: center;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--cobalt-100);
   color: var(--fg-link);
   font-size: var(--text-label);
@@ -1064,7 +1064,7 @@
 .task-relation-dot {
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--cobalt-500);
 }
 

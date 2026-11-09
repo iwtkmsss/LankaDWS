@@ -384,15 +384,39 @@ describe('DrivePage', () => {
       }
     })
     const router = mount('/drive?folder=fol_nested&type=IMAGE')
-    const up = screen.getByRole('button', { name: 'Назад' })
-    await waitFor(() => expect(up).toBeEnabled())
-    fireEvent.click(up)
+    const trail = screen.getByRole('navigation', { name: 'Шлях' })
+    expect(screen.queryByRole('button', { name: 'Назад' })).not.toBeInTheDocument()
+    expect(await within(trail).findByRole('button', { name: 'Вкладена' })).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(within(trail).getByRole('button', { name: 'Договори' }))
     await waitFor(() => expect(router.state.location.search).toBe('?folder=fol_contracts&type=IMAGE'))
-    await waitFor(() => expect(up).toBeEnabled())
-    fireEvent.click(up)
+    await waitFor(() => expect(within(trail).getByRole('button', { name: 'Договори' })).toHaveAttribute('aria-current', 'page'))
+    fireEvent.click(within(trail).getByRole('button', { name: 'Мій диск' }))
     await waitFor(() => expect(router.state.location.search).toBe('?type=IMAGE'))
     expect(router.state.location.pathname).toBe('/drive')
-    expect(up).toBeDisabled()
+    expect(within(trail).getByRole('button', { name: 'Мій диск' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('opens folder actions from the current folder in the path', async () => {
+    mount('/drive?folder=fol_contracts')
+    const trail = screen.getByRole('navigation', { name: 'Шлях' })
+    fireEvent.click(await within(trail).findByRole('button', { name: 'Договори' }))
+    fireEvent.click(within(trail).getByRole('menuitem', { name: 'Нова папка' }))
+    expect(await screen.findByRole('dialog', { name: 'Нова папка' })).toBeVisible()
+  })
+
+  it('folds the middle of a long path into a menu', async () => {
+    const names = ['Рівень 1', 'Рівень 2', 'Рівень 3', 'Рівень 4', 'Рівень 5']
+    vi.mocked(api).mockResolvedValue({
+      breadcrumbs: names.map((name, index) => ({ id: `fol_${index + 1}`, name })), folders: [], files: [], counts,
+    })
+    const router = mount('/drive?folder=fol_5')
+    const trail = screen.getByRole('navigation', { name: 'Шлях' })
+    expect(await within(trail).findByRole('button', { name: 'Рівень 5' })).toBeVisible()
+    expect(within(trail).getByRole('button', { name: 'Рівень 4' })).toBeVisible()
+    expect(within(trail).queryByRole('button', { name: 'Рівень 2' })).not.toBeInTheDocument()
+    fireEvent.click(within(trail).getByRole('button', { name: 'Показати приховані папки' }))
+    fireEvent.click(within(trail).getByRole('button', { name: 'Рівень 2' }))
+    await waitFor(() => expect(router.state.location.search).toBe('?folder=fol_2'))
   })
 
   it('sends the chip filters to the API and marks the chip active', async () => {

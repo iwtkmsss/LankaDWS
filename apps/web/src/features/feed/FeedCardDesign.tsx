@@ -186,6 +186,9 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
   const comments = item.comments ?? []
   const busy = ['saving', 'archiving'].includes(state.mode)
   const commentCount = item.commentCount ?? comments.length
+  // A record awaiting acknowledgement is already pinned for the reader, so no personal pin is offered.
+  const autoPinned = Boolean(item.acknowledgement && ['pending', 'loading', 'error'].includes(item.acknowledgement.state))
+  const canPin = item.canPin && !autoPinned
   let sourceAction: ReactNode = null
   if (item.kind !== 'POST') sourceAction = item.href ? <Link className="button button--secondary" to={item.href}>{action}<ArrowRight size={16} /></Link> : <Button type="button" variant="secondary" onClick={() => onAction('open')}>
     {action}<ArrowRight size={16} />
@@ -230,14 +233,14 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
             </div>
           </div>}
         <div className="stream-card__badges">
-          {item.canPin && (item.kind !== 'POST' || !item.canManage) && <IconButton
+          {canPin && (item.kind !== 'POST' || !item.canManage) && <IconButton
             label={item.pinned ? 'Відкріпити' : 'Закріпити для себе'}
             title={item.pinned ? 'Відкріпити' : 'Закріпити для себе'}
             aria-pressed={Boolean(item.pinned)} disabled={item.pinning}
             className={item.pinned ? 'stream-card__pin-button is-pinned' : 'stream-card__pin-button'}
             onClick={() => onAction('pin')}
           ><Pin size={15} fill={item.pinned ? 'currentColor' : 'none'} /></IconButton>}
-          {item.acknowledgement && ['pending', 'loading', 'error'].includes(item.acknowledgement.state) && <span className="stream-card__pin" title="Закріплено до ознайомлення">
+          {autoPinned && <span className="stream-card__pin" title="Закріплено до ознайомлення">
             <Pin size={14} aria-label="Закріплено до ознайомлення" />
           </span>}
           {item.acknowledgement && <FeedAcknowledgement value={item.acknowledgement} onConfirm={() => onAction('acknowledge')} />}
@@ -252,7 +255,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
               buttons[next]?.focus()
             }
           }}><IconButton id={`${editorId}-menu-trigger`} label="Дії з записом" aria-haspopup="menu" aria-expanded={state.menuOpen} aria-controls={`${editorId}-menu`} onClick={() => onAction('menu')}><MoreHorizontal size={19} /></IconButton>{state.menuOpen && <div id={`${editorId}-menu`} role="menu" className="stream-menu">
-            {item.canPin && item.kind === 'POST' && <button type="button" role="menuitem" disabled={item.pinning} onClick={() => onAction('pin')}><Pin size={15} />{item.pinned ? 'Відкріпити' : 'Закріпити для себе'}</button>}
+            {canPin && item.kind === 'POST' && <button type="button" role="menuitem" disabled={item.pinning} onClick={() => onAction('pin')}><Pin size={15} />{item.pinned ? 'Відкріпити' : 'Закріпити для себе'}</button>}
             {item.canManage && item.kind === 'POST' && <button type="button" role="menuitem" onClick={() => onAction('edit')}><Pencil size={15} />Редагувати</button>}
             {item.canManage && <button type="button" role="menuitem" className="stream-menu__danger" onClick={() => onAction('archive')}><Archive size={15} />Архівувати</button>}
           </div>}</div>}

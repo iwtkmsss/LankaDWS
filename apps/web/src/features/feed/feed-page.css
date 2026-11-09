@@ -16,18 +16,18 @@
 .stream-comment__author { color: var(--fg-strong); font-size: var(--text-person); font-weight: var(--weight-medium); }
 .stream-comment__author:hover { text-decoration: underline; }
 .stream-card .stream-comment-form .mention-field__label { font-weight: var(--weight-medium); }
-.stream-comment-form .mention-field textarea { border-radius: 9px; padding: var(--space-3); background: var(--surface); }
-.stream-file__icon img { width: 26px; height: 26px; object-fit: cover; border-radius: 4px; }
+.stream-comment-form .mention-field textarea { border-radius: var(--radius-sm); padding: var(--space-3); background: var(--surface); }
+.stream-file__icon img { width: 26px; height: 26px; object-fit: cover; border-radius: var(--radius-xs); }
 .stream-page-state { display: grid; justify-items: center; text-align: center; gap: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-10) var(--space-6); background: var(--surface); color: var(--fg-muted); }
-.stream-page-state > span { display: grid; place-items: center; width: 52px; height: 52px; color: var(--fg-link); background: var(--cobalt-50); border-radius: 16px; }
+.stream-page-state > span { display: grid; place-items: center; width: 52px; height: 52px; color: var(--fg-link); background: var(--cobalt-50); border-radius: var(--radius-md); }
 .stream-page-state.is-error > span { color: var(--danger); background: var(--danger-bg); }
 .stream-page-state h2 { margin: var(--space-1) 0 0; font-size: var(--text-heading); color: var(--fg-strong); font-weight: var(--weight-bold); }
 .stream-page-state p { max-width: 420px; margin: 0; font-size: var(--text-ui); line-height: 1.6; }
 .stream-page-state .button { margin-top: var(--space-2); }
 .stream-skeleton { display: grid; gap: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6); background: var(--surface); }
-.stream-skeleton i { display: block; height: 13px; border-radius: 5px; background: var(--surface-hover); }
+.stream-skeleton i { display: block; height: 13px; border-radius: var(--radius-xs); background: var(--surface-hover); }
 .stream-skeleton > div { display: flex; align-items: center; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
-.stream-skeleton > div > i { width: 40px; height: 40px; border-radius: 50%; }
+.stream-skeleton > div > i { width: 40px; height: 40px; border-radius: var(--radius-full); }
 .stream-skeleton > div > span { display: grid; gap: var(--space-2); width: min(180px, 70%); }
 .stream-skeleton > div > span > i:last-child { width: 70%; }
 .stream-skeleton > i:nth-child(3) { width: 75%; }
@@ -39,10 +39,10 @@
 .feed-page .feed-attention__actions a strong { font-size: 20px; font-weight: var(--weight-bold); }
 .feed-page .feed-attention__clear { padding-top: var(--space-3); margin: 0; border-top: 1px solid var(--line); }
 .feed-page .feed-birthday-highlight { padding: var(--space-6); border-radius: var(--radius-lg); }
-.feed-page .feed-birthday-highlight > header { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 0; border-radius: 12px; }
+.feed-page .feed-birthday-highlight > header { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3) var(--space-2); border: 0; border-radius: var(--radius-md); }
 .feed-page .feed-birthday-highlight > header h2 { overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0.02em; }
 .feed-page .feed-birthday-highlight__people > a { padding: var(--space-3) 0 0; margin-top: var(--space-3); border-radius: 0; border-top: 1px solid var(--line); background: transparent; }
-.feed-birthday-highlight__people > a > .stream-birthday-today { flex: 0 0 auto; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--violet) 25%, var(--line)); border-radius: 6px; color: var(--fg-body); background: color-mix(in srgb, var(--violet) 9%, var(--surface)); font-size: var(--text-label); font-weight: var(--weight-medium); }
+.feed-birthday-highlight__people > a > .stream-birthday-today { flex: 0 0 auto; padding: var(--space-1) var(--space-2); border: 1px solid color-mix(in srgb, var(--violet) 25%, var(--line)); border-radius: var(--radius-sm); color: var(--fg-body); background: color-mix(in srgb, var(--violet) 9%, var(--surface)); font-size: var(--text-label); font-weight: var(--weight-medium); }
 .feed-birthday-highlight__people > a:has(.stream-birthday-today) { flex-wrap: wrap; }
 .stream-pagination { display: grid; justify-items: center; gap: var(--space-4); padding: var(--space-5); }
 .stream-pagination p { margin: 0; color: var(--fg-muted); font-size: var(--text-meta); text-align: center; }

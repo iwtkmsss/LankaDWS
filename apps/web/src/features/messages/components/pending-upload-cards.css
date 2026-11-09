@@ -1,12 +1,12 @@
 .pending-uploads { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); width: 100%; padding: var(--space-1) 0; }
 .pending-uploads-draft-stream { display: flex; flex: 1; flex-direction: column-reverse; min-height: 0; overflow-y: auto; padding: 0 var(--space-3); }
-.pending-upload { display: flex; align-items: center; gap: var(--space-2); width: fit-content; max-width: min(360px, calc(100% - 48px)); min-width: 0; padding: 1px var(--space-2); border-radius: 9px 9px 4px 9px; background: var(--cobalt-100); color: var(--fg-strong); }
-.pending-upload__visual { position: relative; display: grid; flex: none; place-items: center; width: 32px; height: 32px; overflow: hidden; border-radius: 8px; color: var(--fg-link); }
+.pending-upload { display: flex; align-items: center; gap: var(--space-2); width: fit-content; max-width: min(360px, calc(100% - 48px)); min-width: 0; padding: 1px var(--space-2); border-radius: var(--radius-sm) var(--radius-sm) var(--radius-xs) var(--radius-sm); background: var(--cobalt-100); color: var(--fg-strong); }
+.pending-upload__visual { position: relative; display: grid; flex: none; place-items: center; width: 32px; height: 32px; overflow: hidden; border-radius: var(--radius-sm); color: var(--fg-link); }
 .pending-upload__visual > img { width: 100%; height: 100%; object-fit: cover; opacity: .65; }
-.pending-upload__control { position: absolute; inset: 0; border-radius: 50%; background: var(--cobalt-600); color: white; }
+.pending-upload__control { position: absolute; inset: 0; border-radius: var(--radius-full); background: var(--cobalt-600); color: white; }
 .pending-upload__control > svg { display: block; width: 32px; height: 32px; fill: none; stroke: currentColor; stroke-width: 2.5; transform: rotate(-90deg); }
 .pending-upload__track { opacity: .22; }
-.pending-upload__control > button { position: absolute; inset: 0; display: grid; place-items: center; width: 32px; height: 32px; border: 0; padding: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.pending-upload__control > button { position: absolute; inset: 0; display: grid; place-items: center; width: 32px; height: 32px; border: 0; padding: 0; border-radius: var(--radius-full); background: transparent; color: inherit; cursor: pointer; }
 .pending-upload__control > button:focus-visible { outline: 2px solid var(--ink-900); outline-offset: -2px; }
 .pending-upload__copy { display: flex; align-items: center; flex-wrap: wrap; min-width: 0; gap: var(--space-0_5) var(--space-2); }
 .pending-upload__copy > .compact-file-name { min-width: 0; color: var(--fg-body); font-size: var(--text-meta); font-weight: var(--weight-medium); }

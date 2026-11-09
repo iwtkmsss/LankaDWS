@@ -11,7 +11,7 @@
 .stream-composer input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent-solid); }
 .stream-composer__audience { padding-top: var(--space-4); border-top: 1px solid var(--line); }
 .stream-composer__audience > button { display: flex; align-items: center; gap: var(--space-2); border: 0; padding: 0; background: transparent; color: var(--fg-muted); text-align: left; font-size: var(--text-meta); }
-.stream-composer__audience fieldset { display: grid; gap: var(--space-3); border: 1px solid var(--line); border-radius: 10px; padding: var(--space-4); margin: var(--space-4) 0 0; font-size: var(--text-meta); }
+.stream-composer__audience fieldset { display: grid; gap: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-4) 0 0; font-size: var(--text-meta); }
 .stream-composer__audience legend { padding: 0 var(--space-1); color: var(--fg-muted); font-size: var(--text-label); font-weight: var(--weight-medium); }
 .stream-composer__audience label { display: flex; flex-direction: row; gap: var(--space-2); align-items: center; }
 .feed-composer .stream-composer__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--line); }
@@ -26,9 +26,9 @@
 .stream-composer__files small { color: var(--fg-muted); font-size: var(--text-meta); }
 .stream-photo-previews { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2); min-width: 0; }
 .stream-photo-preview { position: relative; max-width: 100%; }
-.stream-photo-preview__open { display: block !important; margin: 0 !important; padding: 0 !important; max-width: 100%; border: 1px solid var(--line) !important; border-radius: 9px; overflow: hidden; background: var(--surface); }
+.stream-photo-preview__open { display: block !important; margin: 0 !important; padding: 0 !important; max-width: 100%; border: 1px solid var(--line) !important; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
 .stream-photo-preview__open img { display: block; max-width: min(240px, 100%); max-height: 180px; width: auto; height: auto; object-fit: contain; }
-.stream-photo-preview > .icon-button { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; margin: 0; padding: var(--space-1); background: var(--surface-raised); border: 1px solid var(--line); border-radius: 50%; }
+.stream-photo-preview > .icon-button { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; margin: 0; padding: var(--space-1); background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--radius-full); }
 .stream-photo-full { display: block; max-width: 100%; max-height: 75vh; margin: auto; object-fit: contain; }
 .stream-photo-error { margin: 0; color: var(--danger); font-size: var(--text-meta); }
 .stream-comment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

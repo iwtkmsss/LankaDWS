@@ -39,7 +39,7 @@
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: var(--fg-link);
   transition: background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
@@ -171,7 +171,7 @@
   min-width: max-content;
   align-items: center;
   gap: var(--space-1);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
   color: var(--fg-muted);
   padding: var(--space-1) var(--space-2);

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, expect, it, vi } from 'vitest'
 import ContentPages from './ContentPages'
+import { FeedbackDialogHost } from '../layout/FeedbackDialogHost'
 import { TopbarContentProvider } from '../layout/TopbarContent'
 import { OverlayProvider } from '../shared/ui/Overlay'
 
@@ -12,15 +13,33 @@ vi.mock('../shared/api/client', async (load) => ({ ...await load<object>(), api:
 vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: principal }) }))
 afterEach(() => { cleanup(); request.mockReset(); principal.accountType = 'USER'; vi.unstubAllGlobals() })
 
+it('no longer offers feedback from the knowledge page', async () => {
+  request.mockResolvedValue({ items: [{ id: 'article', slug: 'guide', title: 'Інструкція', createdAt: '2026-10-05', requiresAcknowledgement: false, version: 1 }] })
+  const router = createMemoryRouter([{ path: '/knowledge', element: <TopbarContentProvider><ContentPages /></TopbarContentProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  await screen.findByRole('heading', { name: 'Інструкція' })
+  expect(screen.queryByRole('button', { name: 'Залишити відгук' })).toBeNull()
+  expect(screen.queryByText('Не знайшли відповіді?')).toBeNull()
+})
+
+it('opens feedback over any page from the URL and keeps that page state when closed', async () => {
+  const router = createMemoryRouter([{ path: '*', element: <OverlayProvider><FeedbackDialogHost /></OverlayProvider> }], { initialEntries: ['/tasks?role=RESPONSIBLE&feedback=new'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  const dialog = await screen.findByRole('dialog', { name: 'Звернення до адміністратора' })
+  fireEvent.click(within(dialog).getByRole('button', { name: /Закрити/ }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(router.state.location.pathname).toBe('/tasks')
+  expect(router.state.location.search).toBe('?role=RESPONSIBLE')
+})
+
 it('submits private feedback through the shared editor without requesting companies or showing acknowledgement controls', async () => {
   request.mockImplementation(async (path: string) => path === '/knowledge/tickets' ? { submitted: true } : path === '/knowledge/tickets/attachments' ? { id: 'attachment', scanStatus: 'CLEAN' } : { items: [] })
-  const router = createMemoryRouter([{ path: '/knowledge', element: <OverlayProvider><TopbarContentProvider><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: ['/knowledge'] })
+  const router = createMemoryRouter([{ path: '*', element: <OverlayProvider><FeedbackDialogHost /></OverlayProvider> }], { initialEntries: ['/feed?feedback=new'] })
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
-  fireEvent.click(await screen.findByRole('button', { name: 'Залишити відгук' }))
-  expect(router.state.location.search).toBe('?feedback=new')
   const dialog = await screen.findByRole('dialog')
   expect(within(dialog).queryByText('Ознайомлення')).toBeNull()
   expect(within(dialog).queryByRole('group', { name: 'Хто побачить статтю' })).toBeNull()
+  expect(within(dialog).queryByLabelText('Додати картинку')).toBeNull()
   fireEvent.change(within(dialog).getByRole('textbox', { name: 'Тема звернення' }), { target: { value: 'Побажання' } })
   const body = within(dialog).getByRole('textbox', { name: 'Текст звернення' })
   body.innerHTML = '<p>Мій відгук</p>'
@@ -29,6 +48,7 @@ it('submits private feedback through the shared editor without requesting compan
   fireEvent.click(within(dialog).getByRole('button', { name: 'Надіслати звернення' }))
   await screen.findByText('Звернення надіслано адміністратору. Дякуємо за відгук!')
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(router.state.location.search).toBe('')
   const submission = request.mock.calls.find(([path, init]) => path === '/knowledge/tickets' && init?.method === 'POST')
   expect(JSON.parse(submission![1].body)).toEqual({ title: 'Побажання', body: 'Мій відгук', attachmentIds: ['attachment'] })
   expect(request.mock.calls.some(([path]) => path === '/admin/companies')).toBe(false)
@@ -213,4 +233,36 @@ it('removes saved cover and attachments from the edit draft and submits selected
   await waitFor(() => expect(request).toHaveBeenCalledWith('/knowledge/articles/guide', expect.objectContaining({ method: 'PATCH' })))
   const submitted = request.mock.calls.find(([path, options]) => path === '/knowledge/articles/guide' && options?.method === 'PATCH')!
   expect(JSON.parse(submitted[1].body)).toMatchObject({ removedAttachmentIds: ['cover', 'file'], attachmentIds: [], expectedVersion: 3 })
+})
+
+it('puts pending required material first and filters by reading status through the URL', async () => {
+  request.mockResolvedValue({ items: [
+    { id: 'read', slug: 'read', title: 'Прочитана', createdAt: '2026-10-05', requiresAcknowledgement: false, hasAcknowledged: true, version: 1 },
+    { id: 'required', slug: 'required', title: 'Обов’язкова', createdAt: '2026-10-04', requiresAcknowledgement: true, hasAcknowledged: false, version: 1 },
+  ] })
+  const router = createMemoryRouter([{ path: '/knowledge', element: <TopbarContentProvider><ContentPages /></TopbarContentProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>)
+  const list = await screen.findByRole('list', { name: 'Матеріали бази знань' })
+  expect(within(list).getAllByRole('heading').map((heading) => heading.textContent)).toEqual(['Обов’язкова', 'Прочитана'])
+  expect(screen.getByRole('button', { name: /1 обов’язковий матеріал чекає на ознайомлення/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /До ознайомлення/ }))
+  expect(router.state.location.search).toBe('?status=unread')
+  expect(screen.queryByRole('heading', { name: 'Прочитана' })).toBeNull()
+  expect(screen.getByRole('heading', { name: 'Обов’язкова' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Ознайомлені/ }))
+  expect(router.state.location.search).toBe('?status=read')
+  expect(screen.queryByRole('heading', { name: 'Обов’язкова' })).toBeNull()
+})
+
+it('keeps the debounced search in the URL and offers to clear an empty result', async () => {
+  request.mockImplementation(async (path: string) => ({ items: path.endsWith('search=') ? [{ id: 'article', slug: 'guide', title: 'Інструкція', createdAt: '2026-10-05', requiresAcknowledgement: false, hasAcknowledged: false, version: 1 }] : [] }))
+  const router = createMemoryRouter([{ path: '/knowledge', element: <TopbarContentProvider><ContentPages /></TopbarContentProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  fireEvent.change(await screen.findByRole('searchbox', { name: 'Пошук матеріалів' }), { target: { value: ' відпустка ' } })
+  await waitFor(() => expect(router.state.location.search).toBe('?q=%D0%B2%D1%96%D0%B4%D0%BF%D1%83%D1%81%D1%82%D0%BA%D0%B0'), { timeout: 4000 })
+  expect(request).toHaveBeenCalledWith('/knowledge/articles?search=%D0%B2%D1%96%D0%B4%D0%BF%D1%83%D1%81%D1%82%D0%BA%D0%B0')
+  const empty = (await screen.findByRole('heading', { name: 'Нічого не знайдено' }, { timeout: 4000 })).parentElement!
+  fireEvent.click(within(empty).getByRole('button', { name: 'Очистити пошук' }))
+  expect(router.state.location.search).toBe('')
+  expect(await screen.findByRole('heading', { name: 'Інструкція' }, { timeout: 4000 })).toBeInTheDocument()
 })

@@ -54,9 +54,17 @@
   --danger-bg: #ffeaed;
   --violet: #7656d6;
   --orange: #b85c05;
-  --radius-sm: 9px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
+  /* Corner radius scale on a 4px grid, chosen by the element's role, not its page.
+     xs = inline bits (code, kbd, mentions, tab indicators); sm = controls and list items
+     (buttons, inputs, search, menu items, thumbnails); md = inset blocks and floating surfaces
+     (notes, errors, menus, popovers, message bubbles); lg = cards, panels, modals;
+     full = pills, chips, badges, avatars. A nested element is one step smaller than its container.
+     Never hard-code a radius; 0 and inherit are the only literal values allowed. */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
   --shadow-sm: 0 1px 2px rgba(15, 24, 45, .04), 0 5px 18px rgba(24, 35, 62, .04);
   --shadow-md: 0 2px 4px rgba(15, 24, 45, .05), 0 10px 28px rgba(24, 35, 62, .1);
   --shadow-lg: 0 18px 60px rgba(13, 22, 45, .18);

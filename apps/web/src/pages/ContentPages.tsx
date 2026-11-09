@@ -1,12 +1,13 @@
 import { FileFormatIcon } from '../shared/files/FileFormatIcon'
 import { personName } from '../shared/lib/personName'
 import './knowledge-reading.css'
+import './knowledge-library.css'
 import { KnowledgeFeedbackTickets } from './KnowledgeFeedbackTickets'
 import { FormattedText } from '../shared/text/FormattedText'
 import { FormattedTextarea } from '../shared/text/FormattedTextarea'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowRight, BookOpenCheck, Building2, Check, Download, Eye, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertTriangle, BookOpenCheck, Building2, Check, ChevronRight, Download, Eye, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { api, apiUrl, jsonBody, randomId } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
@@ -66,20 +67,59 @@ export default function ContentPages() {
 }
 
 
+type ReadingFilter = 'all' | 'unread' | 'read'
+const readingFilters: Array<{ value: ReadingFilter; label: string }> = [
+  { value: 'all', label: 'Усі' },
+  { value: 'unread', label: 'До ознайомлення' },
+  { value: 'read', label: 'Ознайомлені' },
+]
+const ukrainianPlural = new Intl.PluralRules('uk')
+function plural(count: number, one: string, few: string, many: string) {
+  const rule = ukrainianPlural.select(count)
+  return rule === 'one' ? one : rule === 'few' ? few : many
+}
+const isPendingRequired = (item: ArticleList) => item.requiresAcknowledgement && !item.hasAcknowledged
+const articleListQuery = (search: string, enabled: boolean) => ({
+  queryKey: ['knowledge', 'articles', search],
+  queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`),
+  enabled,
+  staleTime: 0,
+  refetchOnMount: 'always' as const,
+})
+
 function KnowledgePage() {
   const { articleSlug } = useParams()
   const { user } = useAuth()
   const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState('')
+  const search = (params.get('q') ?? '').trim()
+  const [searchInput, setSearchInput] = useState(search)
+  const statusParam = params.get('status')
+  const filter: ReadingFilter = statusParam === 'unread' || statusParam === 'read' ? statusParam : 'all'
   const [deleting, setDeleting] = useState<ArticleList | null>(null)
-  const [feedbackSent, setFeedbackSent] = useState(false)
   const client = useQueryClient()
   const canManage = user?.accountType === 'ADMIN'
   const managing = canManage && params.get('manage') === '1'
   const editor = managing ? params.get('edit') : null
-  const ticketEditor = params.get('feedback') === 'new'
-  const closeTicketEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('feedback'); return next })
-  const query = useQuery({ queryKey: ['knowledge', 'articles', search], queryFn: () => api<{ items: ArticleList[] }>(`/knowledge/articles?search=${encodeURIComponent(search)}`), enabled: !articleSlug, staleTime: 0, refetchOnMount: 'always' })
+  const updateParams = (change: (next: URLSearchParams) => void, replace = false) => setParams((previous) => {
+    const next = new URLSearchParams(previous)
+    change(next)
+    return next
+  }, { replace })
+  // The URL keeps the search, so returning from an article restores the same list.
+  useEffect(() => {
+    const pending = searchInput.trim()
+    if (pending === search) return
+    const timer = window.setTimeout(() => setParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (pending) next.set('q', pending)
+      else next.delete('q')
+      return next
+    }, { replace: true }), 250)
+    return () => window.clearTimeout(timer)
+  }, [searchInput, search, setParams])
+  // The unfiltered list feeds the reading progress; it is the same request as the list when nothing is searched.
+  const overview = useQuery(articleListQuery('', !articleSlug))
+  const query = useQuery({ ...articleListQuery(search, !articleSlug), placeholderData: keepPreviousData })
   const remove = useMutation({
     mutationFn: (article: ArticleList) => api(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
     onSuccess: async () => {
@@ -87,42 +127,165 @@ function KnowledgePage() {
       await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
     },
   })
-  const openEditor = (slug: string) => setParams((previous) => { const next = new URLSearchParams(previous); next.set('edit', slug); return next })
-  const closeEditor = () => setParams((previous) => { const next = new URLSearchParams(previous); next.delete('edit'); return next })
+  const openEditor = (slug: string) => updateParams((next) => { next.set('manage', '1'); next.set('edit', slug) })
+  const closeEditor = () => updateParams((next) => next.delete('edit'))
+  const toggleManaging = () => updateParams((next) => {
+    if (managing) { next.delete('manage'); next.delete('edit') } else next.set('manage', '1')
+  })
+  const setFilter = (value: ReadingFilter) => updateParams((next) => { if (value === 'all') next.delete('status'); else next.set('status', value) }, true)
+  const clearSearch = () => {
+    setSearchInput('')
+    updateParams((next) => next.delete('q'), true)
+  }
 
   if (articleSlug) return <>
-    <ArticlePage slug={articleSlug} backSearch={params.toString()} canManage={canManage} onEdit={() => setParams((previous) => { const next = new URLSearchParams(previous); next.set('manage', '1'); next.set('edit', articleSlug); return next })} />
+    <ArticlePage slug={articleSlug} backSearch={params.toString()} canManage={canManage} onEdit={() => openEditor(articleSlug)} />
     {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
   </>
 
   if (query.isLoading) return <div className="knowledge-page-loading"><PageDataLoader /></div>
 
-  return <div>
-    <PageHeader title="База знань" description="Інструкції, політики та матеріали для щоденної роботи" action={canManage && <Button className="knowledge-manage-button" variant="secondary" aria-pressed={managing} onClick={() => setParams((previous) => {
-      const next = new URLSearchParams(previous)
-      if (managing) { next.delete('manage'); next.delete('edit') } else next.set('manage', '1')
-      return next
-    })}>{managing ? <Check size={17} /> : <Pencil size={17} />}{managing ? 'Завершити керування' : 'Керувати матеріалами'}</Button>} />
-    <div className="knowledge-layout">
-      <Card className="knowledge-feature"><div className="knowledge-feature-content"><div className="knowledge-feature-search"><span className="eyebrow">Знання команди</span><h2>Знайдіть відповідь без зайвих запитів</h2><label className="search-field"><Search size={18} /><input aria-label="Пошук матеріалів" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Введіть тему або ключове слово" /></label></div><div className="knowledge-feedback"><span>Зворотний зв’язок</span><strong>Поділіться враженнями та пропозиціями</strong><p>Маєте ідеї, побажання чи хочете поділитися своїми враженнями?</p><Button onClick={() => { setFeedbackSent(false); setParams((previous) => { const next = new URLSearchParams(previous); next.set('feedback', 'new'); next.delete('edit'); return next }) }}>Залишити відгук <ArrowRight size={16} aria-hidden="true" /></Button></div></div></Card>
-      {feedbackSent && <p className="success-note" role="status"><Check size={17} />Звернення надіслано адміністратору. Дякуємо за відгук!</p>}
-      {canManage && <KnowledgeFeedbackTickets renderAttachment={(file) => <KnowledgeAttachmentPreview attachment={file} />} />}
-      <section className="article-grid" aria-label="Матеріали бази знань">
-        {query.isError ? <ErrorState /> : <>
-          {query.data?.items.map((item) => <div className={`knowledge-article-card ${item.requiresAcknowledgement && !item.hasAcknowledged ? 'is-required' : ''}`} key={item.id}>
-            <Link to={{ pathname: `/knowledge/${item.slug}`, search: params.toString() }}><KnowledgeImage fileId={item.imageFileId} className="knowledge-article-image" /><div className="knowledge-article-content"><h3>{item.title}</h3><span className={`knowledge-reading-status ${item.hasAcknowledged ? 'is-confirmed' : 'is-pending'}`}>{item.hasAcknowledged ? <Check size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}{item.hasAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}</span><small className="knowledge-article-created">Створено {formatDate(item.createdAt)}</small></div></Link>
-            {item.requiresAcknowledgement && !item.hasAcknowledged && <span className="knowledge-required-marker" role="img" aria-label="Обов’язкове ознайомлення" title="Обов’язкове ознайомлення"><AlertTriangle size={18} aria-hidden="true" /></span>}
-            {managing && <div className="knowledge-article-actions"><Button variant="secondary" aria-label={`Редагувати ${item.title}`} onClick={() => openEditor(item.slug)}><Pencil size={16} />Редагувати</Button><Button variant="danger" aria-label={`Видалити ${item.title}`} onClick={() => setDeleting(item)}><Trash2 size={16} />Видалити</Button></div>}
-          </div>)}
-          {!query.data?.items.length && <p className="knowledge-empty">{search ? 'За вашим запитом матеріалів не знайдено.' : 'Матеріалів поки немає.'}</p>}
-          {managing && <button type="button" className="knowledge-add-card" onClick={() => openEditor('new')}><span><Plus size={32} /></span><strong>Додати матеріал</strong><small>Створіть нову інструкцію для команди</small></button>}
-        </>}
+  const items = query.data?.items ?? []
+  const counts: Record<ReadingFilter, number> = {
+    all: items.length,
+    unread: items.filter((item) => !item.hasAcknowledged).length,
+    read: items.filter((item) => item.hasAcknowledged).length,
+  }
+  // Required material the reader has not confirmed yet comes first; the server order is kept otherwise.
+  const visibleItems = items
+    .filter((item) => filter === 'all' || (filter === 'read') === Boolean(item.hasAcknowledged))
+    .sort((left, right) => Number(isPendingRequired(right)) - Number(isPendingRequired(left)))
+  const allItems = overview.data?.items ?? []
+  const readTotal = allItems.filter((item) => item.hasAcknowledged).length
+  const requiredPending = allItems.filter(isPendingRequired).length
+  const searching = query.isFetching && query.isPlaceholderData
+
+  let listContent: ReactNode
+  if (query.isError && !query.data) listContent = <ErrorState onRetry={() => void query.refetch()} />
+  else if (!items.length && search) listContent = <EmptyState
+    illustration="search"
+    title="Нічого не знайдено"
+    description={`За запитом «${search}» матеріалів немає. Спробуйте інше слово або очистьте пошук.`}
+    action={<Button variant="secondary" onClick={clearSearch}><X size={16} aria-hidden />Очистити пошук</Button>}
+  />
+  else if (!items.length) listContent = <EmptyState
+    illustration="workspace"
+    title="Матеріалів поки немає"
+    description={canManage ? 'Додайте першу інструкцію чи політику — команда побачить її тут.' : 'Щойно адміністратори опублікують інструкції, вони з’являться тут.'}
+    action={canManage && !managing && <Button onClick={() => openEditor('new')}><Plus size={17} aria-hidden />Додати матеріал</Button>}
+  />
+  else if (!visibleItems.length) listContent = <EmptyState
+    title={filter === 'unread' ? 'Усе прочитано' : 'Ще нічого не прочитано'}
+    description={filter === 'unread' ? 'Ви ознайомилися з усіма матеріалами в цьому списку.' : 'Відкрийте матеріал і підтвердьте ознайомлення — він з’явиться тут.'}
+    action={<Button variant="secondary" onClick={() => setFilter('all')}>Показати всі матеріали</Button>}
+  />
+  else listContent = <ul className="knowledge-list" aria-label="Матеріали бази знань">
+    {visibleItems.map((item) => <KnowledgeArticleRow
+      key={item.id}
+      item={item}
+      search={params.toString()}
+      managing={managing}
+      onEdit={() => openEditor(item.slug)}
+      onDelete={() => { remove.reset(); setDeleting(item) }}
+    />)}
+  </ul>
+
+  return <div className="knowledge-page">
+    <PageHeader title="База знань" action={canManage && <div className="knowledge-topbar-actions">
+      {managing && <Button aria-label="Додати матеріал" onClick={() => openEditor('new')}><Plus size={17} aria-hidden />Додати<span className="knowledge-topbar-extra"> матеріал</span></Button>}
+      <Button className="knowledge-manage-button" variant="secondary" aria-pressed={managing} aria-label={managing ? 'Завершити керування' : 'Керувати матеріалами'} onClick={toggleManaging}>{managing ? <Check size={17} aria-hidden /> : <Pencil size={17} aria-hidden />}{managing ? <>Завершити<span className="knowledge-topbar-extra"> керування</span></> : 'Керувати матеріалами'}</Button>
+    </div>} />
+    <div className="knowledge-workspace">
+      <section className="card knowledge-library" aria-labelledby="knowledge-library-title">
+        <header className="knowledge-library__header">
+          <div className="knowledge-library__title">
+            <h2 id="knowledge-library-title">Матеріали</h2>
+            <p>Інструкції, політики та довідки для щоденної роботи</p>
+          </div>
+          <div className="search-field knowledge-search">
+            <Search size={17} aria-hidden />
+            <input
+              type="search"
+              aria-label="Пошук матеріалів"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Escape' && searchInput) { event.preventDefault(); clearSearch() } }}
+              placeholder="Пошук за назвою або текстом"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            {searchInput && <button type="button" className="knowledge-search__clear" aria-label="Очистити пошук" onClick={clearSearch}><X size={16} aria-hidden /></button>}
+          </div>
+        </header>
+        <div className="knowledge-library__toolbar">
+          <div className="knowledge-filters" role="group" aria-label="Статус ознайомлення">
+            {readingFilters.map((option) => <button
+              key={option.value}
+              type="button"
+              className={filter === option.value ? 'is-active' : ''}
+              aria-pressed={filter === option.value}
+              onClick={() => setFilter(option.value)}
+            >{option.label}<span className="knowledge-filters__count">{counts[option.value]}</span></button>)}
+          </div>
+          <p className="knowledge-library__summary" aria-live="polite">
+            {searching ? 'Шукаємо…' : search && items.length ? `${items.length} ${plural(items.length, 'результат', 'результати', 'результатів')} за запитом «${search}»` : ''}
+          </p>
+        </div>
+        {managing && <p className="knowledge-manage-note"><Pencil size={15} aria-hidden />Режим керування: редагуйте або видаляйте матеріали прямо в списку.</p>}
+        <div className={`knowledge-library__body${searching ? ' is-refreshing' : ''}`} aria-busy={query.isFetching}>{listContent}</div>
       </section>
+      <aside className="knowledge-aside" aria-label={canManage ? 'Ознайомлення та звернення' : 'Ознайомлення'}>
+        {allItems.length > 0 && <section className="card knowledge-progress" aria-labelledby="knowledge-progress-title">
+          <h2 id="knowledge-progress-title">Ваше ознайомлення</h2>
+          <p className="knowledge-progress__value"><strong>{readTotal}</strong> з {allItems.length} {plural(allItems.length, 'матеріалу', 'матеріалів', 'матеріалів')}</p>
+          <div className={`knowledge-progress__bar${readTotal === allItems.length ? ' is-complete' : ''}`} role="progressbar" aria-label="Прочитані матеріали" aria-valuemin={0} aria-valuemax={allItems.length} aria-valuenow={readTotal}>
+            <span style={{ width: `${Math.round((readTotal / allItems.length) * 100)}%` }} />
+          </div>
+          {requiredPending > 0
+            ? <button type="button" className="knowledge-progress__alert" onClick={() => setFilter('unread')}>
+              <AlertTriangle size={17} aria-hidden />
+              <span>{requiredPending} {plural(requiredPending, 'обов’язковий матеріал чекає', 'обов’язкові матеріали чекають', 'обов’язкових матеріалів чекають')} на ознайомлення</span>
+              <ChevronRight size={16} aria-hidden />
+            </button>
+            : readTotal === allItems.length
+              ? <p className="knowledge-progress__done"><Check size={16} aria-hidden />Усі матеріали прочитано</p>
+              : <p className="knowledge-progress__hint">Обов’язкових матеріалів, що чекають на вас, немає.</p>}
+        </section>}
+        {canManage && <KnowledgeFeedbackTickets renderAttachment={(file) => <KnowledgeAttachmentPreview attachment={file} />} />}
+      </aside>
     </div>
-    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending} />}
+    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => { if (!remove.isPending) setDeleting(null) }} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending}>
+      {remove.isError && <p className="form-error" role="alert">Не вдалося видалити матеріал. Спробуйте ще раз.</p>}
+    </ConfirmationDialog>}
     {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
-    {ticketEditor && <KnowledgeEditor ticket onClose={closeTicketEditor} onSubmitted={() => setFeedbackSent(true)} />}
   </div>
+}
+
+function KnowledgeArticleRow({ item, search, managing, onEdit, onDelete }: { item: ArticleList; search: string; managing: boolean; onEdit: () => void; onDelete: () => void }) {
+  const required = isPendingRequired(item)
+  return <li className={`knowledge-article-card${required ? ' is-required' : ''}`}>
+    <Link className="knowledge-article-link" to={{ pathname: `/knowledge/${item.slug}`, search }}>
+      <span className="knowledge-article-thumb">
+        <KnowledgeImage fileId={item.imageFileId} className="knowledge-article-image" />
+        {required && <span className="knowledge-required-marker" role="img" aria-label="Обов’язкове ознайомлення" title="Обов’язкове ознайомлення"><AlertTriangle size={12} aria-hidden="true" /></span>}
+      </span>
+      <span className="knowledge-article-content">
+        <h3>{item.title}</h3>
+        <span className={`knowledge-reading-status ${item.hasAcknowledged ? 'is-confirmed' : 'is-pending'}`}>{item.hasAcknowledged ? <Check size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}{item.hasAcknowledged ? 'Ознайомлено' : 'Не ознайомлено'}</span>
+        <small className="knowledge-article-created">Створено {formatDate(item.createdAt)}</small>
+      </span>
+      <ChevronRight className="knowledge-article-chevron" size={18} aria-hidden />
+    </Link>
+    {managing && <div className="knowledge-article-actions">
+      <Button variant="secondary" aria-label={`Редагувати ${item.title}`} title="Редагувати" onClick={onEdit}><Pencil size={16} aria-hidden /><span>Редагувати</span></Button>
+      <Button variant="ghost" className="knowledge-article-delete" aria-label={`Видалити ${item.title}`} title="Видалити" onClick={onDelete}><Trash2 size={16} aria-hidden /><span>Видалити</span></Button>
+    </div>}
+  </li>
+}
+
+/** Private feedback to administrators; opened from the profile menu on any page. */
+export function KnowledgeFeedbackDialog({ onClose, onSubmitted }: { onClose: () => void; onSubmitted?: () => void }) {
+  return <KnowledgeEditor ticket onClose={onClose} onSubmitted={onSubmitted} />
 }
 
 function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?: string; ticket?: boolean; onClose: () => void; onSubmitted?: () => void }) {
@@ -226,7 +389,7 @@ function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?
           </div>
           {audienceCompanyIds.length === 0 && <p className="knowledge-audience__hint" role="alert">Оберіть щонайменше одну компанію.</p>}
         </fieldset></>}
-        <div className="knowledge-image-upload">
+        {!ticket && <div className="knowledge-image-upload">
           <strong>Картинка запису</strong>
           {imageFile || existingImage ? <div className="knowledge-image-slot">
             {imageFile ? <KnowledgeSelectedImage file={imageFile} /> : <KnowledgeImage fileId={existingImage?.id} className="knowledge-image-preview" />}
@@ -234,8 +397,8 @@ function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?
               <div className="knowledge-image-slot__actions"><FileDropzone className="knowledge-image-replace" label="Замінити картинку" accept="image/png,image/jpeg,image/gif,image/webp" resetAfterSelect disabled={save.isPending} title="Замінити картинку" buttonLabel="Замінити" onFiles={selectImage} /><Button type="button" variant="ghost" aria-label="Прибрати картинку" disabled={save.isPending} onClick={() => { setImageFile(null); if (existingImage) removeAttachment(existingImage.id); setDirty(true) }}><X size={16} />Прибрати</Button></div>
             </div>
           </div> : <FileDropzone label="Додати картинку" accept="image/png,image/jpeg,image/gif,image/webp" resetAfterSelect disabled={save.isPending} title="Додайте одну картинку" hint="PNG, JPG, GIF або WebP · 1 файл" onFiles={selectImage} />}
-        </div>
-        <div className="knowledge-attachments-upload">
+        </div>}
+        <div className={`knowledge-attachments-upload${ticket ? ' span-2' : ''}`}>
           <span className="knowledge-attachments-upload__label">Файли</span>
           <FileDropzone
             label="Додати файли"
@@ -243,7 +406,7 @@ function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?
             resetAfterSelect
             disabled={save.isPending}
             title="Перетягніть файли сюди"
-            hint="Файли буде прикріплено після перевірки безпеки."
+            hint={ticket ? 'Документи, знімки екрана чи фото · до 20 файлів. Їх буде прикріплено після перевірки безпеки.' : 'Файли буде прикріплено після перевірки безпеки.'}
             onFiles={(files) => { setDirty(true); setAttachmentFiles((current) => [
               ...current,
               ...files.filter((file) => !(imageFile?.name === file.name && imageFile.size === file.size) && !current.some((picked) => picked.name === file.name && picked.size === file.size)),

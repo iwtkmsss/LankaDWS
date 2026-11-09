@@ -1,11 +1,11 @@
 .rich-editor { position: relative; min-width: 0; max-width: 100%; }
-.formatting-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: var(--space-0_5); padding: var(--space-1); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: var(--space-2); max-width: 100%; }
+.formatting-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: var(--space-0_5); padding: var(--space-1); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); margin-bottom: var(--space-2); max-width: 100%; }
 .formatting-toolbar > * { flex-shrink: 0; }
-.formatting-toolbar select { display: inline-flex; align-items: center; align-self: center; box-sizing: border-box; width: 72px; height: 30px; min-height: 30px; padding: 0 var(--space-5) 0 var(--space-2); border: 0; border-radius: 6px; background-color: transparent; box-shadow: none; color: inherit; font-size: var(--text-ui); line-height: 20px; cursor: pointer; }
+.formatting-toolbar select { display: inline-flex; align-items: center; align-self: center; box-sizing: border-box; width: 72px; height: 30px; min-height: 30px; padding: 0 var(--space-5) 0 var(--space-2); border: 0; border-radius: var(--radius-sm); background-color: transparent; box-shadow: none; color: inherit; font-size: var(--text-ui); line-height: 20px; cursor: pointer; }
 .formatting-toolbar select:hover { background-color: var(--surface-soft); }
 .formatting-emoji { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: var(--space-2); }
-.formatting-emoji button { min-height: 34px; min-width: 34px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: inherit; cursor: pointer; }
-.formatting-toolbar button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; min-height: 30px; padding: var(--space-1); border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.formatting-emoji button { min-height: 34px; min-width: 34px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: inherit; cursor: pointer; }
+.formatting-toolbar button { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; min-height: 30px; padding: var(--space-1); border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; }
 .formatting-toolbar button:hover, .formatting-toolbar button[aria-pressed=true] { background: var(--surface-soft); }
 .formatting-toolbar button:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 .formatting-toolbar button:disabled { opacity: .45; cursor: default; }
@@ -16,7 +16,7 @@
 .formatted-editor { width: 100%; min-width: 0; }
 .formatted-editor > label { display: block; margin-bottom: var(--space-2); }
 .formatted-editor textarea { width: 100%; }
-.rich-editor__input { min-height: calc(var(--editor-rows, 3) * 1.7em + 24px); max-height: 60vh; overflow-y: auto; padding: var(--space-3); border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--fg-strong); font-weight: var(--weight-regular); cursor: text; position: relative; }
+.rich-editor__input { min-height: calc(var(--editor-rows, 3) * 1.7em + 24px); max-height: 60vh; overflow-y: auto; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--fg-strong); font-weight: var(--weight-regular); cursor: text; position: relative; }
 .rich-editor__input:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: -2px; }
 /* The toolbar, any open panel and the text area read as one framed block. */
 .rich-editor > .formatting-toolbar { margin-bottom: 0; border-bottom-right-radius: 0; border-bottom-left-radius: 0; }
@@ -29,7 +29,7 @@
 .formatting-link { display: flex; align-items: end; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-2); }
 .formatting-link label { flex: 1; min-width: 180px; }
 .formatting-link input { width: 100%; }
-.formatting-link button { padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; cursor: pointer; }
+.formatting-link button { padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: inherit; cursor: pointer; }
 /* Shared by the editor and every reading surface, so text keeps its size and rhythm in both modes. */
 .formatted-text { color: var(--fg-reading); font-size: var(--text-rich); overflow-wrap: anywhere; white-space: normal; line-height: 1.5; }
 .formatted-text :is(p, li, h2, h3, h4) { color: inherit; }
@@ -39,8 +39,8 @@
 .formatted-text ul, .formatted-text ol { margin: .5em 0; padding-left: 1.6em; }
 .formatted-text li { white-space: pre-wrap; }
 .formatted-text blockquote { margin: .6em 0; padding: .5em 1em; border-left: 3px solid var(--accent-solid); background: var(--surface-soft); }
-.formatted-text code { padding: .12em .3em; border-radius: 4px; background: var(--surface-soft); font-size: max(var(--text-min), .9em); }
-.formatted-text pre { overflow-x: auto; padding: var(--space-4); border-radius: 8px; background: var(--surface-soft); white-space: pre; }
+.formatted-text code { padding: .12em .3em; border-radius: var(--radius-xs); background: var(--surface-soft); font-size: max(var(--text-min), .9em); }
+.formatted-text pre { overflow-x: auto; padding: var(--space-4); border-radius: var(--radius-md); background: var(--surface-soft); white-space: pre; }
 .formatted-text pre code { padding: 0; }
 .formatted-text a { text-decoration: underline; }
 .formatted-text .structured-mention, .formatted-text .structured-mention:hover, .formatted-text .structured-mention.is-inactive { background: transparent; padding-inline: 0; }

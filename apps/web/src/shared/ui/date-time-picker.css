@@ -5,7 +5,7 @@
 .date-time-field-value { min-width: 0; color: var(--fg-strong); font-variant-numeric: tabular-nums; text-align: left; }
 .date-time-field-trigger:focus-visible { outline: 0; }
 .date-time-menu { position: fixed; inset: auto; margin: 0; padding: var(--space-4); max-height: calc(100dvh - 24px); overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); color: var(--fg-strong); box-shadow: var(--shadow-lg); font: 14px/1.4 var(--font); z-index: 2000; text-transform: none; letter-spacing: normal; }
-.date-time-menu button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: var(--space-2); border: 0; border-radius: 8px; background: transparent; color: var(--fg-body); cursor: pointer; }
+.date-time-menu button { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--fg-body); cursor: pointer; }
 .date-time-menu button:hover { background: var(--surface-hover); }
 .date-time-menu button:focus-visible, .date-time-menu select:focus-visible, .date-time-wheel:focus-visible { outline: 2px solid var(--cobalt-500); outline-offset: 2px; }
 .date-time-menu button:disabled { opacity: .3; cursor: default; }
@@ -24,8 +24,8 @@
 .date-time-days button[aria-selected='true'] { background: var(--accent-solid); color: #fff; opacity: 1; box-shadow: none; }
 .date-time-clock { min-width: 0; text-align: center; }
 .date-time-clock-title { display: block; margin: var(--space-2) 0; color: var(--fg-muted); font-size: var(--text-meta); }
-.date-time-wheels { position: relative; display: flex; justify-content: center; align-items: center; border-radius: 12px; background: var(--surface-soft); padding: var(--space-2) var(--space-1); }
-.date-time-wheels::before { content: ''; position: absolute; inset: calc(50% - 4px) 6px auto; height: 36px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-radius: 6px; background: color-mix(in srgb, var(--cobalt-500) 9%, transparent); pointer-events: none; }
+.date-time-wheels { position: relative; display: flex; justify-content: center; align-items: center; border-radius: var(--radius-md); background: var(--surface-soft); padding: var(--space-2) var(--space-1); }
+.date-time-wheels::before { content: ''; position: absolute; inset: calc(50% - 4px) 6px auto; height: 36px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--cobalt-500) 9%, transparent); pointer-events: none; }
 .date-time-wheel-group { flex: 1; min-width: 0; }
 .date-time-wheel-label { display: block; height: 28px; color: var(--fg-muted); font-size: var(--text-label); }
 .date-time-wheel { position: relative; height: 216px; overflow: hidden; perspective: 460px; touch-action: none; cursor: grab; user-select: none; mask-image: linear-gradient(transparent, #000 24%, #000 76%, transparent); }

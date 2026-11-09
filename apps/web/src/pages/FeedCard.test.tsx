@@ -82,7 +82,7 @@ describe('wasUnreadOnArrival', () => {
 
 describe('FeedCard production actions', () => {
   it.each([false, true])('lets readers change a post pin without a one-item menu (pinned=%s)', async (pinnedByMe) => {
-    const changed = mount({ ...item, canEdit: false, pinnedByMe })
+    const changed = mount({ ...item, canEdit: false, hasAcknowledged: true, pinnedByMe })
     expect(screen.queryByRole('button', { name: 'Дії з записом' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: pinnedByMe ? 'Відкріпити' : 'Закріпити для себе' }))
     await waitFor(() => expect(changed).toHaveBeenCalledOnce())
@@ -90,11 +90,17 @@ describe('FeedCard production actions', () => {
   })
 
   it('keeps the post pin in the menu when the author also has other actions', () => {
-    mount({ ...item, canEdit: true })
+    mount({ ...item, canEdit: true, hasAcknowledged: true })
     expect(screen.queryByRole('button', { name: 'Закріпити для себе' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Дії з записом' }))
     expect(screen.getByRole('menuitem', { name: 'Закріпити для себе' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Редагувати' })).toBeInTheDocument()
+  })
+
+  it('offers no personal pin while the post is pinned for acknowledgement', () => {
+    mount({ ...item, canEdit: false })
+    expect(screen.getByLabelText('Закріплено до ознайомлення')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Закріпити для себе' })).not.toBeInTheDocument()
   })
 
   it('adds editor photos to the versioned save and keeps them when saving fails', async () => {

@@ -11,6 +11,7 @@ import {
   Gauge,
   KeyRound,
   LogOut,
+  MessageSquarePlus,
   Menu,
   Moon,
   PanelRightClose,
@@ -31,6 +32,7 @@ import { useAuth } from '../shared/auth/AuthProvider'
 import { resolveHomePath } from '../shared/auth/home'
 import { applyTheme, getStoredTheme, storeTheme } from '../shared/theme'
 import { Avatar, BrandMark, IconButton } from '../shared/ui'
+import { FeedbackDialogHost, withFeedbackOpen } from './FeedbackDialogHost'
 import { RightCommunicationPanel } from './RightCommunicationPanel'
 import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
 import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
@@ -505,6 +507,10 @@ export function AppShell({ children }: PropsWithChildren) {
                 <ShieldCheck size={15} />
                 Сесії
               </Link>
+              <Link to={{ pathname: location.pathname, search: withFeedbackOpen(location.search) }} onClick={() => setProfileOpen(false)}>
+                <MessageSquarePlus size={15} />
+                Залишити відгук
+              </Link>
               <button
                 type="button"
                 className="profile-theme-toggle"
@@ -611,6 +617,7 @@ export function AppShell({ children }: PropsWithChildren) {
         </div>
       )}
       {paletteOpen && <CommandPalette shortcuts={paletteShortcuts} onClose={() => setPaletteOpen(false)} />}
+      <FeedbackDialogHost />
       {mobileMoreOpen && <button className="bottom-nav__scrim" aria-label="Закрити додаткову навігацію" onClick={() => setMobileMoreOpen(false)} />}
       <nav className="bottom-nav" aria-label="Мобільна навігація">
         {mobilePrimaryRoutes.map((route) => {

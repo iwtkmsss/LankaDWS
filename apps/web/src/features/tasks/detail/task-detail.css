@@ -40,7 +40,7 @@
 .task-role-card,
 .task-discussion {
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
@@ -131,7 +131,7 @@
   height: 37px;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--fg-body);
   cursor: pointer;
@@ -162,7 +162,7 @@
   width: 220px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
   padding: var(--space-1);
@@ -174,7 +174,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-body);
   padding: var(--space-2);
@@ -189,7 +189,7 @@
 .task-detail-overview .task-edit-form {
   min-width: 0;
   margin-top: var(--space-6);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   box-shadow: none;
 }
 
@@ -199,7 +199,7 @@
   gap: var(--space-2);
   margin-top: var(--space-4);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   padding: var(--space-3);
 }
@@ -299,7 +299,7 @@
   justify-self: stretch;
   gap: var(--space-2);
   border: 1px solid var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   box-sizing: border-box;
   padding: var(--space-2);
@@ -402,7 +402,7 @@
   height: 34px;
   flex: 0 0 34px;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
   color: var(--fg-link);
 }
@@ -557,7 +557,7 @@
   min-width: 24px;
   min-height: 24px;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--surface-soft);
   color: var(--fg-muted);
   padding: var(--space-1) var(--space-2);
@@ -686,7 +686,7 @@
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: inherit;
   padding: var(--space-2);
@@ -741,7 +741,7 @@
 .task-role-card__empty {
   margin: 0;
   border: 1px dashed var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--fg-muted);
   padding: var(--space-3);
   font-size: var(--text-meta);
@@ -852,13 +852,13 @@
 .task-detail-page .task-comments article.task-comment.is-own { justify-content: flex-start; margin-left: 0; margin-right: auto; }
 .task-comments article.task-comment.is-other { justify-content: flex-start; margin-right: auto; }
 .task-comments article.task-comment.is-reply { margin-left: 0; }
-.task-comment__author-avatar { display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50%; }
+.task-comment__author-avatar { display: inline-grid; width: 30px; height: 30px; flex: 0 0 auto; border-radius: var(--radius-full); }
 
 .task-comment__bubble {
   position: relative;
   min-width: 0;
   border: 1px solid rgba(30, 52, 96, .07);
-  border-radius: 13px 13px 13px 4px;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) var(--radius-xs);
   background: var(--surface-raised);
   color: var(--fg-reading);
   /* Bottom spacing accepts fractional pixels, for example 6.3px. */
@@ -869,7 +869,7 @@
 
 .task-comment.is-own .task-comment__bubble {
   border-color: color-mix(in srgb, var(--cobalt-300) 62%, var(--line));
-  border-radius: 13px 13px 13px 4px;
+  border-radius: var(--radius-md) var(--radius-md) var(--radius-md) var(--radius-xs);
   background: color-mix(in srgb, var(--cobalt-100) 74%, var(--surface-raised));
 }
 
@@ -912,7 +912,7 @@
   margin: 0 0 var(--space-2);
   border: 0;
   border-left: 3px solid var(--cobalt-500);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: rgba(45, 103, 242, .06);
   color: var(--fg-muted);
   padding: var(--space-1) var(--space-2);
@@ -946,7 +946,7 @@
   overflow-y: auto;
   gap: var(--space-0_5);
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--surface-raised);
   box-shadow: var(--shadow-lg);
   padding: var(--space-2);
@@ -959,7 +959,7 @@
   align-items: center;
   gap: var(--space-2);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-body);
   padding: var(--space-2);
@@ -1003,12 +1003,12 @@
 
 .task-system-event > span {
   width: fit-content;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--cobalt-100) 68%, transparent);
 }
 
 .task-system-event time {
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--cobalt-100) 52%, transparent);
   color: var(--fg-link);
 }
@@ -1030,7 +1030,7 @@
 }
 
 .task-comment-composer {
-  border-radius: 0 0 14px 14px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 @media (min-width: 861px) {
@@ -1082,7 +1082,7 @@
   .task-detail-materials,
   .task-role-card,
   .task-discussion {
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
   }
 
   .task-detail-overview {
@@ -1150,16 +1150,16 @@ a.task-files-archive > svg { flex-shrink: 0; }
 .task-attachment-list > .task-files-archive { font-size: var(--text-meta); font-weight: var(--weight-regular); letter-spacing: normal; text-transform: none; }
 
 .task-detail-page .task-attachment-row { display: flex; gap: var(--space-1); }
-.task-detail-page .task-attachment-row > .task-attachment { flex: 1; width: 0; min-width: 0; min-height: 26px; padding: var(--space-1) var(--space-2); gap: var(--space-2); border-radius: 6px; }
+.task-detail-page .task-attachment-row > .task-attachment { flex: 1; width: 0; min-width: 0; min-height: 26px; padding: var(--space-1) var(--space-2); gap: var(--space-2); border-radius: var(--radius-sm); }
 .task-detail-page .task-attachment-row > .task-attachment > span:not(.task-attachment-glyph) { display: flex; align-items: center; gap: var(--space-2); }
 .task-attachment strong { display: flex; min-width: 0; }
 .task-detail-page .task-comment-attachments .task-comment-image { display: flex; flex-direction: column; align-items: stretch; width: 220px; max-width: 100%; padding: var(--space-2); gap: var(--space-2); }
-.task-comment-image > img { display: block; width: 100%; height: 150px; object-fit: contain; border-radius: 5px; background: var(--surface-soft); }
+.task-comment-image > img { display: block; width: 100%; height: 150px; object-fit: contain; border-radius: var(--radius-xs); background: var(--surface-soft); }
 .task-comment-image > span { min-width: 0; }
 .task-comment-image > svg { display: none; }
 .task-attachment__stem { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-attachment strong > span:last-child:not(:first-child), .task-attachment small { flex-shrink: 0; white-space: nowrap; }
-.task-detail-page .task-attachment-row > .task-attachment-action { display: inline-grid; flex: 0 0 26px; width: 26px; min-height: 26px; padding: 0; place-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg-muted); }
+.task-detail-page .task-attachment-row > .task-attachment-action { display: inline-grid; flex: 0 0 26px; width: 26px; min-height: 26px; padding: 0; place-items: center; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--fg-muted); }
 .task-detail-page .task-attachment-row > .task-attachment-action:hover:not(:disabled) { border-color: var(--line-strong); background: var(--cobalt-50); color: var(--fg-link); }
 .task-detail-page .task-attachment-row > .task-attachment-action--remove:hover:not(:disabled) { border-color: #f3b7bf; background: var(--danger-bg); color: var(--danger); }
 
@@ -1207,7 +1207,7 @@ a.task-files-archive > svg { flex-shrink: 0; }
   height: 44px;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--surface-raised);
   color: var(--fg-link);
   box-shadow: 0 4px 18px rgba(0, 0, 0, .2);
@@ -1272,7 +1272,7 @@ a.task-files-archive > svg { flex-shrink: 0; }
 
 .task-comment__reply-action {
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-muted);
   padding: var(--space-1);

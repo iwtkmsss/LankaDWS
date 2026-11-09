@@ -33,7 +33,7 @@
   width: 100%;
   min-height: 42px;
   border-color: transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background-color: var(--surface-soft);
   color: var(--fg-strong);
   padding: var(--space-2) var(--space-8) var(--space-2) 42px;
@@ -77,7 +77,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-3);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: var(--space-2);
 }
 .organization-universe-page .organization-navigator > header > button:hover {
@@ -93,7 +93,7 @@
   width: 36px;
   height: 36px;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--cobalt-50);
 }
 .organization-universe-page .organization-navigator > header > button.is-selected > .organization-navigator__company-icon {
@@ -127,7 +127,7 @@
   height: 22px;
   place-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--surface-soft);
   color: var(--fg-body);
   padding-inline: var(--space-2);
@@ -194,7 +194,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--space-2);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: var(--space-1) var(--space-2);
 }
@@ -212,7 +212,7 @@
   width: 30px;
   height: 30px;
   place-items: center;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   color: var(--fg-link);
 }
@@ -243,7 +243,7 @@
   height: 44px;
   flex: none;
   place-items: center;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--cobalt-50);
   color: var(--fg-link);
 }
@@ -299,7 +299,7 @@
   width: 100%;
   min-height: 40px;
   border-color: var(--line-strong);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
 }
 .organization-universe-page .directory-toolbar .search-field {
@@ -333,7 +333,7 @@
   margin: 0 0 0 auto;
   min-height: 30px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-link);
   padding: 0 var(--space-2);
@@ -383,7 +383,7 @@
 }
 .organization-universe-page .directory-person__profile {
   gap: var(--space-3);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .organization-universe-page .directory-person__profile:focus-visible {
   outline: 2px solid var(--cobalt-500);
@@ -431,7 +431,7 @@
 .organization-universe-page .organization-people-workspace > .organization-unassigned {
   display: block;
   overflow: hidden;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   padding: 0;
 }
@@ -455,7 +455,7 @@
   min-width: 28px;
   height: 24px;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--warning-bg);
   color: var(--warning);
   padding-inline: var(--space-2);
@@ -490,7 +490,7 @@
   align-items: center;
   gap: var(--space-3);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   padding: 0;
