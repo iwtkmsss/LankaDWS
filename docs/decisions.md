@@ -367,8 +367,6 @@ An administrator can have any task open without being on it, so every task chang
 
 The Feed shows an administrator only the task cards addressed to them, as for everyone else; any task can still be opened and is listed under «Усі доступні». An administrator who comments on a task they are not on becomes its watcher and follows it from then on.
 
-## 2026-11-09 — A fresh production install can be filled with demo data on purpose
+## 2026-11-09 — Demo mode is an `.env` switch that also works in production
 
-`npm run prisma:seed` stays forbidden when `NODE_ENV=production`. A test installation on a real host uses `npm run demo:seed`, which applies migrations and runs the same seed with an explicit `--allow-production` flag. Because those accounts are reachable from the internet, the production path refuses the repository's development password or any password shorter than 12 characters, and refuses to run at all once the database holds a user that is not one of the demo accounts, so a real installation is never overwritten. Re-running it updates the same demo records. The production web build never shows demo credentials.
-
-Production deployment without containers is documented in `deploy/README.md`: one systemd service for the API/worker, an hourly backup timer and Caddy for HTTPS, static files and the API proxy with unbuffered server-sent events.
+`VITE_DEMO_MODE=true` turns on demo mode for any build, production included: the login page shows the demo accounts and `DEMO_SEED_PASSWORD`, and `npm run demo:seed` fills the database with demo data even when `NODE_ENV=production`. With the switch off, the production build shows no credentials and the seed refuses to run in production. Moving to real work is two commands: `npm run db:wipe` deletes the database and stored files (backups are kept) and migrates an empty database, then `npm run admin:create` creates the first administrator, who creates the users. Server setup is in `deploy/README.md`.

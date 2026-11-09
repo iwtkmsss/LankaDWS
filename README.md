@@ -49,7 +49,7 @@ npm run dev:public
 
 The command loads `.env.public` before it starts either process. Copy `.env.public.example` to the ignored `.env.public`, set `PUBLIC_HOST`, and use `PUBLIC_CLIENT_PORT` and `PUBLIC_SERVER_PORT` to change the default ports (`5173` and `3000`). This is intended only for a trusted local network; it is not a production deployment.
 
-`prisma:seed` дозволений тільки поза production; тестовий стенд на сервері заповнюється `npm run demo:seed` (див. [deploy/README.md](deploy/README.md)). Development accounts: `maria`, `andrii`, `olena`, `dmytro`, `marko`; пароль задає `DEMO_SEED_PASSWORD` (у `.env.example` наведене лише development-значення). Demo містить одну організацію LankaDWS з рекурсивною структурою підрозділів; «Сервісний відділ» є дочірнім підрозділом «Операцій». Production build не має demo fallback і не показує credentials.
+`prisma:seed` дозволений тільки поза production; на сервері в демо-режимі (`VITE_DEMO_MODE=true`) дані створює `npm run demo:seed` (див. [deploy/README.md](deploy/README.md)). Development accounts: `maria`, `andrii`, `olena`, `dmytro`, `marko`; пароль задає `DEMO_SEED_PASSWORD` (у `.env.example` наведене лише development-значення). Demo містить одну організацію LankaDWS з рекурсивною структурою підрозділів; «Сервісний відділ» є дочірнім підрозділом «Операцій». Production build показує credentials лише в демо-режимі (`VITE_DEMO_MODE=true`).
 
 Жива стрічка не дублює робочі сутності: авторські публікації є `FeedPost`, а картки задач, подій, оголошень і явно поширених файлів щоразу читають і повторно авторизують канонічне джерело. Вкладення використовують спільний файловий карантин/сканер і стають доступними для завантаження лише після стану `CLEAN`. Окрема File-картка з’являється тільки після permissioned «Поширити файл», не зберігає назву/MIME в `FeedItem`, успадковує точну live audience і зникає разом із recipient download access після revoke. Історичні проєкції імпортера мають `countsAsUnread=false`, тому cutover не створює штучну хвилю непрочитаного.
 
@@ -61,7 +61,7 @@ The command loads `.env.public` before it starts either process. Copy `.env.publ
 
 ## Розгортання на сервері
 
-Покрокова інструкція для Linux-сервера (Node + systemd + Caddy, свій домен і HTTPS), шаблон production `.env`, systemd-юніти та Caddyfile — у [deploy/README.md](deploy/README.md).
+Демо-режим або справжня робота, шаблон production `.env` і systemd-юніти — у [deploy/README.md](deploy/README.md).
 
 ## Перший адміністратор
 
@@ -129,7 +129,9 @@ npm run test:integration    # migrations, SQLite guards
 npm run test:e2e            # API workflows + Playwright desktop/mobile/axe
 npm run prisma:deploy
 npm run prisma:seed         # development only
-npm run demo:seed           # test data on a fresh install, also in production (guarded)
+npm run demo:seed           # demo data (production only with VITE_DEMO_MODE=true)
+npm run db:wipe             # delete database and files, migrate an empty one
+npm run admin:create        # first administrator
 npm run openapi             # artifacts/openapi.json
 npm run backup
 npm run restore:verify -- <optional-backup-directory>

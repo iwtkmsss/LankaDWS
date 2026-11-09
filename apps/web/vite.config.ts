@@ -25,9 +25,8 @@ function faviconVersionPlugin() {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, workspaceRoot, '')
-  const demoMode = mode !== 'production'
-    && env.NODE_ENV !== 'production'
-    && env.VITE_DEMO_MODE === 'true'
+  // Demo mode is an explicit .env switch and works in production builds too: the login page shows demo credentials.
+  const demoMode = env.VITE_DEMO_MODE === 'true'
   const demoPassword = env.DEMO_SEED_PASSWORD?.trim() ?? ''
   if (demoMode && !demoPassword) {
     throw new Error('DEMO_SEED_PASSWORD is required when VITE_DEMO_MODE=true')

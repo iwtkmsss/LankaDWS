@@ -6,19 +6,20 @@ import { hashPassword } from '../src/common/crypto.js';
 import { normalizeUserSearchValue } from '../src/common/user-search.js';
 import { getConfig } from '../src/config/config.js';
 
-const isProduction = process.env.NODE_ENV === 'production';
-// `npm run demo:seed` passes this flag so a fresh production install can be filled with test data on purpose.
-const allowProduction = process.argv.includes('--allow-production');
-if (isProduction && !allowProduction)
+// On a production host demo data is allowed only in demo mode (VITE_DEMO_MODE=true in .env).
+if (
+  process.env.NODE_ENV === 'production' &&
+  process.env.VITE_DEMO_MODE !== 'true'
+)
   throw new Error(
-    'Demo seed is disabled in production; use `npm run demo:seed` for a test installation',
+    'Demo seed in production needs demo mode: set VITE_DEMO_MODE=true in .env',
   );
-const DEFAULT_DEMO_PASSWORD = 'LankaDWSDemoPassphrase2026!';
 
 const prisma = new PrismaClient({
   adapter: new PrismaBetterSqlite3({ url: getConfig().DATABASE_URL }),
 });
-const password = process.env.DEMO_SEED_PASSWORD ?? DEFAULT_DEMO_PASSWORD;
+const password =
+  process.env.DEMO_SEED_PASSWORD ?? 'LankaDWSDemoPassphrase2026!';
 
 const users = [
   {
@@ -93,26 +94,7 @@ const users = [
   },
 ];
 
-// On a production host the demo accounts are reachable from the internet, so the password must be
-// the operator's own, and real installations (any non-demo user) are never touched.
-async function assertProductionSeedAllowed(): Promise<void> {
-  if (!isProduction) return;
-  const configured = process.env.DEMO_SEED_PASSWORD;
-  if (!configured || configured === DEFAULT_DEMO_PASSWORD || configured.length < 12)
-    throw new Error(
-      'Set DEMO_SEED_PASSWORD in .env to your own password of at least 12 characters before seeding test data in production',
-    );
-  const realUsers = await prisma.user.count({
-    where: { id: { notIn: users.map((user) => user.id) } },
-  });
-  if (realUsers > 0)
-    throw new Error(
-      'Refusing to seed test data: this database already contains non-demo users',
-    );
-}
-
 async function seed(): Promise<void> {
-  await assertProductionSeedAllowed();
   await prisma.workspace.upsert({
     where: { id: 'ws_lankadws' },
     create: { id: 'ws_lankadws', displayName: 'Lanka Workspace' },

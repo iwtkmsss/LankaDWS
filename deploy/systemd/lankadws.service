@@ -1,27 +1,16 @@
 [Unit]
 Description=LankaDWS API and worker
-Documentation=file:///opt/lankadws/deploy/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
+# Adjust user and path to your install; the app reads /opt/lankadws/.env itself.
 User=lankadws
-Group=lankadws
 WorkingDirectory=/opt/lankadws/apps/api
-# Configuration is read from /opt/lankadws/.env by the app itself.
 ExecStart=/usr/bin/node dist/src/main.js
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=30
-# Exactly one writable process may run over the SQLite database.
-
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/lankadws /var/backups/lankadws
-UMask=0027
 
 [Install]
 WantedBy=multi-user.target
