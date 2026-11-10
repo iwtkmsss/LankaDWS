@@ -25,7 +25,7 @@ import {
 } from '@lankadws/contracts'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
-import { badRequest, notFound } from '../../common/errors.js'
+import { badRequest } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { createCleanFileReadStream } from '../files/storage.js'
@@ -109,13 +109,6 @@ export class MessagesController {
   @Get('threads/:id/preview')
   preview(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.messages.preview(principalFrom(request), id)
-  }
-
-  @Sse('threads/:id/events')
-  async events(@Req() request: LankaDWSRequest, @Param('id') id: string) {
-    const principal = principalFrom(request)
-    if (!await this.realtime.canAccess(principal, id)) throw notFound()
-    return this.realtime.stream(principal, id)
   }
 
   @Sse('events')

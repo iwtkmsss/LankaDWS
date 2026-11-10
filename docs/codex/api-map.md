@@ -2,7 +2,7 @@
 
 Generated from `artifacts/openapi.json`. Do not edit manually.
 
-Total operations: **212**
+Total operations: **231**
 
 ## Admin
 
@@ -60,8 +60,10 @@ Total operations: **212**
 | `GET` | `/api/v1/calendar/audiences` | `CalendarController_audiences` |  |
 | `GET` | `/api/v1/calendar/events` | `CalendarController_events` |  |
 | `POST` | `/api/v1/calendar/events` | `CalendarController_createEvent` |  |
+| `DELETE` | `/api/v1/calendar/events/{id}` | `CalendarController_deleteEvent` |  |
 | `GET` | `/api/v1/calendar/events/{id}` | `CalendarController_eventDetail` |  |
 | `PATCH` | `/api/v1/calendar/events/{id}` | `CalendarController_updateEvent` |  |
+| `POST` | `/api/v1/calendar/events/{id}/acknowledge` | `CalendarController_acknowledgeEvent` |  |
 | `GET` | `/api/v1/calendar/presence` | `CalendarController_presence` |  |
 
 ## Companies
@@ -75,6 +77,7 @@ Total operations: **212**
 | `POST` | `/api/v1/admin/companies/{companyId}/activate` | `CompaniesController_activate` |  |
 | `POST` | `/api/v1/admin/companies/{companyId}/deactivate` | `CompaniesController_deactivate` |  |
 | `PATCH` | `/api/v1/admin/companies/{companyId}/manager` | `CompaniesController_updateManager` |  |
+| `POST` | `/api/v1/admin/companies/logo-uploads` | `CompaniesController_uploadLogo` |  |
 
 ## CompanyDirectory
 
@@ -82,6 +85,7 @@ Total operations: **212**
 |---|---|---|---|
 | `GET` | `/api/v1/companies` | `CompanyDirectoryController_list` |  |
 | `GET` | `/api/v1/companies/{companyId}` | `CompanyDirectoryController_detail` |  |
+| `GET` | `/api/v1/companies/{companyId}/logo/{fileId}` | `CompanyDirectoryController_logo` |  |
 
 ## Dashboard
 
@@ -105,6 +109,7 @@ Total operations: **212**
 | Method | Path | Operation | Summary |
 |---|---|---|---|
 | `GET` | `/api/v1/drive` | `DriveController_list` |  |
+| `GET` | `/api/v1/drive/destinations` | `DriveController_destinations` |  |
 | `POST` | `/api/v1/drive/documents/{id}/as-attachment` | `DriveController_asAttachment` |  |
 | `POST` | `/api/v1/drive/documents/{id}/move` | `DriveController_moveDocument` |  |
 | `POST` | `/api/v1/drive/documents/{id}/rename` | `DriveController_renameDocument` |  |
@@ -115,6 +120,8 @@ Total operations: **212**
 | `POST` | `/api/v1/drive/folders/{id}/restore` | `DriveController_restoreFolder` |  |
 | `POST` | `/api/v1/drive/folders/{id}/trash` | `DriveController_trashFolder` |  |
 | `POST` | `/api/v1/drive/import-file` | `DriveController_importFile` |  |
+| `GET` | `/api/v1/drive/owners` | `DriveController_owners` |  |
+| `GET` | `/api/v1/drive/picker` | `DriveController_picker` |  |
 | `GET` | `/api/v1/drive/shares` | `DriveController_listShares` |  |
 | `POST` | `/api/v1/drive/shares` | `DriveController_createShare` |  |
 | `DELETE` | `/api/v1/drive/shares/{id}` | `DriveController_revokeShare` |  |
@@ -125,6 +132,7 @@ Total operations: **212**
 |---|---|---|---|
 | `GET` | `/api/v1/employees` | `EmployeesController_list` |  |
 | `GET` | `/api/v1/employees/{id}` | `EmployeesController_detail` |  |
+| `POST` | `/api/v1/employees/search` | `EmployeesController_search` |  |
 
 ## Feed
 
@@ -136,18 +144,34 @@ Total operations: **212**
 | `GET` | `/api/v1/feed/{id}` | `FeedController_detail` |  |
 | `PATCH` | `/api/v1/feed/{id}` | `FeedController_update` |  |
 | `POST` | `/api/v1/feed/{id}/acknowledge` | `FeedController_acknowledge` |  |
+| `POST` | `/api/v1/feed/{id}/comment-attachments` | `FeedController_uploadCommentAttachment` |  |
 | `POST` | `/api/v1/feed/{id}/comments` | `FeedController_comment` |  |
 | `GET` | `/api/v1/feed/{id}/mention-candidates` | `FeedController_postMentionCandidates` |  |
 | `POST` | `/api/v1/feed/{id}/reactions/like` | `FeedController_like` |  |
 | `POST` | `/api/v1/feed/attachments` | `FeedController_uploadAttachment` |  |
 | `GET` | `/api/v1/feed/audiences` | `FeedController_audiences` |  |
 | `GET` | `/api/v1/feed/authors` | `FeedController_authors` |  |
+| `DELETE` | `/api/v1/feed/events/{id}/pin` | `FeedController_unpinEvent` |  |
+| `POST` | `/api/v1/feed/events/{id}/pin` | `FeedController_pinEvent` |  |
 | `GET` | `/api/v1/feed/facets/audiences` | `FeedController_audienceFacets` |  |
-| `POST` | `/api/v1/feed/file-shares/{fileId}` | `FeedController_shareFile` |  |
 | `DELETE` | `/api/v1/feed/file-shares/{shareId}` | `FeedController_revokeFileShare` |  |
 | `GET` | `/api/v1/feed/mention-candidates` | `FeedController_mentionCandidates` |  |
+| `DELETE` | `/api/v1/feed/posts/{id}/pin` | `FeedController_unpinPost` |  |
+| `POST` | `/api/v1/feed/posts/{id}/pin` | `FeedController_pinPost` |  |
 | `POST` | `/api/v1/feed/read` | `FeedController_markRead` |  |
 | `GET` | `/api/v1/feed/summary` | `FeedController_summary` |  |
+| `DELETE` | `/api/v1/feed/tasks/{id}/pin` | `FeedController_unpin` |  |
+| `POST` | `/api/v1/feed/tasks/{id}/pin` | `FeedController_pin` |  |
+
+## FeedbackTickets
+
+| Method | Path | Operation | Summary |
+|---|---|---|---|
+| `GET` | `/api/v1/knowledge/tickets` | `FeedbackTicketsController_list` |  |
+| `POST` | `/api/v1/knowledge/tickets` | `FeedbackTicketsController_create` |  |
+| `DELETE` | `/api/v1/knowledge/tickets/{id}` | `FeedbackTicketsController_remove` |  |
+| `GET` | `/api/v1/knowledge/tickets/{id}` | `FeedbackTicketsController_detail` |  |
+| `POST` | `/api/v1/knowledge/tickets/attachments` | `FeedbackTicketsController_upload` |  |
 
 ## Files
 
@@ -155,7 +179,10 @@ Total operations: **212**
 |---|---|---|---|
 | `POST` | `/api/v1/files` | `FilesController_upload` |  |
 | `GET` | `/api/v1/files/{id}/download` | `FilesController_download` |  |
+| `DELETE` | `/api/v1/files/{id}/draft` | `FilesController_discardDraft` |  |
+| `GET` | `/api/v1/files/{id}/preview` | `FilesController_preview` |  |
 | `GET` | `/api/v1/files/{id}/status` | `FilesController_status` |  |
+| `GET` | `/api/v1/files/archive` | `FilesController_archive` |  |
 
 ## Health
 
@@ -164,12 +191,6 @@ Total operations: **212**
 | `GET` | `/api/v1/health/details` | `HealthController_details` |  |
 | `GET` | `/api/v1/health/live` | `HealthController_live` |  |
 | `GET` | `/api/v1/health/ready` | `HealthController_ready` |  |
-
-## ImportControl
-
-| Method | Path | Operation | Summary |
-|---|---|---|---|
-| `GET` | `/api/v1/admin/import/readiness` | `ImportControlController_readiness` |  |
 
 ## Knowledge
 
@@ -200,8 +221,6 @@ Total operations: **212**
 | `DELETE` | `/api/v1/me/avatar` | `MeController_removeAvatar` |  |
 | `POST` | `/api/v1/me/avatar` | `MeController_uploadAvatar` |  |
 | `GET` | `/api/v1/me/avatar/{fileId}` | `MeController_avatar` |  |
-| `GET` | `/api/v1/me/notification-preferences` | `MeController_notificationPreferences` |  |
-| `PATCH` | `/api/v1/me/notification-preferences` | `MeController_updateNotificationPreferences` |  |
 | `PATCH` | `/api/v1/me/profile` | `MeController_profile` |  |
 | `GET` | `/api/v1/me/sessions` | `MeController_sessions` |  |
 | `DELETE` | `/api/v1/me/sessions/{id}` | `MeController_revoke` |  |
@@ -216,6 +235,7 @@ Total operations: **212**
 | `PATCH` | `/api/v1/messages/{id}` | `MessagesController_editMessage` |  |
 | `GET` | `/api/v1/messages/{id}/attachments/archive` | `MessagesController_archiveAttachments` |  |
 | `DELETE` | `/api/v1/messages/{id}/reactions` | `MessagesController_removeReaction` |  |
+| `GET` | `/api/v1/messages/{id}/reactions` | `MessagesController_reactionUsers` |  |
 | `POST` | `/api/v1/messages/{id}/reactions` | `MessagesController_addReaction` |  |
 | `GET` | `/api/v1/messages/events` | `MessagesController_globalEvents` |  |
 | `GET` | `/api/v1/messages/summary` | `MessagesController_summary` |  |
@@ -223,7 +243,6 @@ Total operations: **212**
 | `POST` | `/api/v1/messages/threads` | `MessagesController_createThread` |  |
 | `GET` | `/api/v1/messages/threads/{id}` | `MessagesController_detail` |  |
 | `POST` | `/api/v1/messages/threads/{id}/attachments` | `MessagesController_uploadAttachment` |  |
-| `GET` | `/api/v1/messages/threads/{id}/events` | `MessagesController_events` |  |
 | `GET` | `/api/v1/messages/threads/{id}/mention-candidates` | `MessagesController_mentionCandidates` |  |
 | `GET` | `/api/v1/messages/threads/{id}/messages` | `MessagesController_messagesPage` |  |
 | `POST` | `/api/v1/messages/threads/{id}/messages` | `MessagesController_post` |  |
@@ -231,6 +250,7 @@ Total operations: **212**
 | `POST` | `/api/v1/messages/threads/{id}/participants` | `MessagesController_addParticipant` |  |
 | `DELETE` | `/api/v1/messages/threads/{id}/participants/{userId}` | `MessagesController_removeParticipant` |  |
 | `PUT` | `/api/v1/messages/threads/{id}/participants/{userId}` | `MessagesController_updateParticipant` |  |
+| `PUT` | `/api/v1/messages/threads/{id}/pin` | `MessagesController_setPin` |  |
 | `PUT` | `/api/v1/messages/threads/{id}/preferences` | `MessagesController_updatePreference` |  |
 | `GET` | `/api/v1/messages/threads/{id}/preview` | `MessagesController_preview` |  |
 | `POST` | `/api/v1/messages/threads/{id}/read` | `MessagesController_markRead` |  |
@@ -243,7 +263,6 @@ Total operations: **212**
 | Method | Path | Operation | Summary |
 |---|---|---|---|
 | `GET` | `/api/v1/notifications` | `NotificationsController_list` |  |
-| `POST` | `/api/v1/notifications` | `NotificationsController_send` |  |
 | `PATCH` | `/api/v1/notifications/{id}` | `NotificationsController_read` |  |
 | `PATCH` | `/api/v1/notifications/read-all` | `NotificationsController_readAll` |  |
 | `PATCH` | `/api/v1/notifications/read-entity` | `NotificationsController_readEntity` |  |
@@ -254,6 +273,7 @@ Total operations: **212**
 
 | Method | Path | Operation | Summary |
 |---|---|---|---|
+| `GET` | `/api/v1/org/companies/{id}/unassigned-employees` | `OrgController_listUnassignedEmployees` |  |
 | `GET` | `/api/v1/org/units` | `OrgController_listUnits` |  |
 | `GET` | `/api/v1/org/units/{id}/employees` | `OrgController_listEmployees` |  |
 
@@ -303,7 +323,9 @@ Total operations: **212**
 | `DELETE` | `/api/v1/tasks/{id}/comments/{commentId}` | `TasksController_deleteComment` |  |
 | `PATCH` | `/api/v1/tasks/{id}/comments/{commentId}` | `TasksController_updateComment` |  |
 | `DELETE` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_removeCommentReaction` |  |
+| `GET` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_commentReactionUsers` |  |
 | `POST` | `/api/v1/tasks/{id}/comments/{commentId}/reactions` | `TasksController_addCommentReaction` |  |
+| `POST` | `/api/v1/tasks/{id}/delegate` | `TasksController_delegate` |  |
 | `GET` | `/api/v1/tasks/{id}/hierarchy` | `TasksController_hierarchyTree` |  |
 | `GET` | `/api/v1/tasks/{id}/mention-candidates` | `TasksController_mentionCandidates` |  |
 | `DELETE` | `/api/v1/tasks/{id}/participants/{userId}` | `TasksController_removeParticipant` |  |
@@ -337,3 +359,4 @@ Total operations: **212**
 | `DELETE` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_reset` |  |
 | `GET` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_get` |  |
 | `PUT` | `/api/v1/me/ui-preferences/{module}/{key}` | `UiPreferencesController_put` |  |
+

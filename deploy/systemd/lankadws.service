@@ -5,12 +5,37 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Adjust user and path to your install; the app reads ~/LankaDWS/.env itself.
-User=root
-WorkingDirectory=/root/LankaDWS/apps/api
+# A dedicated unprivileged account (see deploy/README.md, step 1). The app reads
+# /srv/lankadws/LankaDWS/.env itself.
+User=lankadws
+Group=lankadws
+WorkingDirectory=/srv/lankadws/LankaDWS/apps/api
 ExecStart=/usr/bin/node dist/src/main.js
 Restart=on-failure
 RestartSec=5
+UMask=0077
+
+# Sandbox: the API (and LibreOffice, which converts uploaded files for preview) may write
+# only to the data directory; everything else on the host is read-only or hidden.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/lankadws/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

@@ -20,8 +20,8 @@ describe('production configuration', () => {
     vi.stubEnv('SESSION_PEPPER', 'session-'.padEnd(40, 'a'))
     vi.stubEnv('CSRF_SECRET', 'csrf-'.padEnd(40, 'b'))
     vi.stubEnv('FILE_LINK_SECRET', 'file-link-'.padEnd(40, 'c'))
-    vi.stubEnv('TOTP_ENCRYPTION_KEY', 'a'.repeat(64))
-    vi.stubEnv('BACKUP_ENCRYPTION_KEY', 'b'.repeat(64))
+    vi.stubEnv('TOTP_ENCRYPTION_KEY', '0123456789abcdef'.repeat(4))
+    vi.stubEnv('BACKUP_ENCRYPTION_KEY', 'fedcba9876543210'.repeat(4))
     vi.stubEnv('DATABASE_URL', 'file:./data/production.db')
     vi.stubEnv('FRONTEND_ORIGIN', 'https://crm.example.test')
     vi.stubEnv('FRONTEND_BASE_URL', 'https://crm.example.test')
@@ -34,12 +34,16 @@ describe('production configuration', () => {
     expect(getConfig().NODE_ENV).toBe('production')
   })
 
-  it('parses trusted import signing keys and rejects malformed configuration', () => {
-    vi.stubEnv('IMPORT_SIGNING_PUBLIC_KEYS_JSON', JSON.stringify({ 'migration-key-1': 'public-key-material'.padEnd(64, '-') }))
+  it.each(['TOTP_ENCRYPTION_KEY', 'BACKUP_ENCRYPTION_KEY'])('rejects the development default %s in production', (name) => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('SESSION_PEPPER', 'session-'.padEnd(40, 'a'))
+    vi.stubEnv('CSRF_SECRET', 'csrf-'.padEnd(40, 'b'))
+    vi.stubEnv('FILE_LINK_SECRET', 'file-link-'.padEnd(40, 'c'))
+    vi.stubEnv('TOTP_ENCRYPTION_KEY', '0123456789abcdef'.repeat(4))
+    vi.stubEnv('BACKUP_ENCRYPTION_KEY', 'fedcba9876543210'.repeat(4))
+    vi.stubEnv(name, '')
+    delete process.env[name]
     resetConfigForTests()
-    expect(getConfig().trustedImportSigningKeys).toHaveProperty('migration-key-1')
-    vi.stubEnv('IMPORT_SIGNING_PUBLIC_KEYS_JSON', '[]')
-    resetConfigForTests()
-    expect(() => getConfig()).toThrow(/IMPORT_SIGNING_PUBLIC_KEYS_JSON/)
+    expect(() => getConfig()).toThrow(new RegExp(name))
   })
 })

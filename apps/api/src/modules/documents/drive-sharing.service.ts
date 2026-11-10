@@ -257,12 +257,10 @@ export class DriveSharingService {
   private async assertTargetVisible(principal: AuthPrincipal, targetType: DriveShareTargetType, targetId: string): Promise<void> {
     const row = targetType === 'FOLDER'
       ? await this.prisma.driveFolder.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true } })
-      : await this.prisma.document.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true, confidentiality: true } })
+      : await this.prisma.document.findFirst({ where: { id: targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true } })
     if (!row) throw notFound()
     if (row.ownerId === principal.userId || isGlobalAdmin(principal)) return
-    // Document readers can inspect sharing metadata under the same visibility
-    // rules as the Drive list and document detail. Changes still require ownership.
-    if ('confidentiality' in row && (row.confidentiality === 'GENERAL' || row.confidentiality === 'INTERNAL')) return
+    // Only people the item is shared with may inspect its sharing metadata; changes still require ownership.
     const grants = await this.grantsFor(principal)
     if (!grants.roleOf(targetType, targetId)) throw notFound()
   }

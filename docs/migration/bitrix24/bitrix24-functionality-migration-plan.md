@@ -47,9 +47,9 @@ LankaDWS переносить щоденне ядро в такому поряд
 
 ### 1.1. Вхідний scope
 
-- [Оригінальне меню Bitrix24](assets/bitrix24-migration/source-bitrix24-menu.png)
-- [Поточний LankaDWS — Огляд](assets/bitrix24-migration/current-overview.png)
-- [Поточний LankaDWS — Завдання](assets/bitrix24-migration/current-tasks.png)
+- [Оригінальне меню Bitrix24](assets/source-bitrix24-menu.png)
+- [Поточний LankaDWS — Огляд](assets/current-overview.png)
+- [Поточний LankaDWS — Завдання](assets/current-tasks.png)
 
 `current-messages.png` не використовується як evidence: screenshot має зламаний viewport. Перед F0 sign-off сторінки треба перезняти в одному viewport 1440×900 із датою, роллю та company.
 
@@ -340,28 +340,28 @@ Older result opens an explicit authorized archive context; it never silently van
 <details>
 <summary>Жива стрічка</summary>
 
-![Макет Живої стрічки](assets/bitrix24-migration/ui-live-feed.svg)
+![Макет Живої стрічки](assets/ui-live-feed.svg)
 
 </details>
 
 <details>
 <summary>Завдання</summary>
 
-![Макет списку задач](assets/bitrix24-migration/ui-tasks.svg)
+![Макет списку задач](assets/ui-tasks.svg)
 
 </details>
 
 <details>
 <summary>Робоча група</summary>
 
-![Макет робочої групи](assets/bitrix24-migration/ui-group.svg)
+![Макет робочої групи](assets/ui-group.svg)
 
 </details>
 
 <details>
 <summary>Чат та журнал дзвінків</summary>
 
-![Макет чату та дзвінків](assets/bitrix24-migration/ui-chat-calls.svg)
+![Макет чату та дзвінків](assets/ui-chat-calls.svg)
 
 </details>
 

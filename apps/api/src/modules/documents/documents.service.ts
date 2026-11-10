@@ -55,7 +55,6 @@ export class DocumentsService {
         ...(query.search ? { name: { contains: query.search.trim() } } : {}),
         OR: [
           { ownerId: principal.userId },
-          { confidentiality: { in: ['GENERAL', 'INTERNAL'] } },
           { id: { in: allowedIds } },
         ],
       },
@@ -118,7 +117,7 @@ export class DocumentsService {
   }
 
   async detail(principal: AuthPrincipal, documentId: string) {
-    const document = await this.prisma.document.findFirst({ where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, OR: [{ ownerId: principal.userId }, { confidentiality: { in: ['GENERAL', 'INTERNAL'] } }, { id: { in: await this.allowedDocumentIds(principal) } }] } })
+    const document = await this.prisma.document.findFirst({ where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, OR: [{ ownerId: principal.userId }, { id: { in: await this.allowedDocumentIds(principal) } }] } })
     if (!document) throw notFound()
     const file = document.fileId ? await this.prisma.fileObject.findUnique({
       where: { id: document.fileId },

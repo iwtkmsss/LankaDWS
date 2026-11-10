@@ -17,7 +17,6 @@ import { FeedModule } from './modules/feed/feed.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { JobsModule } from './modules/jobs/jobs.module.js';
 import { KnowledgeModule } from './modules/knowledge/knowledge.module.js';
-import { ImportControlModule } from './modules/import-control/import-control.module.js';
 import { LifecycleModule } from './modules/lifecycle/lifecycle.module.js';
 import { RetentionModule } from './modules/retention/retention.module.js';
 import { OrgModule } from './modules/org/org.module.js';
@@ -39,7 +38,6 @@ import { UiPreferencesModule } from './modules/preferences/ui-preferences.module
     FilesModule,
     FeedModule,
     KnowledgeModule,
-    ImportControlModule,
     EmployeesModule,
     OrgModule,
     LifecycleModule,

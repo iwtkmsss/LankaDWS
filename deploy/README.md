@@ -1,39 +1,47 @@
 # Розгортання LankaDWS
 
 Один процес Node (API і фонові задачі) на `127.0.0.1:3000`, SQLite і файли на локальному диску,
-nginx віддає фронтенд з `apps/web/dist` і проксює `/api/`. Команди нижче — для Ubuntu/Debian під
-`root`, код у `~/LankaDWS`, дані в `~/lankadws-data`. Якщо працюєте під іншим користувачем,
-замініть `/root` на свою домашню папку тут, у `.env` і в `deploy/systemd/*.service`.
+nginx віддає фронтенд з `apps/web/dist` і проксює `/api/`. Команди — для Ubuntu/Debian.
 
-## 1. Node 24
+Застосунок працює від окремого непривілейованого користувача `lankadws`, а не `root`: код у
+`/srv/lankadws/LankaDWS`, дані в `/srv/lankadws/data`. Біля кожного кроку вказано, від кого його
+виконувати: **root** — системні кроки, **lankadws** — усе в каталозі застосунку (`sudo -iu lankadws`;
+тоді `~` — це `/srv/lankadws`). Ці шляхи прописані в `deploy/systemd/*.service` і
+`deploy/production.env.example`; міняйте їх лише разом.
+
+## 1. Node 24 і користувач (root)
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-apt install -y nodejs git build-essential python3
+apt install -y nodejs git build-essential python3 rsync
+useradd --system --create-home --home-dir /srv/lankadws --shell /bin/bash lankadws
+chmod 755 /srv/lankadws
+install -d -m 700 -o lankadws -g lankadws /srv/lankadws/data
 ```
 
 npm до 12 не оновлюйте; `npm audit fix --force` не запускайте — зламає залежності.
 
-## 2. Код і `.env`
+## 2. Код і `.env` (lankadws)
 
 ```bash
-cd ~
+sudo -iu lankadws
 git clone https://github.com/iwtkmsss/LankaDWS.git
 cd ~/LankaDWS
 npm ci
-mkdir -p ~/lankadws-data/{db,files,quarantine,tmp,backups}
+mkdir -p ~/data/{db,files,quarantine,tmp,backups}
 cp deploy/production.env.example .env
+chmod 600 .env
 nano .env
 ```
 
 У `.env` змініть:
 
 - `FRONTEND_ORIGIN` і `FRONTEND_BASE_URL` — ваш домен, `https://`, без `/` в кінці;
-- шляхи `/root/lankadws-data/...`, якщо домашня папка інша;
-- `DEMO_SEED_PASSWORD` — пароль демо-акаунтів;
 - `MALWARE_SCANNER=unavailable`, поки не встановлений ClamAV (крок 7).
 
-## 3. Збірка і секрети
+Шаблон налаштований на справжню роботу (`VITE_DEMO_MODE=false`). Демо — у кроці 4.
+
+## 3. Збірка і секрети (lankadws)
 
 ```bash
 npm run build
@@ -47,40 +55,52 @@ npm run lankadws -- recovery:hash
 recovery secret — збережіть його в менеджер паролів, нікому не показуйте. Це аварійний ключ, щоб
 повернути доступ, якщо не лишиться жодного адміністратора (`npm run lankadws -- admin:recover`).
 
-## 4. Дані
+## 4. Дані (lankadws)
 
-**Демо** (`VITE_DEMO_MODE=true`, так стоїть у шаблоні):
+**Справжня робота** (`VITE_DEMO_MODE=false`, так стоїть у шаблоні):
 
 ```bash
+npm run prisma:deploy    # порожня база
+npm run admin:create     # перший адміністратор, далі він сам створює користувачів
+```
+
+**Демо:** у `.env` поставте `VITE_DEMO_MODE=true` і власний `DEMO_SEED_PASSWORD`, потім:
+
+```bash
+npm run build            # збірка з демо-акаунтами на екрані входу
 npm run demo:seed
 ```
 
 Акаунти `maria`, `andrii`, `olena`, `dmytro` (адмін), `marko` і пароль видно на екрані входу.
 
-**Справжня робота:** у `.env` поставте `VITE_DEMO_MODE=false`, приберіть `DEMO_SEED_PASSWORD`, і:
+**З демо на справжню роботу:** зупиніть сервіс (root: `systemctl stop lankadws`), у `.env` поставте
+`VITE_DEMO_MODE=false`, приберіть `DEMO_SEED_PASSWORD` і виконайте:
 
 ```bash
-npm run db:wipe          # зносить базу й файли (backup не чіпає), створює порожню базу
-npm run build            # збірка без демо-паролів
-npm run admin:create     # перший адміністратор, далі він сам створює користувачів
+npm run db:wipe                     # покаже, що видалить, і попросить ввести WIPE; backup не чіпає
+npm run build                       # збірка без демо-паролів
+npm run lankadws -- recovery:hash   # замінити секрети (попросить ROTATE)
+npm run admin:create
 ```
 
-Якщо до цього вже працювало демо, спершу зупиніть сервіс (`systemctl stop lankadws`), а секрети
-краще замінити: `npm run lankadws -- recovery:hash` (попросить `ROTATE`).
+`db:wipe` відмовиться працювати, поки API відповідає на своєму порту.
 
-## 5. Сервіс
+## 5. Сервіс (root)
 
 ```bash
-cp deploy/systemd/lankadws.service deploy/systemd/lankadws-backup.service deploy/systemd/lankadws-backup.timer /etc/systemd/system/
+cp /srv/lankadws/LankaDWS/deploy/systemd/lankadws*.service /srv/lankadws/LankaDWS/deploy/systemd/lankadws*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now lankadws lankadws-backup.timer
+systemctl enable --now lankadws lankadws-backup.timer lankadws-backup-check.timer
 curl http://127.0.0.1:3000/api/v1/health/ready
 ```
 
 Першим кількам секундам після старту `curl` може не відповісти — повторіть. Лог:
 `journalctl -u lankadws -n 50 --no-pager`.
 
-## 6. nginx
+Сервіс ізольований: писати він може лише в `/srv/lankadws/data`, решта системи для нього тільки
+для читання. Тому всі шляхи з `.env` (база, файли, backup) мають лежати всередині `/srv/lankadws/data`.
+
+## 6. nginx (root)
 
 ```bash
 cat > /etc/nginx/sites-available/lankadws <<'EOF'
@@ -103,22 +123,20 @@ server {
     }
 
     location / {
-        root /root/LankaDWS/apps/web/dist;
+        root /srv/lankadws/LankaDWS/apps/web/dist;
         try_files $uri /index.html;
     }
 }
 EOF
 sed -i 's/lanka.example.com/ваш-домен/' /etc/nginx/sites-available/lankadws
 ln -sf /etc/nginx/sites-available/lankadws /etc/nginx/sites-enabled/lankadws
-chmod o+x /root /root/LankaDWS /root/LankaDWS/apps /root/LankaDWS/apps/web
-chmod -R o+rX /root/LankaDWS/apps/web/dist
 nginx -t && systemctl reload nginx
 ```
 
 Сайт має відкриватися по `https://` (наприклад, через Cloudflare або власний сертифікат): cookie
-входу передається лише по HTTPS. Після кожного `npm run build` повторіть останній `chmod -R`.
+входу передається лише по HTTPS.
 
-## 7. ClamAV (перевірка завантажених файлів)
+## 7. ClamAV — перевірка завантажених файлів (root)
 
 Потрібно ≈1–1,3 ГБ RAM.
 
@@ -143,23 +161,24 @@ systemctl restart clamav-daemon
 
 ```bash
 ss -ltnp | grep 3310
-sed -i 's/^MALWARE_SCANNER=.*/MALWARE_SCANNER=clamav/' ~/LankaDWS/.env
+sed -i 's/^MALWARE_SCANNER=.*/MALWARE_SCANNER=clamav/' /srv/lankadws/LankaDWS/.env
 systemctl restart lankadws
-cd ~/LankaDWS && npx tsx apps/api/scripts/check-file-scanner.ts
+sudo -iu lankadws sh -c 'cd ~/LankaDWS && npx tsx apps/api/scripts/check-file-scanner.ts'
 ```
 
 Остання команда має вивести `ClamAV: clean sample accepted; EICAR blocked.`
 
-## 8. LibreOffice (перегляд Word, Excel і PowerPoint)
+## 8. LibreOffice — перегляд Word, Excel і PowerPoint (root)
 
 Сервер перетворює документи Office на PDF, щоб їх можна було переглянути, не завантажуючи. Готовий PDF
 кешується в `FILE_TEMP_DIR/office-previews`, тож кожен файл конвертується лише раз. Без LibreOffice
-документи просто завантажуються, як і раніше.
+документи просто завантажуються, як і раніше. LibreOffice запускається всередині ізольованого
+сервісу, від користувача `lankadws`.
 
 ```bash
 apt install -y --no-install-recommends libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui fonts-dejavu fonts-liberation fonts-crosextra-carlito fonts-crosextra-caladea
 which soffice
-grep -q '^OFFICE_PREVIEW_SOFFICE=' ~/LankaDWS/.env || echo 'OFFICE_PREVIEW_SOFFICE=soffice' >> ~/LankaDWS/.env
+grep -q '^OFFICE_PREVIEW_SOFFICE=' /srv/lankadws/LankaDWS/.env || echo 'OFFICE_PREVIEW_SOFFICE=soffice' >> /srv/lankadws/LankaDWS/.env
 systemctl restart lankadws
 ```
 
@@ -167,12 +186,57 @@ systemctl restart lankadws
 сумісні з Calibri й Cambria, тож документи зберігають розмітку. Щоб вимкнути перегляд, залиште
 `OFFICE_PREVIEW_SOFFICE=` порожнім.
 
-## Оновлення
+## 9. Backup поза сервером
+
+`lankadws-backup.timer` щогодини робить зашифровану копію в `/srv/lankadws/data/backups` — на тому ж
+диску, тож від втрати диска чи сервера вона не захищає. Потрібна копія деінде:
+
+1. Заведіть сховище на іншому хості (SSH-сервер, NAS або об'єктне сховище через `rclone`).
+2. Створіть для користувача `lankadws` окремий SSH-ключ (root: `sudo -iu lankadws ssh-keygen -t ed25519`)
+   і додайте його на хост зберігання.
+3. У `/etc/systemd/system/lankadws-backup.service` розкоментуйте рядок `ExecStartPost=/usr/bin/rsync …`,
+   вкажіть свій хост і шлях, потім `systemctl daemon-reload`.
+
+Копії вже зашифровані `BACKUP_ENCRYPTION_KEY`; сам ключ зберігайте окремо від копій (менеджер паролів).
+
+`lankadws-backup-check.timer` щогодини перевіряє, що найновішій копії не більше `BACKUP_MAX_AGE_HOURS`
+годин (2 за замовчуванням). Якщо копія старша або її немає, сервіс `lankadws-backup-check` падає: це
+видно в `systemctl --failed` і `journalctl -u lankadws-backup-check`. Під'єднайте `OnFailure=` до свого
+сповіщення, якщо воно є. Ручна перевірка (lankadws): `npm run backup:check`.
+
+## Оновлення (root)
 
 ```bash
-cd ~/LankaDWS && git pull && npm ci && npm run build
-systemctl stop lankadws && npm run prisma:deploy && systemctl start lankadws
-chmod -R o+rX ~/LankaDWS/apps/web/dist
+sudo -iu lankadws sh -c 'cd ~/LankaDWS && git pull && npm ci && npm run build'
+systemctl stop lankadws
+sudo -iu lankadws sh -c 'cd ~/LankaDWS && npm run prisma:deploy'
+systemctl start lankadws
 ```
+
+## Перенесення встановлення з `root`
+
+Якщо сервер уже працює за старою інструкцією (код у `/root/LankaDWS`, дані в `/root/lankadws-data`),
+спершу зробіть backup (`cd /root/LankaDWS && npm run backup`), потім від root:
+
+```bash
+systemctl stop lankadws lankadws-backup.timer
+useradd --system --create-home --home-dir /srv/lankadws --shell /bin/bash lankadws
+chmod 755 /srv/lankadws
+mv /root/LankaDWS /srv/lankadws/LankaDWS
+mv /root/lankadws-data /srv/lankadws/data
+chown -R lankadws:lankadws /srv/lankadws
+chmod 700 /srv/lankadws/data
+chmod 600 /srv/lankadws/LankaDWS/.env
+sed -i 's#/root/lankadws-data#/srv/lankadws/data#g' /srv/lankadws/LankaDWS/.env
+sed -i 's#/root/LankaDWS#/srv/lankadws/LankaDWS#' /etc/nginx/sites-available/lankadws
+cp /srv/lankadws/LankaDWS/deploy/systemd/lankadws*.service /srv/lankadws/LankaDWS/deploy/systemd/lankadws*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now lankadws lankadws-backup.timer lankadws-backup-check.timer
+nginx -t && systemctl reload nginx
+curl http://127.0.0.1:3000/api/v1/health/ready
+chmod o-x /root
+```
+
+Останній рядок прибирає доступ до `/root`, який стара інструкція відкривала для nginx.
 
 Backup, відновлення та інциденти — [docs/operations-runbook.md](../docs/operations-runbook.md).
