@@ -19,13 +19,15 @@ jobs:
       # The build must never embed demo credentials.
       VITE_DEMO_MODE: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run prisma:generate
+      # Type-aware lint resolves @lankadws/contracts from its build output.
+      - run: npm run build --workspace @lankadws/contracts
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test
@@ -41,8 +43,8 @@ jobs:
     env:
       VITE_DEMO_MODE: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
