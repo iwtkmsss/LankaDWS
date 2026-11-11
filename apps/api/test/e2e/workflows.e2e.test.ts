@@ -839,8 +839,8 @@ describe('LankaDWS API workflows', () => {
         id: taskId,
         sourceType: 'TASK',
         // Creation writes CREATED and ASSIGNED projections with the same version and time;
-        // which one becomes the current head is not deterministic yet.
-        label: expect.stringMatching(/^(Нове завдання|Нове призначення)$/) as string,
+        // CREATED deterministically stays the head of that version.
+        label: 'Нове завдання',
       }),
     ]));
     const taskFeedItem = taskFeedItems.find((item) => item.kind === 'SOURCE' && item.id === taskId);
@@ -3467,9 +3467,11 @@ describe('LankaDWS API workflows', () => {
 
   it('rate-limits repeated invalid authentication attempts without disclosing account state', async () => {
     const agent = request.agent(app.getHttpServer());
+    // The strict limit applies to one username from one IP; a fixed name exercises that tier.
+    const username = `missing-${Date.now()}`;
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const response = await agent.post('/api/v1/auth/login').send({
-        username: `missing-${Date.now()}`,
+        username,
         password: 'definitely-wrong-password',
       });
       expect(response.status).toBe(401);
@@ -3477,10 +3479,15 @@ describe('LankaDWS API workflows', () => {
     const limited = await agent
       .post('/api/v1/auth/login')
       .send({
-        username: `missing-${Date.now()}`,
+        username,
         password: 'definitely-wrong-password',
       })
       .expect(429);
     expect(limited.body).toMatchObject({ status: 429, code: 'rate_limited' });
+    // A different username from the same IP is not locked by the pair limit (IP-wide limit is higher).
+    await agent
+      .post('/api/v1/auth/login')
+      .send({ username: `other-${Date.now()}`, password: 'definitely-wrong-password' })
+      .expect(401);
   });
 });

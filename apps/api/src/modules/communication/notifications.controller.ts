@@ -3,6 +3,7 @@ import { Body, Controller, Get, Optional, Param, Patch, Query, Req } from '@nest
 import type { AuthPrincipal, LankaDWSRequest } from '../../common/request-context.js'
 import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
 import { badRequest, notFound } from '../../common/errors.js'
+import { parseBody } from '../../common/validation.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import { TasksService } from '../tasks/tasks.service.js'
@@ -10,6 +11,9 @@ import { TasksService } from '../tasks/tasks.service.js'
 // A chat message is already counted and listed by the chat itself. Its stored
 // row exists only to be reconciled, so the inbox neither shows nor counts it.
 // Mentions and reactions are alerts of their own and stay.
+const readAllBodySchema = z.object({ tab: z.string().optional() })
+const readBodySchema = z.object({ read: z.boolean() })
+
 const inboxWhere = { NOT: { category: 'CHAT', dedupeKey: { startsWith: 'chat:' } } }
 
 @Controller('notifications')
@@ -89,9 +93,10 @@ export class NotificationsController {
   @Patch('read-all')
   async readAll(
     @Req() request: LankaDWSRequest,
-    @Body() body: { tab?: string },
+    @Body() rawBody: unknown,
   ) {
     const principal = principalFrom(request)
+    const body = parseBody(readAllBodySchema, rawBody ?? {})
     const result = await this.prisma.notification.updateMany({
       where: {
         recipientId: principal.userId,
@@ -144,8 +149,9 @@ export class NotificationsController {
   }
 
   @Patch(':id')
-  async read(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { read: boolean }) {
+  async read(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() rawBody: unknown) {
     const principal = principalFrom(request)
+    const body = parseBody(readBodySchema, rawBody)
     const result = await this.prisma.notification.updateMany({ where: { id, recipientId: principal.userId }, data: { readAt: body.read ? new Date() : null } })
     if (!result.count) throw notFound()
     this.realtime?.publishSummary([principal.userId], ['notifications'])

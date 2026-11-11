@@ -17,6 +17,15 @@ import { principalFrom } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import type { UploadedBinary } from '../files/files.service.js'
 import { FeedService } from './feed.service.js'
+import { z } from 'zod'
+
+const feedExpectedVersionSchema = z.object({ expectedVersion: z.number().int().min(1) })
+
+function feedExpectedVersion(body: unknown): number {
+  const parsed = feedExpectedVersionSchema.safeParse(body)
+  if (!parsed.success) throw badRequest('feed_version_invalid')
+  return parsed.data.expectedVersion
+}
 
 @Controller('feed')
 export class FeedController {
@@ -89,12 +98,9 @@ export class FeedController {
   revokeFileShare(
     @Req() request: LankaDWSRequest,
     @Param('shareId') shareId: string,
-    @Body() body: { expectedVersion?: number },
+    @Body() body: unknown,
   ) {
-    if (!Number.isInteger(body.expectedVersion) || Number(body.expectedVersion) < 1) {
-      throw badRequest('feed_version_invalid')
-    }
-    return this.feed.revokeFileShare(principalFrom(request), shareId, Number(body.expectedVersion))
+    return this.feed.revokeFileShare(principalFrom(request), shareId, feedExpectedVersion(body))
   }
 
   @Post()
@@ -125,12 +131,9 @@ export class FeedController {
   archive(
     @Req() request: LankaDWSRequest,
     @Param('id') postId: string,
-    @Body() body: { expectedVersion?: number },
+    @Body() body: unknown,
   ) {
-    if (!Number.isInteger(body.expectedVersion) || Number(body.expectedVersion) < 1) {
-      throw badRequest('feed_version_invalid')
-    }
-    return this.feed.archive(principalFrom(request), postId, Number(body.expectedVersion))
+    return this.feed.archive(principalFrom(request), postId, feedExpectedVersion(body))
   }
 
   @Post(':id/comments')

@@ -8,7 +8,20 @@ import { badRequest, DomainError } from '../../common/errors.js'
 import { z } from 'zod'
 import { ADMIN_USER_PAGE_SIZE, AdminService } from './admin.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
+import { parseBody } from '../../common/validation.js'
 import { getConfig } from '../../config/config.js'
+
+// Reasons stay plain strings so the service keeps its specific blank-reason error codes.
+const passwordResetBodySchema = z.object({ reason: z.string(), verificationMethod: z.string() })
+const unlockBodySchema = z.object({ reason: z.string() })
+const deactivateBodySchema = z.object({ reason: z.string(), newOwnerId: z.string().optional() })
+const securityPolicyBodySchema = z.object({
+  expectedVersion: z.number().int(),
+  require2faAccountTypes: z.array(z.enum(['ADMIN', 'USER'])),
+  temporaryPasswordHours: z.number(),
+  sessionHours: z.number(),
+  effectiveAt: z.string(),
+})
 
 @AdminOnly()
 @Controller('admin')
@@ -53,7 +66,7 @@ export class AdminController {
   }
 
   @Post('users/:id/password-reset')
-  reset(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { reason: string; verificationMethod: string }, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.resetPassword(principalFrom(request), id, { ...body, reauthChallengeId: reauth }) }
+  reset(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.resetPassword(principalFrom(request), id, { ...parseBody(passwordResetBodySchema, body), reauthChallengeId: reauth }) }
 
   @Post('credential-reset-approvals/:id/approve')
   approveReset(@Req() request: LankaDWSRequest, @Param('id') id: string, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.approveReset(principalFrom(request), id, reauth) }
@@ -62,10 +75,10 @@ export class AdminController {
   finalizeReset(@Req() request: LankaDWSRequest, @Param('id') id: string, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.finalizeReset(principalFrom(request), id, reauth) }
 
   @Post('users/:id/unlock')
-  unlock(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { reason: string }, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.unlock(principalFrom(request), id, body.reason, reauth) }
+  unlock(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.unlock(principalFrom(request), id, parseBody(unlockBodySchema, body).reason, reauth) }
 
   @Post('users/:id/deactivate')
-  deactivate(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { reason: string; newOwnerId?: string }) { return this.admin.deactivate(principalFrom(request), id, body) }
+  deactivate(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown) { return this.admin.deactivate(principalFrom(request), id, parseBody(deactivateBodySchema, body)) }
 
   @Get('organization/capabilities')
   capabilities(@Req() request: LankaDWSRequest) {
@@ -102,5 +115,5 @@ export class AdminController {
   securityPolicy() { return this.admin.securityPolicy() }
 
   @Patch('security-policy')
-  updateSecurityPolicy(@Req() request: LankaDWSRequest, @Body() body: { expectedVersion: number; require2faAccountTypes: Array<'ADMIN' | 'USER'>; temporaryPasswordHours: number; sessionHours: number; effectiveAt: string }, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.updateSecurityPolicy(principalFrom(request), body, reauth) }
+  updateSecurityPolicy(@Req() request: LankaDWSRequest, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.updateSecurityPolicy(principalFrom(request), parseBody(securityPolicyBodySchema, body), reauth) }
 }

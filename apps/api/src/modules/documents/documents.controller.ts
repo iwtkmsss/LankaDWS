@@ -1,7 +1,11 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
+import { expectedVersionBodySchema, parseBody } from '../../common/validation.js'
+import { z } from 'zod'
 import { DocumentsService } from './documents.service.js'
+
+const createDocumentBodySchema = z.object({ companyId: z.string().optional(), name: z.string(), fileId: z.string() })
 
 @Controller('documents')
 export class DocumentsController {
@@ -25,22 +29,22 @@ export class DocumentsController {
   }
 
   @Post()
-  create(@Req() request: LankaDWSRequest, @Body() body: { companyId?: string; name: string; fileId: string }) {
-    return this.documents.create(principalFrom(request), body)
+  create(@Req() request: LankaDWSRequest, @Body() body: unknown) {
+    return this.documents.create(principalFrom(request), parseBody(createDocumentBodySchema, body))
   }
 
   @Post(':id/publish')
-  publish(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
-    return this.documents.publish(principalFrom(request), id, body.expectedVersion)
+  publish(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.documents.publish(principalFrom(request), id, parseBody(expectedVersionBodySchema, body).expectedVersion)
   }
 
   @Post(':id/archive')
-  archive(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
-    return this.documents.archive(principalFrom(request), id, body.expectedVersion)
+  archive(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.documents.archive(principalFrom(request), id, parseBody(expectedVersionBodySchema, body).expectedVersion)
   }
 
   @Post(':id/restore')
-  restore(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: { expectedVersion: number }) {
-    return this.documents.restore(principalFrom(request), id, body.expectedVersion)
+  restore(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.documents.restore(principalFrom(request), id, parseBody(expectedVersionBodySchema, body).expectedVersion)
   }
 }
