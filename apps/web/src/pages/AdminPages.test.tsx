@@ -58,6 +58,8 @@ it('sorts every column in both directions and preserves sorting through user edi
   await screen.findByRole('link', { name: /Андрій Коваль/ })
   for (const [label, key] of [['Тип / компанія', 'accountType'], ['2FA', 'twoFactor'], ['Статус', 'isActive'], ['Користувач', 'displayName']]) {
     for (const direction of ['asc', 'desc']) {
+      // Click only once the previous sort has loaded, or the click can hit a header being replaced.
+      await screen.findByRole('link', { name: /Андрій Коваль/ })
       fireEvent.click(await screen.findByRole('button', { name: label }))
       await waitFor(() => expect(screen.getByRole('columnheader', { name: label })).toHaveAttribute('aria-sort', direction === 'asc' ? 'ascending' : 'descending'))
       expect(api.mock.calls.some(([path]) => {
@@ -153,7 +155,8 @@ it('restores search and page from the URL and preserves them while opening and c
 it('returns to the last available page when the current page becomes empty', async () => {
   renderUsers('/admin/users?page=2')
   await waitFor(() => expect(api.mock.calls.some(([path]) => path.startsWith('/admin/users?') && path.includes('page=1'))).toBe(true))
-  expect(screen.getByLabelText('Поточний URL').textContent).toContain('page=1')
+  // The last page is requested without rewriting the URL, so a newer sort or filter cannot be overwritten.
+  expect(screen.getByLabelText('Поточний URL').textContent).toContain('page=2')
 })
 
 it('retries a failed edit avatar upload without applying the account update again', async () => {
