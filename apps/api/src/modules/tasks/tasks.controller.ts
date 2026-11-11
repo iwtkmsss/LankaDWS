@@ -30,7 +30,7 @@ import {
   taskStatusTransitionSchema,
   updateTaskCommentSchema,
   updateTimeEntrySchema,
-  updateTaskSchema,
+  taskPatchSchema,
 } from '@lankadws/contracts'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { principalFrom } from '../../common/request-context.js'
@@ -51,7 +51,6 @@ import { TaskTimeService } from './task-time.service.js'
 import {
   TasksService,
   type CreateSubtaskInput,
-  type LegacyUpdateTaskInput,
   type TaskUserStateInput,
 } from './tasks.service.js'
 
@@ -74,8 +73,8 @@ export class TasksController {
 
   @Get()
   list(@Req() request: LankaDWSRequest, @Query('company') company?: string, @Query('role') role?: string, @Query('segment') segment?: string, @Query('page') page?: string, @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string, @Query('favorite') favorite?: string, @Query('important') important?: string, @Query('overdue') overdue?: string, @Query('preset') preset?: string, @Query('dueFrom') dueFrom?: string, @Query('dueTo') dueTo?: string, @Query('assigneeId') assigneeId?: string, @Query('creatorId') creatorId?: string, @Query('coExecutorId') coExecutorId?: string, @Query('observerId') observerId?: string, @Query('sort') sort?: string, @Query('direction') direction?: string) {
-    const legacyRole = segment === 'created' ? 'CREATOR' : segment === 'all' ? 'ALL' : 'RESPONSIBLE'
-    return this.tasks.list(principalFrom(request), company, role ?? legacyRole, Number(page ?? 1), 25, { search, status, priority, favorite, important, overdue, preset, dueFrom, dueTo, assigneeId, creatorId, coExecutorId, observerId, sort, direction })
+    const defaultRole = segment === 'created' ? 'CREATOR' : segment === 'all' ? 'ALL' : 'RESPONSIBLE'
+    return this.tasks.list(principalFrom(request), company, role ?? defaultRole, Number(page ?? 1), 25, { search, status, priority, favorite, important, overdue, preset, dueFrom, dueTo, assigneeId, creatorId, coExecutorId, observerId, sort, direction })
   }
 
   @Get('options')
@@ -175,14 +174,13 @@ export class TasksController {
     @Param('id') taskId: string,
     @Body() rawBody: unknown,
   ) {
-    if (isLegacyUpdateTaskInput(rawBody)) {
-      return this.tasks.updateLegacy(principalFrom(request), taskId, rawBody)
+    const parsed = taskPatchSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_invalid')
+    // The edit form replaces the responsible person; the planning update never carries `assigneeId`.
+    if ('assigneeId' in parsed.data) {
+      return this.tasks.edit(principalFrom(request), taskId, parsed.data)
     }
-    const parsed = updateTaskSchema.safeParse(rawBody)
-    if (parsed.success) {
-      return this.commands.update(principalFrom(request), taskId, parsed.data)
-    }
-    throw badRequest('task_invalid')
+    return this.commands.update(principalFrom(request), taskId, parsed.data)
   }
 
   @Post(':id/attachments')
@@ -602,13 +600,4 @@ export class TasksController {
   ) {
     return this.time.remove(principalFrom(request), taskId, entryId)
   }
-}
-
-function isLegacyUpdateTaskInput(value: unknown): value is LegacyUpdateTaskInput {
-  if (!value || typeof value !== 'object') return false
-  const input = value as Record<string, unknown>
-  return typeof input.title === 'string'
-    && typeof input.assigneeId === 'string'
-    && typeof input.priority === 'string'
-    && typeof input.expectedVersion === 'number'
 }

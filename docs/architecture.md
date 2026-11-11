@@ -40,4 +40,4 @@ List/detail/mutation/search/notification/file операції спочатку 
 
 Structured request logs містять correlation ID, safe route pattern, status і latency без body/query values. Detailed health/metrics захищений `system.manage`; public liveness/readiness не розкриває DB/file paths або queue payload.
 
-Task controller делегує нові write/read flows у `TaskCommandService`, `TaskQueryService` та вузькі hierarchy/participants/checklist/relations/reminders/recurrence/time/catalog/attachments services. `TaskCompatibilityService` із thin `TasksService` re-export підтримує наявні list/detail consumers під час поступової міграції, але не вводить другий task aggregate.
+Task controller делегує нові write/read flows у `TaskCommandService`, `TaskQueryService` та вузькі hierarchy/participants/checklist/relations/reminders/recurrence/time/catalog/attachments services. `TasksService` обслуговує list/detail/edit/comments/attachments/activity consumers і не вводить другий task aggregate; створення recurring-завдань живе в `TaskRecurrenceService` (jobs лише викликає його).

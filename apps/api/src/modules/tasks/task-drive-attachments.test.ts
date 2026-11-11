@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthPrincipal } from '../../common/request-context.js'
-import { TaskCompatibilityService } from './task-compatibility.service.js'
+import { TasksService } from './tasks.service.js'
 
 const principal = { userId: 'user', workspaceId: 'workspace', allowedCompanyIds: ['drive-company', 'task-company'] } as AuthPrincipal
 const task = { id: 'task', companyId: 'task-company' }
@@ -22,7 +22,7 @@ function setup(companyId = source.companyId) {
     copyForPrincipal: vi.fn().mockResolvedValue({ id: target.id }),
     discardStagedAttachment: vi.fn().mockResolvedValue({ discarded: true }),
   }
-  const service = new TaskCompatibilityService(prisma as never, {} as never,
+  const service = new TasksService(prisma as never, {} as never,
     { readableTask: vi.fn().mockResolvedValue(task) } as never,
     files as never, {} as never, {} as never, {} as never)
   return { service, prisma, files }

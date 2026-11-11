@@ -280,6 +280,29 @@ export const updateTaskSchema = z.object({
 })
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>
 
+/**
+ * Task detail edit form: replaces the responsible person and carries the
+ * deadline, block reason and inline photo layout. Disjoint from the partial
+ * planning update above (it requires `assigneeId`; the planning update never has it).
+ */
+export const editTaskSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  title: z.string().max(10_000),
+  description: z.string().optional(),
+  photoLayout: z.unknown().optional(),
+  assigneeId: entityIdSchema,
+  creatorId: entityIdSchema.optional(),
+  deadline: z.string().nullable().optional(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'URGENT']),
+  blockReason: z.string().nullable().optional(),
+  requiresAcceptance: z.boolean().optional(),
+}).strict()
+export type EditTaskInput = z.infer<typeof editTaskSchema>
+
+/** `PATCH /tasks/:id` accepts exactly one of the two shapes; `assigneeId` tells them apart. */
+export const taskPatchSchema = z.union([editTaskSchema, updateTaskSchema.strict()])
+export type TaskPatchInput = z.infer<typeof taskPatchSchema>
+
 export const taskStatusTransitionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('START'), expectedVersion: z.number().int().positive() }),
   z.object({ action: z.literal('COMPLETE'), expectedVersion: z.number().int().positive() }),

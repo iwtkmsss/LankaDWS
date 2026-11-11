@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { PrismaService } from '../../prisma/prisma.service.js'
-import type { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
+import type { TaskRecurrenceService } from '../tasks/task-recurrence.service.js'
 import { JobsService } from './jobs.service.js'
 
 describe('task comment outbox delivery', () => {
@@ -9,7 +9,7 @@ describe('task comment outbox delivery', () => {
     const findUnique = vi.fn()
     const service = new JobsService(
       { task: { findUnique }, $transaction: transaction } as unknown as PrismaService,
-      {} as TaskNumberAllocator,
+      {} as TaskRecurrenceService,
     )
     const worker = service as unknown as {
       projectTaskEvent(taskId: string, type: string, payload: Record<string, unknown>): Promise<void>
