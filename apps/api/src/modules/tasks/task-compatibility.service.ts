@@ -4,7 +4,6 @@ import { taskListSortExpressions, taskListSortQuery } from './task-list-sort.js'
 import {
   taskPhotoLayoutSchema,
   type FeedPhotoPlacement,
-  type StructuredMentionInput,
   type StructuredMentionView,
   type PageResult,
   type TaskActivityPage,
@@ -40,6 +39,8 @@ import { TaskCommandService } from './task-command.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 import { DriveSharingService } from '../documents/drive-sharing.service.js'
+import { assertIdempotencyKey, findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
+import { validateStructuredMentions } from '../../common/mentions.js'
 
 const taskStatuses = [
   'NEW',
@@ -1303,7 +1304,7 @@ export class TaskCompatibilityService {
     const task = await this.access.readableTask(principal, taskId)
     const body = typeof input.body === 'string' ? input.body.trim() : ''
     const mentions = input.mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
-    const mentionedUserIds = this.validateStructuredMentions(body, mentions)
+    const mentionedUserIds = validateStructuredMentions(body, mentions, 'task_mention_invalid')
     const replyToCommentId = typeof input.replyToCommentId === 'string'
       ? input.replyToCommentId.trim()
       : null
@@ -1592,7 +1593,7 @@ export class TaskCompatibilityService {
     const body = input.body.trim()
     if (!body || body.length > 4_000) throw badRequest('comment_body')
     const mentions = input.mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
-    const mentionedUserIds = this.validateStructuredMentions(body, mentions)
+    const mentionedUserIds = validateStructuredMentions(body, mentions, 'task_mention_invalid')
     const comment = await this.prisma.comment.findFirst({
       where: {
         id: commentId,
@@ -2072,21 +2073,6 @@ export class TaskCompatibilityService {
     })
   }
 
-  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
-    let previousEnd = 0
-    for (const mention of mentions) {
-      if (
-        mention.start < previousEnd
-        || mention.end > body.length
-        || body.slice(mention.start, mention.end) !== `@${mention.label}`
-      ) {
-        throw badRequest('task_mention_invalid')
-      }
-      previousEnd = mention.end
-    }
-    return [...new Set(mentions.map((mention) => mention.userId))]
-  }
-
   /** Drive documents among `documentIds` that the principal reaches through an explicit ACL entry or Drive share. */
   private async sharedDocumentIds(principal: AuthPrincipal, documentIds: string[]): Promise<string[]> {
     const [acl, grants] = await Promise.all([
@@ -2106,15 +2092,8 @@ export class TaskCompatibilityService {
     operation: string,
     requestFingerprint: string,
   ): Promise<string | null> {
-    if (!key || key.length > 200) throw badRequest('idempotency_key_required')
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: { userId_key_operation: { userId, key, operation } },
-    })
-    if (!existing) return null
-    if (existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('idempotency_key_reused')
-    }
-    return existing.resultId
+    assertIdempotencyKey(key)
+    return (await findIdempotentResult(this.prisma, { userId, key, operation, fingerprint: requestFingerprint }))?.resultId ?? null
   }
 
   private async idempotencyHit(
@@ -2123,15 +2102,8 @@ export class TaskCompatibilityService {
     operation: string,
     requestFingerprint: string,
   ): Promise<boolean> {
-    if (!key || key.length > 200) throw badRequest('idempotency_key_required')
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: { userId_key_operation: { userId, key, operation } },
-    })
-    if (!existing) return false
-    if (existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('idempotency_key_reused')
-    }
-    return true
+    assertIdempotencyKey(key)
+    return (await findIdempotentResult(this.prisma, { userId, key, operation, fingerprint: requestFingerprint })) !== null
   }
 
   private async recordIdempotency(
@@ -2143,19 +2115,7 @@ export class TaskCompatibilityService {
     resultType: string,
     resultId: string,
   ): Promise<void> {
-    await tx.idempotencyRecord.create({
-      data: {
-        id: id('idem'),
-        userId,
-        key,
-        operation,
-        requestFingerprint,
-        resultType,
-        resultId,
-        responseStatus: 200,
-        expiresAt: new Date(Date.now() + 86_400_000),
-      },
-    })
+    await recordIdempotentResult(tx, { userId: userId, key: key, operation: operation, fingerprint: requestFingerprint }, { type: resultType, id: resultId, status: 200 })
   }
 
   private async recordEvent(

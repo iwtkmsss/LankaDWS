@@ -14,6 +14,7 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { writeFeedProjection } from '../feed/feed-projection.service.js'
 import { readReminderMinutes, scheduleCalendarReminder } from './calendar-reminder.js'
 import { snapshotEventAcknowledgements } from './calendar-acknowledgement.js'
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 
 const createOperation = 'calendar.event.create'
 
@@ -285,18 +286,7 @@ export class CalendarService {
       isPrivate,
       ...input,
     }), operation)
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        userId_key_operation: {
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-        },
-      },
-    })
-    if (existing && existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('Цей ключ повтору вже використано для іншого запиту.')
-    }
+    const existing = await findIdempotentResult(this.prisma, { userId: principal.userId, key: idempotencyKey, operation, fingerprint: requestFingerprint })
     if (existing?.resultId) {
       const event = await this.prisma.event.findFirst({
         where: {
@@ -360,19 +350,7 @@ export class CalendarService {
           occurredAt: event.createdAt,
         })
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-          requestFingerprint,
-          resultType: 'EVENT',
-          resultId: eventId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'EVENT', id: eventId })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),

@@ -810,6 +810,12 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     statusErrorRef.current.scrollIntoView({ block: 'center' })
     statusErrorRef.current.focus({ preventScroll: true })
   }, [statusError])
+  /** A task change also moves its list row and its history. */
+  const refreshTask = () => {
+    void client.invalidateQueries({ queryKey: ['task', id] })
+    void client.invalidateQueries({ queryKey: ['tasks'] })
+    void client.invalidateQueries({ queryKey: ['task-activity', id] })
+  }
   const query = useQuery({
     queryKey: ['task', id],
     queryFn: () => api<TaskDetailView>(`/tasks/${id}`),
@@ -846,9 +852,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       setEditMessage('')
       clearDirty('edit')
       setEditOpen(false)
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
+      refreshTask()
     },
     onError: (error) => {
       setEditMessage(
@@ -867,9 +871,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     mutationFn: () => api(`/tasks/${id}/delegate`, { method: 'POST', body: jsonBody({ userId: delegateId, expectedVersion: query.data?.version }) }),
     onSuccess: () => {
       closeDelegate()
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
+      refreshTask()
     },
     onError: () => setDelegateError('Не вдалося делегувати завдання. Оновіть сторінку та перевірте доступ.'),
   })
@@ -891,9 +893,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     },
     onSuccess: () => {
       setParticipantMessage('Відповідального змінено.')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
+      refreshTask()
     },
     onError: (error) => {
       setParticipantMessage(
@@ -1001,9 +1001,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         return
       }
       setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
     onError: () => setContentMessage('Не вдалося додати файл. Перевірте формат, розмір або ліміт.'),
   })
@@ -1024,9 +1022,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       setContentMessage('Файл вилучено із завдання та коментарів.')
       setEditPhotos((current) => current.filter((photo) => photo.id !== fileId))
       setCommentAttachments((current) => current.filter((attachment) => attachment.id !== fileId))
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
     onError: () => setContentMessage('Не вдалося вилучити файл. Оновіть завдання й спробуйте ще раз.'),
   })
@@ -1056,9 +1052,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
         window.requestAnimationFrame(() => commentTextareaRef.current?.focus())
       }
       setContentMessage('')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
     onError: () => setContentMessage('Не вдалося надіслати коментар. Перевірте текст і вкладення.'),
   })
@@ -1067,9 +1061,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
       method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }),
     }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
   })
   const updateComment = useMutation({
@@ -1089,9 +1081,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     onSuccess: () => {
       setEditingComment(null)
       setContentMessage('Повідомлення відредаговано.')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
     onError: (error) => setContentMessage(
       error instanceof ApiProblem && error.problem.status === 409
@@ -1108,9 +1098,7 @@ function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => void }) {
     onSuccess: (_result, input) => {
       setEditingComment((current) => current?.id === input.commentId ? null : current)
       setContentMessage('Повідомлення видалено.')
-      void client.invalidateQueries({ queryKey: ['task', id] })
-      void client.invalidateQueries({ queryKey: ['tasks'] })
-      void client.invalidateQueries({ queryKey: ['task-activity', id] })
+      refreshTask()
     },
     onError: (error) => setContentMessage(
       error instanceof ApiProblem && error.problem.status === 409

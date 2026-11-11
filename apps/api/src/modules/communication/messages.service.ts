@@ -47,6 +47,8 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { scoreChatRecommendation, type ChatRecommendationSignals } from './chat-recommendations.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
+import { validateStructuredMentions } from '../../common/mentions.js'
 import {
   decodeChatMessageCursor,
   decodeChatThreadCursor,
@@ -237,27 +239,7 @@ export class MessagesService {
               data: { directKey },
             })
           }
-          await tx.idempotencyRecord.upsert({
-            where: {
-              userId_key_operation: {
-                userId: principal.userId,
-                key: idempotencyKey,
-                operation: 'chat.thread.create',
-              },
-            },
-            create: {
-              id: id('idem'),
-              userId: principal.userId,
-              key: idempotencyKey,
-              operation: 'chat.thread.create',
-              requestFingerprint,
-              resultType: 'MESSAGE_THREAD',
-              resultId: existingDirect.id,
-              responseStatus: 200,
-              expiresAt: new Date(Date.now() + 86_400_000),
-            },
-            update: {},
-          })
+          await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: existingDirect.id, status: 200 }, { upsert: true })
         })
         return { id: existingDirect.id, created: false }
       }
@@ -293,19 +275,7 @@ export class MessagesService {
           })),
         ],
       })
-        await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.thread.create',
-          requestFingerprint,
-          resultType: 'MESSAGE_THREAD',
-          resultId: threadId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
+        await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: threadId })
         await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -344,27 +314,7 @@ export class MessagesService {
         directKey,
       )
       if (!canonical) throw error
-      await this.prisma.idempotencyRecord.upsert({
-        where: {
-          userId_key_operation: {
-            userId: principal.userId,
-            key: idempotencyKey,
-            operation: 'chat.thread.create',
-          },
-        },
-        create: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.thread.create',
-          requestFingerprint,
-          resultType: 'MESSAGE_THREAD',
-          resultId: canonical.id,
-          responseStatus: 200,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-        update: {},
-      })
+      await recordIdempotentResult(this.prisma, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: canonical.id, status: 200 }, { upsert: true })
       return { id: canonical.id, created: false }
     }
     return { id: threadId, created: true }
@@ -785,7 +735,7 @@ export class MessagesService {
     const text = input.body.trim()
     const replyToId = input.replyToId ?? null
     const attachmentIds = input.attachmentIds
-    const mentionedUserIds = this.validateStructuredMentions(text, input.mentions)
+    const mentionedUserIds = validateStructuredMentions(text, input.mentions, 'chat_mention_invalid')
     if (input.mentions.length > 0) {
       await this.assertMessageMentionRecipients(principal, thread, mentionedUserIds)
     }
@@ -898,19 +848,7 @@ export class MessagesService {
           },
         })
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.message.create',
-          requestFingerprint,
-          resultType: 'MESSAGE',
-          resultId: messageId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.message.create', fingerprint: requestFingerprint }, { type: 'MESSAGE', id: messageId })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -1085,19 +1023,7 @@ export class MessagesService {
               role: input.role,
             },
           })
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-          requestFingerprint,
-          resultType: 'THREAD_PARTICIPANT',
-          resultId: participant.id,
-          responseStatus: 201,
-          expiresAt: new Date(now.getTime() + 86_400_000),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'THREAD_PARTICIPANT', id: participant.id })
       await tx.notification.upsert({
         where: {
           dedupeKey: `chat-participant-added:${thread.id}:${input.userId}:v${input.expectedThreadVersion + 1}`,
@@ -1373,7 +1299,7 @@ export class MessagesService {
     })
     const nextMentions = input.mentions?.toSorted((left, right) => left.start - right.start || left.end - right.end)
     const mentionedUserIds = nextMentions
-      ? this.validateStructuredMentions(body, nextMentions)
+      ? validateStructuredMentions(body, nextMentions, 'chat_mention_invalid')
       : []
     if (nextMentions?.length) {
       await this.assertMessageMentionRecipients(
@@ -1847,22 +1773,6 @@ export class MessagesService {
     })
     if (!message) throw notFound()
     return message
-  }
-
-  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
-    const ordered = mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
-    let previousEnd = 0
-    for (const mention of ordered) {
-      if (
-        mention.start < previousEnd
-        || mention.end > body.length
-        || body.slice(mention.start, mention.end) !== `@${mention.label}`
-      ) {
-        throw badRequest('chat_mention_invalid')
-      }
-      previousEnd = mention.end
-    }
-    return [...new Set(ordered.map((mention) => mention.userId))]
   }
 
   private async assertMessageMentionRecipients(
@@ -2440,19 +2350,7 @@ export class MessagesService {
     operation: string,
     requestFingerprint: string,
   ): Promise<string | null> {
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        userId_key_operation: {
-          userId,
-          key,
-          operation,
-        },
-      },
-    })
-    if (existing && existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('Цей ключ повтору вже використано для іншого запиту.')
-    }
-    return existing?.resultId ?? null
+    return (await findIdempotentResult(this.prisma, { userId, key, operation, fingerprint: requestFingerprint }))?.resultId ?? null
   }
 
   private threadListItem(

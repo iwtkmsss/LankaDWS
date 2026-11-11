@@ -17,6 +17,7 @@ import { TaskRelationsService } from './task-relations.service.js'
 import { TaskRecurrenceService } from './task-recurrence.service.js'
 import { TaskReminderService } from './task-reminder.service.js'
 import { TaskValidationService } from './task-validation.service.js'
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 
 @Injectable()
 export class TaskCommandService {
@@ -201,19 +202,7 @@ export class TaskCommandService {
           },
         })
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-          requestFingerprint,
-          resultType: 'TASK',
-          resultId: taskId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'TASK', id: taskId })
       await tx.auditEvent.create({
         data: {
           id: id('aud'),
@@ -419,14 +408,8 @@ export class TaskCommandService {
     operation: string,
     requestFingerprint: string,
   ): Promise<{ id: string; number: string; version: number } | null> {
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: { userId_key_operation: { userId, key, operation } },
-    })
-    if (!existing) return null
-    if (existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('idempotency_key_reused')
-    }
-    if (!existing.resultId) return null
+    const existing = await findIdempotentResult(this.prisma, { userId, key, operation, fingerprint: requestFingerprint })
+    if (!existing?.resultId) return null
     return this.prisma.task.findUnique({
       where: { id: existing.resultId },
       select: { id: true, number: true, version: true },
