@@ -3,6 +3,15 @@ Description=LankaDWS encrypted backup
 
 [Service]
 Type=oneshot
-User=root
-WorkingDirectory=/root/LankaDWS
-ExecStart=/usr/bin/npm run backup
+User=lankadws
+Group=lankadws
+WorkingDirectory=/srv/lankadws/LankaDWS/apps/api
+UMask=0077
+ExecStart=/usr/bin/node --import tsx scripts/backup.ts
+# Off-host copy: uncomment and point at your own storage (see deploy/README.md, step 9).
+# ExecStartPost=/usr/bin/rsync -a --delete /srv/lankadws/data/backups/ backup@backup-host:/srv/lankadws-backups/
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/lankadws/data

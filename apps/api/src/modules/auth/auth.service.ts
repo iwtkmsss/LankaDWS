@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common'
 import type { Request, Response } from 'express'
-import * as OTPAuth from 'otpauth'
 import type { LoginInput, LoginResult, PrincipalView, SessionView } from '@lankadws/contracts'
-import { decryptSecret, encryptSecret, fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
+import { fingerprint, hashPassword, id, randomToken, verifyPassword } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
+import { secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
 
 interface SessionTarget { id: string; authorizationVersion: number }
 
@@ -16,7 +16,17 @@ interface SessionTarget { id: string; authorizationVersion: number }
 export class AuthService {
   private readonly dummyHash = hashPassword(randomToken())
 
+  /** Replaceable in tests; production uses the module-level provider. */
+  secondFactor: SecondFactorProvider = secondFactorProvider
+
   constructor(private readonly prisma: PrismaService, private readonly capabilities: CapabilitiesService) {}
+
+  /** Whether this user must pass the second factor; always false while no method is configured. */
+  async requiresSecondFactor(user: { id: string; mustEnroll2FA: boolean }): Promise<'CHALLENGE' | 'ENROLL' | null> {
+    if (!this.secondFactor.enabled) return null
+    if (await this.secondFactor.isEnrolled(user.id)) return 'CHALLENGE'
+    return user.mustEnroll2FA ? 'ENROLL' : null
+  }
 
   async login(input: LoginInput, request: Request, response: Response): Promise<LoginResult> {
     const normalized = input.username.trim().toLowerCase()
@@ -28,7 +38,7 @@ export class AuthService {
 
     const user = await this.prisma.user.findUnique({
       where: { workspaceId_normalizedUsername: { workspaceId: await this.activeWorkspaceId(), normalizedUsername: normalized } },
-      include: { passwordCredential: true, totpCredential: true },
+      include: { passwordCredential: true },
     })
 
     let permanentValid = false
@@ -60,13 +70,10 @@ export class AuthService {
       response.cookie('lankadws_temp_credential', temporaryId ?? '', this.cookieOptions(true))
       return { nextStep: 'FIRST_LOGIN', csrfToken: response.locals.csrfToken as string }
     }
-    if (user.totpCredential?.confirmedAt) {
+    const secondFactor = await this.requiresSecondFactor(user)
+    if (secondFactor) {
       await this.createSession(user, request, response, 1, true)
-      return { nextStep: 'TWO_FACTOR', csrfToken: response.locals.csrfToken as string }
-    }
-    if (user.mustEnroll2FA) {
-      await this.createSession(user, request, response, 1, true)
-      return { nextStep: 'TWO_FACTOR_SETUP', csrfToken: response.locals.csrfToken as string }
+      return { nextStep: secondFactor === 'CHALLENGE' ? 'TWO_FACTOR' : 'TWO_FACTOR_SETUP', csrfToken: response.locals.csrfToken as string }
     }
     await this.createSession(user, request, response, 1, false)
     return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
@@ -92,53 +99,37 @@ export class AuthService {
     this.clearCookies(response)
   }
 
-  async startTotpSetup(principal: AuthPrincipal): Promise<{ secret: string; uri: string }> {
-    const secret = new OTPAuth.Secret({ size: 20 })
-    const totp = this.totp(secret.base32, principal.username)
-    await this.prisma.totpCredential.upsert({
-      where: { userId: principal.userId },
-      create: { id: id('totp'), userId: principal.userId, encryptedSecret: encryptSecret(secret.base32) },
-      update: { encryptedSecret: encryptSecret(secret.base32), confirmedAt: null, disabledAt: null },
-    })
-    return { secret: secret.base32, uri: totp.toString() }
+  startSecondFactorEnrollment(principal: AuthPrincipal): Promise<Record<string, unknown>> {
+    return this.secondFactor.startEnrollment(principal)
   }
 
-  async confirmTotp(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<{ recoveryCodes: string[] }> {
-    const credential = await this.prisma.totpCredential.findUnique({ where: { userId: principal.userId } })
-    if (!credential || this.totpValidate(decryptSecret(credential.encryptedSecret), principal.username, code) === null) throw badRequest('invalid_totp', 'Код не підтверджено.')
-    const recoveryCodes = Array.from({ length: 10 }, () => randomToken(9))
-    await this.prisma.$transaction(async (tx) => {
-      await tx.totpCredential.update({ where: { id: credential.id }, data: { confirmedAt: new Date() } })
-      await tx.recoveryCode.deleteMany({ where: { userId: principal.userId } })
-      await tx.recoveryCode.createMany({ data: recoveryCodes.map((code) => ({ id: id('rcv'), userId: principal.userId, codeHash: fingerprint(code, 'recovery') })) })
-      await tx.user.update({ where: { id: principal.userId }, data: { mustEnroll2FA: false } })
-    })
+  async confirmSecondFactorEnrollment(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<{ recoveryCodes: string[] }> {
+    const result = await this.secondFactor.confirmEnrollment(principal, code)
+    await this.prisma.user.update({ where: { id: principal.userId }, data: { mustEnroll2FA: false } })
     await this.rotateSession(principal, request, response, 2, false)
-    return { recoveryCodes }
+    return result
   }
 
-  async challengeTotp(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
-    const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { totpCredential: true } })
-    if (!user?.totpCredential?.confirmedAt || this.totpValidate(decryptSecret(user.totpCredential.encryptedSecret), user.username, code) === null) throw unauthorized('invalid_totp')
+  async challengeSecondFactor(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
+    if (!await this.secondFactor.verify(principal, code)) throw unauthorized('invalid_second_factor')
     await this.rotateSession(principal, request, response, 2, false)
     return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
   }
 
   async useRecoveryCode(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
-    const record = await this.prisma.recoveryCode.findFirst({ where: { userId: principal.userId, codeHash: fingerprint(code, 'recovery'), consumedAt: null } })
-    if (!record) throw unauthorized('invalid_recovery_code')
-    await this.prisma.recoveryCode.update({ where: { id: record.id }, data: { consumedAt: new Date() } })
+    if (!await this.secondFactor.useRecoveryCode(principal, code)) throw unauthorized('invalid_recovery_code')
     await this.rotateSession(principal, request, response, 2, false)
     return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
   }
 
   async reauthenticate(principal: AuthPrincipal, password: string, code?: string): Promise<{ challengeId: string; expiresAt: string }> {
-    const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { passwordCredential: true, totpCredential: true } })
+    const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { passwordCredential: true } })
     if (!user?.passwordCredential || !(await verifyPassword(user.passwordCredential.passwordHash, password))) throw unauthorized('reauth_failed')
-    if (user.totpCredential?.confirmedAt && (!code || this.totpValidate(decryptSecret(user.totpCredential.encryptedSecret), user.username, code) === null)) throw unauthorized('reauth_failed')
+    const enrolled = this.secondFactor.enabled && await this.secondFactor.isEnrolled(user.id)
+    if (enrolled && (!code || !await this.secondFactor.verify(principal, code))) throw unauthorized('reauth_failed')
     const expiresAt = new Date(Date.now() + getConfig().REAUTH_MINUTES * 60_000)
     const challengeId = id('reauth')
-    await this.prisma.reauthChallenge.create({ data: { id: challengeId, sessionId: principal.sessionId, purpose: 'critical_action', assurance: user.totpCredential?.confirmedAt ? 2 : 1, expiresAt, satisfiedAt: new Date() } })
+    await this.prisma.reauthChallenge.create({ data: { id: challengeId, sessionId: principal.sessionId, purpose: 'critical_action', assurance: enrolled ? 2 : 1, expiresAt, satisfiedAt: new Date() } })
     return { challengeId, expiresAt: expiresAt.toISOString() }
   }
 
@@ -184,25 +175,6 @@ export class AuthService {
     await this.prisma.user.update({ where: { id: principal.userId }, data: { avatarAsset: null } })
     await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId || null, actorType: 'USER', actorId: principal.userId, action: 'profile.avatar_removed', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
     return { avatarAsset: null }
-  }
-
-  async notificationPreferences(principal: AuthPrincipal) {
-    const rows = await this.prisma.notificationPreference.findMany({ where: { userId: principal.userId, category: 'ALL' } })
-    const email = rows.find((row) => row.channel === 'EMAIL')
-    const app = rows.find((row) => row.channel === 'IN_APP')
-    const quiet = JSON.parse(email?.quietJson ?? app?.quietJson ?? '{}') as { start?: string; end?: string }
-    return { emailEnabled: email?.enabled ?? true, inAppEnabled: true, digest: email?.digest ?? 'DAILY', quietStart: quiet.start ?? '20:00', quietEnd: quiet.end ?? '08:00' }
-  }
-
-  async updateNotificationPreferences(principal: AuthPrincipal, input: { emailEnabled: boolean; inAppEnabled: true; digest: 'IMMEDIATE' | 'DAILY' | 'WEEKLY'; quietStart: string; quietEnd: string }) {
-    const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, select: { timezone: true } })
-    if (!user) throw notFound()
-    const quietJson = JSON.stringify({ start: input.quietStart, end: input.quietEnd, timezone: user.timezone })
-    await this.prisma.$transaction([
-      this.prisma.notificationPreference.upsert({ where: { userId_category_channel: { userId: principal.userId, category: 'ALL', channel: 'EMAIL' } }, create: { id: id('npf'), userId: principal.userId, category: 'ALL', channel: 'EMAIL', enabled: input.emailEnabled, digest: input.digest, quietJson }, update: { enabled: input.emailEnabled, digest: input.digest, quietJson, version: { increment: 1 } } }),
-      this.prisma.notificationPreference.upsert({ where: { userId_category_channel: { userId: principal.userId, category: 'ALL', channel: 'IN_APP' } }, create: { id: id('npf'), userId: principal.userId, category: 'ALL', channel: 'IN_APP', enabled: true, digest: 'IMMEDIATE', quietJson }, update: { enabled: true, digest: 'IMMEDIATE', quietJson, version: { increment: 1 } } }),
-    ])
-    return this.notificationPreferences(principal)
   }
 
   async assertRecentReauth(principal: AuthPrincipal, challengeId: string | undefined): Promise<void> {
@@ -271,7 +243,8 @@ export class AuthService {
       locale: user.locale as 'uk-UA' | 'en-US',
       capabilities,
       csrfToken,
-      mustEnroll2FA: user.mustEnroll2FA,
+      // An enrolment obligation applies only once a second-factor method exists.
+      mustEnroll2FA: (await this.requiresSecondFactor(user)) === 'ENROLL',
     }
   }
 
@@ -340,13 +313,5 @@ export class AuthService {
   private deviceLabel(request: Request): string {
     const ua = request.get('user-agent') ?? 'Невідомий пристрій'
     return ua.slice(0, 120)
-  }
-
-  private totp(secret: string, label: string): OTPAuth.TOTP {
-    return new OTPAuth.TOTP({ issuer: 'Lanka', label, algorithm: 'SHA1', digits: 6, period: 30, secret: OTPAuth.Secret.fromBase32(secret) })
-  }
-
-  private totpValidate(secret: string, label: string, token: string): number | null {
-    return this.totp(secret, label).validate({ token, window: 1 })
   }
 }

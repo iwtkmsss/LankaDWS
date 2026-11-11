@@ -29,7 +29,7 @@ Cross-module effect починається з outbox/job reference, записа
 - `apps/api/src/modules/files/storage.ts`: quarantine/clean local storage boundary; може бути замінений object-storage implementation без зміни controller contract.
 - `MALWARE_SCANNER`: development-clean лише для development; production використовує реальний scanner adapter або fail-closed `unavailable`.
 - Prisma services: persistence boundary для майбутнього переходу з SQLite на server database.
-- `EMAIL_ADAPTER` і `OTEL_EXPORTER_OTLP_ENDPOINT`: optional delivery/telemetry integrations; in-app persistence не залежить від них.
+- Сповіщення доставляються лише в застосунку; email-доставки немає і не планується (рішення 2026-11-10). `OTEL_EXPORTER_OTLP_ENDPOINT` зарезервований під телеметрію і поки не підключений.
 - backup scripts: encrypted destination boundary, який production scheduler може передавати в окремий volume/off-host storage.
 
 ## Security boundary

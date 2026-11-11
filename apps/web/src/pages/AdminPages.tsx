@@ -104,7 +104,11 @@ function UsersPage() {
   const debounce = useDebouncedSearchValue(search)
   const waitingForSearch = debounce.isComposing || search.trim() !== debounce.debouncedValue
   const parsedPage = Number(params.get('page') ?? 1)
-  const page = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
+  // A page beyond the last one is shown as the last page. It is derived rather than written back
+  // to the URL: a delayed URL correction could overwrite a sort or filter the user just chose.
+  const [knownLastPage, setKnownLastPage] = useState<number>()
+  const page = knownLastPage === undefined ? requestedPage : Math.min(requestedPage, knownLastPage)
   const columns = [
     { key: 'displayName', label: 'Користувач' },
     { key: 'accountType', label: 'Тип / компанія' },
@@ -130,14 +134,8 @@ function UsersPage() {
   })
   const lastPage = query.data ? Math.max(1, Math.ceil(query.data.total / query.data.pageSize)) : undefined
   useEffect(() => {
-    if (!waitingForSearch && lastPage !== undefined && page > lastPage) {
-      setParams((current) => {
-        const next = new URLSearchParams(current)
-        if (Number(current.get('page') ?? 1) > lastPage) next.set('page', String(lastPage))
-        return next
-      }, { replace: true })
-    }
-  }, [lastPage, page, params, setParams, waitingForSearch])
+    if (lastPage !== undefined) setKnownLastPage(lastPage)
+  }, [lastPage])
   function setSearch(value: string) {
     const next = new URLSearchParams(params)
     if (value) next.set('search', value)

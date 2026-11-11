@@ -1,86 +1,17 @@
 import { Injectable, type MessageEvent } from '@nestjs/common'
 import { concatMap, Observable, Subject } from 'rxjs'
 import type { ChatRealtimeEvent, RealtimeSummaryChanged } from '@lankadws/contracts'
-import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import type { AuthPrincipal } from '../../common/request-context.js'
 import { unauthorized } from '../../common/errors.js'
 import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 
 @Injectable()
 export class ChatRealtimeService {
-  private readonly threadStreams = new Map<string, Subject<MessageEvent>>()
   private readonly userStreams = new Map<string, Subject<MessageEvent>>()
   private sequence = 0
 
   constructor(private readonly prisma: PrismaService) {}
-
-  async canAccess(principal: AuthPrincipal, threadId: string): Promise<boolean> {
-    if (isGlobalAdmin(principal)) {
-      return Boolean(await this.prisma.messageThread.findFirst({
-        where: { id: threadId, workspaceId: principal.workspaceId },
-        select: { id: true },
-      }))
-    }
-    const participant = await this.prisma.threadParticipant.findFirst({
-      where: {
-        threadId,
-        userId: principal.userId,
-        leftAt: null,
-        thread: {
-          workspaceId: principal.workspaceId,
-          companyId: { in: principal.allowedCompanyIds },
-        },
-      },
-      select: {
-        id: true,
-        thread: { select: { entityType: true, entityId: true } },
-      },
-    })
-    return Boolean(participant)
-  }
-
-  stream(principal: AuthPrincipal, threadId: string): Observable<MessageEvent> {
-    const source = this.threadSubject(threadId)
-    return new Observable<MessageEvent>((subscriber) => {
-      let closed = false
-      let queue = Promise.resolve()
-      const enqueue = (event: MessageEvent) => {
-        queue = queue.then(async () => {
-          if (closed) return
-          if (!await this.canAccess(principal, threadId)) {
-            subscriber.next({
-              type: 'reset',
-              data: { reason: 'scope_changed', threadId },
-            })
-            subscriber.complete()
-            closed = true
-            return
-          }
-          subscriber.next(event)
-        }).catch((error: unknown) => subscriber.error(error))
-      }
-      subscriber.next({
-        type: 'ready',
-        retry: 3_000,
-        data: { threadId, connectedAt: new Date().toISOString() },
-      })
-      const subscription = source.subscribe((event) => enqueue(event))
-      const heartbeat = setInterval(() => enqueue({
-        type: 'ping',
-        data: { occurredAt: new Date().toISOString() },
-      }), 15_000)
-      heartbeat.unref()
-      return () => {
-        closed = true
-        clearInterval(heartbeat)
-        subscription.unsubscribe()
-        if (!source.observed) this.threadStreams.delete(threadId)
-      }
-    }).pipe(concatMap(async (event) => {
-      await this.assertSession(principal)
-      return event
-    }))
-  }
 
   userStream(principal: AuthPrincipal): Observable<MessageEvent> {
     const source = this.userSubject(principal.userId)
@@ -138,8 +69,6 @@ export class ChatRealtimeService {
         occurredAt: new Date().toISOString(),
       },
     }
-    this.threadStreams.get(threadId)?.next(event)
-
     const thread = await this.prisma.messageThread.findUnique({
       where: { id: threadId },
       select: {
@@ -179,14 +108,6 @@ export class ChatRealtimeService {
       } satisfies RealtimeSummaryChanged,
     }
     for (const userId of recipientIds) this.userStreams.get(userId)?.next(event)
-  }
-
-  private threadSubject(threadId: string): Subject<MessageEvent> {
-    const existing = this.threadStreams.get(threadId)
-    if (existing) return existing
-    const created = new Subject<MessageEvent>()
-    this.threadStreams.set(threadId, created)
-    return created
   }
 
   private userSubject(userId: string): Subject<MessageEvent> {

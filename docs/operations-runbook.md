@@ -5,7 +5,7 @@
 Розгортання ClamAV для Linux/Docker, smoke-test і пояснення файлових статусів:
 [Перевірка файлів](file-scanning.md).
 
-Запускайте один NestJS API/worker process за trusted TLS reverse proxy. React static build можна віддавати тим самим origin. SQLite DB, clean files, quarantine/temp і encrypted backups мають бути на окремо визначених persistent paths; backup destination — окремий volume або off-host sync. Не запускайте дві writable replicas над одним SQLite file.
+Запускайте один NestJS API/worker process від окремого непривілейованого користувача `lankadws` в ізольованому systemd-сервісі (`deploy/systemd/lankadws.service`) за trusted TLS reverse proxy. React static build можна віддавати тим самим origin. SQLite DB, clean files, quarantine/temp і encrypted backups мають бути на окремо визначених persistent paths; backup destination — окремий volume або off-host sync. Не запускайте дві writable replicas над одним SQLite file.
 
 Production startup відхиляє localhost origins, development DB/storage paths, weak/default secrets, in-memory DB і `development-clean` scanner. Усі secret values надходять через environment/secret manager; `.env` не комітиться.
 
@@ -28,7 +28,7 @@ Production застосовує тільки `npm run prisma:deploy`. `npm run p
 
 ## Backup і restore
 
-Щогодини external scheduler запускає `npm run backup`. Script використовує SQLite online backup API, шифрує DB і кожний clean file AES-256-GCM, створює SHA-256 manifest/correlation ID і зберігає 30 daily та 12 monthly copies. Моніторинг має alert-ити, якщо останній успішний backup старший за 1 годину. Щоквартально відновлюйте копію на staging.
+Щогодини external scheduler запускає `npm run backup`. Script використовує SQLite online backup API, шифрує DB і кожний clean file AES-256-GCM, створює SHA-256 manifest/correlation ID і зберігає 30 daily та 12 monthly copies. `lankadws-backup-check.timer` (`npm run backup:check`) щогодини падає, якщо найновіша копія старша за `BACKUP_MAX_AGE_HOURS` (2 год за замовчуванням); під'єднайте його `OnFailure=` до сповіщень. Копія на тому самому диску не є backup: налаштуйте off-host синхронізацію (`deploy/README.md`, крок 9). Щоквартально відновлюйте копію на staging.
 
 Перевірка без зміни active data:
 

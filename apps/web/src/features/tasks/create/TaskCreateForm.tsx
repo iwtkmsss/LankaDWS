@@ -422,7 +422,7 @@ export function TaskCreateForm({
             <div className="task-create-details__intro">
               <div>
                 <span className="task-create-kicker">Необов’язково</span>
-                <h3>Додаткові параметри</h3>
+                <h2>Додаткові параметри</h2>
               </div>
             </div>
 

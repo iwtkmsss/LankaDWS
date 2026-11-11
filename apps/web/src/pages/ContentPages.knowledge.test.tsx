@@ -260,7 +260,8 @@ it('keeps the debounced search in the URL and offers to clear an empty result', 
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
   fireEvent.change(await screen.findByRole('searchbox', { name: 'Пошук матеріалів' }), { target: { value: ' відпустка ' } })
   await waitFor(() => expect(router.state.location.search).toBe('?q=%D0%B2%D1%96%D0%B4%D0%BF%D1%83%D1%81%D1%82%D0%BA%D0%B0'), { timeout: 4000 })
-  expect(request).toHaveBeenCalledWith('/knowledge/articles?search=%D0%B2%D1%96%D0%B4%D0%BF%D1%83%D1%81%D1%82%D0%BA%D0%B0')
+  // The request follows the URL update on the next render.
+  await waitFor(() => expect(request).toHaveBeenCalledWith('/knowledge/articles?search=%D0%B2%D1%96%D0%B4%D0%BF%D1%83%D1%81%D1%82%D0%BA%D0%B0'))
   const empty = (await screen.findByRole('heading', { name: 'Нічого не знайдено' }, { timeout: 4000 })).parentElement!
   fireEvent.click(within(empty).getByRole('button', { name: 'Очистити пошук' }))
   expect(router.state.location.search).toBe('')

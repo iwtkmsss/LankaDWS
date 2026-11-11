@@ -1,8 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bitrixSnapshotManifestPayloadSchema,
-  bitrixSnapshotSealRequestSchema,
-  companyMappingArtifactSchema,
   organizationCapabilityCodeSchema,
   companyScopeSchema,
   chatThreadListQuerySchema,
@@ -26,10 +23,6 @@ import {
   feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
   updateFeedPostSchema,
-  importDatasetKindSchema,
-  importDatasetRelativePathSchema,
-  importReadinessViewSchema,
-  importRunModeSchema,
   loginInputSchema,
   markFeedReadSchema,
   orgUnitListQuerySchema,
@@ -45,104 +38,6 @@ import {
   taskOptionSchema,
   createTaskSchema,
 } from './index.js'
-
-const requiredManifestPaths = [
-  'source-schema/ddl.sql',
-  'source-schema/columns.ndjson',
-  'source-schema/indexes.ndjson',
-  'reports/source-counts.json',
-  'reports/exclusions.json',
-  'reports/relations.json',
-  'reports/acl-probes.json',
-  'reports/compatibility.json',
-  'reports/company-mapping.json',
-  'files/manifest.ndjson.zst',
-  'files/tombstones.ndjson.zst',
-  'checksums.sha256',
-]
-
-function validManifestPayload() {
-  return {
-    manifestVersion: 1,
-    datasetId: 'dataset-001',
-    snapshotId: 'snapshot-001',
-    sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.lankadwscompany.org',
-    sourceBuild: '20.0.1198',
-    perconaVersion: '5.7.26-29-log',
-    sourceSchemaFingerprint: 'a'.repeat(64),
-    charset: 'utf8',
-    collation: 'utf8_unicode_ci',
-    systemTimezone: 'MSK',
-    captureStartedAt: '2026-07-23T08:00:00.000Z',
-    captureEndedAt: '2026-07-23T08:05:00.000Z',
-    sourceCoordinates: { kind: 'UNAVAILABLE', reason: 'The synthetic fixture has no binlog coordinates.' },
-    databaseSnapshotId: 'database-snapshot-001',
-    uploadSnapshotId: 'upload-snapshot-001',
-    tableAllowlistVersion: 1,
-    exclusionRuleVersion: 1,
-    companyMappingVersion: 1,
-    mappingVersion: 1,
-    schemaVersion: 1,
-    exporterVersion: 1,
-    kind: 'SNAPSHOT',
-    parentDatasetId: null,
-    sequence: 0,
-    watermarkFrom: null,
-    watermarkTo: { exportedAt: '2026-07-23T08:05:00.000Z' },
-    encryptionKeyId: 'storage-key-001',
-    files: requiredManifestPaths.map((path) => ({
-      path,
-      sourceType: 'migration-evidence',
-      bytes: 1,
-      sha256: 'b'.repeat(64),
-      recordCount: null,
-    })),
-  }
-}
-
-function validCompanyMappingArtifact() {
-  return {
-    artifactVersion: 1,
-    decisionId: 'D-024',
-    sourceSystem: 'bitrix24',
-    sourceTenantId: 'b24.lankadwscompany.org',
-    sourceBuild: '20.0.1198',
-    targetWorkspaceId: 'ws_lankadws',
-    companyMappingVersion: 1,
-    mappingPolicyVersion: 1,
-    generatedAt: '2026-07-23T07:30:00.000Z',
-    sourceInventorySha256: 'c'.repeat(64),
-    resolutionPrecedence: [
-      'AUTHORITATIVE_SOURCE_MARKER',
-      'OWNING_MAPPED_GROUP',
-      'APPROVED_ORG_UNIT',
-      'BLOCK_AMBIGUOUS',
-    ],
-    fallbackPolicy: 'AUTHORITATIVE_ONLY',
-    crossCompanyEntities: {
-      policy: 'BLOCK_AND_QUARANTINE',
-      detectedEntityCount: 0,
-      evidenceSha256: 'd'.repeat(64),
-    },
-    roots: [{
-      sourceOrgUnitKey: 'department-root-1',
-      sourceOrgUnitFingerprint: 'e'.repeat(64),
-      branchKind: 'LEGAL',
-      includeDescendants: true,
-      resolution: {
-        kind: 'MAP',
-        targetCompanyId: 'cmp_lankadws_ua',
-        targetCompanyCode: 'lankadws-ua',
-      },
-    }],
-    approvals: [
-      { role: 'PRODUCT', evidenceId: 'approval-product-1', approvedAt: '2026-07-23T07:00:00.000Z' },
-      { role: 'SECURITY', evidenceId: 'approval-security-1', approvedAt: '2026-07-23T07:05:00.000Z' },
-      { role: 'DATA', evidenceId: 'approval-data-1', approvedAt: '2026-07-23T07:10:00.000Z' },
-    ],
-  }
-}
 
 describe('transport schemas', () => {
   it('canonicalizes a nickname and rejects email login identifiers', () => {
@@ -493,122 +388,6 @@ describe('transport schemas', () => {
     }
     expect(taskOptionSchema.parse(option).number).toBe('2401')
     expect(() => taskOptionSchema.parse({ ...option, number: 'TSK-2401' })).toThrow()
-  })
-
-  it('keeps import states explicit and production apply separate from readiness', () => {
-    expect(importDatasetKindSchema.parse('DELTA')).toBe('DELTA')
-    expect(importRunModeSchema.parse('DRY_RUN')).toBe('DRY_RUN')
-    expect(() => importRunModeSchema.parse('RUN_NOW')).toThrow()
-    expect(importReadinessViewSchema.parse({
-      state: 'BLOCKED',
-      productionApplyAvailable: false,
-      controlPlaneVersion: 1,
-      checkedAt: '2026-07-23T09:00:00.000Z',
-      counters: {
-        datasets: 0,
-        sealedDatasets: 0,
-        runs: 0,
-        unresolvedBlockingIssues: 0,
-        activeMappingRows: 0,
-      },
-      gates: [{
-        id: 'D-011',
-        title: 'Політика raw-даних',
-        status: 'BLOCKING',
-        detail: 'Потрібне затверджене рішення.',
-      }],
-    }).productionApplyAvailable).toBe(false)
-  })
-
-  it('accepts only the pinned v1 Bitrix snapshot contract and safe dataset paths', () => {
-    expect(bitrixSnapshotManifestPayloadSchema.parse(validManifestPayload())).toMatchObject({
-      sourceBuild: '20.0.1198',
-      perconaVersion: '5.7.26-29-log',
-      kind: 'SNAPSHOT',
-    })
-    expect(importDatasetRelativePathSchema.parse('canonical/tasks/chunk-000001.ndjson.zst')).toBe('canonical/tasks/chunk-000001.ndjson.zst')
-    for (const unsafePath of [
-      '../secret',
-      '/absolute',
-      'C:/snapshot/file',
-      'reports\\compatibility.json',
-      'reports/./compatibility.json',
-      'reports/CON.json',
-      'reports/trailing.',
-    ]) {
-      expect(() => importDatasetRelativePathSchema.parse(unsafePath)).toThrow()
-    }
-    expect(() => bitrixSnapshotManifestPayloadSchema.parse({
-      ...validManifestPayload(),
-      datasetId: 'dataset\u001b[31m',
-    })).toThrow()
-  })
-
-  it('rejects incomplete delta lineage, duplicate paths and unsafe aggregate byte counts', () => {
-    const delta = {
-      ...validManifestPayload(),
-      kind: 'DELTA',
-      sequence: 1,
-    }
-    expect(() => bitrixSnapshotManifestPayloadSchema.parse(delta)).toThrow()
-
-    const duplicate = validManifestPayload()
-    duplicate.files.push({ ...duplicate.files[0]! })
-    expect(() => bitrixSnapshotManifestPayloadSchema.parse(duplicate)).toThrow()
-
-    const unsafeTotal = validManifestPayload()
-    unsafeTotal.files = unsafeTotal.files.map((file) => ({ ...file, bytes: Number.MAX_SAFE_INTEGER }))
-    expect(() => bitrixSnapshotManifestPayloadSchema.parse(unsafeTotal)).toThrow()
-  })
-
-  it('keeps exporter sealing metadata separate from generated file hashes and signature material', () => {
-    const { files: _files, ...payload } = validManifestPayload()
-    expect(bitrixSnapshotSealRequestSchema.parse({
-      requestVersion: 1,
-      payload,
-      signing: {
-        signerId: 'fixture-exporter',
-        keyId: 'migration-key-001',
-        algorithm: 'ED25519',
-      },
-    })).toMatchObject({
-      requestVersion: 1,
-      payload: { datasetId: 'dataset-001' },
-      signing: { keyId: 'migration-key-001' },
-    })
-    expect(() => bitrixSnapshotSealRequestSchema.parse({
-      requestVersion: 1,
-      payload: validManifestPayload(),
-      signing: {
-        signerId: 'fixture-exporter',
-        keyId: 'migration-key-001',
-        algorithm: 'ED25519',
-      },
-    })).toThrow()
-  })
-
-  it('requires deterministic company mapping policy, coverage and three-role approval evidence', () => {
-    expect(companyMappingArtifactSchema.parse(validCompanyMappingArtifact())).toMatchObject({
-      decisionId: 'D-024',
-      companyMappingVersion: 1,
-      fallbackPolicy: 'AUTHORITATIVE_ONLY',
-    })
-
-    const duplicateApproval = validCompanyMappingArtifact()
-    duplicateApproval.approvals[2] = { ...duplicateApproval.approvals[0]! }
-    expect(() => companyMappingArtifactSchema.parse(duplicateApproval)).toThrow()
-
-    const unstableTarget = validCompanyMappingArtifact()
-    unstableTarget.roots.push({
-      ...unstableTarget.roots[0]!,
-      sourceOrgUnitKey: 'department-root-2',
-      resolution: {
-        kind: 'MAP',
-        targetCompanyId: 'cmp_lankadws_service',
-        targetCompanyCode: 'lankadws-ua',
-      },
-    })
-    expect(() => companyMappingArtifactSchema.parse(unstableTarget)).toThrow()
   })
 })
 

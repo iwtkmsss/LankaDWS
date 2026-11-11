@@ -39,6 +39,7 @@ import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { TaskCommandService } from './task-command.service.js'
 import { TaskParticipantsService } from './task-participants.service.js'
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
+import { DriveSharingService } from '../documents/drive-sharing.service.js'
 
 const taskStatuses = [
   'NEW',
@@ -141,6 +142,7 @@ export class TaskCompatibilityService {
     private readonly feedProjection: FeedProjectionService,
     private readonly participants: TaskParticipantsService,
     @Optional() private readonly realtime?: ChatRealtimeService,
+    @Optional() private readonly driveSharing?: DriveSharingService,
   ) {}
 
   async list(
@@ -2016,10 +2018,10 @@ export class TaskCompatibilityService {
               id: { in: documentIds },
               workspaceId: principal.workspaceId,
               companyId: task.companyId,
-              OR: [
+              ...(isGlobalAdmin(principal) ? {} : { OR: [
                 { ownerId: principal.userId },
-                { confidentiality: { in: ['GENERAL', 'INTERNAL'] } },
-              ],
+                { id: { in: await this.sharedDocumentIds(principal, documentIds) } },
+              ] }),
             },
             select: { id: true, number: true, name: true },
           })
@@ -2083,6 +2085,19 @@ export class TaskCompatibilityService {
       previousEnd = mention.end
     }
     return [...new Set(mentions.map((mention) => mention.userId))]
+  }
+
+  /** Drive documents among `documentIds` that the principal reaches through an explicit ACL entry or Drive share. */
+  private async sharedDocumentIds(principal: AuthPrincipal, documentIds: string[]): Promise<string[]> {
+    const [acl, grants] = await Promise.all([
+      this.prisma.documentAcl.findMany({
+        where: { documentId: { in: documentIds }, principalType: 'USER', principalId: principal.userId },
+        select: { documentId: true },
+      }),
+      this.driveSharing?.grantsFor(principal),
+    ])
+    return documentIds.filter((documentId) => acl.some((entry) => entry.documentId === documentId)
+      || Boolean(grants?.documentIds.has(documentId)))
   }
 
   private async idempotentResultId(

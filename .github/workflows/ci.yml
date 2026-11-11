@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_ENV: test
+      # The build must never embed demo credentials.
+      VITE_DEMO_MODE: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      # Type-aware lint resolves @lankadws/contracts from its build output.
+      - run: npm run build --workspace @lankadws/contracts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run test:integration
+      - run: npm run test:e2e --workspace @lankadws/api
+      - run: npm run build
+
+  web-e2e:
+    name: Web end-to-end (desktop Chromium)
+    runs-on: ubuntu-latest
+    needs: checks
+    timeout-minutes: 30
+    env:
+      VITE_DEMO_MODE: 'false'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: npm run test:e2e --workspace @lankadws/web -- --project=desktop-chromium
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/artifacts/playwright-report
+          retention-days: 7

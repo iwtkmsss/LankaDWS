@@ -195,17 +195,19 @@ describe('Drive sharing metadata access', () => {
     expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { id: { in: ['usr_other'] }, workspaceId: principal.workspaceId }, select: { id: true, displayName: true, avatarAsset: true } })
   })
 
-  it.each(['GENERAL', 'INTERNAL'])('lets an existing %s document reader load its empty share list', async (confidentiality) => {
+  it.each(['GENERAL', 'INTERNAL', 'CONFIDENTIAL'])('keeps the sharing of an unshared %s document hidden', async (confidentiality) => {
     const { service, prisma } = setup(confidentiality)
-    expect(await service.list(principal, 'DOCUMENT', 'doc')).toEqual([])
+    // Least privilege: confidentiality never makes another person's document visible.
+    await expect(service.list(principal, 'DOCUMENT', 'doc')).rejects.toMatchObject({ status: 404 })
     const args = prisma.document.findFirst.mock.calls[0]?.[0] as { where: { companyId: unknown }; select: Record<string, boolean> }
     expect(args.where.companyId).toEqual({ in: ['company-1'] })
-    expect(args.select.confidentiality).toBe(true)
+    expect(args.select).toEqual({ ownerId: true })
   })
 
-  it('keeps a confidential document hidden from an unshared reader', async () => {
-    const { service } = setup('CONFIDENTIAL')
-    await expect(service.list(principal, 'DOCUMENT', 'private')).rejects.toMatchObject({ status: 404 })
+  it('lets the owner load the empty share list', async () => {
+    const { service, prisma } = setup('INTERNAL')
+    prisma.document.findFirst.mockResolvedValue({ ownerId: principal.userId })
+    expect(await service.list(principal, 'DOCUMENT', 'doc')).toEqual([])
   })
 
   it('does not grant access to an unshared folder', async () => {

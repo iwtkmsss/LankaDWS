@@ -34,6 +34,8 @@ export function configureApp(app: INestApplication): void {
     const server = app.getHttpAdapter().getInstance() as { set(name: string, value: number): void }
     server.set('trust proxy', 1)
   }
+  // The interactive API reference is a development aid; production serves no unauthenticated API map.
+  if (config.NODE_ENV === 'production') return
   const swagger = new DocumentBuilder().setTitle('LankaDWS API').setDescription('LankaDWS modular monolith API').setVersion('1.0.0').addCookieAuth(config.SESSION_COOKIE_NAME).build()
   const document = SwaggerModule.createDocument(app, swagger)
   SwaggerModule.setup('api/v1/openapi', app, document, { jsonDocumentUrl: 'api/v1/openapi.json' })

@@ -503,10 +503,9 @@ export class FilesService {
         where: {
           id: { in: documentIds },
           companyId: { in: principal.allowedCompanyIds },
-          ...(isGlobalAdmin(principal) ? {} : { OR: [
-            { ownerId: principal.userId },
-            { confidentiality: { in: ['GENERAL', 'INTERNAL'] } },
-          ] }),
+          // Least privilege: a document file opens for its owner, a global administrator
+          // or an explicit Drive grant below; confidentiality never widens access.
+          ...(isGlobalAdmin(principal) ? {} : { ownerId: principal.userId }),
         },
         select: { id: true },
       })
@@ -569,7 +568,6 @@ export class FilesService {
           status: 'PUBLISHED',
           OR: [
             { authorId: principal.userId },
-            { companyId: { in: principal.allowedCompanyIds } },
             {
               recipients: {
                 some: {

@@ -96,7 +96,7 @@ describe('ChatRealtimeService user stream', () => {
 
 
 describe('ChatRealtimeService revoked sessions', () => {
-  it.each(['user', 'thread'])('closes an existing %s stream after deactivation without delivering another event', async (kind) => {
+  it('closes an existing user stream after deactivation without delivering another event', async () => {
     let active = true
     const prisma = {
       userSession: { findUnique: vi.fn(() => Promise.resolve({
@@ -104,12 +104,11 @@ describe('ChatRealtimeService revoked sessions', () => {
         expiresAt: new Date(Date.now() + 60_000), lastSeenAt: new Date(), authorizationVersion: 1,
         user: { isActive: active, accountType: 'USER', authorizationVersion: active ? 1 : 2, primaryCompany: { isActive: true } },
       })) },
-      messageThread: { findFirst: vi.fn().mockResolvedValue({ id: 'thread-1' }) },
     }
     const realtime = new ChatRealtimeService(prisma as never)
     const events: MessageEvent[] = []
     const error = vi.fn()
-    const stream = kind === 'user' ? realtime.userStream(principal) : realtime.stream({ ...principal, accountType: 'ADMIN' }, 'thread-1')
+    const stream = realtime.userStream(principal)
     vi.useFakeTimers()
     const subscription = stream.subscribe({ next: (event) => events.push(event), error })
     await vi.advanceTimersByTimeAsync(0)

@@ -17,7 +17,6 @@ const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
 const recoverySchema = z.object({ code: z.string().min(8).max(64) })
 const reauthSchema = z.object({ password: z.string().transform(withoutWhitespace).pipe(z.string().min(1)), code: z.string().regex(/^\d{6}$/).optional() })
 const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
-const notificationPreferenceSchema = z.object({ emailEnabled: z.boolean(), inAppEnabled: z.literal(true), digest: z.enum(['IMMEDIATE', 'DAILY', 'WEEKLY']), quietStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/), quietEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) })
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)
@@ -46,19 +45,19 @@ export class AuthController {
   @Restricted()
   @Post('2fa/setup')
   setup(@Req() request: LankaDWSRequest) {
-    return this.auth.startTotpSetup(principalFrom(request))
+    return this.auth.startSecondFactorEnrollment(principalFrom(request))
   }
 
   @Restricted()
   @Post('2fa/confirm')
   confirm(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
-    return this.auth.confirmTotp(principalFrom(request), parse(codeSchema, body).code, request, response)
+    return this.auth.confirmSecondFactorEnrollment(principalFrom(request), parse(codeSchema, body).code, request, response)
   }
 
   @Restricted()
   @Post('2fa/challenge')
   challenge(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
-    return this.auth.challengeTotp(principalFrom(request), parse(codeSchema, body).code, request, response)
+    return this.auth.challengeSecondFactor(principalFrom(request), parse(codeSchema, body).code, request, response)
   }
 
   @Restricted()
@@ -117,16 +116,6 @@ export class MeController {
   @Delete('avatar')
   removeAvatar(@Req() request: LankaDWSRequest) {
     return this.auth.removeAvatar(principalFrom(request))
-  }
-
-  @Get('notification-preferences')
-  notificationPreferences(@Req() request: LankaDWSRequest) {
-    return this.auth.notificationPreferences(principalFrom(request))
-  }
-
-  @Patch('notification-preferences')
-  updateNotificationPreferences(@Body() body: unknown, @Req() request: LankaDWSRequest) {
-    return this.auth.updateNotificationPreferences(principalFrom(request), parse(notificationPreferenceSchema, body))
   }
 
   @Get('sessions')

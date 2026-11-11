@@ -17,11 +17,11 @@ Repo and packages are `lankadws` / `@lankadws/*`; the official product name is *
 - `docs/architecture.md`: short architecture overview.
 - `docs/decisions.md`: authoritative chronological record of product invariants — consult it before relying on an invariant stated only here.
 - `artifacts/openapi.json`: generated API reference; read only for API-map/OpenAPI work.
-- `docs/bitrix24-*`: migration-only context; do not read for normal product/UI tasks.
+- `docs/migration/bitrix24/`: historical Bitrix24 migration context (the import is a one-off server script); do not read for normal product/UI tasks.
 
 Read `CODEX_CONTEXT_MAP.md` for targeted request flows.
 
-Canonical authenticated home is the Live Feed at `/feed`; its summary header reads `GET /dashboard`. `/overview` is retired and resolves to the not-found page (see `docs/decisions.md`, 2026-11-03). Import-control has no production `APPLY` path.
+Canonical authenticated home is the Live Feed at `/feed`; its summary header reads `GET /dashboard`. `/overview` is retired and resolves to the not-found page (see `docs/decisions.md`, 2026-11-03). The Bitrix24 import is a one-off server script; the app has no import control plane (decision 2026-11-10).
 
 There is currently large in-progress uncommitted work in `apps/*` messages, `feed`, and a new `apps/api/src/modules/realtime` module. Keep changes narrowly scoped and expect this area to move.
 

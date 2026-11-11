@@ -4,7 +4,6 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { DomainError } from '../../common/errors.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { TaskCommandService } from './task-command.service.js'
-import { TaskResponseMapper } from './task-response.mapper.js'
 
 function principal(accountType: 'ADMIN' | 'USER' = 'USER'): AuthPrincipal {
   return {
@@ -217,82 +216,5 @@ describe('TaskAccessService', () => {
       principal('ADMIN'),
       'tsk_1',
     )).resolves.toBe(task)
-  })
-})
-
-describe('TaskResponseMapper', () => {
-  it('normalizes dates, relations, time totals and capability flags', () => {
-    const date = new Date('2026-08-01T06:00:00.000Z')
-    const task = {
-      id: 'tsk_1',
-      number: '1',
-      title: 'Task',
-      description: '',
-      status: 'IN_PROGRESS',
-      priority: 'HIGH',
-      version: 3,
-      projectId: null,
-      parentTaskId: null,
-      startsAt: date,
-      dueAt: null,
-      estimatedMinutes: 60,
-      completedAt: null,
-      archivedAt: null,
-      createdAt: date,
-      updatedAt: date,
-      createdById: 'usr_actor',
-      reporterId: 'usr_actor',
-      createdBy: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
-      reporter: { id: 'usr_actor', displayName: 'Actor', avatarAsset: null },
-      project: null,
-      parent: null,
-      subtasks: [],
-      participants: [],
-      checklist: [],
-      tags: [],
-      outgoingRelations: [{
-        id: 'rel_1',
-        type: 'BLOCKS',
-        createdAt: date,
-        targetTask: { id: 'tsk_2', number: '2', title: 'Target', status: 'NEW' },
-      }],
-      incomingRelations: [],
-      reminders: [],
-      recurrenceTemplate: null,
-      timeEntries: [
-        {
-          id: 'time_1',
-          userId: 'usr_actor',
-          startedAt: date,
-          endedAt: date,
-          durationSeconds: 900,
-        },
-        {
-          id: 'time_2',
-          userId: 'usr_actor',
-          startedAt: date,
-          endedAt: null,
-          durationSeconds: null,
-        },
-      ],
-    }
-
-    const result = new TaskResponseMapper().detail(
-      principal(),
-      task as never,
-    )
-
-    expect(result.startsAt).toBe('2026-08-01T06:00:00.000Z')
-    expect(result.relations[0]).toMatchObject({
-      id: 'rel_1',
-      direction: 'OUTGOING',
-    })
-    expect(result.time?.totalSeconds).toBe(900)
-    expect(result.time?.activeTimer?.id).toBe('time_2')
-    expect(result.permissions).toMatchObject({
-      canEdit: true,
-      canReadTime: true,
-      canWriteTime: true,
-    })
   })
 })

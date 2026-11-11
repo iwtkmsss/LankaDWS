@@ -139,8 +139,32 @@ describe('FilesService Drive administrator access', () => {
     else await expect(download).rejects.toMatchObject({ status: 404 })
     expect(prisma.document.findFirst).toHaveBeenCalledWith({ where: {
       id: { in: ['confidential-document'] }, companyId: { in: ['company-1'] },
-      ...(accountType === 'ADMIN' ? {} : { OR: [{ ownerId: principal.userId }, { confidentiality: { in: ['GENERAL', 'INTERNAL'] } }] }),
+      ...(accountType === 'ADMIN' ? {} : { ownerId: principal.userId }),
     }, select: { id: true } })
+  })
+})
+
+describe('FilesService Feed post attachment access', () => {
+  it('opens a post attachment only for its author and addressed recipients', async () => {
+    const prisma = {
+      fileObject: { findFirst: vi.fn().mockResolvedValue({ id: 'attachment', workspaceId: principal.workspaceId, companyId: 'company-1', ownerId: 'author', scanStatus: 'CLEAN', storageKey: 'attachment', safeFilename: 'plan.pdf', detectedMime: 'application/pdf' }) },
+      feedFileShare: { findFirst: vi.fn().mockResolvedValue(null) },
+      fileLink: { findMany: vi.fn().mockResolvedValue([{ entityType: 'FEED_POST', entityId: 'direct-post' }]) },
+      feedPost: { findFirst: vi.fn().mockResolvedValue(null) },
+      auditEvent: { create: vi.fn() },
+    }
+    const service = new FilesService(prisma as never, {} as never, {} as never, {} as never, {} as never)
+    // A post addressed to other people stays closed even though its company is the reader's company.
+    await expect(service.download(principal, 'attachment')).rejects.toMatchObject({ status: 404 })
+    expect(prisma.feedPost.findFirst).toHaveBeenCalledWith({ where: {
+      id: { in: ['direct-post'] }, workspaceId: principal.workspaceId, status: 'PUBLISHED', OR: [
+        { authorId: principal.userId },
+        { recipients: { some: { OR: [{ type: 'COMPANY', recipientId: { in: principal.allowedCompanyIds } }, { type: 'USER', recipientId: principal.userId }] } } },
+      ],
+    }, select: { id: true } })
+    prisma.feedPost.findFirst.mockResolvedValue({ id: 'direct-post' })
+    vi.mocked(readCleanFile).mockResolvedValue(Buffer.from('pdf'))
+    await expect(service.download(principal, 'attachment')).resolves.toMatchObject({ name: 'plan.pdf' })
   })
 })
 

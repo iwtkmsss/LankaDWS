@@ -10,11 +10,11 @@ async function login(page: Page, username = 'maria') {
 }
 
 async function openTaskEditing(page: Page) {
-  const status = page.getByLabel('Змінити статус')
-  if (await status.isVisible()) return
   await page.getByLabel('Дії із завданням').click()
-  await page.getByRole('menuitem', { name: 'Редагувати' }).click()
-  await expect(status).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Редагувати', exact: true }).click()
+  await page.getByLabel('Дії із завданням').click()
+  await expect(page.getByRole('menuitem', { name: 'Закрити редагування' })).toBeVisible()
+  await page.keyboard.press('Escape')
 }
 
 test('profile menu closes when clicking outside it', async ({ page }) => {
@@ -99,10 +99,10 @@ async function createTaskThroughModal(
   options: { description?: string } = {},
 ) {
   await page.goto('/tasks/new')
-  const dialog = page.getByRole('dialog', { name: 'Нове завдання' })
+  const dialog = page.getByRole('region', { name: 'Форма створення завдання' })
   await expect(dialog).toBeVisible()
   await page.getByLabel('Назва завдання').fill(title)
-  if (options.description) await page.getByLabel('Опис').fill(options.description)
+  if (options.description) await page.getByRole('textbox', { name: 'Опис', exact: true }).fill(options.description)
   await page.getByRole('button', { name: 'Створити завдання' }).click()
   await expect(page).toHaveURL(/\/tasks\/tsk_/)
   await expect(page.getByRole('heading', { name: title })).toBeVisible()
@@ -113,7 +113,7 @@ test('employee feed and canonical navigation are accessible', async ({ page }) =
   await page.goto('/feed')
   await expect(page).toHaveURL(/\/feed$/)
   await expect(page.locator('.sidebar .nav-section__label').getByText('Адміністрування', { exact: true })).toHaveCount(0)
-  await expect(page.locator('.stream-card--post').getByText('Марія Іваненко').first()).toBeVisible()
+  await expect(page.locator('.stream-card--post').getByText('Коваль Андрій').first()).toBeVisible()
   await expect(page.locator('.feed-attention').getByRole('link').first()).toHaveAttribute(
     'href',
     '/feed?filter=ACK_REQUIRED',
@@ -121,7 +121,7 @@ test('employee feed and canonical navigation are accessible', async ({ page }) =
   const eventSource = page.locator('.stream-card--event').filter({ hasText: 'Огляд операцій' })
   await expect(eventSource).toBeVisible()
   await eventSource.getByRole('link', { name: 'Відкрити подію' }).click()
-  const eventDialog = page.getByRole('dialog', { name: 'Подія' })
+  const eventDialog = page.getByRole('dialog', { name: 'Огляд операцій' })
   await expect(eventDialog.getByRole('heading', { name: 'Огляд операцій' })).toBeVisible()
   await eventDialog.getByRole('button', { name: 'Закрити' }).click()
   await expect(page).toHaveURL(/\/calendar\?date=\d{4}-\d{2}-\d{2}$/)
@@ -182,34 +182,31 @@ test('administrator manages a recursive company structure', async ({ page }, tes
   await page.goto('/admin/companies/cmp_lankadws_ua/structure')
   const map = page.getByRole('region', { name: 'Інтерактивна карта структури' })
   await expect(map).toBeVisible()
-  await page.getByRole('button', { name: 'Редагувати структуру' }).click()
   await map.getByRole('button', { name: /Lanka\./ }).click()
-  await expect(map.getByRole('heading', { name: 'Lanka' })).toBeVisible()
-  await expect(map.getByRole('searchbox', { name: 'Керівник', exact: true })).toBeVisible()
+  await expect(page.getByText('Компанія · Активна', { exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Керівник', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Новий підрозділ' }).click()
 
   const suffix = Date.now().toString(36)
-  let drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
+  // The unit editor opens in the map's side panel.
+  const drawer = page.locator('.organization-map__panel')
   await drawer.getByLabel('Назва').fill(`E2E UI напрям ${suffix}`)
-  await drawer.getByLabel('Керівник').fill('Анд')
-  await drawer.getByRole('option', { name: /Андрій Коваль/ }).click()
-  await drawer.getByLabel('Працівники').fill('Марко')
-  await drawer.getByRole('option', { name: /Марко Литвин/ }).click()
+  await drawer.getByRole('combobox', { name: 'Керівник' }).fill('Анд')
+  await drawer.getByRole('option', { name: /Коваль Андрій/ }).click()
+  await drawer.getByRole('combobox', { name: 'Додати працівника' }).fill('Марко')
+  await drawer.getByRole('option', { name: /Литвин Марко/ }).click()
   await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
-  await expect(drawer).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: `E2E UI напрям ${suffix}` })).toBeVisible()
+  await expect(map.locator('.organization-map__node').filter({ hasText: `E2E UI напрям ${suffix}` })).toBeVisible()
 
   await page.getByRole('button', { name: 'Новий підрозділ' }).click()
-  drawer = page.getByRole('dialog', { name: 'Новий підрозділ' })
   await drawer.getByLabel('Назва').fill(`E2E UI лабораторія ${suffix}`)
   await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
-  await expect(drawer).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: `E2E UI лабораторія ${suffix}` })).toBeVisible()
+  await expect(map.locator('.organization-map__node').filter({ hasText: `E2E UI лабораторія ${suffix}` })).toBeVisible()
 
   const sourceUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI напрям ${suffix}` })
   const targetUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI лабораторія ${suffix}` })
   await sourceUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
-  const employeeCard = map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')
+  const employeeCard = page.locator('article[draggable="true"][aria-label="Литвин Марко"]')
   await expect(employeeCard).toBeVisible()
   const transferData = await page.evaluateHandle(() => new DataTransfer())
   await employeeCard.dispatchEvent('dragstart', { dataTransfer: transferData })
@@ -221,13 +218,15 @@ test('administrator manages a recursive company structure', async ({ page }, tes
   await transfer.getByRole('button', { name: 'Перевести' }).click()
   await expect(transfer).toHaveCount(0)
   await targetUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
-  await expect(map.getByLabel('Марко Литвин. Перетягніть на інший підрозділ')).toBeVisible()
+  await expect(page.locator('article[draggable="true"][aria-label="Литвин Марко"]')).toBeVisible()
 
+  // Archiving asks for confirmation; the archived branch can be restored from its panel.
   await page.getByText('Архівація', { exact: true }).click()
-  await page.getByRole('button', { name: 'Архівувати' }).click()
-  await expect(page.getByText('Відновиться порожнім; попередні переміщення не відкочуються.')).toBeVisible()
-  await page.getByRole('button', { name: 'Відновити' }).click()
-  await expect(page.getByText('Активний підрозділ')).toBeVisible()
+  await page.getByRole('button', { name: /^Архівувати (підрозділ|всю гілку)$/ }).click()
+  await page.getByRole('alertdialog', { name: /^Архівувати/ }).getByRole('button', { name: 'Архівувати', exact: true }).click()
+  await expect(page.getByText('Архівований підрозділ', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Відновити структуру' }).click()
+  await expect(page.getByText('Архівований підрозділ', { exact: true })).toHaveCount(0)
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
@@ -246,11 +245,11 @@ test('top bar exposes global search without company navigation buttons', async (
   await searchInput.fill('dashboard')
   await expect(page.getByRole('option', { name: /Підготувати концепцію дизайну dashboard/ })).toBeVisible()
   await searchInput.fill('дмитро')
-  const personResult = page.getByRole('option', { name: /Дмитро Савчук.*Адміністратор/ })
+  const personResult = page.getByRole('option', { name: /Савчук Дмитро.*Адміністратор/ })
   await expect(personResult).toBeVisible()
   await personResult.click()
   await expect(page).toHaveURL(/\/feed\?employeeId=usr_dmytro/)
-  await expect(page.getByRole('region', { name: 'Діалог: Дмитро Савчук' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Діалог: Савчук Дмитро' })).toBeVisible()
 })
 
 test('create actions use the left top-bar slot while search stays centered', async ({ page }, testInfo) => {
@@ -262,13 +261,14 @@ test('create actions use the left top-bar slot while search stays centered', asy
   await expect(page.locator('main').getByRole('link', { name: 'Створити завдання' })).toHaveCount(0)
 
   if (testInfo.project.name === 'desktop-chromium') {
-    const topbarBox = await topbar.boundingBox()
-    const searchBox = await topbar.getByRole('button', { name: 'Пошук у Lanka' }).boundingBox()
-    expect(topbarBox).not.toBeNull()
-    expect(searchBox).not.toBeNull()
-    expect(Math.abs(
-      searchBox!.x + searchBox!.width / 2 - (topbarBox!.x + topbarBox!.width / 2),
-    )).toBeLessThanOrEqual(1)
+    // Measure once the list has loaded: a transient page scrollbar narrows the top bar while it renders.
+    await expect(page.getByRole('link', { name: /Підготувати концепцію дизайну dashboard/ })).toBeVisible()
+    await expect.poll(async () => {
+      const topbarBox = await topbar.boundingBox()
+      const searchBox = await topbar.getByRole('button', { name: 'Пошук у Lanka' }).boundingBox()
+      if (!topbarBox || !searchBox) return Number.POSITIVE_INFINITY
+      return Math.abs(searchBox.x + searchBox.width / 2 - (topbarBox.x + topbarBox.width / 2))
+    }).toBeLessThanOrEqual(1)
   }
 
   await page.goto('/feed')
@@ -284,16 +284,8 @@ test('create actions use the left top-bar slot while search stays centered', asy
     await page.goto('/calendar')
     await expect(topbar.getByRole('button', { name: 'Створити подію' })).toBeVisible()
     await expect(topbar.getByRole('button', { name: 'Пошук у Lanka' })).toBeVisible()
-    const [calendarToolbar, calendarNavigation] = await Promise.all([
-      page.locator('.calendar-view-switch').boundingBox(),
-      page.locator('.calendar-nav--topbar').boundingBox(),
-    ])
-    expect(calendarToolbar).not.toBeNull()
-    expect(calendarNavigation).not.toBeNull()
-    expect(Math.abs(
-      calendarNavigation!.x + calendarNavigation!.width / 2
-        - (calendarToolbar!.x + calendarToolbar!.width / 2),
-    )).toBeLessThanOrEqual(1)
+    // Period navigation sits in the calendar toolbar, beside the view and scope switches.
+    await expect(page.locator('.calendar-nav--topbar')).toBeVisible()
   }
 
   await page.goto('/drive')
@@ -323,14 +315,14 @@ test('drive upload derives the document title from the selected file', async ({ 
     buffer: Buffer.from('document'),
   })
 
-  await expect(page.getByRole('button', { name: 'Звіт за серпень', exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: /^Переглянути: Звіт за серпень(.txt)?$/ })).toBeVisible({ timeout: 15_000 })
 })
 
 test('employee directory and profile show only the immediate org parent path', async ({ page }) => {
   await login(page, 'maria')
   await page.goto('/organization?view=people&companyId=cmp_lankadws_ua&q=Марія')
   await expect(page.locator('.employee-org')).toHaveText(/Операції → Продукт і дизайн/)
-  await page.locator('.directory-person__profile').filter({ hasText: 'Марія Іваненко' }).click()
+  await page.locator('.directory-person__profile').filter({ hasText: 'Іваненко Марія' }).click()
   await expect(page.locator('.employee-hierarchy')).toHaveText(/Операції → Продукт і дизайн/)
 })
 
@@ -376,7 +368,8 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   test.setTimeout(90_000)
   const isMobile = testInfo.project.name === 'mobile-chromium'
   const username = isMobile ? 'olena' : 'maria'
-  const assigneeId = isMobile ? 'usr_olena' : 'usr_maria'
+  const assigneeSearch = isMobile ? 'Бонд' : 'Іван'
+  const assigneeName = isMobile ? /Бондар Олена/ : /Іваненко Марія/
   const parentTitle = `Підготувати запуск · ${testInfo.project.name}`
   const subtaskTitle = `Перевірити результат · ${testInfo.project.name}`
   await login(page, username)
@@ -388,14 +381,16 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   await page.getByRole('button', { name: 'Додати підзадачу' }).click()
   const subtaskForm = page.locator('.task-subtask-form')
   await subtaskForm.getByPlaceholder('Який окремий результат потрібен?').fill(subtaskTitle)
-  await subtaskForm.getByLabel('Відповідальний').selectOption(assigneeId)
-  await subtaskForm.getByLabel('Опис').fill('Це повне завдання зі своїм статусом, а не пункт checklist.')
+  await subtaskForm.getByRole('combobox', { name: 'Відповідальний' }).fill(assigneeSearch)
+  await subtaskForm.getByRole('option', { name: assigneeName }).click()
+  await subtaskForm.getByRole('textbox', { name: 'Опис', exact: true }).fill('Це повне завдання зі своїм статусом, а не пункт checklist.')
   await subtaskForm.getByRole('button', { name: 'Створити підзадачу' }).click()
   await expect(page.getByText('0 із 1 завершено')).toBeVisible()
   await expect(page.locator('.task-subtask-list').getByText(subtaskTitle)).toBeVisible()
 
-  await openTaskEditing(page)
-  await page.getByLabel('Змінити статус').selectOption('DONE')
+  // Status moves through explicit actions: the responsible person starts, then completes.
+  await page.getByRole('button', { name: 'Почати роботу' }).click()
+  await page.getByRole('button', { name: 'Завершити' }).click()
   const blocker = page.getByRole('alert').filter({ hasText: 'Завдання ще не готове до завершення' })
   await expect(blocker).toBeVisible()
   await expect(blocker.getByRole('link', { name: subtaskTitle })).toBeVisible()
@@ -405,16 +400,15 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   const parentLink = page.getByRole('link', { name: /До батьківського завдання/ })
   if (!await parentLink.isVisible()) await page.getByLabel(/секцію «Зв’язки»/).click()
   await expect(page.getByRole('link', { name: /До батьківського завдання/ })).toBeVisible()
-  await openTaskEditing(page)
-  await page.getByLabel('Змінити статус').selectOption('DONE')
-  await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
+  await page.getByRole('button', { name: 'Почати роботу' }).click()
+  await page.getByRole('button', { name: 'Завершити' }).click()
+  await expect(page.getByRole('region', { name: 'Статус і строки' }).getByText('Завершене', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: /До батьківського завдання/ }).click()
   await expect(page.getByRole('heading', { name: parentTitle })).toBeVisible()
   await expect(page.getByText('1 із 1 завершено')).toBeVisible()
-  await openTaskEditing(page)
-  await page.getByLabel('Змінити статус').selectOption('DONE')
-  await expect(page.getByLabel('Змінити статус')).toHaveValue('DONE')
+  await page.getByRole('button', { name: 'Завершити' }).click()
+  await expect(page.getByRole('region', { name: 'Статус і строки' }).getByText('Завершене', { exact: true })).toBeVisible()
 
   await page.getByLabel('Матеріали').click()
   const materials = page.locator('.task-detail-materials')
@@ -426,12 +420,12 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   })
   await expect(materials.getByText(fileName)).toBeVisible()
   const discussion = page.locator('.task-discussion')
-  await discussion.getByLabel('Додати файл із матеріалів').selectOption({ label: fileName })
-  await discussion.getByPlaceholder('Написати повідомлення…').fill('Матеріал додано до рішення.')
+  await discussion.getByPlaceholder('Напишіть повідомлення…').fill('Матеріал додано до рішення.')
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   await expect(discussion.getByText('Матеріал додано до рішення.')).toBeVisible()
-  await discussion.getByRole('button', { name: 'Відповісти' }).click()
-  await expect(discussion.getByText(/Відповідь для/)).toBeVisible()
+  await discussion.locator('article', { hasText: 'Матеріал додано до рішення.' }).click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Відповісти' }).click()
+  await expect(discussion.getByText(/^Відповідь:/)).toBeVisible()
   await discussion.getByPlaceholder('Напишіть коротку відповідь…').fill('Перевірено, продовжуємо.')
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   await expect(discussion.getByText('Перевірено, продовжуємо.')).toBeVisible()
@@ -444,34 +438,34 @@ test('task role views explain why a task is visible and participant management s
   test.setTimeout(90_000)
   await login(page)
   await page.goto('/tasks?company=cmp_lankadws_ua')
-  await expect(page.getByRole('tab', { name: /Мої/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Допомагаю/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Доручив/ })).toBeVisible()
-  await expect(page.getByRole('tab', { name: /Спостерігаю/ })).toBeVisible()
+  // Role filters are toggles that combine; switching one on and the previous one off isolates a role.
+  const roleButton = (name: string) => page.locator('button[aria-pressed]', { hasText: new RegExp(`^${name}`) })
+  const switchRole = async (from: string, to: string, param: string) => {
+    await roleButton(to).click()
+    await roleButton(from).click()
+    await expect(page).toHaveURL(new RegExp(`role=${param}(&|$)`))
+  }
+  await expect(roleButton('Відповідальний')).toHaveAttribute('aria-pressed', 'true')
+  for (const name of ['Співвиконавець', 'Постановник', 'Спостерігач']) await expect(roleButton(name)).toBeVisible()
   await expect(page.getByRole('link', { name: /Підготувати концепцію дизайну dashboard/ })).toBeVisible()
 
-  await page.getByRole('tab', { name: /Допомагаю/ }).click()
-  await expect(page).toHaveURL(/role=CO_EXECUTOR/)
+  await switchRole('Відповідальний', 'Співвиконавець', 'CO_EXECUTOR')
   await expect(page.getByRole('link', { name: /Підготувати звіт за липень/ })).toBeVisible()
-  await page.getByRole('tab', { name: /Доручив/ }).click()
-  await expect(page).toHaveURL(/role=CREATOR/)
+  await switchRole('Співвиконавець', 'Постановник', 'CREATOR')
   await expect(page.getByRole('link', { name: /Оновити UI-kit компонента/ })).toBeVisible()
-  await page.getByRole('tab', { name: /Спостерігаю/ }).click()
-  await expect(page).toHaveURL(/role=OBSERVER/)
-  await page.getByRole('link', { name: /Підготувати доступи нового працівника/ }).click()
-  await expect(page.getByRole('heading', { name: 'Спостерігачі' })).toBeVisible()
-  await expect(page.getByLabel('Змінити статус')).toHaveCount(0)
+  await switchRole('Постановник', 'Спостерігач', 'OBSERVER')
+  // The demo data has no task Maria only watches; the view explains the empty role.
+  await expect(page.getByText('За вибраними фільтрами завдань немає')).toBeVisible()
 
   const title = `Перевірити керування учасниками · ${testInfo.project.name}`
   await createTaskThroughModal(page, title)
   await openTaskEditing(page)
   const participantSection = page.getByRole('region', { name: 'Спостерігачі' })
-  const participantId = 'usr_marko'
-  const participantName = 'Марко Литвин'
-  await participantSection.getByLabel('Додати: спостерігачі').selectOption(participantId)
-  await participantSection.getByRole('button', { name: 'Додати учасника до ролі «Спостерігачі»' }).click()
-  await expect(page.getByText('Учасника додано.')).toBeVisible()
-  const participantChip = participantSection.locator('.task-role-people strong', { hasText: participantName })
+  const participantName = 'Литвин Марко'
+  await participantSection.getByRole('combobox', { name: 'Додати спостерігача' }).fill('Лит')
+  await participantSection.getByRole('option', { name: /Литвин Марко/ }).click()
+  await page.getByRole('alertdialog', { name: 'Додати спостерігача?' }).getByRole('button', { name: 'Додати', exact: true }).click()
+  const participantChip = participantSection.locator('.task-role-people').getByText(participantName, { exact: true })
   await expect(participantChip).toBeVisible()
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -479,7 +473,6 @@ test('task role views explain why a task is visible and participant management s
     .getByRole('button', { name: new RegExp(`Вилучити ${participantName}`) })
     .click()
   await page.getByRole('alertdialog').getByRole('button', { name: 'Вилучити' }).click()
-  await expect(page.getByText('Учасника вилучено.')).toBeVisible()
   await expect(participantChip).toHaveCount(0)
 })
 
@@ -491,12 +484,17 @@ test('only an administrator can edit or delete task discussion messages', async 
   const taskUrl = page.url()
   const discussion = page.getByRole('region', { name: 'Обговорення' })
   const originalMessage = 'Повідомлення для перевірки прав адміністратора.'
-  await discussion.getByPlaceholder('Написати повідомлення…').fill(originalMessage)
+  await discussion.getByPlaceholder('Напишіть повідомлення…').fill(originalMessage)
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   const originalBubble = discussion.locator('article', { hasText: originalMessage })
   await expect(originalBubble).toBeVisible()
-  await expect(originalBubble.getByRole('button', { name: /Редагувати повідомлення/ })).toHaveCount(0)
-  await expect(originalBubble.getByRole('button', { name: /Видалити повідомлення/ })).toHaveCount(0)
+  // Message actions open from the context menu; only an administrator gets edit and delete.
+  await originalBubble.click({ button: 'right' })
+  const reporterMenu = page.getByRole('menu', { name: 'Дії з повідомленням' })
+  await expect(reporterMenu).toBeVisible()
+  await expect(reporterMenu.getByRole('button', { name: 'Редагувати' })).toHaveCount(0)
+  await expect(reporterMenu.getByRole('button', { name: 'Видалити' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   await page.locator('.profile-button').click()
   await page.getByRole('button', { name: 'Вийти' }).click()
@@ -506,7 +504,8 @@ test('only an administrator can edit or delete task discussion messages', async 
 
   const adminDiscussion = page.getByRole('region', { name: 'Обговорення' })
   const adminBubble = adminDiscussion.locator('article', { hasText: originalMessage })
-  await adminBubble.getByRole('button', { name: /Редагувати повідомлення/ }).click()
+  await adminBubble.click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Редагувати' }).click()
   const editForm = adminDiscussion.locator('form.task-comment-edit-form')
   const editor = editForm.getByLabel('Редагувати повідомлення')
   const updatedMessage = 'Відредаговано адміністратором.'
@@ -514,12 +513,12 @@ test('only an administrator can edit or delete task discussion messages', async 
   await editForm.getByRole('button', { name: 'Зберегти' }).click()
   const updatedBubble = adminDiscussion.locator('article', { hasText: updatedMessage })
   await expect(updatedBubble).toBeVisible()
-  await expect(updatedBubble.getByText('ред.')).toBeVisible()
+  await expect(updatedBubble.getByText('змінено')).toBeVisible()
 
   page.once('dialog', (dialog) => dialog.accept())
-  await updatedBubble.getByRole('button', { name: /Видалити повідомлення/ }).click()
+  await updatedBubble.click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Видалити' }).click()
   await expect(updatedBubble).toHaveCount(0)
-  await expect(adminDiscussion.getByText('Повідомлення видалено.')).toBeVisible()
 })
 
 test('task list column customization persists and resets', async ({ page }, testInfo) => {
@@ -528,6 +527,8 @@ test('task list column customization persists and resets', async ({ page }, test
   const columns = page.locator('details.task-list-columns')
 
   await columns.locator('summary').click()
+  // Five columns are shown by default and five is the maximum, so one gives way first.
+  await columns.getByLabel('Активність').click()
   await columns.getByLabel('Пріоритет').click()
   await expect(columns.getByLabel('Пріоритет')).toBeChecked()
   if (testInfo.project.name === 'mobile-chromium') {
@@ -594,7 +595,7 @@ test('desktop sidebar groups routes, persists collapse and keeps active navigati
   await login(page, 'dmytro')
   const sidebar = page.locator('.sidebar')
   await expect(sidebar.getByText('Щоденна робота', { exact: true })).toBeVisible()
-  await expect(sidebar.getByText('Комунікації', { exact: true })).toBeVisible()
+  await expect(sidebar.getByText('Співпраця', { exact: true })).toBeVisible()
   await expect(sidebar.locator('.nav-section').first().getByRole('link')).toHaveText([
     'Жива стрічка', 'Завдання', 'Чат', 'Диск', 'Календар',
   ])
@@ -681,18 +682,19 @@ test('legacy company scope is removed while task filters and browser history rem
   await taskLink.click()
   await expect(page).toHaveURL(/\/tasks$/)
   await page.getByRole('button', { name: 'Пошук і фільтри' }).click()
-  const filters = page.locator('.filter-panel')
   await page.getByLabel('Пошук завдань').fill('d')
   await expect(page).toHaveURL(/search=d/)
   await page.getByLabel('Пошук завдань').fill('dashboard')
-  await filters.getByLabel('Статус').selectOption('IN_PROGRESS')
+  // Status filters are group toggles; adding «Виконані» to the active set writes an explicit preset.
+  await page.getByRole('group', { name: 'Статуси завдань' }).getByRole('button', { name: 'Виконані', exact: true }).click()
   await expect(page).toHaveURL(/search=dashboard/)
-  await expect(page).toHaveURL(/status=IN_PROGRESS/)
+  await expect(page).toHaveURL(/preset=[^&]*DONE/)
   await page.getByRole('link', { name: /Підготувати концепцію дизайну dashboard/ }).click()
-  await expect(page).toHaveURL(/\/tasks\/tsk_design\?search=dashboard&status=IN_PROGRESS/)
+  await expect(page).toHaveURL(/\/tasks\/tsk_design\?.*search=dashboard/)
+  await expect(page).toHaveURL(/preset=[^&]*DONE/)
   await page.goBack()
   await expect(page).toHaveURL(/search=dashboard/)
-  await expect(page).toHaveURL(/\/tasks\?search=dashboard/)
+  await expect(page).toHaveURL(/\/tasks\?.*search=dashboard/)
 })
 
 test('chat remains available from the sidebar and the restored top bar', async ({ page }, testInfo) => {

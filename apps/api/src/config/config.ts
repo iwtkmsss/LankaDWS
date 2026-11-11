@@ -14,10 +14,6 @@ const schema = z.object({
   FILE_QUARANTINE_DIR: z.string().default('../../data/quarantine'),
   FILE_TEMP_DIR: z.string().default('../../data/tmp'),
   BACKUP_DIR: z.string().default('../../backups'),
-  BITRIX_SNAPSHOT_ROOT: z.string().optional(),
-  BITRIX_MANIFEST_METADATA_PATH: z.string().optional(),
-  IMPORT_SIGNING_PUBLIC_KEYS_JSON: z.string().default('{}'),
-  IMPORT_SIGNING_PRIVATE_KEY_PATH: z.string().optional(),
   BACKUP_KEEP_DAILY: z.coerce.number().int().min(1).max(365).default(30),
   BACKUP_KEEP_MONTHLY: z.coerce.number().int().min(1).max(120).default(12),
   BACKUP_SCHEDULE_CRON: z.string().default('0 * * * *'),
@@ -53,7 +49,6 @@ const schema = z.object({
 
 export type AppConfig = z.infer<typeof schema> & {
   allowedMime: Set<string>
-  trustedImportSigningKeys: Record<string, string>
 }
 
 let cached: AppConfig | undefined
@@ -61,15 +56,6 @@ let cached: AppConfig | undefined
 export function getConfig(): AppConfig {
   if (cached) return cached
   const parsed = schema.parse(process.env)
-  let trustedImportSigningKeys: Record<string, string>
-  try {
-    trustedImportSigningKeys = z.record(
-      z.string().trim().min(1).max(160),
-      z.string().min(32).max(16_000),
-    ).parse(JSON.parse(parsed.IMPORT_SIGNING_PUBLIC_KEYS_JSON) as unknown)
-  } catch {
-    throw new Error('IMPORT_SIGNING_PUBLIC_KEYS_JSON must be a JSON object of key IDs to public keys')
-  }
   if (parsed.NODE_ENV === 'production') {
     const secrets: Array<[string, string]> = [
       ['SESSION_PEPPER', parsed.SESSION_PEPPER],
@@ -81,11 +67,11 @@ export function getConfig(): AppConfig {
         throw new Error(`${name} must be an independent random value of at least 32 characters`)
       }
     }
-    if (!/^[a-fA-F0-9]{64}$/.test(parsed.TOTP_ENCRYPTION_KEY)) {
-      throw new Error('TOTP_ENCRYPTION_KEY must contain exactly 64 hexadecimal characters')
-    }
-    if (!/^[a-fA-F0-9]{64}$/.test(parsed.BACKUP_ENCRYPTION_KEY)) {
-      throw new Error('BACKUP_ENCRYPTION_KEY must contain exactly 64 hexadecimal characters')
+    // A key made of one repeated character (including the development defaults) is not random.
+    for (const [name, value] of [['TOTP_ENCRYPTION_KEY', parsed.TOTP_ENCRYPTION_KEY], ['BACKUP_ENCRYPTION_KEY', parsed.BACKUP_ENCRYPTION_KEY]]) {
+      if (!/^[a-fA-F0-9]{64}$/.test(value) || new Set(value.toLowerCase()).size === 1) {
+        throw new Error(`${name} must be an independent random value of exactly 64 hexadecimal characters`)
+      }
     }
     if (!parsed.DATABASE_URL.startsWith('file:') || parsed.DATABASE_URL.includes(':memory:')) {
       throw new Error('DATABASE_URL must point to a persistent local SQLite file')
@@ -103,7 +89,6 @@ export function getConfig(): AppConfig {
   cached = {
     ...parsed,
     allowedMime: new Set(parsed.ALLOWED_UPLOAD_MIME.split(',').map((value) => value.trim())),
-    trustedImportSigningKeys,
   }
   return cached
 }

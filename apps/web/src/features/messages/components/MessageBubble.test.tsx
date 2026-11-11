@@ -188,7 +188,7 @@ describe('MessageBubble', () => {
         id: `photo-${index}`, fileName: `${index}.png`, bytes: 10, mimeType: 'image/png', scanStatus: 'CLEAN',
       })) })} /></MemoryRouter>)
     expect(container.querySelector('.message-attachments--album')).toHaveAttribute('data-photo-count', '3')
-    expect(screen.getAllByRole('img')).toHaveLength(3)
+    expect(container.querySelectorAll('.message-attachments--album img')).toHaveLength(3)
   })
 
   it('keeps mixed photo and document attachments outside an album with a photo thumbnail', () => {

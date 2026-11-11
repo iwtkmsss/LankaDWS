@@ -103,8 +103,8 @@
   min-width: 0;
 }
 
-.task-create-core__header h3,
-.task-create-details__intro h3 {
+.task-create-core__header h2,
+.task-create-details__intro h2 {
   margin: var(--space-0_5) 0 0;
   color: var(--fg-strong);
   font-size: var(--text-title);
@@ -383,7 +383,7 @@
   gap: var(--space-4);
 }
 
-.task-create-subgroup__heading h4 {
+.task-create-subgroup__heading h3 {
   margin: 0;
   color: var(--fg-strong);
   font-size: var(--text-heading);

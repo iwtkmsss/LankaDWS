@@ -81,7 +81,7 @@ export function TaskBasicsSection({
       <header className="task-create-core__header">
         <div>
           <span className="task-create-kicker">Основне</span>
-          <h3 id="task-create-basics-title">Що потрібно зробити</h3>
+          <h2 id="task-create-basics-title">Що потрібно зробити</h2>
         </div>
       </header>
       <div className="task-create-fields">
@@ -139,7 +139,7 @@ export function TaskBasicsSection({
           <FileDropOverlay active={isDragging} label="Відпустіть файли, щоб додати їх до завдання" />
           <div className="task-create-subgroup__heading">
             <div>
-              <h4 id="task-create-attachments-title">Вкладення</h4>
+              <h3 id="task-create-attachments-title">Вкладення</h3>
               <p>Перетягніть файли сюди або виберіть їх. До 10 файлів; перевірка починається одразу.</p>
             </div>
             <label className="button button--secondary task-create-file-picker">
@@ -295,7 +295,7 @@ export function TaskContextSection({
       <section className="task-create-subgroup" aria-labelledby="task-create-context-project-title">
         <div className="task-create-subgroup__heading">
           <div>
-            <h4 id="task-create-context-project-title">Проєкт і батьківське завдання</h4>
+            <h3 id="task-create-context-project-title">Проєкт і батьківське завдання</h3>
             <p>Необов’язковий робочий контекст і місце в ієрархії.</p>
           </div>
           {options && (
@@ -380,7 +380,7 @@ export function TaskContextSection({
       <section className="task-create-subgroup" aria-labelledby="task-create-context-tags-title">
         <div className="task-create-subgroup__heading">
           <div>
-            <h4 id="task-create-context-tags-title">Теги</h4>
+            <h3 id="task-create-context-tags-title">Теги</h3>
             <p>Позначте тему або напрям роботи.</p>
           </div>
           {options && (

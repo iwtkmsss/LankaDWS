@@ -35,6 +35,7 @@
     "prisma:studio": "npm run prisma:studio --workspace @lankadws/api",
     "lankadws": "npm run lankadws --workspace @lankadws/api --",
     "backup": "npm run backup --workspace @lankadws/api",
+    "backup:check": "npm run backup:check --workspace @lankadws/api",
     "restore:verify": "npm run restore:verify --workspace @lankadws/api",
     "openapi": "npm run openapi --workspace @lankadws/api",
     "feed:rehearse": "npm run feed:rehearse --workspace @lankadws/api --"

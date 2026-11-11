@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 const screenshotDir = resolve(process.cwd(), '../../output/playwright/messages')
 mkdirSync(screenshotDir, { recursive: true })
@@ -29,6 +29,12 @@ async function configureViewport(page: Page, project: string) {
   )
 }
 
+/** Message actions open from the context menu of the message row. */
+async function messageAction(page: Page, message: Locator, name: string) {
+  await message.click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name, exact: true }).click()
+}
+
 test('messages workspace covers user-only search, direct history and real chat actions', async ({ page }, testInfo) => {
   await configureViewport(page, testInfo.project.name)
   await login(page)
@@ -45,13 +51,13 @@ test('messages workspace covers user-only search, direct history and real chat a
 
   const search = page.getByRole('combobox', { name: 'Пошук користувачів' })
   await search.fill('о')
-  await expect(page.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
+  await expect(page.getByRole('option', { name: /Бондар Олена/ })).toBeVisible()
   await expect(page.locator('.messages-thread-list')).toHaveCount(0)
   await screenshot(page, testInfo.project.name, 'user-search')
 
-  await page.getByRole('option', { name: /Олена Бондар/ }).click()
+  await page.getByRole('option', { name: /Бондар Олена/ }).click()
   await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
-  const conversation = page.getByRole('region', { name: /Діалог: Олена Бондар/ })
+  const conversation = page.getByRole('region', { name: /Діалог: Бондар Олена/ })
   await expect(conversation).toBeVisible()
   await expect(conversation.getByRole('button', { name: /дзвін/i })).toHaveCount(0)
   await expect(conversation.getByRole('button', { name: /відео/i })).toHaveCount(0)
@@ -64,7 +70,7 @@ test('messages workspace covers user-only search, direct history and real chat a
   const sent = conversation.locator('.message-row').filter({ hasText: body })
   await expect(sent).toBeVisible()
 
-  await sent.getByRole('button', { name: 'Відповісти' }).click()
+  await messageAction(page, sent, 'Відповісти')
   const reply = `${body} · відповідь`
   await composer.fill(reply)
   await conversation.getByRole('button', { name: 'Надіслати' }).click()
@@ -72,7 +78,9 @@ test('messages workspace covers user-only search, direct history and real chat a
   await expect(replyBubble).toBeVisible()
 
   const attachmentName = `messages-${testInfo.project.name}.txt`
-  await conversation.locator('input[type="file"]').setInputFiles({
+  const fileChooserPromise = page.waitForEvent('filechooser')
+  await conversation.getByRole('button', { name: 'Додати файли' }).click()
+  await (await fileChooserPromise).setFiles({
     name: attachmentName,
     mimeType: 'text/plain',
     buffer: Buffer.from('LankaDWS messages visual QA'),
@@ -84,20 +92,12 @@ test('messages workspace covers user-only search, direct history and real chat a
   const attachmentBubble = conversation.locator('.message-row').filter({ hasText: attachmentBody })
   await expect(attachmentBubble.getByText(attachmentName)).toBeVisible()
 
-  await attachmentBubble.getByRole('button', { name: 'Дії з повідомленням' }).click()
-  await attachmentBubble.getByRole('button', { name: 'Редагувати' }).click()
+  await messageAction(page, attachmentBubble, 'Редагувати')
   const editedBody = `${attachmentBody} · змінено`
   await attachmentBubble.locator('textarea').fill(editedBody)
   await attachmentBubble.getByRole('button', { name: 'Зберегти' }).click()
   await expect(attachmentBubble).toContainText(editedBody)
   await expect(attachmentBubble).toContainText('змінено')
-
-  await attachmentBubble.getByRole('button', { name: 'Дії з повідомленням' }).click()
-  await attachmentBubble.getByRole('button', { name: 'Створити завдання' }).click()
-  const conversion = page.getByRole('dialog', { name: 'Створити завдання' })
-  await expect(conversion.getByLabel('Назва')).toHaveValue(editedBody)
-  await conversion.getByRole('button', { name: 'Створити', exact: true }).click()
-  await expect(conversion).toHaveCount(0)
 
   await conversation.getByRole('button', { name: 'Пошук у діалозі' }).click()
   const conversationSearch = conversation.getByRole('searchbox', { name: 'Пошук у діалозі' })
@@ -120,7 +120,7 @@ test('messages workspace covers user-only search, direct history and real chat a
 
   await conversation.getByRole('button', { name: 'Інформація про діалог' }).click()
   const profilePanel = page.getByRole('complementary', { name: 'Чат і сповіщення' })
-  await expect(profilePanel.getByText('@olena')).toBeVisible()
+  await expect(profilePanel.getByText('HR-фахівчиня').first()).toBeVisible()
   await expect(profilePanel.getByRole('region', { name: 'Коротка інформація про користувача' })).toBeVisible()
   await profilePanel.getByRole('button', { name: 'Закрити праву панель' }).click()
 
@@ -130,8 +130,7 @@ test('messages workspace covers user-only search, direct history and real chat a
 
   const attachmentMessageId = await attachmentBubble.getAttribute('id')
   expect(attachmentMessageId).toBeTruthy()
-  await attachmentBubble.getByRole('button', { name: 'Дії з повідомленням' }).click()
-  await attachmentBubble.getByRole('button', { name: 'Видалити' }).click()
+  await messageAction(page, attachmentBubble, 'Видалити')
   await expect(conversation.locator(`#${attachmentMessageId!}`)).toContainText('Повідомлення видалено')
 
   if (testInfo.project.name === 'mobile-chromium') {
@@ -152,9 +151,9 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
   const search = compose.getByRole('combobox', { name: 'Пошук користувачів для нового чату' })
   await expect(search).toBeFocused()
   await search.fill('о')
-  await expect(compose.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
+  await expect(compose.getByRole('option', { name: /Бондар Олена/ })).toBeVisible()
   await search.fill('Олена')
-  await expect(compose.getByRole('option', { name: /Олена Бондар/ })).toBeVisible()
+  await expect(compose.getByRole('option', { name: /Бондар Олена/ })).toBeVisible()
   await search.press('ArrowDown')
   await search.press('Enter')
   await expect(page).toHaveURL(/\/messages(?:\/thr_|\?to=usr_olena)/)
@@ -164,7 +163,7 @@ test('new chat compose reuses canonical direct threads from a one-symbol keyboar
 
   await page.goto('/messages?new=1&to=usr_olena')
   await expect(page).toHaveURL(directUrl)
-  await expect(page.getByRole('region', { name: /Діалог: Олена Бондар/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: /Діалог: Бондар Олена/ })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -176,8 +175,8 @@ test('a searched contact stays transient until the first message is sent', async
   const compose = page.getByRole('dialog', { name: 'Новий чат' })
   const search = compose.getByRole('combobox', { name: 'Пошук користувачів для нового чату' })
   const target = testInfo.project.name === 'mobile-chromium'
-    ? { id: 'usr_dmytro', query: 'Дмитро', name: 'Дмитро Савчук' }
-    : { id: 'usr_marko', query: 'Марко', name: 'Марко Литвин' }
+    ? { id: 'usr_dmytro', query: 'Дмитро', name: 'Савчук Дмитро' }
+    : { id: 'usr_marko', query: 'Марко', name: 'Литвин Марко' }
   await search.fill(target.query)
   await compose.getByRole('option', { name: new RegExp(target.name) }).click()
   await expect(page).toHaveURL(new RegExp(`/messages\\?to=${target.id}`))
@@ -211,9 +210,9 @@ test('new group remains a local messages-only action', async ({ page }, testInfo
   await drawer.getByLabel('Назва групи').fill(title)
   const search = drawer.getByPlaceholder('Ім’я або нікнейм')
   await search.fill('Олена')
-  await drawer.getByRole('button', { name: /Олена Бондар/ }).click()
+  await drawer.getByRole('button', { name: /Бондар Олена/ }).click()
   await search.fill('Дмитро')
-  await drawer.getByRole('button', { name: /Дмитро Савчук/ }).click()
+  await drawer.getByRole('button', { name: /Савчук Дмитро/ }).click()
   await drawer.getByRole('button', { name: 'Створити групу' }).click()
 
   await expect(page).toHaveURL(/\/messages\/thr_/)

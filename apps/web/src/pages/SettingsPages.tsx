@@ -246,33 +246,10 @@ function ProfileSettings() {
   )
 }
 
-interface Preference {
-  emailEnabled: boolean
-  inAppEnabled: boolean
-  digest: string
-  quietStart: string
-  quietEnd: string
-}
 function NotificationSettings() {
   const { user } = useAuth()
   const [soundEnabled, setSoundEnabled] = useMessageSoundPreference(user?.id ?? '')
   const [soundError, setSoundError] = useState(false)
-  const query = useQuery({
-    queryKey: ['notification-preferences'],
-    queryFn: () => api<Preference>('/me/notification-preferences'),
-  })
-  const client = useQueryClient()
-  const save = useMutation({
-    mutationFn: (input: Preference) => api('/me/notification-preferences', { method: 'PATCH', body: jsonBody(input) }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['notification-preferences'] }),
-  })
-  if (query.isLoading)
-    return (
-      <Card>
-        <Skeleton />
-      </Card>
-    )
-  if (query.isError || !query.data) return <ErrorState />
   return (
     <Card className="settings-card">
       <header>
@@ -281,23 +258,10 @@ function NotificationSettings() {
         </span>
         <div>
           <h2>Сповіщення</h2>
-          <p>Критичні security-події не можна вимкнути.</p>
+          <p>Сповіщення приходять у застосунку; критичні події безпеки вимкнути не можна.</p>
         </div>
       </header>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          const data = new FormData(event.currentTarget)
-          save.mutate({
-            emailEnabled: data.get('email') === 'on',
-            inAppEnabled: true,
-            digest: String(data.get('digest')),
-            quietStart: String(data.get('quietStart')),
-            quietEnd: String(data.get('quietEnd')),
-          })
-        }}
-        className="preference-form"
-      >
+      <div className="preference-form">
         <label>
           <span>
             <strong>Звук повідомлень</strong>
@@ -309,51 +273,7 @@ function NotificationSettings() {
           void previewMessageSound().then((played) => setSoundError(!played))
         }}>Прослухати звук</Button>
         {soundError && <p role="status">Не вдалося відтворити звук. Перевірте дозвіл на звук для цього сайту.</p>}
-        <label>
-          <span>
-            <strong>У застосунку</strong>
-            <small>Задачі, погодження, згадки й безпека</small>
-          </span>
-          <input type="checkbox" checked readOnly />
-        </label>
-        <label>
-          <span>
-            <strong>Email-дайджест</strong>
-            <small>Без приватного вмісту в темі листа</small>
-          </span>
-          <input type="checkbox" name="email" defaultChecked={query.data.emailEnabled} />
-        </label>
-        <label>
-          <span>
-            <strong>Частота дайджесту</strong>
-          </span>
-          <select name="digest" defaultValue={query.data.digest}>
-            <option value="IMMEDIATE">Одразу</option>
-            <option value="DAILY">Щодня</option>
-            <option value="WEEKLY">Щотижня</option>
-          </select>
-        </label>
-        <div className="quiet-hours">
-          <label>
-            Тихий режим від
-            <DateTimePicker type="time" name="quietStart" defaultValue={query.data.quietStart} />
-          </label>
-          <label>
-            до
-            <DateTimePicker type="time" name="quietEnd" defaultValue={query.data.quietEnd} />
-          </label>
-        </div>
-        <Button disabled={save.isPending}>
-          <Save size={17} />
-          Зберегти
-        </Button>
-        {save.isSuccess && (
-          <p className="success-note">
-            <Check size={16} />
-            Збережено
-          </p>
-        )}
-      </form>
+      </div>
     </Card>
   )
 }

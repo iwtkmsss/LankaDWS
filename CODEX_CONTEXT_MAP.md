@@ -124,7 +124,7 @@ Authorization is server-side. Preserve organization scope and existence-safe beh
 
 ## Generated context boundaries
 
-Do not inspect `.playwright-cli/`, `output/`, `apps/web/artifacts/`, `apps/web/test-results/`, `coverage/`, `dist/`, `node_modules/`, or `apps/api/src/generated/prisma/` unless the task explicitly targets them. Migration-only context is under `docs/bitrix24-*` and `apps/api/src/modules/import-control/`.
+Do not inspect `.playwright-cli/`, `output/`, `apps/web/artifacts/`, `apps/web/test-results/`, `coverage/`, `dist/`, `node_modules/`, or `apps/api/src/generated/prisma/` unless the task explicitly targets them. Historical Bitrix24 migration context is under `docs/migration/bitrix24/`.
 
 Generate the Markdown endpoint index when needed:
 

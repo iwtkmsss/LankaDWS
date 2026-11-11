@@ -8,9 +8,13 @@ import { forbidden, unauthorized } from '../../common/errors.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ADMIN_ONLY, PUBLIC_ROUTE, RESTRICTED_ROUTE } from './auth.decorators.js'
+import { secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
+  /** Replaceable in tests; production uses the module-level provider. */
+  secondFactor: SecondFactorProvider = secondFactorProvider
+
   constructor(private readonly reflector: Reflector, private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -22,7 +26,7 @@ export class SessionAuthGuard implements CanActivate {
       where: { sessionHash: fingerprint(token, 'session') },
       include: {
         user: {
-          include: { primaryCompany: true, totpCredential: true },
+          include: { primaryCompany: true },
         },
       },
     })
@@ -37,8 +41,11 @@ export class SessionAuthGuard implements CanActivate {
     }
     if (session.authorizationVersion !== session.user.authorizationVersion) throw unauthorized()
 
-    const restricted = session.authAssurance === 0 || (Boolean(session.user.totpCredential?.confirmedAt) && session.authAssurance < 2) ||
-      (session.user.mustEnroll2FA && session.authAssurance < 2)
+    // Assurance 0 is a temporary-password session; below 2 the second factor is still owed,
+    // which can happen only once a second-factor method is configured.
+    const secondFactorOwed = this.secondFactor.enabled && session.authAssurance < 2
+      && (session.user.mustEnroll2FA || await this.secondFactor.isEnrolled(session.user.id))
+    const restricted = session.authAssurance === 0 || secondFactorOwed
     const allowsRestricted = this.reflector.getAllAndOverride<boolean>(RESTRICTED_ROUTE, [context.getHandler(), context.getClass()])
     if (restricted && !allowsRestricted) throw unauthorized('credential_step_required')
 

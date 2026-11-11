@@ -89,33 +89,9 @@ npm run lankadws -- admin:dev-reset
 
 `admin:dev-reset` жорстко заборонений при `NODE_ENV=production`.
 
-## Формування та перевірка Bitrix migration dataset
+## Перенесення даних із Bitrix24
 
-Після logical export оператор копіює [приклад seal request](docs/examples/bitrix-snapshot-seal-request.example.json) у захищене Operations-сховище й заповнює лише evidence-backed metadata. Сам request, Ed25519 private key і dataset мають бути трьома окремими absolute paths поза репозиторієм; private key ніколи не передається як текст environment variable.
-
-Для sealing задайте `BITRIX_SNAPSHOT_ROOT`, `BITRIX_MANIFEST_METADATA_PATH` та `IMPORT_SIGNING_PRIVATE_KEY_PATH`, потім виконайте:
-
-```bash
-npm run lankadws -- import:seal-manifest
-npm run lankadws -- import:seal-manifest --json
-```
-
-Команда сама робить bounded inventory, стабільно хешує allowlisted regular files, генерує sorted GNU-compatible `checksums.sha256`, будує та підписує strict manifest v1 і одразу перевіряє результат чинним verifier. Вона створює лише відсутні `checksums.sha256` і `snapshot-manifest.json`, ніколи їх не перезаписує, а повторний запуск на незмінному export повертає той самий manifest SHA-256 без запису. Unsafe/extra entry, link, зміна файла під час hash, неповний contract або невирішений company mapping блокують sealing; newly-created outputs відкочуються, якщо verifier round-trip не пройшов.
-
-Після sealing dataset монтується read-only. Перед будь-яким `VALIDATE`, `DRY_RUN` або майбутнім `APPLY` задайте `BITRIX_SNAPSHOT_ROOT` і trusted Ed25519 public keys у `IMPORT_SIGNING_PUBLIC_KEYS_JSON`, потім виконайте:
-
-```bash
-npm run lankadws -- import:validate-manifest
-npm run lankadws -- import:validate-manifest --json
-npm run lankadws -- import:validate-company-map
-npm run lankadws -- import:validate-company-map --json
-```
-
-`import:validate-manifest` не запускає NestJS або БД. Вона перевіряє строгий v1 manifest, trusted signature, allowlisted relative paths, розмір і SHA-256 кожного файла, `checksums.sha256`, strict UTF-8 для службових artifacts і signed company mapping.
-
-`import:validate-company-map` спершу повторює ту саму повну перевірку, а тоді read-only звіряє підписаний target workspace/root set з exact active `SourceCompanyMapping` і станом target companies у LankaDWS. Seal і validation reports містять лише safe IDs, відносні шляхи, counters, hashes і стабільні issue codes — без source branch keys/names, company names/codes, approver identity, raw content, PII, private-key material, DB errors чи абсолютного storage path. Успіх повертає exit code `0`, невалідний dataset/DB mapping або seal input — `2`, configuration/runtime error — `1`.
-
-Це лише preflight dataset: команда не закриває DDB-рішення, не імпортує дані й не робить production `APPLY`. Повний контракт описаний у [backend-плані міграції БД](docs/bitrix24-database-migration-plan.md).
+Дані з Bitrix24 переносяться одноразовим скриптом на сервері, а не через застосунок. Історичні плани міграції лежать у [docs/migration/bitrix24](docs/migration/bitrix24/README.md) як окремий контекст і не описують поточну архітектуру.
 
 ## Команди
 
@@ -134,12 +110,10 @@ npm run db:wipe             # delete database and files, migrate an empty one
 npm run admin:create        # first administrator
 npm run openapi             # artifacts/openapi.json
 npm run backup
+npm run backup:check        # fails when the newest backup is too old
 npm run restore:verify -- <optional-backup-directory>
 npm run feed:rehearse -- --profile smoke
 npm run feed:rehearse -- --profile representative --iterations 20 --warmup 3
-npm run lankadws -- import:seal-manifest [--json]
-npm run lankadws -- import:validate-manifest [--json]
-npm run lankadws -- import:validate-company-map [--json]
 ```
 
 Кореневий `npm run quality` починається з `npm ci` і перевіряє lockfile consistency, Prisma generation, lint, typecheck, tests та build. API E2E і browser E2E запускаються окремою командою `npm run test:e2e`.
