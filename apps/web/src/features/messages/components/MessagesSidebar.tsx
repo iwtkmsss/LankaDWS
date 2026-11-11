@@ -6,7 +6,7 @@ import type {
 } from '@lankadws/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
+import { Avatar, ErrorState, handleTablistKeyDown, PageDataLoader, Skeleton } from '../../../shared/ui'
 import { formatChatListTime } from '../lib/chatDates'
 import type { MessageDrafts } from '../lib/messageDrafts'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
@@ -175,11 +175,12 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         </section>
       ) : (
         <>
-          <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів">
+          <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів" onKeyDown={handleTablistKeyDown}>
             <button
               type="button"
               role="tab"
               aria-selected={!props.unreadOnly}
+              tabIndex={!props.unreadOnly ? 0 : -1}
               className={!props.unreadOnly ? 'is-active' : ''}
               onClick={() => props.onUnreadChange(false)}
             >
@@ -189,6 +190,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
               type="button"
               role="tab"
               aria-selected={props.unreadOnly}
+              tabIndex={props.unreadOnly ? 0 : -1}
               className={props.unreadOnly ? 'is-active' : ''}
               onClick={() => props.onUnreadChange(true)}
             >

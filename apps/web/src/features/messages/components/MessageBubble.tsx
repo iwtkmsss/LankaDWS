@@ -15,8 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { Avatar, Button, CompactFileName } from '../../../shared/ui'
+import { Avatar, Button, CompactFileName, Menu, MenuItem } from '../../../shared/ui'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { MentionText } from '../../../shared/mentions/MentionRenderer'
 import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
@@ -49,16 +48,6 @@ interface MessageBubbleProps {
   onDelete: (message: ChatMessageView) => Promise<void>
 }
 
-function contextMenuPosition(x: number, y: number): { left: number; top: number } {
-  const menuWidth = 248
-  const menuHeight = 340
-  const inset = 8
-  return {
-    left: Math.max(inset, Math.min(x, window.innerWidth - menuWidth - inset)),
-    top: Math.max(inset, Math.min(y, window.innerHeight - menuHeight - inset)),
-  }
-}
-
 export function MessageBubble({
   threadId,
   idPrefix = 'message',
@@ -74,7 +63,7 @@ export function MessageBubble({
   onEdit,
   onDelete,
 }: MessageBubbleProps) {
-  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(message.body)
   const [editMentions, setEditMentions] = useState<StructuredMentionInput[]>(() =>
@@ -89,7 +78,6 @@ export function MessageBubble({
   const replyHighlightCounterRef = useRef(0)
   const messageRowRef = useRef<HTMLElement>(null)
   const menuCloseTimer = useRef<number | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
   const visibleAttachments = editing
     ? message.attachments.filter((attachment) => !removedAttachmentIds.includes(attachment.id))
     : message.attachments
@@ -134,7 +122,7 @@ export function MessageBubble({
     if (menuCloseTimer.current !== null) window.clearTimeout(menuCloseTimer.current)
     window.dispatchEvent(new CustomEvent('lanka:context-menu-open', { detail: `${idPrefix}:${message.id}` }))
     setMenuPhoto(photo)
-    setMenuPosition(contextMenuPosition(x, y))
+    setMenuPosition({ x, y })
   }
   const delayMenuClose = () => {
     menuCloseTimer.current = window.setTimeout(closeMenu, 120)
@@ -153,18 +141,9 @@ export function MessageBubble({
     const closeOnAnotherMenu = (event: Event) => {
       if ((event as CustomEvent<string>).detail !== `${idPrefix}:${message.id}`) closeMenu()
     }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (menuRef.current?.contains(event.target as Node)) return
-      if (!(event.target as HTMLElement).closest(`#${idPrefix}-${message.id}`)) closeMenu()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeMenu() }
     window.addEventListener('lanka:context-menu-open', closeOnAnotherMenu)
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    window.addEventListener('keydown', closeOnEscape)
     return () => {
       window.removeEventListener('lanka:context-menu-open', closeOnAnotherMenu)
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      window.removeEventListener('keydown', closeOnEscape)
     }
   })
   const attachmentActions = (attachment: ChatAttachmentView) => (
@@ -426,47 +405,43 @@ export function MessageBubble({
 
         {!editing && messageMeta}
 
-        {!editing && menuPosition && createPortal(
-          <div
-            ref={menuRef}
+        {!editing && menuPosition && (
+          <Menu
+            open
+            portal
             className="message-action-menu"
-            role="menu"
-            aria-label="Дії з повідомленням"
-            style={menuPosition}
+            label="Дії з повідомленням"
+            point={menuPosition}
+            onClose={closeMenu}
+            isInside={(target) => Boolean(target.closest(`#${idPrefix}-${message.id}`))}
             onMouseEnter={keepMenuOpen}
             onMouseLeave={delayMenuClose}
           >
                 {menuPhoto && (
-                  <button type="button" onClick={() => { closeMenu(); setPreviewFile(menuPhoto) }}>
+                  <MenuItem onClick={() => { closeMenu(); setPreviewFile(menuPhoto) }}>
                     <Eye size={15} /> Переглянути фото
-                  </button>
+                  </MenuItem>
                 )}
-                <button
-                  type="button"
-                  aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
+                <MenuItem aria-label={message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
                   onClick={() => {
                     closeMenu()
                     onLike(message)
                   }}
                 >
                   <Heart size={15} /> {message.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
-                </button>
-                <button type="button" onClick={() => { closeMenu(); onReply(message) }}>
+                </MenuItem>
+                <MenuItem onClick={() => { closeMenu(); onReply(message) }}>
                   <Reply size={15} /> Відповісти
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
+                </MenuItem>
+                <MenuItem onClick={() => {
                     closeMenu()
                     void navigator.clipboard.writeText(message.body)
                   }}
                 >
                   <Copy size={15} /> Копіювати текст
-                </button>
+                </MenuItem>
                 {message.canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => {
+                  <MenuItem onClick={() => {
                       closeMenu()
                       setEditBody(message.body)
                       setEditMentions(editableMentions(message.body, message.mentions))
@@ -476,21 +451,17 @@ export function MessageBubble({
                     }}
                   >
                     <Pencil size={15} /> Редагувати
-                  </button>
+                  </MenuItem>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
+                <MenuItem onClick={() => {
                     closeMenu()
                     onForward(message)
                   }}
                 >
                   <Forward size={15} /> Переслати
-                </button>
+                </MenuItem>
                 {savableAttachments.length > 0 && (
-                  <button
-                    type="button"
-                    disabled={driveSave === 'busy'}
+                  <MenuItem disabled={driveSave === 'busy'}
                     onClick={() => {
                       setDriveSave('busy')
                       void Promise.all(savableAttachments.map((attachment) => importFileToDrive({
@@ -507,12 +478,10 @@ export function MessageBubble({
                       : driveSave === 'done' ? 'Збережено на Диск'
                       : driveSave === 'error' ? 'Не вдалося зберегти'
                       : savableAttachments.length > 1 ? `Зберегти ${savableAttachments.length} файли на Диск` : 'Зберегти на Диск'}
-                  </button>
+                  </MenuItem>
                 )}
                 {message.canDelete && (
-                  <button
-                    type="button"
-                    className="is-danger"
+                  <MenuItem className="is-danger"
                     disabled={busy}
                     onClick={() => {
                       setBusy(true)
@@ -520,10 +489,9 @@ export function MessageBubble({
                     }}
                   >
                     <Trash2 size={15} /> Видалити
-                  </button>
+                  </MenuItem>
                 )}
-          </div>,
-          document.body,
+          </Menu>
         )}
       </div>
     </article>

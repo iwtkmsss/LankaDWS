@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DriveShareRole, DriveShareTargetType } from '@lankadws/contracts'
 import { Check, Folder, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { Avatar, Button, ErrorState, IconButton, Modal, Skeleton } from '../../shared/ui'
+import { Avatar, Button, ErrorState, Field, IconButton, Modal, Skeleton } from '../../shared/ui'
 import { createShare, fetchDrive, listShares, revokeShare } from './api'
 import { useAuth } from '../../shared/auth/AuthProvider'
 import { personName } from '../../shared/lib/personName'
@@ -45,8 +45,7 @@ export function NameDialog({
   return (
     <Modal title={title} size="sm" onRequestClose={onClose}>
       <form className="drive-name-form" onSubmit={submit}>
-        <label>
-          {label}
+        <Field label={label} error={error}>
           <input
             autoFocus
             value={value}
@@ -54,8 +53,7 @@ export function NameDialog({
             onChange={(event) => setValue(event.target.value)}
             onFocus={(event) => event.target.select()}
           />
-        </label>
-        {error && <div className="form-error">{error}</div>}
+        </Field>
         <div className="drive-name-form__actions">
           <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Скасувати</Button>
           <Button disabled={busy || !value.trim()}>{busy ? 'Зберігаємо…' : confirmLabel}</Button>

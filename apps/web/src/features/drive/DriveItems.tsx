@@ -3,10 +3,10 @@ import {
   ArrowUpFromLine, ChevronDown, ChevronUp, Download, Eye,
   Folder, MoreVertical, Pencil, RotateCcw, Share2, Trash2, Users,
 } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useId, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { apiUrl } from '../../shared/api/client'
 import { formatDateTime, formatFileSize } from '../../shared/lib/format'
-import { IconButton } from '../../shared/ui'
+import { IconButton, Menu, MenuItem } from '../../shared/ui'
 import { DriveFileVisual } from './DriveFileVisual'
 import { DriveFileName } from './DriveFileName'
 import { useAuth } from '../../shared/auth/AuthProvider'
@@ -53,32 +53,18 @@ function ItemMenu({
   const [open, setOpen] = useState(false)
   const menuId = useId()
   const { user } = useAuth()
-  const wrapper = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: PointerEvent) => {
-      if (!wrapper.current?.contains(event.target as Node) && !(event.target instanceof Element && event.target.closest('[data-drive-move-menu]')?.getAttribute('data-drive-move-menu') === menuId)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, menuId])
-
+  const trigger = useRef<HTMLButtonElement | null>(null)
   const run = (action: DriveAction) => { setOpen(false); onAction(action, target) }
   const item = (action: DriveAction, icon: ReactNode, label: string, danger = false) => (
-    <button type="button" className={danger ? 'is-danger' : ''} onClick={() => run(action)}>
+    <MenuItem className={danger ? 'is-danger' : ''} onClick={() => run(action)}>
       {icon}{label}
-    </button>
+    </MenuItem>
   )
 
   return (
-    <div className="drive-item__menu" ref={wrapper}>
+    <div className="drive-item__menu">
       <IconButton
+        ref={trigger}
         label={`Дії: ${targetName(target)}`}
         aria-expanded={open}
         onClick={(event) => { event.stopPropagation(); setOpen((value) => !value) }}
@@ -86,7 +72,8 @@ function ItemMenu({
         <MoreVertical size={16} />
       </IconButton>
       {open && (
-        <div className="drive-item__menu-body" role="menu">
+        <Menu open className="drive-item__menu-body" triggerRef={trigger} onClose={() => setOpen(false)}
+          isInside={(target) => target.closest('[data-drive-move-menu]')?.getAttribute('data-drive-move-menu') === menuId}>
           {isTrash ? (
             item('restore', <RotateCcw size={15} aria-hidden />, 'Відновити')
           ) : (
@@ -100,7 +87,7 @@ function ItemMenu({
               {(targetIsOwner(target) || user?.accountType === 'ADMIN') && item('trash', <Trash2 size={15} aria-hidden />, 'Видалити', true)}
             </>
           )}
-        </div>
+        </Menu>
       )}
     </div>
   )

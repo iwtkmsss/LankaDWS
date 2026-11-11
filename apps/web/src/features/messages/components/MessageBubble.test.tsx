@@ -50,7 +50,7 @@ function renderAttachmentEditor(body = 'Текст') {
     <MessageBubble threadId="thread-1" message={target} own {...handlers} onEdit={onEdit} />
   </MemoryRouter></QueryClientProvider>)
   fireEvent.contextMenu(screen.getByRole('article'))
-  fireEvent.click(screen.getByRole('button', { name: 'Редагувати' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Редагувати' }))
   return { target, onEdit }
 }
 
@@ -95,8 +95,8 @@ describe('MessageBubble', () => {
     expect(open.parentElement).toBe(card)
     expect(card.querySelector('.message-attachment__thumbnail')?.tagName).toBe('SPAN')
     fireEvent.contextMenu(open, { clientX: 100, clientY: 100 })
-    expect(within(screen.getByRole('menu')).getByRole('button', { name: 'Переглянути фото' })).toBeVisible()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Переглянути фото' })).toBeVisible()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     fireEvent.click(open)
     expect(screen.getByRole('dialog', { name: 'photo.png' })).toBeVisible()
   })
@@ -177,8 +177,8 @@ describe('MessageBubble', () => {
         { id: 'photo', fileName: 'photo.png', bytes: 10, mimeType: 'image/png', scanStatus: 'CLEAN' },
       ] })} /></MemoryRouter>)
     expect(fireEvent.contextMenu(screen.getByRole('img', { name: 'photo.png' }), { clientX: 100, clientY: 100 })).toBe(false)
-    expect(within(screen.getByRole('menu')).getByRole('button', { name: 'Переглянути фото' })).toBeVisible()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Переглянути фото' })).toBeVisible()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
@@ -212,7 +212,7 @@ describe('MessageBubble', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
     expect(screen.getByRole('img', { name: 'photo.png' })).toBeInTheDocument()
     fireEvent.contextMenu(screen.getByRole('article'))
-    fireEvent.click(screen.getByRole('button', { name: 'Редагувати' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Редагувати' }))
     const article = screen.getByRole('article')
     const attachmentBlock = article.querySelector('.message-attachments')!
     const editor = article.querySelector('.message-bubble__edit')!
@@ -357,7 +357,7 @@ describe('MessageBubble', () => {
     )
 
     fireEvent.contextMenu(screen.getByRole('article'))
-    fireEvent.click(screen.getByRole('button', { name: 'Подобається' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Подобається' }))
 
     expect(onLike).toHaveBeenCalledWith(target)
   })
@@ -388,7 +388,7 @@ describe('MessageBubble', () => {
 
     expect(screen.queryByRole('button', { name: 'Переслати' })).not.toBeInTheDocument()
     fireEvent.contextMenu(screen.getByRole('article'))
-    fireEvent.click(screen.getByRole('button', { name: 'Переслати' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Переслати' }))
 
     expect(onForward).toHaveBeenCalledWith(target)
   })
@@ -404,7 +404,7 @@ describe('MessageBubble', () => {
     )
 
     fireEvent.contextMenu(screen.getByRole('article'))
-    fireEvent.click(screen.getByRole('button', { name: 'Редагувати' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Редагувати' }))
 
     expect(screen.getByLabelText('Текст повідомлення')).toHaveAttribute('rows', '6')
   })

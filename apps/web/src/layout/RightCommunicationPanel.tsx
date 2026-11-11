@@ -75,7 +75,7 @@ import '../features/messages/messages.css'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { Avatar, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { Avatar, ErrorState, handleTablistKeyDown, IconButton, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FileThumbnail } from '../shared/files/FileThumbnail'
@@ -179,11 +179,12 @@ function RightPanelTabs({
 }) {
   return (
     <header className="right-panel__topbar">
-      <div className="right-panel__tabs" role="tablist" aria-label="Комунікації">
+      <div className="right-panel__tabs" role="tablist" aria-label="Комунікації" onKeyDown={handleTablistKeyDown}>
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'chat'}
+          tabIndex={tab === 'chat' ? 0 : -1}
           className={tab === 'chat' ? 'is-active' : ''}
           onClick={() => onChange('chat')}
         >
@@ -194,6 +195,7 @@ function RightPanelTabs({
           type="button"
           role="tab"
           aria-selected={tab === 'notifications'}
+          tabIndex={tab === 'notifications' ? 0 : -1}
           className={tab === 'notifications' ? 'is-active' : ''}
           onClick={() => onChange('notifications')}
         >
@@ -828,13 +830,13 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       {tab === 'notifications' && (
         <section className="right-panel__screen right-panel__notifications" aria-label="Сповіщення">
           <div className="right-panel__screen-heading right-panel__notifications-heading">
-            <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень">
+            <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень" onKeyDown={handleTablistKeyDown}>
               {([
                 ['all', 'Усі'],
                 ['unread', 'Непрочитані'],
                 ['mentions', 'Згадки'],
               ] as const).map(([value, label]) => (
-                <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
+                <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} tabIndex={notificationFilter === value ? 0 : -1} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
               ))}
             </div>
           </div>
