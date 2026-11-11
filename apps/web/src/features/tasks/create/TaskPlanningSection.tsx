@@ -4,6 +4,7 @@ import type { TaskRecurrenceFrequency } from '@lankadws/contracts'
 import { AlarmClockPlus, Plus, Repeat2, Trash2 } from 'lucide-react'
 import { Button } from '../../../shared/ui'
 import { randomId } from '../../../shared/api/client'
+import { toLocalDateTimeInput } from '../../../shared/lib/format'
 import type {
   TaskCreateDraft,
   TaskCreateOptions,
@@ -38,17 +39,12 @@ function defaultRecurrence() {
   return {
     frequency: 'WEEKLY' as TaskRecurrenceFrequency,
     interval: '1',
-    startsAt: toLocalDateTime(startsAt),
+    startsAt: toLocalDateTimeInput(startsAt),
     daysOfWeek: [startsAt.getDay() || 7],
     dayOfMonth: '',
     endsAt: '',
     maxOccurrences: '',
   }
-}
-
-function toLocalDateTime(date: Date): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
 }
 
 export function TaskPlanningSection({

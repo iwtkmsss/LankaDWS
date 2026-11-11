@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 async function login(page: Page, username = 'maria') {
   await page.goto('/login')
@@ -203,9 +203,11 @@ test('administrator manages a recursive company structure', async ({ page }, tes
   await drawer.getByRole('button', { name: 'Створити підрозділ' }).click()
   await expect(map.locator('.organization-map__node').filter({ hasText: `E2E UI лабораторія ${suffix}` })).toBeVisible()
 
+  // On mobile the side panel overlaps the map, so a pointer click would land on the panel; click the node element itself.
+  const selectNode = (node: Locator) => testInfo.project.name === 'mobile-chromium' ? node.dispatchEvent('click') : node.click()
   const sourceUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI напрям ${suffix}` })
   const targetUnitNode = map.locator('.organization-map__node[aria-pressed]').filter({ hasText: `E2E UI лабораторія ${suffix}` })
-  await sourceUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
+  await selectNode(sourceUnitNode)
   const employeeCard = page.locator('article[draggable="true"][aria-label="Литвин Марко"]')
   await expect(employeeCard).toBeVisible()
   const transferData = await page.evaluateHandle(() => new DataTransfer())
@@ -217,7 +219,7 @@ test('administrator manages a recursive company structure', async ({ page }, tes
   await expect(transfer).toContainText(`E2E UI лабораторія ${suffix}`)
   await transfer.getByRole('button', { name: 'Перевести' }).click()
   await expect(transfer).toHaveCount(0)
-  await targetUnitNode.click({ force: testInfo.project.name === 'mobile-chromium' })
+  await selectNode(targetUnitNode)
   await expect(page.locator('article[draggable="true"][aria-label="Литвин Марко"]')).toBeVisible()
 
   // Archiving asks for confirmation; the archived branch can be restored from its panel.
@@ -496,6 +498,8 @@ test('only an administrator can edit or delete task discussion messages', async 
   await expect(reporterMenu.getByRole('button', { name: 'Видалити' })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
+  // On mobile the profile menu lives in the navigation drawer.
+  if (testInfo.project.name === 'mobile-chromium') await page.getByRole('button', { name: 'Відкрити меню' }).click()
   await page.locator('.profile-button').click()
   await page.getByRole('button', { name: 'Вийти' }).click()
   await expect(page).toHaveURL(/\/login$/)
@@ -657,7 +661,7 @@ test('approved mobile footer keeps its order and overflow accessible', async ({ 
   await more.click()
   const menu = page.getByRole('menu', { name: 'Ще' })
   await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Календар', 'Організація'])
+  await expect(menu.getByRole('menuitem')).toHaveText(['Календар', 'Організація', 'База знань'])
   await expect(menu.getByRole('menuitem').first()).toBeFocused()
   await page.keyboard.press('ArrowDown')
   await expect(menu.getByRole('menuitem').nth(1)).toBeFocused()

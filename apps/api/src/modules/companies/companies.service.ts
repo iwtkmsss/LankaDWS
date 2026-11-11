@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from '../../common/errors.js'
 import { id } from '../../common/crypto.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class CompaniesService {
@@ -67,7 +68,7 @@ export class CompaniesService {
         await tx.user.updateMany({ where: { id: { in: employeeIds }, workspaceId: principal.workspaceId, accountType: 'USER', isActive: true }, data: { primaryCompanyId: company.id, authorizationVersion: { increment: 1 } } })
       }
       const saved = input.managerId ? await tx.company.update({ where: { id: company.id }, data: { managerId: input.managerId }, include: { manager: true } }) : company
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company.id, actorType: 'USER', actorId: principal.userId, action: 'company.created', entityType: 'COMPANY', entityId: company.id, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ managerId: input.managerId ?? null, employeeIds }), correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: company.id, action: 'company.created', entityType: 'COMPANY', entityId: company.id, risk: 'HIGH', safeDiff: { managerId: input.managerId ?? null, employeeIds } })
       return this.view(saved)
     })
   }
@@ -96,11 +97,7 @@ export class CompaniesService {
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.company.updateMany({ where: { id: companyId, workspaceId: principal.workspaceId, version: input.expectedVersion }, data: { managerId: input.managerId, version: { increment: 1 } } })
       if (updated.count !== 1) throw conflict('Компанію вже змінено іншим адміністратором.')
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'company.manager_updated', entityType: 'COMPANY', entityId: companyId, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ managerId: input.managerId }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'company.manager_updated', entityType: 'COMPANY', entityId: companyId, risk: 'HIGH', safeDiff: { managerId: input.managerId } })
     })
     return { id: companyId, managerId: input.managerId, version: input.expectedVersion + 1 }
   }

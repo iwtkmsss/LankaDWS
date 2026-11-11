@@ -43,14 +43,10 @@ import {
   type TaskCreateValidation,
 } from './types'
 import './task-create.css'
+import { toLocalDateTimeInput } from '../../../shared/lib/format'
 
 type DetailSection = Exclude<TaskCreateSection, 'main' | 'participants'>
 type DraftSaveState = 'saving' | 'saved' | 'error'
-
-function toLocalDateTime(value: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`
-}
 
 function defaultDraft(
   userId: string,
@@ -67,10 +63,10 @@ function defaultDraft(
     reporterId: userId,
     priority: copySource?.priority === 'CRITICAL' ? 'URGENT' : copySource?.priority ?? 'MEDIUM',
     requiresAcceptance: false,
-    startsAt: toLocalDateTime(startsAt),
+    startsAt: toLocalDateTimeInput(startsAt),
     dueAt: copySource?.deadline
-      ? toLocalDateTime(new Date(copySource.deadline))
-      : toLocalDateTime(new Date(startsAt.getTime() + 60 * 60 * 1_000)),
+      ? toLocalDateTimeInput(new Date(copySource.deadline))
+      : toLocalDateTimeInput(new Date(startsAt.getTime() + 60 * 60 * 1_000)),
     estimatedMinutes: '',
     participants: [{
       userId: copySource?.assignee.id || initialResponsibleId || userId,

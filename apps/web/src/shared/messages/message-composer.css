@@ -84,14 +84,14 @@
 .message-composer .message-composer__row > button:not(.message-composer__send):not(:disabled):focus-visible {
   border-color: var(--cobalt-300);
   background: var(--cobalt-50);
-  box-shadow: 0 4px 13px rgba(31, 94, 255, .12);
+  box-shadow: 0 4px 13px color-mix(in srgb, var(--cobalt-600) 12%, transparent);
 }
 
 .message-composer__row .message-composer__send {
   border-color: var(--cobalt-600);
   background: var(--cobalt-600);
-  color: #fff;
-  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
+  color: var(--on-accent);
+  box-shadow: 0 4px 13px color-mix(in srgb, var(--cobalt-600) 22%, transparent);
 }
 
 .message-composer__row .message-composer__send:disabled {
@@ -105,8 +105,8 @@
 .message-composer .message-composer__row .message-composer__send:focus-visible {
   border-color: var(--cobalt-500);
   background: var(--cobalt-500);
-  color: #fff;
-  box-shadow: 0 4px 13px rgba(31, 94, 255, .22);
+  color: var(--on-accent);
+  box-shadow: 0 4px 13px color-mix(in srgb, var(--cobalt-600) 22%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

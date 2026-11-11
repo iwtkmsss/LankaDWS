@@ -8,6 +8,7 @@ import { IconButton, Modal } from '../ui'
 import { SaveToDriveButton } from './SaveToDriveButton'
 import { FileDocumentPreview } from './FileDocumentPreview'
 import { isPreviewableImage, isTextPreview, MAX_TEXT_PREVIEW_BYTES } from './filePreview'
+import { formatFileSize } from '../lib/format'
 
 export interface PreviewFile {
   id: string
@@ -39,13 +40,6 @@ const CENTERED: Offset = { x: 0, y: 0 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
-}
-
-function formatFileSize(bytes: number | null | undefined): string {
-  if (bytes === null || bytes === undefined) return ''
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
 export function FilePreviewModal({ file, onClose, metadata, footerActions, openInNewTab = true, saveToDrive = true, gallery }: {

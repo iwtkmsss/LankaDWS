@@ -20,6 +20,7 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService } from '../files/files.service.js'
 import { DriveFoldersService } from './drive-folders.service.js'
 import { DriveSharingService } from './drive-sharing.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 const RECENT_LIMIT = 50
 
@@ -510,20 +511,6 @@ export class DriveService {
   }
 
   private async audit(principal: AuthPrincipal, companyId: string, documentId: string, action: string): Promise<void> {
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action,
-        entityType: 'DOCUMENT',
-        entityId: documentId,
-        result: 'SUCCESS',
-        risk: 'NORMAL',
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId, action, entityType: 'DOCUMENT', entityId: documentId })
   }
 }

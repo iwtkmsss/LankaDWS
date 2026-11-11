@@ -6,6 +6,7 @@ import { badRequest, conflict, forbidden, notFound } from '../../common/errors.j
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class TaskTimeService {
@@ -232,21 +233,6 @@ export class TaskTimeService {
       const task = await tx.task.update({ where: { id: taskId }, data: { version: { increment: 1 } } })
       await notifyTaskParticipants(tx, taskId, principal.userId, task.version, action, safeDiff)
     })
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action,
-        entityType: 'TASK',
-        entityId: taskId,
-        result: 'SUCCESS',
-        risk: 'NORMAL',
-        safeDiffJson: JSON.stringify(safeDiff),
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId, action, entityType: 'TASK', entityId: taskId, safeDiff: safeDiff })
   }
 }

@@ -18,7 +18,6 @@ import {
   type MentionCandidateView,
   type MentionSearchQuery,
   type UpdateFeedPostInput,
-  type StructuredMentionInput,
   type StructuredMentionView,
   FEED_PHOTO_MAX_BYTES,
   FEED_PHOTO_MIME_TYPES,
@@ -36,10 +35,13 @@ import { ScopeService } from '../authorization/scope.service.js';
 import { FilesService, type UploadedBinary } from '../files/files.service.js';
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js';
 import { advanceFeedSourceHead } from './feed-projection.service.js';
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js';
+import { validateStructuredMentions } from '../../common/mentions.js';
 import {
   calendarDateInTimeZone,
   daysUntilBirthday,
 } from './birthday-highlight.js';
+import { recordAudit, type AuditDb } from '../../common/audit.js'
 
 interface FeedCursor {
   occurredAt: string;
@@ -124,25 +126,10 @@ export class FeedService {
         data: { status: 'REVOKED', version: { increment: 1 }, revokedAt: now },
       });
       if (updated.count !== 1) throw conflict();
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: share.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'feed.file.revoked',
-          entityType: 'FEED_FILE_SHARE',
-          entityId: share.id,
-          result: 'SUCCESS',
-          risk: 'HIGH',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: share.companyId, action: 'feed.file.revoked', entityType: 'FEED_FILE_SHARE', entityId: share.id, risk: 'HIGH', safeDiff: {
             fromVersion: expectedVersion,
             toVersion: expectedVersion + 1,
-          }),
-          correlationId: id('corr'),
-        },
-      });
+          } });
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -724,14 +711,8 @@ export class FeedService {
     input: CreateFeedPostInput,
     idempotencyKey: string,
   ): Promise<{ id: string; version: number }> {
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        userId_key_operation: {
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'feed.post.create',
-        },
-      },
+    const existing = await findIdempotentResult(this.prisma, {
+      userId: principal.userId, key: idempotencyKey, operation: 'feed.post.create', fingerprint: idempotencyKey,
     });
     if (existing?.resultId) {
       const post = await this.prisma.feedPost.findUnique({
@@ -748,7 +729,7 @@ export class FeedService {
     const mentionedUserIds = [
       ...new Set([
         ...input.mentionedUserIds,
-        ...this.validateStructuredMentions(input.body, input.mentions),
+        ...validateStructuredMentions(input.body, input.mentions, 'feed_mention_invalid'),
       ]),
     ];
     await this.assertMentions(mentionedUserIds, audience.userIds, principal.userId, principal);
@@ -899,21 +880,8 @@ export class FeedService {
           update: {},
         });
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'feed.post.create',
-          requestFingerprint: idempotencyKey,
-          resultType: 'FEED_POST',
-          resultId: postId,
-          responseStatus: 201,
-          expiresAt: new Date(now.getTime() + 86_400_000),
-        },
-      });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'feed.post.create', fingerprint: idempotencyKey }, { type: 'FEED_POST', id: postId });
+      await this.recordPostAudit(tx, 
           principal,
           input.companyId,
           'feed.post.published',
@@ -922,8 +890,7 @@ export class FeedService {
             audience: input.audience.type,
             requiresAcknowledgement: input.requiresAcknowledgement,
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -978,10 +945,8 @@ export class FeedService {
       ? [
           ...new Set([
             ...(input.mentionedUserIds ?? []),
-            ...this.validateStructuredMentions(
-              input.body,
-              nextStructuredMentions,
-            ),
+            ...validateStructuredMentions(input.body,
+              nextStructuredMentions, 'feed_mention_invalid'),
           ]),
         ]
       : [];
@@ -1149,8 +1114,7 @@ export class FeedService {
           });
         }
       }
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.edited',
@@ -1168,8 +1132,7 @@ export class FeedService {
                 }
               : {}),
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1240,8 +1203,7 @@ export class FeedService {
         countsAsUnread: true,
         occurredAt: now,
       });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.archived',
@@ -1249,8 +1211,7 @@ export class FeedService {
           {
             version: { from: post.version, to: nextVersion },
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1304,7 +1265,7 @@ export class FeedService {
     const mentionedUserIds = [
       ...new Set([
         ...input.mentionedUserIds,
-        ...this.validateStructuredMentions(input.body, input.mentions),
+        ...validateStructuredMentions(input.body, input.mentions, 'feed_mention_invalid'),
       ]),
     ];
     await this.assertMentions(mentionedUserIds, audienceUserIds, principal.userId, principal);
@@ -1412,8 +1373,7 @@ export class FeedService {
           update: {},
         });
       }
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.comment.created',
@@ -1423,8 +1383,7 @@ export class FeedService {
             replyToCommentId: parent?.id ?? null,
             attachmentCount: attachmentIds.length,
           },
-        ),
-      });
+        );
       return created;
     });
     this.realtime?.publishSummary(notificationUserIds, ['notifications']);
@@ -1456,15 +1415,13 @@ export class FeedService {
     const count = await this.prisma.feedReaction.count({
       where: { postId, kind: 'LIKE' },
     });
-    await this.prisma.auditEvent.create({
-      data: this.auditData(
+    await this.recordPostAudit(this.prisma, 
         principal,
         post.companyId,
         existing ? 'feed.reaction.removed' : 'feed.reaction.added',
         postId,
         { kind: 'LIKE' },
-      ),
-    });
+      );
     return { liked: !existing, count };
   }
 
@@ -1516,8 +1473,7 @@ export class FeedService {
           acknowledgementVersion,
         },
       });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.acknowledged',
@@ -1525,8 +1481,7 @@ export class FeedService {
           {
             acknowledgementVersion,
           },
-        ),
-      });
+        );
       await tx.notification.updateMany({
         where: {
           recipientId: principal.userId,
@@ -1822,27 +1777,6 @@ export class FeedService {
       select: { id: true },
     });
     return users.map((user) => user.id);
-  }
-
-  private validateStructuredMentions(
-    body: string,
-    mentions: StructuredMentionInput[],
-  ): string[] {
-    const ordered = mentions.toSorted(
-      (left, right) => left.start - right.start || left.end - right.end,
-    );
-    let previousEnd = 0;
-    for (const mention of ordered) {
-      if (
-        mention.start < previousEnd ||
-        mention.end > body.length ||
-        body.slice(mention.start, mention.end) !== `@${mention.label}`
-      ) {
-        throw badRequest('feed_mention_invalid');
-      }
-      previousEnd = mention.end;
-    }
-    return [...new Set(ordered.map((mention) => mention.userId))];
   }
 
   private async assertMentions(
@@ -2726,27 +2660,15 @@ export class FeedService {
     };
   }
 
-  private auditData(
+  private recordPostAudit(
+    db: AuditDb,
     principal: AuthPrincipal,
     companyId: string,
     action: string,
     entityId: string,
     safeDiff: Record<string, unknown>,
   ) {
-    return {
-      id: id('aud'),
-      workspaceId: principal.workspaceId,
-      companyId,
-      actorType: 'USER',
-      actorId: principal.userId,
-      action,
-      entityType: 'FEED_POST',
-      entityId,
-      result: 'SUCCESS',
-      risk: 'NORMAL',
-      safeDiffJson: JSON.stringify(safeDiff),
-      correlationId: id('corr'),
-    };
+    return recordAudit(db, principal, { companyId, action, entityType: 'FEED_POST', entityId, safeDiff });
   }
 
   private encodeCursor(cursor: FeedCursor): string {

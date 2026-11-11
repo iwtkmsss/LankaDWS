@@ -6,6 +6,7 @@ import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { DriveSharingService } from './drive-sharing.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 export type DocumentSection = 'ALL' | 'MINE' | 'SHARED' | 'DRAFTS' | 'ARCHIVED'
 export type DocumentFileType = 'ALL' | 'DOCUMENT' | 'IMAGE' | 'OTHER'
@@ -137,7 +138,7 @@ export class DocumentsService {
     await this.prisma.$transaction(async (tx) => {
       await tx.document.create({ data: { id: documentId, workspaceId: principal.workspaceId, companyId, number: `DOC-${Date.now().toString().slice(-7)}`, name: input.name.trim(), ownerId: principal.userId, status: 'DRAFT', fileId: file.id } })
       await tx.fileLink.create({ data: { id: id('fln'), fileId: file.id, entityType: 'DOCUMENT', entityId: documentId, purpose: 'CONTENT', aclMode: 'INHERIT' } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId, action: 'document.created', entityType: 'DOCUMENT', entityId: documentId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId, action: 'document.created', entityType: 'DOCUMENT', entityId: documentId })
     })
     return this.detail(principal, documentId)
   }
@@ -148,7 +149,7 @@ export class DocumentsService {
     if (document.version !== expectedVersion || !document.fileId) throw conflict()
     await this.prisma.$transaction(async (tx) => {
       await tx.document.update({ where: { id: document.id }, data: { status: 'PUBLISHED', version: { increment: 1 } } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: document.companyId, actorType: 'USER', actorId: principal.userId, action: 'document.published', entityType: 'DOCUMENT', entityId: document.id, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: document.companyId, action: 'document.published', entityType: 'DOCUMENT', entityId: document.id, risk: 'HIGH' })
     })
     return { published: true, version: expectedVersion + 1 }
   }
@@ -166,21 +167,7 @@ export class DocumentsService {
         where: { id: document.id },
         data: { archivedAt, version: { increment: 1 } },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: document.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'document.archived',
-          entityType: 'DOCUMENT',
-          entityId: document.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: document.companyId, action: 'document.archived', entityType: 'DOCUMENT', entityId: document.id })
     })
     return { archived: true, archivedAt: archivedAt.toISOString(), version: expectedVersion + 1 }
   }
@@ -197,21 +184,7 @@ export class DocumentsService {
         where: { id: document.id },
         data: { archivedAt: null, version: { increment: 1 } },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: document.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'document.restored',
-          entityType: 'DOCUMENT',
-          entityId: document.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: document.companyId, action: 'document.restored', entityType: 'DOCUMENT', entityId: document.id })
     })
     return { restored: true, version: expectedVersion + 1 }
   }

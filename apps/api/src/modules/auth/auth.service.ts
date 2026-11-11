@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
+import { recordAudit } from '../../common/audit.js'
 
 interface SessionTarget { id: string; authorizationVersion: number }
 
@@ -161,19 +162,19 @@ export class AuthService {
       },
       select: { contactEmail: true, phone: true, gender: true, birthDate: true, timezone: true, locale: true },
     })
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'profile.updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { companyId: principal.primaryCompanyId, action: 'profile.updated', entityType: 'USER', entityId: principal.userId })
     return user
   }
 
   async updateAvatar(principal: AuthPrincipal, fileId: string) {
     await this.prisma.user.update({ where: { id: principal.userId }, data: { avatarAsset: fileId } })
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId || null, actorType: 'USER', actorId: principal.userId, action: 'profile.avatar_updated', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { companyId: principal.primaryCompanyId || null, action: 'profile.avatar_updated', entityType: 'USER', entityId: principal.userId })
     return { avatarAsset: `/api/v1/me/avatar/${fileId}` }
   }
 
   async removeAvatar(principal: AuthPrincipal) {
     await this.prisma.user.update({ where: { id: principal.userId }, data: { avatarAsset: null } })
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId || null, actorType: 'USER', actorId: principal.userId, action: 'profile.avatar_removed', entityType: 'USER', entityId: principal.userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { companyId: principal.primaryCompanyId || null, action: 'profile.avatar_removed', entityType: 'USER', entityId: principal.userId })
     return { avatarAsset: null }
   }
 

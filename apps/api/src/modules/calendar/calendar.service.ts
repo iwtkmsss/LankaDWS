@@ -14,6 +14,8 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { writeFeedProjection } from '../feed/feed-projection.service.js'
 import { readReminderMinutes, scheduleCalendarReminder } from './calendar-reminder.js'
 import { snapshotEventAcknowledgements } from './calendar-acknowledgement.js'
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
+import { recordAudit } from '../../common/audit.js'
 
 const createOperation = 'calendar.event.create'
 
@@ -161,21 +163,7 @@ export class CalendarService {
       if (requiresAcknowledgement) await snapshotEventAcknowledgements(tx, {
         id: event.id, version: nextVersion, ownerId: event.ownerId, workspaceId: principal.workspaceId,
       }, audienceCompanyIds)
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: event.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'calendar.event.updated',
-          entityType: 'EVENT',
-          entityId: event.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: event.companyId, action: 'calendar.event.updated', entityType: 'EVENT', entityId: event.id })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -211,11 +199,7 @@ export class CalendarService {
       await tx.feedSourceHead.deleteMany({
         where: { workspaceId: principal.workspaceId, sourceType: 'EVENT', sourceId: eventId },
       })
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId: event.companyId,
-        actorType: 'USER', actorId: principal.userId, action: 'calendar.event.deleted',
-        entityType: 'EVENT', entityId: eventId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId: event.companyId, action: 'calendar.event.deleted', entityType: 'EVENT', entityId: eventId })
       await tx.outboxEvent.create({ data: {
         id: id('out'), aggregateType: 'EVENT', aggregateId: eventId, aggregateVersion: expectedVersion + 1,
         eventType: 'calendar.event.deleted', safePayload: JSON.stringify({ eventId, companyId: event.companyId }),
@@ -245,12 +229,7 @@ export class CalendarService {
         where: { recipientId: principal.userId, dedupeKey: `calendar-ack:${eventId}:${expectedVersion}:${principal.userId}` },
         data: { requiresAction: false, readAt: acknowledgedAt },
       })
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId: event.companyId,
-        actorType: 'USER', actorId: principal.userId, action: 'calendar.event.acknowledged',
-        entityType: 'EVENT', entityId: eventId, result: 'SUCCESS', risk: 'NORMAL',
-        safeDiffJson: JSON.stringify({ eventVersion: expectedVersion }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId: event.companyId, action: 'calendar.event.acknowledged', entityType: 'EVENT', entityId: eventId, safeDiff: { eventVersion: expectedVersion } })
       return { acknowledgedAt: acknowledgedAt.toISOString() }
     })
   }
@@ -285,18 +264,7 @@ export class CalendarService {
       isPrivate,
       ...input,
     }), operation)
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        userId_key_operation: {
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-        },
-      },
-    })
-    if (existing && existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('Цей ключ повтору вже використано для іншого запиту.')
-    }
+    const existing = await findIdempotentResult(this.prisma, { userId: principal.userId, key: idempotencyKey, operation, fingerprint: requestFingerprint })
     if (existing?.resultId) {
       const event = await this.prisma.event.findFirst({
         where: {
@@ -360,35 +328,8 @@ export class CalendarService {
           occurredAt: event.createdAt,
         })
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-          requestFingerprint,
-          resultType: 'EVENT',
-          resultId: eventId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'calendar.event.created',
-          entityType: 'EVENT',
-          entityId: eventId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ source: 'CALENDAR' }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'EVENT', id: eventId })
+      await recordAudit(tx, principal, { companyId, action: 'calendar.event.created', entityType: 'EVENT', entityId: eventId, safeDiff: { source: 'CALENDAR' } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),

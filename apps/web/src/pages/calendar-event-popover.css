@@ -1,7 +1,7 @@
 .calendar-event-popover {
   --overlay-width: 420px;
   position: fixed;
-  z-index: 119;
+  z-index: var(--z-calendar-popover);
   height: min(520px, calc(100dvh - 32px));
   max-height: calc(100dvh - 32px);
   border-top: 3px solid var(--calendar-color, var(--accent-solid));
@@ -118,7 +118,7 @@
   width: 100%;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 780px) {
   .calendar-event-popover {
     width: min(420px, calc(100vw - 32px));
   }

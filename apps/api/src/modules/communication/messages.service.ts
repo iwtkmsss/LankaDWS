@@ -47,6 +47,8 @@ import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
 import { scoreChatRecommendation, type ChatRecommendationSignals } from './chat-recommendations.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
+import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
+import { validateStructuredMentions } from '../../common/mentions.js'
 import {
   decodeChatMessageCursor,
   decodeChatThreadCursor,
@@ -55,6 +57,7 @@ import {
   type ChatMessageCursor,
   type ChatThreadCursor,
 } from './chat-cursors.js'
+import { recordAudit } from '../../common/audit.js'
 
 type SafeUser = Pick<User, 'id' | 'displayName' | 'username' | 'jobTitle' | 'avatarAsset'>
 type ThreadWithParticipants = MessageThread & {
@@ -237,27 +240,7 @@ export class MessagesService {
               data: { directKey },
             })
           }
-          await tx.idempotencyRecord.upsert({
-            where: {
-              userId_key_operation: {
-                userId: principal.userId,
-                key: idempotencyKey,
-                operation: 'chat.thread.create',
-              },
-            },
-            create: {
-              id: id('idem'),
-              userId: principal.userId,
-              key: idempotencyKey,
-              operation: 'chat.thread.create',
-              requestFingerprint,
-              resultType: 'MESSAGE_THREAD',
-              resultId: existingDirect.id,
-              responseStatus: 200,
-              expiresAt: new Date(Date.now() + 86_400_000),
-            },
-            update: {},
-          })
+          await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: existingDirect.id, status: 200 }, { upsert: true })
         })
         return { id: existingDirect.id, created: false }
       }
@@ -293,38 +276,11 @@ export class MessagesService {
           })),
         ],
       })
-        await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.thread.create',
-          requestFingerprint,
-          resultType: 'MESSAGE_THREAD',
-          resultId: threadId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
-        await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.thread_created',
-          entityType: 'MESSAGE_THREAD',
-          entityId: threadId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+        await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: threadId })
+        await recordAudit(tx, principal, { companyId, action: 'message.thread_created', entityType: 'MESSAGE_THREAD', entityId: threadId, safeDiff: {
             kind: input.kind,
             participantCount: participantIds.length + 1,
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
         await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -344,27 +300,7 @@ export class MessagesService {
         directKey,
       )
       if (!canonical) throw error
-      await this.prisma.idempotencyRecord.upsert({
-        where: {
-          userId_key_operation: {
-            userId: principal.userId,
-            key: idempotencyKey,
-            operation: 'chat.thread.create',
-          },
-        },
-        create: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.thread.create',
-          requestFingerprint,
-          resultType: 'MESSAGE_THREAD',
-          resultId: canonical.id,
-          responseStatus: 200,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-        update: {},
-      })
+      await recordIdempotentResult(this.prisma, { userId: principal.userId, key: idempotencyKey, operation: 'chat.thread.create', fingerprint: requestFingerprint }, { type: 'MESSAGE_THREAD', id: canonical.id, status: 200 }, { upsert: true })
       return { id: canonical.id, created: false }
     }
     return { id: threadId, created: true }
@@ -785,7 +721,7 @@ export class MessagesService {
     const text = input.body.trim()
     const replyToId = input.replyToId ?? null
     const attachmentIds = input.attachmentIds
-    const mentionedUserIds = this.validateStructuredMentions(text, input.mentions)
+    const mentionedUserIds = validateStructuredMentions(text, input.mentions, 'chat_mention_invalid')
     if (input.mentions.length > 0) {
       await this.assertMessageMentionRecipients(principal, thread, mentionedUserIds)
     }
@@ -898,40 +834,13 @@ export class MessagesService {
           },
         })
       }
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation: 'chat.message.create',
-          requestFingerprint,
-          resultType: 'MESSAGE',
-          resultId: messageId,
-          responseStatus: 201,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: replyToId ? 'message.replied' : 'message.created',
-          entityType: 'MESSAGE',
-          entityId: messageId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: 'chat.message.create', fingerprint: requestFingerprint }, { type: 'MESSAGE', id: messageId })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: replyToId ? 'message.replied' : 'message.created', entityType: 'MESSAGE', entityId: messageId, safeDiff: {
             threadId,
             hasReply: Boolean(replyToId),
             attachmentCount: attachmentIds.length,
             mentionCount: mentionedUserIds.length,
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1001,15 +910,7 @@ export class MessagesService {
       return [{ id: file.id, fileName, storageKey: file.storageKey }]
     })
     if (entries.length < 2) throw new DomainError(409, 'chat_attachment_archive_unavailable')
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId: thread.companyId,
-        actorType: 'USER', actorId: principal.userId, action: 'chat.attachments.archive_downloaded',
-        entityType: 'MESSAGE', entityId: message.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ threadId: thread.id, attachmentCount: entries.length }),
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId: thread.companyId, action: 'chat.attachments.archive_downloaded', entityType: 'MESSAGE', entityId: message.id, risk: 'HIGH', safeDiff: { threadId: thread.id, attachmentCount: entries.length } })
     return { archiveName: `Вкладення-${message.createdAt.toISOString().slice(0, 10)}.zip`, files: entries }
   }
 
@@ -1085,19 +986,7 @@ export class MessagesService {
               role: input.role,
             },
           })
-      await tx.idempotencyRecord.create({
-        data: {
-          id: id('idem'),
-          userId: principal.userId,
-          key: idempotencyKey,
-          operation,
-          requestFingerprint,
-          resultType: 'THREAD_PARTICIPANT',
-          resultId: participant.id,
-          responseStatus: 201,
-          expiresAt: new Date(now.getTime() + 86_400_000),
-        },
-      })
+      await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'THREAD_PARTICIPANT', id: participant.id })
       await tx.notification.upsert({
         where: {
           dedupeKey: `chat-participant-added:${thread.id}:${input.userId}:v${input.expectedThreadVersion + 1}`,
@@ -1116,22 +1005,7 @@ export class MessagesService {
         },
         update: {},
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.participant_added',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ role: input.role, participantCount: 1 }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: 'message.participant_added', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { role: input.role, participantCount: 1 } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1208,22 +1082,7 @@ export class MessagesService {
       if (changed.count !== 1) {
         throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.participant_role_changed',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ from: target.role, to: input.role }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: 'message.participant_role_changed', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { from: target.role, to: input.role } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1297,24 +1156,9 @@ export class MessagesService {
       if (removed.count !== 1) {
         throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: target.userId === principal.userId
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: target.userId === principal.userId
             ? 'message.participant_left'
-            : 'message.participant_removed',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ participantCount: -1 }),
-          correlationId: id('corr'),
-        },
-      })
+            : 'message.participant_removed', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { participantCount: -1 } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1373,7 +1217,7 @@ export class MessagesService {
     })
     const nextMentions = input.mentions?.toSorted((left, right) => left.start - right.start || left.end - right.end)
     const mentionedUserIds = nextMentions
-      ? this.validateStructuredMentions(body, nextMentions)
+      ? validateStructuredMentions(body, nextMentions, 'chat_mention_invalid')
       : []
     if (nextMentions?.length) {
       await this.assertMessageMentionRecipients(
@@ -1470,25 +1314,10 @@ export class MessagesService {
           })
         }
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: message.thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.edited',
-          entityType: 'MESSAGE',
-          entityId: message.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: message.thread.companyId, action: 'message.edited', entityType: 'MESSAGE', entityId: message.id, safeDiff: {
             ...(nextMentions ? { mentionCount: mentionedUserIds.length } : {}),
             ...(removedAttachmentIds.length ? { removedAttachmentCount: removedAttachmentIds.length } : {}),
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1625,21 +1454,7 @@ export class MessagesService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: message.thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.deleted',
-          entityType: 'MESSAGE',
-          entityId: message.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: message.thread.companyId, action: 'message.deleted', entityType: 'MESSAGE', entityId: message.id })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1847,22 +1662,6 @@ export class MessagesService {
     })
     if (!message) throw notFound()
     return message
-  }
-
-  private validateStructuredMentions(body: string, mentions: StructuredMentionInput[]): string[] {
-    const ordered = mentions.toSorted((left, right) => left.start - right.start || left.end - right.end)
-    let previousEnd = 0
-    for (const mention of ordered) {
-      if (
-        mention.start < previousEnd
-        || mention.end > body.length
-        || body.slice(mention.start, mention.end) !== `@${mention.label}`
-      ) {
-        throw badRequest('chat_mention_invalid')
-      }
-      previousEnd = mention.end
-    }
-    return [...new Set(ordered.map((mention) => mention.userId))]
   }
 
   private async assertMessageMentionRecipients(
@@ -2440,19 +2239,7 @@ export class MessagesService {
     operation: string,
     requestFingerprint: string,
   ): Promise<string | null> {
-    const existing = await this.prisma.idempotencyRecord.findUnique({
-      where: {
-        userId_key_operation: {
-          userId,
-          key,
-          operation,
-        },
-      },
-    })
-    if (existing && existing.requestFingerprint !== requestFingerprint) {
-      throw conflict('Цей ключ повтору вже використано для іншого запиту.')
-    }
-    return existing?.resultId ?? null
+    return (await findIdempotentResult(this.prisma, { userId, key, operation, fingerprint: requestFingerprint }))?.resultId ?? null
   }
 
   private threadListItem(

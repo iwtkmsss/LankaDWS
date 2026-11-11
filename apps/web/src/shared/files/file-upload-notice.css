@@ -1,4 +1,4 @@
-.file-upload-notice { position: fixed; z-index: 300; top: 16px; left: 50%; display: flex; align-items: center; gap: var(--space-2); width: max-content; max-width: min(600px, calc(100% - 24px)); box-shadow: var(--shadow-lg); transform: translateX(-50%); }
+.file-upload-notice { position: fixed; z-index: var(--z-toast); top: 16px; left: 50%; display: flex; align-items: center; gap: var(--space-2); width: max-content; max-width: min(600px, calc(100% - 24px)); box-shadow: var(--shadow-lg); transform: translateX(-50%); }
 .file-upload-notice > svg { flex: none; }
 .file-upload-notice > span { min-width: 0; overflow-wrap: anywhere; }
 .file-upload-notice > button { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; }

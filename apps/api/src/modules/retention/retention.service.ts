@@ -10,6 +10,7 @@ import {
   isRetentionCategory,
   retentionCategories,
 } from './retention.plan.js';
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class RetentionService {
@@ -83,27 +84,12 @@ export class RetentionService {
           changedBy: principal.userId,
         },
       });
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'retention.policy_changed',
-          entityType: 'RETENTION_POLICY',
-          entityId: created.id,
-          result: 'SUCCESS',
-          risk: 'CRITICAL',
-          reasonCode: input.reason.trim(),
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { action: 'retention.policy_changed', entityType: 'RETENTION_POLICY', entityId: created.id, risk: 'CRITICAL', reasonCode: input.reason.trim(), safeDiff: {
             category,
             beforeDays: current?.durationDays ?? null,
             afterDays: input.durationDays,
             effectiveAt: effectiveAt.toISOString(),
-          }),
-          correlationId: id('corr'),
-        },
-      });
+          } });
       return created;
     });
     return policy;
@@ -135,22 +121,7 @@ export class RetentionService {
           status: 'ACTIVE',
         },
       });
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'legal_hold.placed',
-          entityType,
-          entityId,
-          result: 'SUCCESS',
-          risk: 'CRITICAL',
-          reasonCode: reason,
-          safeDiffJson: JSON.stringify({ holdId: hold.id }),
-          correlationId: id('corr'),
-        },
-      });
+      await recordAudit(tx, principal, { action: 'legal_hold.placed', entityType, entityId, risk: 'CRITICAL', reasonCode: reason, safeDiff: { holdId: hold.id } });
       return hold;
     });
   }
@@ -176,22 +147,7 @@ export class RetentionService {
           releasedAt: new Date(),
         },
       });
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'legal_hold.released',
-          entityType: hold.entityType,
-          entityId: hold.entityId,
-          result: 'SUCCESS',
-          risk: 'CRITICAL',
-          reasonCode: reason.trim(),
-          safeDiffJson: JSON.stringify({ holdId }),
-          correlationId: id('corr'),
-        },
-      });
+      await recordAudit(tx, principal, { action: 'legal_hold.released', entityType: hold.entityType, entityId: hold.entityId, risk: 'CRITICAL', reasonCode: reason.trim(), safeDiff: { holdId } });
     });
     return { released: true };
   }
@@ -281,27 +237,12 @@ export class RetentionService {
       },
       durableKey,
     );
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action: 'retention.purge_requested',
-        entityType: 'RETENTION',
-        entityId: purgeId,
-        result: 'QUEUED',
-        risk: 'CRITICAL',
-        reasonCode: input.reason.trim(),
-        safeDiffJson: JSON.stringify({
+    await recordAudit(this.prisma, principal, { action: 'retention.purge_requested', entityType: 'RETENTION', entityId: purgeId, result: 'QUEUED', risk: 'CRITICAL', reasonCode: input.reason.trim(), safeDiff: {
           category: input.category,
           cutoff: cutoff.toISOString(),
           expectedCount: input.expectedCount,
           jobId,
-        }),
-        correlationId: id('corr'),
-      },
-    });
+        } });
     return {
       purgeId,
       jobId,
