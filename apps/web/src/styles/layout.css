@@ -117,7 +117,7 @@ kbd { border: 1px solid var(--line); border-radius: var(--radius-xs); background
 .route-loading, .center-state { display: grid; min-height: 80vh; place-items: center; }
 
 @media (min-width: 1051px) {
-  .topbar { padding-left: var(--content-gutter); }
+  .topbar { padding-inline: var(--content-gutter); } /* same gutter as the content on both sides keeps the search centred */
   .right-panel-open .workspace { --workspace-panel-width: var(--right-panel); }
   .right-panel-open .topbar__actions { visibility: hidden; pointer-events: none; }
   .sidebar-collapsed .sidebar { width: 72px; }

@@ -973,7 +973,9 @@
 .task-comment-edit-form {
   display: grid;
   gap: var(--space-2);
-  min-width: min(520px, 62vw);
+  /* As wide as the bubble may grow, never wider: a fixed minimum pushed Save out of the card. */
+  width: 520px;
+  max-width: 100%;
   margin-top: var(--space-2);
 }
 

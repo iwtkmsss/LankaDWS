@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { CreateTaskInput } from '@lankadws/contracts'
 
 async function login(page: Page) {
@@ -8,6 +8,16 @@ async function login(page: Page) {
   await page.getByLabel('Пароль', { exact: true }).fill('LankaDWSDemoPassphrase2026!')
   await page.getByRole('button', { name: 'Увійти' }).click()
   await expect(page).toHaveURL(/\/feed$/)
+}
+
+/** DateTimePicker keeps its value in a hidden native input; set it the way the picker does. */
+async function setPickerValue(field: Locator, value: string) {
+  await field.evaluate((element, next) => {
+    const input = element as HTMLInputElement
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, next)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }, value)
 }
 
 function futureLocalDateTime(daysFromNow: number): string {
@@ -37,7 +47,7 @@ test('task creation is a standalone responsive page and guards dirty navigation'
   expect(listRequests).toEqual([])
 
   await page.getByLabel('Назва завдання').fill('Незавершена форма')
-  await form.getByRole('button', { name: 'Скасувати' }).click()
+  await form.getByRole('button', { name: 'Скасувати', exact: true }).click()
   const confirmation = page.getByRole('alertdialog', { name: 'Закрити форму?' })
   await expect(confirmation).toBeVisible()
   await expect(confirmation.getByRole('button', { name: 'Продовжити редагування' })).toBeFocused()
@@ -85,25 +95,25 @@ test('creates a task through the complete page workflow', async ({ page }, testI
 
   const title = `E2E створення · ${testInfo.project.name} · ${Date.now()}`
   await page.getByLabel('Назва завдання').fill(title)
-  await page.getByLabel('Опис').fill('Перевірка повної форми створення завдання.')
+  await page.getByRole('textbox', { name: 'Опис', exact: true }).fill('Перевірка повної форми створення завдання.')
   await dialog.getByLabel('Пріоритет').selectOption('URGENT')
-  await page.getByLabel('Дата початку').fill(futureLocalDateTime(2))
-  await page.getByLabel('Кінцевий термін').fill(futureLocalDateTime(4))
+  await setPickerValue(page.getByLabel('Дата початку'), futureLocalDateTime(2))
+  await setPickerValue(page.getByLabel('Кінцевий термін'), futureLocalDateTime(4))
 
   const attachmentName = `task-create-${testInfo.project.name}.txt`
-  await dialog.locator('input[type="file"]').setInputFiles({
+  await dialog.getByLabel('Додати файл', { exact: true }).setInputFiles({
     name: attachmentName,
     mimeType: 'text/plain',
     buffer: Buffer.from('Task creation modal E2E attachment'),
   })
   await expect(dialog.locator('.task-create-attachments li').filter({ hasText: attachmentName })).toBeVisible()
 
-  const responsibleSearch = dialog.getByRole('combobox', { name: 'Змінити відповідального' })
+  const responsibleSearch = dialog.getByRole('combobox', { name: 'Змінити: відповідальний' })
   await responsibleSearch.fill('Андр')
-  await dialog.getByRole('option', { name: /Андрій Коваль/ }).click()
+  await dialog.getByRole('option', { name: /Коваль Андрій/ }).click()
   const collaboratorSearch = dialog.getByRole('combobox', { name: 'Додати: співвиконавець' })
   await collaboratorSearch.fill('Оле')
-  await dialog.getByRole('option', { name: /Олена Бондар/ }).click()
+  await dialog.getByRole('option', { name: /Бондар Олена/ }).click()
 
   await checklistToggle.click()
   const checklistPanel = dialog.locator('#task-create-checklist-panel')
@@ -143,7 +153,8 @@ test('creates a task through the complete page workflow', async ({ page }, testI
   const payload = createRequest.postDataJSON() as CreateTaskInput
   expect(payload).toMatchObject({
     title,
-    description: 'Перевірка повної форми створення завдання.',
+    // The rich-text editor stores markdown and escapes punctuation; the renderer unescapes it.
+    description: String.raw`Перевірка повної форми створення завдання\.`,
     projectId: 'prj_website',
     parentTaskId: 'tsk_design',
     reporterId: 'usr_maria',
@@ -208,7 +219,7 @@ test('sends a selected task comment mention as structured data', async ({ page }
   const comment = discussion.getByRole('textbox', { name: 'Коментар до завдання' })
   await comment.fill('@оле')
   await page.getByRole('listbox', { name: 'Коментар до завдання: варіанти згадок' })
-    .getByRole('option', { name: /Олена Бондар/ })
+    .getByRole('option', { name: /Бондар Олена/ })
     .click()
   await comment.pressSequentially(', перевір, будь ласка.')
 
@@ -220,17 +231,17 @@ test('sends a selected task comment mention as structured data', async ({ page }
   const request = await requestPromise
   expect(request.headers()['idempotency-key']).toMatch(/^task-comment:/)
   expect(request.postDataJSON()).toMatchObject({
-    body: '@Олена Бондар, перевір, будь ласка.',
+    body: '@Бондар Олена, перевір, будь ласка.',
     mentions: [{
       userId: 'usr_olena',
       start: 0,
       end: 13,
-      label: 'Олена Бондар',
+      label: 'Бондар Олена',
     }],
   })
 
-  await expect(page.getByRole('link', { name: '@Олена Бондар' }).last()).toBeVisible()
-  await expect(page.locator('.task-role-group').filter({ hasText: 'Олена Бондар' })).toBeVisible()
+  await expect(discussion.getByRole('link', { name: 'Бондар Олена', exact: true }).last()).toBeVisible()
+  await expect(page.locator('.task-role-group').filter({ hasText: 'Бондар Олена' })).toBeVisible()
 })
 
 test('optional options failures stay local and do not block basic task creation', async ({ page }, testInfo) => {

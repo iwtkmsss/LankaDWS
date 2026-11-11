@@ -187,7 +187,7 @@ export function MessageBubble({
       {!editing && message.editedAt && <span className="message-bubble__edited">змінено</span>}
       <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
       {own && (
-        <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} aria-label={deliveryLabel}>
+        <span className={`message-delivery-status ${message.readByCount > 0 ? 'is-read' : ''}`} role="img" aria-label={deliveryLabel}>
           {message.readByCount > 0 ? <CheckCheck size={13} /> : <Check size={13} />}
         </span>
       )}

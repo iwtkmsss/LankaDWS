@@ -281,7 +281,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
           {sourceAction}
         </div> : <FeedMetadata entries={item.metadata} onProfile={onProfile} renderPerson={renderPerson} />}
         {item.kind === 'TASK' && !renderPerson && sourceAuthor}
-        {listedAttachments?.length ? <section className="stream-attachments" aria-label="Вкладення"><span className="stream-section-label">Вкладення · {listedAttachments.length}</span>{listedAttachments.map((file) => <div key={file.id}>{renderAttachment ? renderAttachment(file) : <FeedFileRow file={file} onPreview={() => onFile(file, 'preview')} onDownload={() => onFile(file, 'download')} />}</div>)}</section> : null}
+        {listedAttachments?.length ? <div className="stream-attachments" role="group" aria-label="Вкладення"><span className="stream-section-label">Вкладення · {listedAttachments.length}</span>{listedAttachments.map((file) => <div key={file.id}>{renderAttachment ? renderAttachment(file) : <FeedFileRow file={file} onPreview={() => onFile(file, 'preview')} onDownload={() => onFile(file, 'download')} />}</div>)}</div> : null}
       </div>
 
       {(state.mode === 'archive' || state.mode === 'archiving') && <div className="stream-card__confirm" role="alert"><TriangleAlert size={20} /><span><strong>Архівувати публікацію?</strong><small>Запис зникне зі стрічки для всіх одержувачів.</small></span><div><Button type="button" variant="secondary" disabled={busy} onClick={() => onAction('cancel-archive')}>Скасувати</Button><Button type="button" variant="danger" disabled={busy} onClick={() => onAction('confirm-archive')}>{busy ? 'Прибираємо…' : 'Підтвердити'}</Button></div></div>}

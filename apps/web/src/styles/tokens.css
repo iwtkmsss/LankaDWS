@@ -34,7 +34,7 @@
   --ink-800: #252d42;
   --ink-700: #3e465d;
   --ink-600: #525b72;
-  --ink-500: #687087;
+  --ink-500: #5d6579; /* muted text: >= 4.8:1 on every light surface, including tinted message bubbles */
   --ink-400: #5f687d;
   --canvas: #f4f6fa;
   --surface: #ffffff;

@@ -140,7 +140,7 @@ describe('FeedCard production actions', () => {
     const placed = container.querySelector<HTMLElement>('.inline-photos-canvas__photo')!
     expect(within(placed).getByRole('button', { name: 'Переглянути схема.png' })).toBeEnabled()
     expect(placed.style.getPropertyValue('--x')).toBe('0.25')
-    const attachments = screen.getByRole('region', { name: 'Вкладення' })
+    const attachments = screen.getByRole('group', { name: 'Вкладення' })
     expect(within(attachments).getByText('Вкладення · 1')).toBeInTheDocument()
     expect(within(attachments).queryByText('схема.png')).not.toBeInTheDocument()
   })
