@@ -41,6 +41,9 @@ import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
 import { FeedOverview } from './FeedOverview'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 
+export const FEED_FALLBACK_POLL_MS = 60_000
+export const feedFallbackInterval = (loadedPages: number) => (loadedPages > 1 ? false : FEED_FALLBACK_POLL_MS)
+
 export function FeedPage() {
   const { user } = useAuth()
   const [params, setParams] = useSearchParams()
@@ -119,7 +122,13 @@ export function FeedPage() {
     },
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     placeholderData: keepPreviousData,
-    refetchInterval: 15_000,
+    // Live updates arrive as realtime `summary` events (useMessageRealtime invalidates
+    // ['feed']). This is only a slow, foreground-only safety net for a dropped SSE
+    // stream. A refetch reloads every loaded page (~20 SQL queries each), so the poll
+    // runs only while a single page is loaded; once the reader has paged deeper, the
+    // realtime event and refetch-on-focus keep the list fresh instead.
+    refetchInterval: (query) => feedFallbackInterval(query.state.data?.pages.length ?? 0),
+    refetchIntervalInBackground: false,
   })
   const markRead = useMutation({
     mutationFn: (markers: FeedListResult['readMarkers']) =>
