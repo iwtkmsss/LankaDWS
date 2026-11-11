@@ -28,7 +28,7 @@
 .knowledge-image-replace .file-dropzone__button { margin-top: 0; }
 .knowledge-image-replace .file-dropzone > svg, .knowledge-image-replace .file-dropzone__title { display: none; }
 @media (max-width: 480px) { .knowledge-image-slot { flex-wrap: wrap; } }
-@media (max-width: 640px) {
+@media (max-width: 620px) {
   .knowledge-reading-image { width: calc(100% - 40px); }
   .knowledge-reading-header, .knowledge-reading-body, .knowledge-reading-files, .knowledge-reading-footer { padding: var(--space-6) var(--space-5); }
   .knowledge-reading-card { border-radius: var(--radius-lg); }
@@ -44,7 +44,7 @@
 .knowledge-editor-form .file-dropzone { min-height: 96px; padding: var(--space-2); gap: var(--space-1); }
 .knowledge-editor-form .knowledge-image-replace .file-dropzone { min-height: 0; padding: var(--space-1); }
 .knowledge-editor-form .knowledge-image-preview { width: 80px; height: 64px; }
-@media (max-width: 600px) {
+@media (max-width: 620px) {
   .knowledge-editor-form > .knowledge-editor-acknowledgement,
   .knowledge-editor-form > .knowledge-audience,
   .knowledge-editor-form > .knowledge-image-upload,

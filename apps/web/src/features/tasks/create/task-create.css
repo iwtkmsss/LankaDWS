@@ -25,7 +25,7 @@
 
 .task-create-save-status {
   position: absolute;
-  z-index: 1;
+  z-index: var(--z-raised);
   top: 18px;
   right: 24px;
   display: inline-flex;
@@ -462,7 +462,7 @@
 .task-create-weekdays input:checked + span {
   border-color: var(--tag-color, var(--cobalt-500));
   background: var(--tag-color, var(--cobalt-600));
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .task-create-tag-new {
@@ -645,7 +645,7 @@
   background: var(--surface);
   color: var(--fg-body);
   padding: var(--space-2) var(--space-3);
-  box-shadow: 0 3px 12px rgba(18, 35, 70, .04);
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--shadow-ink) 4%, transparent);
 }
 
 .task-parent-tree__task > span:last-child {
@@ -713,7 +713,7 @@
   border-color: var(--cobalt-500);
   background: color-mix(in srgb, var(--cobalt-50) 76%, var(--surface));
   color: var(--fg-link);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cobalt-500) 22%, transparent), 0 0 14px rgba(59, 114, 255, .16);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--cobalt-500) 22%, transparent), 0 0 14px color-mix(in srgb, var(--cobalt-500) 16%, transparent);
 }
 
 .task-create-hierarchy-note {
@@ -753,7 +753,7 @@
 
 .task-create-role-card:focus-within {
   border-color: var(--cobalt-300);
-  box-shadow: 0 8px 24px rgba(23, 66, 170, .08);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
 }
 
 .task-create-role-card__header {

@@ -23,7 +23,7 @@
    leading company icon is drawn here. */
 .organization-universe-page .organization-company-picker > svg {
   position: absolute;
-  z-index: 1;
+  z-index: var(--z-raised);
   top: 50%;
   left: var(--space-3);
   transform: translateY(-50%);
@@ -139,7 +139,7 @@
 .organization-universe-page .organization-navigator > header > button.is-selected em,
 .organization-universe-page .organization-navigator__row.is-selected .organization-navigator__select em {
   background: var(--accent-solid);
-  color: #fff;
+  color: var(--on-accent);
 }
 .organization-universe-page .organization-navigator__select em.is-empty {
   background: transparent;
@@ -534,7 +534,7 @@
     grid-template-columns: 1fr;
   }
 }
-@media (max-width: 600px) {
+@media (max-width: 620px) {
   .organization-universe-page .organization-context-bar {
     padding: var(--space-2);
   }
