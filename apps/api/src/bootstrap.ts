@@ -6,6 +6,7 @@ import helmet from 'helmet'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import { getConfig } from './config/config.js'
 import { requestObservability } from './common/observability.js'
+import { runWithCorrelationId } from './common/correlation.js'
 
 export function configureApp(app: INestApplication): void {
   const config = getConfig()
@@ -24,9 +25,10 @@ export function configureApp(app: INestApplication): void {
   }))
   app.use((request: Request & { correlationId?: string }, response: Response, next: NextFunction) => {
     const incoming = request.header('x-correlation-id')
-    request.correlationId = incoming && /^[a-zA-Z0-9_-]{8,80}$/.test(incoming) ? incoming : randomUUID()
-    response.setHeader('x-correlation-id', request.correlationId)
-    next()
+    const correlationId = incoming && /^[a-zA-Z0-9_-]{8,80}$/.test(incoming) ? incoming : randomUUID()
+    request.correlationId = correlationId
+    response.setHeader('x-correlation-id', correlationId)
+    runWithCorrelationId(correlationId, next)
   })
   app.use(requestObservability)
   app.enableCors({ origin: config.FRONTEND_ORIGIN.split(',').map((value) => value.trim()), credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['content-type', 'x-csrf-token', 'x-reauth-challenge', 'idempotency-key', 'x-correlation-id'] })

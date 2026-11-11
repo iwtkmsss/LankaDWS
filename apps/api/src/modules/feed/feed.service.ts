@@ -40,6 +40,7 @@ import {
   calendarDateInTimeZone,
   daysUntilBirthday,
 } from './birthday-highlight.js';
+import { recordAudit, type AuditDb } from '../../common/audit.js'
 
 interface FeedCursor {
   occurredAt: string;
@@ -124,25 +125,10 @@ export class FeedService {
         data: { status: 'REVOKED', version: { increment: 1 }, revokedAt: now },
       });
       if (updated.count !== 1) throw conflict();
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: share.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'feed.file.revoked',
-          entityType: 'FEED_FILE_SHARE',
-          entityId: share.id,
-          result: 'SUCCESS',
-          risk: 'HIGH',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: share.companyId, action: 'feed.file.revoked', entityType: 'FEED_FILE_SHARE', entityId: share.id, risk: 'HIGH', safeDiff: {
             fromVersion: expectedVersion,
             toVersion: expectedVersion + 1,
-          }),
-          correlationId: id('corr'),
-        },
-      });
+          } });
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -912,8 +898,7 @@ export class FeedService {
           expiresAt: new Date(now.getTime() + 86_400_000),
         },
       });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           input.companyId,
           'feed.post.published',
@@ -922,8 +907,7 @@ export class FeedService {
             audience: input.audience.type,
             requiresAcknowledgement: input.requiresAcknowledgement,
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1149,8 +1133,7 @@ export class FeedService {
           });
         }
       }
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.edited',
@@ -1168,8 +1151,7 @@ export class FeedService {
                 }
               : {}),
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1240,8 +1222,7 @@ export class FeedService {
         countsAsUnread: true,
         occurredAt: now,
       });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.archived',
@@ -1249,8 +1230,7 @@ export class FeedService {
           {
             version: { from: post.version, to: nextVersion },
           },
-        ),
-      });
+        );
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1412,8 +1392,7 @@ export class FeedService {
           update: {},
         });
       }
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.comment.created',
@@ -1423,8 +1402,7 @@ export class FeedService {
             replyToCommentId: parent?.id ?? null,
             attachmentCount: attachmentIds.length,
           },
-        ),
-      });
+        );
       return created;
     });
     this.realtime?.publishSummary(notificationUserIds, ['notifications']);
@@ -1456,15 +1434,13 @@ export class FeedService {
     const count = await this.prisma.feedReaction.count({
       where: { postId, kind: 'LIKE' },
     });
-    await this.prisma.auditEvent.create({
-      data: this.auditData(
+    await this.recordPostAudit(this.prisma, 
         principal,
         post.companyId,
         existing ? 'feed.reaction.removed' : 'feed.reaction.added',
         postId,
         { kind: 'LIKE' },
-      ),
-    });
+      );
     return { liked: !existing, count };
   }
 
@@ -1516,8 +1492,7 @@ export class FeedService {
           acknowledgementVersion,
         },
       });
-      await tx.auditEvent.create({
-        data: this.auditData(
+      await this.recordPostAudit(tx, 
           principal,
           post.companyId,
           'feed.post.acknowledged',
@@ -1525,8 +1500,7 @@ export class FeedService {
           {
             acknowledgementVersion,
           },
-        ),
-      });
+        );
       await tx.notification.updateMany({
         where: {
           recipientId: principal.userId,
@@ -2726,27 +2700,15 @@ export class FeedService {
     };
   }
 
-  private auditData(
+  private recordPostAudit(
+    db: AuditDb,
     principal: AuthPrincipal,
     companyId: string,
     action: string,
     entityId: string,
     safeDiff: Record<string, unknown>,
   ) {
-    return {
-      id: id('aud'),
-      workspaceId: principal.workspaceId,
-      companyId,
-      actorType: 'USER',
-      actorId: principal.userId,
-      action,
-      entityType: 'FEED_POST',
-      entityId,
-      result: 'SUCCESS',
-      risk: 'NORMAL',
-      safeDiffJson: JSON.stringify(safeDiff),
-      correlationId: id('corr'),
-    };
+    return recordAudit(db, principal, { companyId, action, entityType: 'FEED_POST', entityId, safeDiff });
   }
 
   private encodeCursor(cursor: FeedCursor): string {

@@ -6,6 +6,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskNumberAllocator } from '../../prisma/task-number-allocator.js'
 import { ScopeService } from '../authorization/scope.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 interface StartInput { companyId?: string; employeeId: string; startAt: string; endAt?: string }
 
@@ -73,7 +74,7 @@ export class LifecycleService {
         await notifyTaskParticipants(tx, taskId, principal.userId, 1, 'task.created')
         await tx.entityLink.create({ data: { id: id('lnk'), sourceType: 'LIFECYCLE', sourceId: processId, targetType: 'TASK', targetId: taskId, relation: 'STEP', createdBy: principal.userId } })
       }
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId, action: 'lifecycle.offboarding.started', entityType: 'LIFECYCLE', entityId: processId, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId, action: 'lifecycle.offboarding.started', entityType: 'LIFECYCLE', entityId: processId, risk: 'HIGH' })
     })
     return this.detail(principal, processId)
   }

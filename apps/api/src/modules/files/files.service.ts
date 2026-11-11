@@ -15,6 +15,7 @@ import { TaskAccessService } from '../authorization/task-access.service.js'
 import { DriveSharingService } from '../documents/drive-sharing.service.js'
 import { officePreviewPdf, OfficePreviewUnavailable } from './office-preview.js'
 import { deleteStoredFile, linkCleanFile, readCleanFile, writeQuarantine } from './storage.js'
+import { recordAudit } from '../../common/audit.js'
 
 export interface UploadedBinary {
   buffer: Buffer
@@ -254,7 +255,7 @@ export class FilesService {
   }
 
   private async recordDownload(principal: AuthPrincipal, file: { id: string; companyId: string | null }) {
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: file.companyId, actorType: 'USER', actorId: principal.userId, action: 'file.downloaded', entityType: 'FILE', entityId: file.id, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { companyId: file.companyId, action: 'file.downloaded', entityType: 'FILE', entityId: file.id, risk: 'HIGH' })
   }
 
   /**

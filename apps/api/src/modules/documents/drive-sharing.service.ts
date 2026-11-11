@@ -5,6 +5,7 @@ import { badRequest, forbidden, notFound } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 interface PrincipalKey {
   principalType: 'USER'
@@ -174,22 +175,7 @@ export class DriveSharingService {
         },
         update: { role: input.role },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: target.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'drive.shared',
-          entityType: input.targetType,
-          entityId: input.targetId,
-          result: 'SUCCESS',
-          risk: 'HIGH',
-          safeDiffJson: JSON.stringify({ principalType: input.principalType, role: input.role }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: target.companyId, action: 'drive.shared', entityType: input.targetType, entityId: input.targetId, risk: 'HIGH', safeDiff: { principalType: input.principalType, role: input.role } })
       if (existing?.role === input.role) return false
       const notificationId = id('ntf')
       const kind = input.targetType === 'FOLDER' ? 'папки' : 'файлу'
@@ -219,21 +205,7 @@ export class DriveSharingService {
     if (!share) throw notFound()
     await this.assertTargetOwned(principal, share.targetType as DriveShareTargetType, share.targetId)
     await this.prisma.driveShare.delete({ where: { id: shareId } })
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId: await this.companyOf(principal, share.targetType as DriveShareTargetType, share.targetId),
-        actorType: 'USER',
-        actorId: principal.userId,
-        action: 'drive.share_revoked',
-        entityType: share.targetType,
-        entityId: share.targetId,
-        result: 'SUCCESS',
-        risk: 'HIGH',
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId: await this.companyOf(principal, share.targetType as DriveShareTargetType, share.targetId), action: 'drive.share_revoked', entityType: share.targetType, entityId: share.targetId, risk: 'HIGH' })
     return this.list(principal, share.targetType as DriveShareTargetType, share.targetId)
   }
 

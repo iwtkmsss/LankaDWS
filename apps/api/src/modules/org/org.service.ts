@@ -11,6 +11,7 @@ import { id } from '../../common/crypto.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null; accountType?: string }
 const EMPLOYEE_PAGE_SIZE = 20
@@ -196,11 +197,7 @@ export class OrgService {
         id: unitId, workspaceId: principal.workspaceId, companyId, parentId, name: normalizeName(input.name), description: input.description || null,
         icon: input.icon ?? null, normalizedName: normalizedName(input.name), managerId: input.managerId ?? null, sortOrder,
       } })
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'org_unit.created', entityType: 'ORG_UNIT', entityId: unitId, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ icon: input.icon ?? null, parentId, description: input.description || null, managerId: input.managerId ?? null }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'org_unit.created', entityType: 'ORG_UNIT', entityId: unitId, risk: 'HIGH', safeDiff: { icon: input.icon ?? null, parentId, description: input.description || null, managerId: input.managerId ?? null } })
       return created
     }))
     return { id: unit.id, version: unit.version }
@@ -231,11 +228,7 @@ export class OrgService {
         },
       })
       if (updated.count !== 1) throw conflict('Підрозділ уже змінено іншим адміністратором.')
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'org_unit.updated', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ icon: input.icon, name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'org_unit.updated', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { icon: input.icon, name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId } })
     }))
     return { id: unit.id, version: input.expectedVersion + 1 }
   }
@@ -269,11 +262,7 @@ export class OrgService {
           isPrimary: true, positionTitle: assignment.positionTitle, startedAt: now,
         } })
       }
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'org_unit.employees_assigned', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ employeesMoved: moved.length }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'org_unit.employees_assigned', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { employeesMoved: moved.length } })
     })
     return { id: unit.id, version: unit.version + 1, moved: moved.length }
   }
@@ -311,13 +300,9 @@ export class OrgService {
           where: { companyId, orgUnitId: { in: activeBranch.map((item) => item.id) }, endedAt: null },
           data: { endedAt: new Date(), isPrimary: false },
         })
-        await tx.auditEvent.create({ data: {
-          id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-          action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-          safeDiffJson: JSON.stringify({ archiveBranch: true, archivedUnits: activeBranch.length,
+        await recordAudit(tx, principal, { companyId, action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { archiveBranch: true, archivedUnits: activeBranch.length,
             structure: activeBranch.map((item) => ({ ...item, version: item.version + 1, status: 'ARCHIVED' })),
-          }), correlationId: id('corr'),
-        } })
+          } })
         return { id: unit.id, archived: true as const, version: input.expectedVersion + 1, archivedUnits: activeBranch.length }
       })
     }
@@ -350,14 +335,10 @@ export class OrgService {
         data: { status: 'ARCHIVED', version: { increment: 1 } },
       })
       if (archived.count !== 1) throw conflict('Підрозділ уже змінено іншим адміністратором.')
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ destinationId, employeesUnassigned: unit.assignments.length, childrenMoved: unit.children.length,
+      await recordAudit(tx, principal, { companyId, action: 'org_unit.archived', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { destinationId, employeesUnassigned: unit.assignments.length, childrenMoved: unit.children.length,
           structure: [{ id: unit.id, parentId: unit.parentId, sortOrder: unit.sortOrder, version: unit.version + 1, status: 'ARCHIVED' },
             ...unit.children.map((child) => ({ id: child.id, parentId: unit.id, sortOrder: child.sortOrder, version: child.version + 1, status: 'ACTIVE' }))],
-        }), correlationId: id('corr'),
-      } })
+        } })
     }))
     return { id: unit.id, archived: true as const, version: input.expectedVersion + 1, destinationId }
   }
@@ -419,11 +400,7 @@ export class OrgService {
         })
         if (result.count !== 1) throw conflict('Гілку вже змінено іншим адміністратором.')
       }
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'org_unit.restored', entityType: 'ORG_UNIT', entityId: unit.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ parentId, name: normalizeName(name), restoredUnitIds: planned.map((item) => item.id) }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'org_unit.restored', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { parentId, name: normalizeName(name), restoredUnitIds: planned.map((item) => item.id) } })
     }))
     return { id: unit.id, restored: true as const, version: input.expectedVersion + 1 }
   }

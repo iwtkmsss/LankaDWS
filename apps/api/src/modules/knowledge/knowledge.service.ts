@@ -3,6 +3,7 @@ import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class KnowledgeService {
@@ -79,7 +80,7 @@ export class KnowledgeService {
       await tx.knowledgeArticleVersion.create({ data: { id: versionId, articleId, version: 1, title: input.title.trim(), body: input.body.trim(), changeSummary: 'Перша публікація', createdBy: principal.userId, publishedAt: new Date() } })
       await tx.articleAudience.createMany({ data: input.companyIds.map((companyId) => ({ id: id('audn'), articleId, principalType: 'COMPANY', principalId: companyId })) })
       if (attachmentIds.length) await tx.fileLink.createMany({ data: attachmentIds.map((fileId) => ({ id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: articleId, purpose: 'ATTACHMENT', aclMode: 'INHERIT' })) })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: articleId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { action: 'knowledge.published', entityType: 'ARTICLE', entityId: articleId })
     })
     return { id: articleId, slug }
   }
@@ -108,7 +109,7 @@ export class KnowledgeService {
       }
       for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: {} })
       if (removedAttachmentIds.length) await tx.fileLink.deleteMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds } } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id })
     })
     return { id: article.id, slug }
   }
@@ -119,7 +120,7 @@ export class KnowledgeService {
     const article = await this.detail(principal, slug)
     const updated = await this.prisma.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, status: 'ACTIVE', version: expectedVersion }, data: { status: 'ARCHIVED', version: { increment: 1 } } })
     if (updated.count !== 1) throw conflict('Матеріал уже змінено. Оновіть сторінку та повторіть дію.')
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'knowledge.archived', entityType: 'ARTICLE', entityId: article.id, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { action: 'knowledge.archived', entityType: 'ARTICLE', entityId: article.id })
     return { archived: true }
   }
 

@@ -55,6 +55,7 @@ import {
   type ChatMessageCursor,
   type ChatThreadCursor,
 } from './chat-cursors.js'
+import { recordAudit } from '../../common/audit.js'
 
 type SafeUser = Pick<User, 'id' | 'displayName' | 'username' | 'jobTitle' | 'avatarAsset'>
 type ThreadWithParticipants = MessageThread & {
@@ -306,25 +307,10 @@ export class MessagesService {
           expiresAt: new Date(Date.now() + 86_400_000),
         },
       })
-        await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.thread_created',
-          entityType: 'MESSAGE_THREAD',
-          entityId: threadId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+        await recordAudit(tx, principal, { companyId, action: 'message.thread_created', entityType: 'MESSAGE_THREAD', entityId: threadId, safeDiff: {
             kind: input.kind,
             participantCount: participantIds.length + 1,
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
         await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -911,27 +897,12 @@ export class MessagesService {
           expiresAt: new Date(Date.now() + 86_400_000),
         },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: replyToId ? 'message.replied' : 'message.created',
-          entityType: 'MESSAGE',
-          entityId: messageId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: replyToId ? 'message.replied' : 'message.created', entityType: 'MESSAGE', entityId: messageId, safeDiff: {
             threadId,
             hasReply: Boolean(replyToId),
             attachmentCount: attachmentIds.length,
             mentionCount: mentionedUserIds.length,
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1001,15 +972,7 @@ export class MessagesService {
       return [{ id: file.id, fileName, storageKey: file.storageKey }]
     })
     if (entries.length < 2) throw new DomainError(409, 'chat_attachment_archive_unavailable')
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId: thread.companyId,
-        actorType: 'USER', actorId: principal.userId, action: 'chat.attachments.archive_downloaded',
-        entityType: 'MESSAGE', entityId: message.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ threadId: thread.id, attachmentCount: entries.length }),
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId: thread.companyId, action: 'chat.attachments.archive_downloaded', entityType: 'MESSAGE', entityId: message.id, risk: 'HIGH', safeDiff: { threadId: thread.id, attachmentCount: entries.length } })
     return { archiveName: `Вкладення-${message.createdAt.toISOString().slice(0, 10)}.zip`, files: entries }
   }
 
@@ -1116,22 +1079,7 @@ export class MessagesService {
         },
         update: {},
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.participant_added',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ role: input.role, participantCount: 1 }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: 'message.participant_added', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { role: input.role, participantCount: 1 } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1208,22 +1156,7 @@ export class MessagesService {
       if (changed.count !== 1) {
         throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.participant_role_changed',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ from: target.role, to: input.role }),
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: 'message.participant_role_changed', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { from: target.role, to: input.role } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1297,24 +1230,9 @@ export class MessagesService {
       if (removed.count !== 1) {
         throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: target.userId === principal.userId
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: target.userId === principal.userId
             ? 'message.participant_left'
-            : 'message.participant_removed',
-          entityType: 'MESSAGE_THREAD',
-          entityId: thread.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({ participantCount: -1 }),
-          correlationId: id('corr'),
-        },
-      })
+            : 'message.participant_removed', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { participantCount: -1 } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1470,25 +1388,10 @@ export class MessagesService {
           })
         }
       }
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: message.thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.edited',
-          entityType: 'MESSAGE',
-          entityId: message.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: message.thread.companyId, action: 'message.edited', entityType: 'MESSAGE', entityId: message.id, safeDiff: {
             ...(nextMentions ? { mentionCount: mentionedUserIds.length } : {}),
             ...(removedAttachmentIds.length ? { removedAttachmentCount: removedAttachmentIds.length } : {}),
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -1625,21 +1528,7 @@ export class MessagesService {
         data: { version: { increment: 1 } },
         select: { version: true },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: message.thread.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'message.deleted',
-          entityType: 'MESSAGE',
-          entityId: message.id,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: message.thread.companyId, action: 'message.deleted', entityType: 'MESSAGE', entityId: message.id })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
