@@ -5,6 +5,7 @@ import { fingerprint, hashPassword, id, randomToken, verifyPassword } from '../.
 import { badRequest, forbidden, notFound, rateLimited, unauthorized } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { getConfig } from '../../config/config.js'
+import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
@@ -34,8 +35,18 @@ export class AuthService {
     const usernameFingerprint = fingerprint(normalized, 'login-username')
     const ipHash = request.ip ? fingerprint(request.ip, 'login-ip') : null
     const since = new Date(Date.now() - getConfig().LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000)
-    const failed = await this.prisma.loginAttempt.count({ where: { createdAt: { gte: since }, result: 'FAILURE', OR: [{ usernameFingerprint }, ...(ipHash ? [{ ipHash }] : [])] } })
-    if (failed >= getConfig().LOGIN_RATE_LIMIT_MAX) throw rateLimited()
+    // Throttling tiers (all count FAILURE rows in the window, so one attacker cannot lock out a colleague):
+    //  - pair (username + IP): LOGIN_RATE_LIMIT_MAX, the strict limit against guessing one account from one place;
+    //  - IP across all usernames: 4x max, slows password spraying from a single address;
+    //  - username across all IPs: 3x max, a softer limit against distributed guessing that a single IP cannot reach alone.
+    const max = getConfig().LOGIN_RATE_LIMIT_MAX
+    const failures = (where: Prisma.LoginAttemptWhereInput) => this.prisma.loginAttempt.count({ where: { createdAt: { gte: since }, result: 'FAILURE', ...where } })
+    const [pairFailed, ipFailed, usernameFailed] = await Promise.all([
+      failures({ usernameFingerprint, ipHash }),
+      ipHash ? failures({ ipHash }) : Promise.resolve(0),
+      failures({ usernameFingerprint }),
+    ])
+    if (pairFailed >= max || ipFailed >= max * 4 || usernameFailed >= max * 3) throw rateLimited()
 
     const user = await this.prisma.user.findUnique({
       where: { workspaceId_normalizedUsername: { workspaceId: await this.activeWorkspaceId(), normalizedUsername: normalized } },

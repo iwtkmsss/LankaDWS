@@ -76,6 +76,8 @@ interface FeedSourceHeadInput {
   sourceVersion: number;
   countsAsUnread: boolean;
   occurredAt: Date;
+  /** Action of the item; lets CREATED win ties against other actions of the same version. */
+  action?: string;
 }
 
 /**
@@ -352,6 +354,7 @@ export async function writeFeedProjection(
     sourceVersion: input.sourceVersion,
     countsAsUnread: !input.historical,
     occurredAt: input.occurredAt,
+    action: input.action,
   });
   const requestedRecipients = [...new Set(input.recipientIds)];
   const activeRecipients =
@@ -389,13 +392,33 @@ export async function advanceFeedSourceHead(
   };
   const current = await tx.feedSourceHead.findUnique({
     where: { workspaceId_companyId_sourceType_sourceId: key },
-    select: { itemId: true, sourceVersion: true, occurredAt: true },
+    select: {
+      itemId: true,
+      sourceVersion: true,
+      occurredAt: true,
+    },
   });
+  // Creating a task writes CREATED and ASSIGNED for the same version and time. The card is
+  // not per-viewer, so CREATED ("new task") deterministically stays the head of that version;
+  // CREATED only ever exists as the first item of a version, so this never hides later changes.
+  const sameVersion = !!current && input.sourceVersion === current.sourceVersion;
+  const incomingCreated = input.action === 'CREATED';
+  const currentCreated =
+    sameVersion && current
+      ? (
+          await tx.feedItem.findUnique({
+            where: { id: current.itemId },
+            select: { action: true },
+          })
+        )?.action === 'CREATED'
+      : false;
+  if (sameVersion && currentCreated && !incomingCreated) return false;
   const advances =
     !current ||
     input.sourceVersion > current.sourceVersion ||
-    (input.sourceVersion === current.sourceVersion &&
-      (input.occurredAt > current.occurredAt ||
+    (sameVersion &&
+      ((incomingCreated && !currentCreated) ||
+        input.occurredAt > current.occurredAt ||
         (input.occurredAt.getTime() === current.occurredAt.getTime() &&
           input.itemId > current.itemId)));
   if (!advances) return false;
