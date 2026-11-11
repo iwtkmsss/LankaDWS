@@ -46,6 +46,15 @@ function mount(defaultCompanyId: string | null = 'cmp_lankadws_ua') {
   )
 }
 
+async function clearAudience() {
+  fireEvent.click(await screen.findByRole('button', { name: /^Бачать:/ }))
+  for (const name of ['Lanka', 'Інша компанія']) {
+    const box = await screen.findByRole('checkbox', { name })
+    if ((box as HTMLInputElement).checked) fireEvent.click(box)
+  }
+  await screen.findByRole('button', { name: 'Бачать: Ніхто' })
+}
+
 beforeEach(() => {
   vi.mocked(api).mockImplementation(async (path, options) => {
     if (path === '/feed/audiences?company=all') return { items: [audience, secondAudience] }
@@ -159,7 +168,7 @@ describe('FeedComposerForm', () => {
 
   it('keeps files selected without an author company and uploads after choosing an audience', async () => {
     mount(null)
-    await screen.findByRole('button', { name: 'Бачать: Ніхто' })
+    await clearAudience()
     const input = screen.getByLabelText('Додати файл')
     expect(input).toBeEnabled()
     fireEvent.change(input, {
@@ -176,7 +185,7 @@ describe('FeedComposerForm', () => {
 
   it('accepts dropped files before an audience is selected and allows removing them', async () => {
     mount(null)
-    await screen.findByRole('button', { name: 'Бачать: Ніхто' })
+    await clearAudience()
     const input = screen.getByLabelText('Додати файл')
     fireEvent.drop(input.closest('form')!, {
       dataTransfer: { types: ['Files'], files: [new File(['text'], 'draft.txt', { type: 'text/plain' })] },

@@ -80,6 +80,7 @@ import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FileThumbnail } from '../shared/files/FileThumbnail'
 import { FileFormatIcon } from '../shared/files/FileFormatIcon'
+import { formatCount } from '../shared/lib/format'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
@@ -188,7 +189,7 @@ function RightPanelTabs({
           onClick={() => onChange('chat')}
         >
           <MessageCircle size={16} aria-hidden />Чат
-          {chatUnread > 0 && <b>{Math.min(chatUnread, 99)}</b>}
+          {chatUnread > 0 && <b>{formatCount(chatUnread)}</b>}
         </button>
         <button
           type="button"
@@ -198,7 +199,7 @@ function RightPanelTabs({
           onClick={() => onChange('notifications')}
         >
           <Bell size={16} aria-hidden />Сповіщення
-          {notificationUnread > 0 && <b>{Math.min(notificationUnread, 99)}</b>}
+          {notificationUnread > 0 && <b>{formatCount(notificationUnread)}</b>}
         </button>
       </div>
       <IconButton className="right-panel__toggle" label="Закрити праву панель" onClick={onClose}>
@@ -649,7 +650,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 <div className="message-thread-meta__actions">
                   {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                     disabled={chatPin.pending} onClick={() => chatPin.toggle(thread.id, !thread.pinned)} />}
-                  {thread.unreadCount > 0 && <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>}
+                  {thread.unreadCount > 0 && <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{formatCount(thread.unreadCount)}</b>}
                 </div>
                 </div>
                 </div>
@@ -1396,7 +1397,7 @@ function PanelMessageStream({
           onClick={() => scroll.scrollToBottom()}
         >
           <ChevronDown size={28} />
-          {unreadCount > 0 && <span className="right-panel__messages-bottom-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+          {unreadCount > 0 && <span className="right-panel__messages-bottom-count">{formatCount(unreadCount)}</span>}
         </IconButton>
       )}
     </div>

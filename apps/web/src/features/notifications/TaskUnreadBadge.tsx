@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { api } from '../../shared/api/client'
+import { formatCount } from '../../shared/lib/format'
 import './notification-read-state.css'
 
 /** Unread notifications per task, sharing the right panel's cached unread list. */
@@ -22,7 +23,7 @@ export function TaskUnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <b className="task-unread-badge" aria-label={`Непрочитаних оновлень: ${count}`}>
-      Нове{count > 1 ? ` · ${count > 99 ? '99+' : count}` : ''}
+      Нове{count > 1 ? ` · ${formatCount(count)}` : ''}
     </b>
   )
 }

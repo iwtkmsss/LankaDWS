@@ -10,6 +10,7 @@ import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui
 import { formatChatListTime } from '../lib/chatDates'
 import type { MessageDrafts } from '../lib/messageDrafts'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
+import { formatCount, pluralUk } from '../../../shared/lib/format'
 import { ChatPinButton } from './ChatPinButton'
 
 interface MessagesSidebarProps {
@@ -227,7 +228,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                         <small>
                           {props.drafts[thread.id]?.body.trim()
                             ? <><span className="message-draft-label">Чернетка:</span> {props.drafts[thread.id]!.body}</>
-                            : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} учасників`)}
+                            : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} ${pluralUk(thread.participantCount, ['учасник', 'учасники', 'учасників'])}`)}
                         </small>
                       </span>
                     </span>
@@ -240,7 +241,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                     {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                       disabled={Boolean(props.pinPending) || !props.onPinThread}
                       onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
-                    {thread.unreadCount > 0 && <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>}
+                    {thread.unreadCount > 0 && <b className="message-thread-unread">{formatCount(thread.unreadCount)}</b>}
                   </div>
                   </div>
                   </div>

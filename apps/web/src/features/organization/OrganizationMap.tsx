@@ -1,4 +1,5 @@
 import { CompanyLogo, UnitIcon } from './OrganizationVisuals'
+import { pluralUk } from '../../shared/lib/format'
 import { personName } from '../../shared/lib/personName'
 import type { OrgCompanyView, OrgUnitView } from '@lankadws/contracts'
 import {
@@ -383,7 +384,7 @@ export function OrganizationMap({
         </div>
 
         {compactOutline === 'overlay' && outlineOpen && <aside className="organization-map__outline" aria-label="Компактна структура організації">
-          <header><span><CompanyLogo src={company.logoAsset} size={20} /><strong>{company.name}</strong></span><small>{units.length} підрозділів</small></header>
+          <header><span><CompanyLogo src={company.logoAsset} size={20} /><strong>{company.name}</strong></span><small>{units.length} {pluralUk(units.length, ['підрозділ', 'підрозділи', 'підрозділів'])}</small></header>
           <div className="organization-map__outline-tree" role="tree" aria-label="Дерево підрозділів">
             {outline.map(({ unit, depth, hasChildren }) => {
               const expanded = expandedOutlineIds.has(unit.id)

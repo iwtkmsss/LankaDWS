@@ -6,6 +6,16 @@ export const formatDateTime = (value: string | Date) => dateTime.format(new Date
 export const formatDate = (value: string | Date) => shortDate.format(new Date(value))
 export const formatTime = (value: string | Date) => time.format(new Date(value))
 
+/** Badge count capped for display: 1…99, then «99+». */
+export const formatCount = (n: number): string => (n > 99 ? '99+' : String(n))
+
+const ukPlural = new Intl.PluralRules('uk')
+/** Ukrainian noun form for count n: [one, few, many], e.g. pluralUk(2, ['підрозділ', 'підрозділи', 'підрозділів']). */
+export function pluralUk(n: number, [one, few, many]: readonly [string, string, string]): string {
+  const rule = ukPlural.select(Math.abs(n))
+  return rule === 'one' ? one : rule === 'few' ? few : many
+}
+
 /** Human file size with a Ukrainian decimal comma: 512 Б, 14 КБ, 1,3 МБ. */
 export function formatFileSize(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined) return ''

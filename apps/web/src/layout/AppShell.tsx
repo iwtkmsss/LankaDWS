@@ -38,6 +38,7 @@ import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './Top
 import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
 import { useMessageSoundActivation } from '../features/messages/lib/messageSound'
 import { useDocumentTitle } from '../shared/lib/useDocumentTitle'
+import { formatCount } from '../shared/lib/format'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -372,22 +373,22 @@ export function AppShell({ children }: PropsWithChildren) {
         <span>{title}</span>
         {route.path === '/tasks' && taskUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
-            {taskUnread > 99 ? '99+' : taskUnread}
+            {formatCount(taskUnread)}
           </b>
         )}
         {route.path === '/messages' && chatUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${chatUnread} непрочитаних діалогів`}>
-            {chatUnread > 99 ? '99+' : chatUnread}
+            {formatCount(chatUnread)}
           </b>
         )}
         {route.path === '/feed' && feedUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
-            {feedUnread > 99 ? '99+' : feedUnread}
+            {formatCount(feedUnread)}
           </b>
         )}
         {route.path === '/knowledge' && knowledgePending > 0 && (
           <b className={`nav-unread-badge nav-knowledge-badge ${(knowledgeSummary.data?.requiredUnreadCount ?? 0) > 0 ? 'is-required' : ''}`} aria-label={`${knowledgePending} неознайомлених записів`}>
-            {sidebarCollapsed ? '!' : knowledgePending > 99 ? '99+' : knowledgePending}
+            {sidebarCollapsed ? '!' : formatCount(knowledgePending)}
           </b>
         )}
       </NavLink>
@@ -590,9 +591,7 @@ export function AppShell({ children }: PropsWithChildren) {
               {rightPanelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}
               {(chatUnread + (notificationSummary.data?.unread ?? 0)) > 0 && (
                 <b className="topbar-badge" aria-label={`${chatUnread + (notificationSummary.data?.unread ?? 0)} непрочитаних подій`}>
-                  {chatUnread + (notificationSummary.data?.unread ?? 0) > 99
-                    ? '99+'
-                    : chatUnread + (notificationSummary.data?.unread ?? 0)}
+                  {formatCount(chatUnread + (notificationSummary.data?.unread ?? 0))}
                 </b>
               )}
             </IconButton>
@@ -629,17 +628,17 @@ export function AppShell({ children }: PropsWithChildren) {
               <span>{title}</span>
               {route.path === '/tasks' && taskUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
-                  {taskUnread > 99 ? '99+' : taskUnread}
+                  {formatCount(taskUnread)}
                 </b>
               )}
               {route.path === '/messages' && chatUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${chatUnread} непрочитаних`}>
-                  {chatUnread > 99 ? '99+' : chatUnread}
+                  {formatCount(chatUnread)}
                 </b>
               )}
               {route.path === '/feed' && feedUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
-                  {feedUnread > 99 ? '99+' : feedUnread}
+                  {formatCount(feedUnread)}
                 </b>
               )}
             </NavLink>
