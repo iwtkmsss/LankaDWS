@@ -52,11 +52,27 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prisma:generate
-      - run: npx playwright install --with-deps chromium
+      # Browsers are cached per Playwright version; the system libraries are installed every run.
+      - id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
         working-directory: apps/web
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Downloads from the runner occasionally fail; retry before failing the job.
+      - name: Install Chromium for Playwright
+        working-directory: apps/web
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Install attempt $attempt failed; retrying"
+            sleep 15
+          done
+          exit 1
       - run: npm run test:e2e --workspace @lankadws/web -- --project=desktop-chromium --project=mobile-chromium
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-report
           path: apps/web/artifacts/playwright-report
