@@ -56,20 +56,34 @@ export default function TasksPage() {
 function TasksListPage() {
   const unreadTaskCounts = useUnreadTaskCounts()
   const [params, setParams] = useSearchParams()
+  // Writes build on the latest params we asked for, not on the last rendered URL: a filter click
+  // right after a search update must not roll the search back. Our own writes are queued so the
+  // render of an older one does not reset the pending params; any other URL change (Back,
+  // a link) replaces them.
   const pendingParams = useRef(new URLSearchParams(params))
+  const unrenderedWrites = useRef<string[]>([])
   useEffect(() => {
+    const rendered = params.toString()
+    const ownWrite = unrenderedWrites.current.indexOf(rendered)
+    if (ownWrite >= 0) {
+      unrenderedWrites.current = unrenderedWrites.current.slice(ownWrite + 1)
+      if (unrenderedWrites.current.length > 0) return
+    } else {
+      unrenderedWrites.current = []
+    }
     pendingParams.current = new URLSearchParams(params)
   }, [params])
+  const writeParams = (next: URLSearchParams) => {
+    pendingParams.current = next
+    unrenderedWrites.current.push(next.toString())
+    setParams(next)
+  }
   const updateParams = (update: (next: URLSearchParams) => void) => {
     const next = new URLSearchParams(pendingParams.current)
     update(next)
-    pendingParams.current = next
-    setParams(next)
+    writeParams(next)
   }
-  const replaceParams = (next: URLSearchParams) => {
-    pendingParams.current = next
-    setParams(next)
-  }
+  const replaceParams = (next: URLSearchParams) => writeParams(next)
   const { user } = useAuth()
   const [filtersOpen, setFiltersOpen] = useState(false)
   const legacyTab = params.get('tab')
