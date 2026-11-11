@@ -1,4 +1,4 @@
-import type { ReactNode, Ref } from 'react'
+import { useRef, type ReactNode, type Ref } from 'react'
 import { Link } from 'react-router-dom'
 import type { FeedAttachmentView, FeedCommentView, FeedPhotoPlacement, StructuredMentionView } from '@lankadws/contracts'
 import {
@@ -7,7 +7,7 @@ import {
   Pencil, Pin, Reply, ShieldCheck, SquareCheckBig, Timer, TriangleAlert, UserRoundCheck, UserRoundPen, UsersRound,
   type LucideIcon,
 } from 'lucide-react'
-import { Avatar, Button, IconButton } from '../../shared/ui'
+import { Avatar, Button, IconButton, Menu, MenuItem } from '../../shared/ui'
 import { FileFormatIcon } from '../../shared/files/FileFormatIcon'
 import { FormattedText } from '../../shared/text/FormattedText'
 import { RichTextEditor } from '../../shared/text/RichTextEditor'
@@ -147,6 +147,20 @@ const kinds = {
 }
 
 // Shared presentation. Callers own data, mutations and attachment/editor lifecycles.
+/** Per-record actions menu (pin / edit / archive) built on the shared Menu primitive. */
+function FeedCardMenu({ item, open, canPin, editorId, onAction }: { item: FeedCardModel; open: boolean; canPin: boolean; editorId: string; onAction: (action: CardAction) => void }) {
+  const trigger = useRef<HTMLButtonElement>(null)
+  return <div className="stream-card__menu">
+    <IconButton ref={trigger} id={`${editorId}-menu-trigger`} label="Дії з записом" aria-haspopup="menu" aria-expanded={open} aria-controls={`${editorId}-menu`} onClick={() => onAction('menu')}
+      onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); onAction('menu') } }}><MoreHorizontal size={19} /></IconButton>
+    <Menu open={open} id={`${editorId}-menu`} className="stream-menu" triggerRef={trigger} onClose={() => onAction('menu')}>
+      {canPin && item.kind === 'POST' && <MenuItem disabled={item.pinning} onClick={() => onAction('pin')}><Pin size={15} />{item.pinned ? 'Відкріпити' : 'Закріпити для себе'}</MenuItem>}
+      {item.canManage && item.kind === 'POST' && <MenuItem onClick={() => onAction('edit')}><Pencil size={15} />Редагувати</MenuItem>}
+      {item.canManage && <MenuItem className="stream-menu__danger" onClick={() => onAction('archive')}><Archive size={15} />Архівувати</MenuItem>}
+    </Menu>
+  </div>
+}
+
 export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, onReply, onFile, onProfile, renderPerson, renderAttachment, renderInlinePhoto, renderCommentExtra, renderCommentBody, editor, commentComposer, headerRef, headingLevel = 'h3', error }: {
   item: FeedCardModel
   state: FeedCardViewState
@@ -240,21 +254,7 @@ export function FeedCardDesign({ item, state, editorId, onAction, onBodyChange, 
             <Pin size={14} aria-label="Закріплено до ознайомлення" />
           </span>}
           {item.acknowledgement && <FeedAcknowledgement value={item.acknowledgement} onConfirm={() => onAction('acknowledge')} />}
-          {item.canManage && <div className="stream-card__menu" onBlur={(event) => { if (state.menuOpen && !event.currentTarget.contains(event.relatedTarget)) onAction('menu') }} onKeyDown={(event) => {
-            if (event.key === 'Escape' && state.menuOpen) { event.preventDefault(); event.stopPropagation(); onAction('menu'); document.getElementById(`${editorId}-menu-trigger`)?.focus() }
-            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-              event.preventDefault()
-              if (!state.menuOpen) { onAction('menu'); requestAnimationFrame(() => document.getElementById(`${editorId}-menu`)?.querySelector<HTMLElement>('button')?.focus()); return }
-              const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-              const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
-              const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowUp' ? (current <= 0 ? buttons.length - 1 : current - 1) : (current + 1) % buttons.length
-              buttons[next]?.focus()
-            }
-          }}><IconButton id={`${editorId}-menu-trigger`} label="Дії з записом" aria-haspopup="menu" aria-expanded={state.menuOpen} aria-controls={`${editorId}-menu`} onClick={() => onAction('menu')}><MoreHorizontal size={19} /></IconButton>{state.menuOpen && <div id={`${editorId}-menu`} role="menu" className="stream-menu">
-            {canPin && item.kind === 'POST' && <button type="button" role="menuitem" disabled={item.pinning} onClick={() => onAction('pin')}><Pin size={15} />{item.pinned ? 'Відкріпити' : 'Закріпити для себе'}</button>}
-            {item.canManage && item.kind === 'POST' && <button type="button" role="menuitem" onClick={() => onAction('edit')}><Pencil size={15} />Редагувати</button>}
-            {item.canManage && <button type="button" role="menuitem" className="stream-menu__danger" onClick={() => onAction('archive')}><Archive size={15} />Архівувати</button>}
-          </div>}</div>}
+          {item.canManage && <FeedCardMenu item={item} open={state.menuOpen} canPin={Boolean(canPin)} editorId={editorId} onAction={onAction} />}
         </div>
       </header>
 

@@ -6,7 +6,7 @@ import { useState, type FormEvent } from 'react'
 import { UserSearchCombobox, type UserSearchOption } from '../employees/UserSearchCombobox'
 import { api, jsonBody } from '../../shared/api/client'
 import { personName } from '../../shared/lib/personName'
-import { Button } from '../../shared/ui'
+import { Button, Field } from '../../shared/ui'
 
 export function CompanyCreateForm({ onClose, onCreated }: {
   onClose: () => void
@@ -43,10 +43,10 @@ export function CompanyCreateForm({ onClose, onCreated }: {
     <header><span className="eyebrow">Компанія</span><h2>Нова компанія</h2></header>
     <form className="entity-form account-form" onSubmit={submit}>
       <CompanyLogoPicker value={logoFileId} onChange={setLogoFileId} onBusyChange={setLogoBusy} disabled={mutation.isPending} />
-      <label className="span-2">Назва<input name="name" required /></label>
+      <Field label="Назва" className="span-2"><input name="name" required /></Field>
       <label className="span-2">Стислий опис<ResizableTextarea name="description" rows={4} maxLength={320} defaultValue="" placeholder="Чим займається компанія та за що відповідає команда" /></label>
-      <label className="span-2">Системний slug<input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,62}" /></label>
-      <label className="span-2">Часовий пояс<input name="timezone" required defaultValue="Europe/Kyiv" /></label>
+      <Field label="Системний slug" className="span-2"><input name="slug" required pattern="[a-z0-9][a-z0-9-]{1,62}" /></Field>
+      <Field label="Часовий пояс" className="span-2"><input name="timezone" required defaultValue="Europe/Kyiv" /></Field>
       <label className="check-row span-2"><input type="checkbox" name="isActive" defaultChecked />Компанія активна</label>
       <div className="span-2 admin-org-person-picker">
         <UserSearchCombobox label="Керівник" value={managerId ?? ''} includeAdmins={false}

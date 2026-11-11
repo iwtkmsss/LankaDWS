@@ -35,9 +35,9 @@ async function messageAction(page: Page, message: Locator, name: string) {
   // A freshly sent message can re-render (optimistic row replaced by the saved one) and drop the menu; reopen until it sticks.
   await expect(async () => {
     await message.click({ button: 'right' })
-    await expect(menu.getByRole('button', { name, exact: true })).toBeVisible({ timeout: 2_000 })
+    await expect(menu.getByRole('menuitem', { name, exact: true })).toBeVisible({ timeout: 2_000 })
   }).toPass({ timeout: 15_000 })
-  await menu.getByRole('button', { name, exact: true }).click()
+  await menu.getByRole('menuitem', { name, exact: true }).click()
 }
 
 test('messages workspace covers user-only search, direct history and real chat actions', async ({ page }, testInfo) => {

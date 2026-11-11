@@ -426,7 +426,7 @@ test('task detail creates a real subtask and explains why the parent cannot fini
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
   await expect(discussion.getByText('Матеріал додано до рішення.')).toBeVisible()
   await discussion.locator('article', { hasText: 'Матеріал додано до рішення.' }).click({ button: 'right' })
-  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Відповісти' }).click()
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('menuitem', { name: 'Відповісти' }).click()
   await expect(discussion.getByText(/^Відповідь:/)).toBeVisible()
   await discussion.getByPlaceholder('Напишіть коротку відповідь…').fill('Перевірено, продовжуємо.')
   await discussion.getByRole('button', { name: 'Надіслати' }).click()
@@ -494,8 +494,8 @@ test('only an administrator can edit or delete task discussion messages', async 
   await originalBubble.click({ button: 'right' })
   const reporterMenu = page.getByRole('menu', { name: 'Дії з повідомленням' })
   await expect(reporterMenu).toBeVisible()
-  await expect(reporterMenu.getByRole('button', { name: 'Редагувати' })).toHaveCount(0)
-  await expect(reporterMenu.getByRole('button', { name: 'Видалити' })).toHaveCount(0)
+  await expect(reporterMenu.getByRole('menuitem', { name: 'Редагувати' })).toHaveCount(0)
+  await expect(reporterMenu.getByRole('menuitem', { name: 'Видалити' })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
   // On mobile the profile menu lives in the navigation drawer.
@@ -509,7 +509,7 @@ test('only an administrator can edit or delete task discussion messages', async 
   const adminDiscussion = page.getByRole('region', { name: 'Обговорення' })
   const adminBubble = adminDiscussion.locator('article', { hasText: originalMessage })
   await adminBubble.click({ button: 'right' })
-  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Редагувати' }).click()
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('menuitem', { name: 'Редагувати' }).click()
   const editForm = adminDiscussion.locator('form.task-comment-edit-form')
   const editor = editForm.getByLabel('Редагувати повідомлення')
   const updatedMessage = 'Відредаговано адміністратором.'
@@ -519,9 +519,9 @@ test('only an administrator can edit or delete task discussion messages', async 
   await expect(updatedBubble).toBeVisible()
   await expect(updatedBubble.getByText('змінено')).toBeVisible()
 
-  page.once('dialog', (dialog) => dialog.accept())
   await updatedBubble.click({ button: 'right' })
-  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('button', { name: 'Видалити' }).click()
+  await page.getByRole('menu', { name: 'Дії з повідомленням' }).getByRole('menuitem', { name: 'Видалити' }).click()
+  await page.getByRole('alertdialog', { name: 'Видалити це повідомлення?' }).getByRole('button', { name: 'Видалити', exact: true }).click()
   await expect(updatedBubble).toHaveCount(0)
 })
 

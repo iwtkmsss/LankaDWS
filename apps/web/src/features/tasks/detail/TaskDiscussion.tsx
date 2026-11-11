@@ -16,19 +16,9 @@ import { MentionTextarea } from '../../../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../../../shared/mentions/mentionText'
 import { MessageComposerFrame } from '../../../shared/messages/MessageComposerFrame'
 import { MessageLikeButton } from '../../../shared/messages/MessageLikeButton'
-import { Avatar, Button, Skeleton } from '../../../shared/ui'
+import { Avatar, Button, ConfirmationDialog, Menu, MenuItem, Skeleton } from '../../../shared/ui'
 import { TaskAttachment, TaskFilesArchive } from './taskFiles'
 import { refreshTask } from './useTaskDetail'
-
-function contextMenuPosition(x: number, y: number): { left: number; top: number } {
-  const menuWidth = 248
-  const menuHeight = 260
-  const inset = 8
-  return {
-    left: Math.max(inset, Math.min(x, window.innerWidth - menuWidth - inset)),
-    top: Math.max(inset, Math.min(y, window.innerHeight - menuHeight - inset)),
-  }
-}
 
 export function TaskDiscussion({
   id,
@@ -71,9 +61,10 @@ export function TaskDiscussion({
   } | null>(null)
   const [openCommentMenu, setOpenCommentMenu] = useState<{
     id: string
-    left: number
-    top: number
+    x: number
+    y: number
   } | null>(null)
+  const [commentToDelete, setCommentToDelete] = useState<TaskDetailView['comments'][number] | null>(null)
   const commentMenuCloseTimerRef = useRef<number | null>(null)
   const commentAttemptRef = useRef({ signature: '', key: '' })
   const commentFileInputRef = useRef<HTMLInputElement>(null)
@@ -100,18 +91,8 @@ export function TaskDiscussion({
   }
   useEffect(() => {
     const closeOnOtherMenu = () => closeCommentMenu()
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement).closest('.task-comment-action-menu')) closeCommentMenu()
-    }
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') closeCommentMenu() }
     window.addEventListener('lanka:context-menu-open', closeOnOtherMenu)
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    window.addEventListener('keydown', closeOnEscape)
-    return () => {
-      window.removeEventListener('lanka:context-menu-open', closeOnOtherMenu)
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      window.removeEventListener('keydown', closeOnEscape)
-    }
+    return () => window.removeEventListener('lanka:context-menu-open', closeOnOtherMenu)
   }, [])
   const draftDirty = Boolean(comment.trim() || replyTo || editingComment)
   useEffect(() => {
@@ -352,7 +333,7 @@ export function TaskDiscussion({
                   if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
                   event.preventDefault()
                   window.dispatchEvent(new CustomEvent('lanka:context-menu-open'))
-                  setOpenCommentMenu({ id: item.id, ...contextMenuPosition(event.clientX, event.clientY) })
+                  setOpenCommentMenu({ id: item.id, x: event.clientX, y: event.clientY })
                 }}
               >
                 <UserProfileLink
@@ -445,16 +426,16 @@ export function TaskDiscussion({
                   )}
                   {editingComment?.id !== item.id && (
                     openCommentMenu?.id === item.id && (
-                        <div
+                        <Menu
+                          open
                           className="task-comment-action-menu"
-                          role="menu"
-                          aria-label="Дії з повідомленням"
-                          style={{ left: openCommentMenu.left, top: openCommentMenu.top }}
+                          label="Дії з повідомленням"
+                          point={{ x: openCommentMenu.x, y: openCommentMenu.y }}
+                          onClose={closeCommentMenu}
                           onMouseEnter={keepCommentMenuOpen}
                           onMouseLeave={delayCommentMenuClose}
                         >
-                          <button
-                            type="button"
+                          <MenuItem
                             disabled={reactToComment.isPending}
                             onClick={() => {
                               closeCommentMenu()
@@ -462,9 +443,8 @@ export function TaskDiscussion({
                             }}
                           >
                             <Heart size={14} /> {item.reactions.likedByMe ? 'Прибрати вподобання' : 'Подобається'}
-                          </button>
-                          <button
-                            type="button"
+                          </MenuItem>
+                          <MenuItem
                             onClick={() => {
                               closeCommentMenu()
                               setReplyTo({
@@ -475,9 +455,8 @@ export function TaskDiscussion({
                             }}
                           >
                             <Reply size={14} /> Відповісти
-                          </button>
-                          <button
-                            type="button"
+                          </MenuItem>
+                          <MenuItem
                             onClick={() => {
                               closeCommentMenu()
                               void navigator.clipboard.writeText(item.body)
@@ -486,11 +465,10 @@ export function TaskDiscussion({
                             }}
                           >
                             <Copy size={14} /> Копіювати текст
-                          </button>
+                          </MenuItem>
                           {item.canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => {
+                            <MenuItem
+                                onClick={() => {
                                 closeCommentMenu()
                                 setEditingComment({
                                   id: item.id,
@@ -505,23 +483,21 @@ export function TaskDiscussion({
                               }}
                             >
                               <Pencil size={14} /> Редагувати
-                            </button>
+                            </MenuItem>
                           )}
                           {item.canDelete && (
-                            <button
-                              type="button"
-                              className="is-danger"
+                            <MenuItem
+                                className="is-danger"
                               disabled={deleteComment.isPending}
                               onClick={() => {
-                                if (!window.confirm('Видалити це повідомлення?')) return
                                 closeCommentMenu()
-                                deleteComment.mutate({ commentId: item.id, expectedVersion: item.version })
+                                setCommentToDelete(item)
                               }}
                             >
                               <Trash2 size={14} /> Видалити
-                            </button>
+                            </MenuItem>
                           )}
-                        </div>
+                        </Menu>
                       )
                   )}
                 </div>
@@ -738,6 +714,16 @@ export function TaskDiscussion({
           />
         )}
       </form>
+      {commentToDelete && <ConfirmationDialog
+        title="Видалити це повідомлення?"
+        confirmLabel="Видалити"
+        onConfirm={() => {
+          const target = commentToDelete
+          setCommentToDelete(null)
+          deleteComment.mutate({ commentId: target.id, expectedVersion: target.version })
+        }}
+        onRequestClose={() => setCommentToDelete(null)}
+      />}
     </section>
   )
 }

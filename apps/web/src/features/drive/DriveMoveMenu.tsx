@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { createPortal } from 'react-dom'
 import type { DriveTarget } from './DriveItems'
 import { fetchMoveDestinations } from './api'
+import { handleMenuNavigationKey } from '../../shared/ui'
 
 export function placeMoveMenu(anchor: Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom'>, width: number, height: number, viewportWidth: number, viewportHeight: number) {
   const margin = 8
@@ -106,14 +107,7 @@ export function DriveMoveMenu({ target, menuId, onMove, onDone }: {
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === 'Escape' || event.key === 'ArrowLeft') { event.preventDefault(); event.stopPropagation(); back() }
-        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-          event.preventDefault()
-          event.stopPropagation()
-          const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')]
-          const current = buttons.indexOf(document.activeElement as HTMLButtonElement)
-          const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
-          buttons[next]?.focus()
-        }
+        if (handleMenuNavigationKey(event, event.currentTarget)) event.stopPropagation()
       }}>
       {folder && <div className="drive-move-menu__heading">
         <button type="button" role="menuitem" className="drive-move-menu__back" aria-label="Назад до папок" disabled={busy} onClick={back}><ArrowLeft size={15} aria-hidden /></button>

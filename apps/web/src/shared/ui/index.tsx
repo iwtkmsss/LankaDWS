@@ -1,8 +1,11 @@
-import { useEffect, useId, useState, type ButtonHTMLAttributes, type PropsWithChildren, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentPropsWithRef, type KeyboardEvent, type PropsWithChildren, type ReactNode } from 'react'
 import { AlertTriangle, Check, CircleAlert, Inbox, LoaderCircle } from 'lucide-react'
 import { statusLabels } from '../lib/format'
 import { useTopbarContent } from '../../layout/TopbarContent'
 export { DateTimePicker } from './DateTimePicker'
+export { Menu, MenuItem, useDetailsMenu, clampToViewport, handleMenuNavigationKey, focusFirstMenuItem } from './Menu'
+export type { MenuCloseReason, MenuProps } from './Menu'
+export { Field } from './Field'
 
 export {
   ConfirmationDialog,
@@ -34,7 +37,7 @@ export function Button({ variant = 'primary', className = '', ...props }: Button
   return <button className={`button button--${variant} ${className}`} {...props} />
 }
 
-export function IconButton({ label, children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string; children: ReactNode }) {
+export function IconButton({ label, children, className = '', ...props }: ComponentPropsWithRef<'button'> & { label: string; children: ReactNode }) {
   return <button type="button" className={`icon-button ${className}`.trim()} aria-label={label} title={label} {...props}>{children}</button>
 }
 
@@ -167,8 +170,27 @@ export function EmptyState({
 
 export function ErrorState({ title = 'Не вдалося завантажити дані', onRetry }: { title?: string; onRetry?: () => void }) { return <div className="empty-state empty-state--error"><CircleAlert size={34} aria-hidden /><h3>{title}</h3>{onRetry && <Button variant="secondary" onClick={onRetry}>Спробувати ще раз</Button>}</div> }
 
-export function Tabs({ value, items, onChange }: { value: string; items: Array<{ value: string; label: string; count?: number; unreadCount?: number }>; onChange: (value: string) => void }) {
-  return <div className="tabs" role="tablist">{items.map((item) => <button key={item.value} role="tab" aria-selected={value === item.value} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}{Boolean(item.unreadCount) && <b className="task-tab-unread" title="Непрочитані сповіщення" aria-label={`${item.unreadCount} непрочитаних сповіщень`}>{item.unreadCount! > 99 ? '99+' : item.unreadCount}</b>}</button>)}</div>
+/**
+ * Keyboard support for a `role="tablist"` (WAI-ARIA tabs, automatic activation): ArrowLeft/ArrowRight
+ * (wrapping), Home and End move focus to the neighbouring enabled tab and activate it. Pair with
+ * roving `tabIndex` (selected tab 0, others -1) on the tabs.
+ */
+export function handleTablistKeyDown(event: KeyboardEvent<HTMLElement>) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]:not(:disabled)'))
+  if (tabs.length === 0) return
+  const current = tabs.indexOf(document.activeElement as HTMLElement)
+  const next = event.key === 'Home' ? 0
+    : event.key === 'End' ? tabs.length - 1
+      : (Math.max(current, 0) + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+  event.preventDefault()
+  tabs[next]?.focus()
+  tabs[next]?.click()
+}
+
+export function Tabs({ value, items, onChange, label }: { value: string; items: Array<{ value: string; label: string; count?: number; unreadCount?: number; /** id of the tabpanel this tab controls */ controls?: string }>; onChange: (value: string) => void; label?: string }) {
+  const baseId = useId()
+  return <div className="tabs" role="tablist" aria-label={label} onKeyDown={handleTablistKeyDown}>{items.map((item) => <button key={item.value} id={`${baseId}-${item.value}`} type="button" role="tab" aria-selected={value === item.value} aria-controls={item.controls} tabIndex={value === item.value ? 0 : -1} className={value === item.value ? 'is-active' : ''} onClick={() => onChange(item.value)}>{item.label}{item.count !== undefined && <span>{item.count}</span>}{Boolean(item.unreadCount) && <b className="task-tab-unread" title="Непрочитані сповіщення" aria-label={`${item.unreadCount} непрочитаних сповіщень`}>{item.unreadCount! > 99 ? '99+' : item.unreadCount}</b>}</button>)}</div>
 }
 
 export function PageHeader({ title, action }: { title: string; description?: string; action?: ReactNode }) {
