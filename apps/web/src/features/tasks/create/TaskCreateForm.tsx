@@ -46,7 +46,7 @@ import './task-create.css'
 import { toLocalDateTimeInput } from '../../../shared/lib/format'
 
 type DetailSection = Exclude<TaskCreateSection, 'main' | 'participants'>
-type DraftSaveState = 'saving' | 'saved' | 'error'
+type DraftSaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 function defaultDraft(
   userId: string,
@@ -200,7 +200,7 @@ export function TaskCreateForm({
   const [serverMessage, setServerMessage] = useState('')
   const [validation, setValidation] = useState<TaskCreateValidation | null>(null)
   const [restoredVisible, setRestoredVisible] = useState(Boolean(restored))
-  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>('saved')
+  const [draftSaveState, setDraftSaveState] = useState<DraftSaveState>('idle')
   const titleRef = useRef<HTMLInputElement>(null)
   const dueAtRef = useRef<HTMLInputElement>(null)
   const errorRef = useRef<HTMLDivElement>(null)
