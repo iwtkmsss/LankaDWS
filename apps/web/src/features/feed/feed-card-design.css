@@ -58,8 +58,7 @@
 .stream-card--post .stream-ack:not(.is-done):not(.is-observer) .stream-ack__icon { color: var(--stream-accent); }
 .stream-card--post .stream-ack .button { color: var(--surface); border-color: var(--stream-accent); background: var(--stream-accent); }
 .stream-card--post .stream-ack .button:hover { border-color: color-mix(in srgb, var(--stream-accent) 85%, var(--ink-900)); background: color-mix(in srgb, var(--stream-accent) 85%, var(--ink-900)); }
-.stream-card--task { --stream-accent: #0b8453; border-color: color-mix(in srgb, var(--stream-accent) 30%, var(--line)); }
-:root[data-theme='dark'] .stream-card--task { --stream-accent: #49dda3; }
+.stream-card--task { --stream-accent: var(--success-accent); border-color: color-mix(in srgb, var(--stream-accent) 30%, var(--line)); }
 .stream-card--task .stream-card__kind-icon { color: var(--surface); background: var(--stream-accent); border-color: var(--stream-accent); }
 .stream-card--task .stream-card__source-copy :is(h2, h3),
 .stream-card--event .stream-card__source-copy :is(h2, h3) { margin: 0; color: var(--fg-strong); font-size: var(--text-heading); font-weight: var(--weight-bold); line-height: 1.4; letter-spacing: -.015em; }
@@ -94,7 +93,7 @@
 .stream-card__new { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-6); border-bottom: 1px solid var(--line); color: var(--fg-link); background: var(--cobalt-50); border-radius: var(--radius-lg) var(--radius-lg) 0 0; font-size: var(--text-label); font-weight: var(--weight-medium); }
 .stream-card__new > span { width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; }
 .stream-card__menu { position: relative; }
-.stream-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; min-width: 190px; padding: var(--space-1); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-lg); }
+.stream-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--z-sticky); min-width: 190px; padding: var(--space-1); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--surface-raised); box-shadow: var(--shadow-lg); }
 .stream-menu > button { display: flex; align-items: center; gap: var(--space-2); width: 100%; padding: var(--space-2); border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; color: var(--fg-body); font-size: var(--text-ui); }
 .stream-menu > button:hover { background: var(--surface-hover); }
 .stream-menu > .stream-menu__danger { color: var(--danger); }

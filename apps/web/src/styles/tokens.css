@@ -1,3 +1,10 @@
+/* Breakpoints (CSS custom properties cannot be used inside @media, so use these literals only).
+   Shell:   1050 / 1051 (min-width) = desktop sidebar + right panel vs. compact shell (AppShell.tsx matchMedia must match);
+            720 / 721 = mobile bottom-nav layout vs. tablet/desktop.
+   Content: 480 (small phone), 540, 620 (large phone / form stacking), 680, 780 (tablet portrait),
+            820, 860 / 861 (task detail split), 900, 1000, 1100, 1180 (wide panels).
+   Tiny:    320 and 380 / 420 are narrow-phone fixes for single components.
+   Add a new value only when none of the above is within 20px. */
 :root {
   color-scheme: light;
   /* Minimum UI text size on desktop and mobile; file-icon artwork is separate. */
@@ -97,6 +104,77 @@
   --space-page: var(--space-6);
   --sidebar: 258px;
   --topbar: 68px;
+  /* Foreground on solid accent / danger / dark media surfaces. */
+  --on-accent: #fff;
+  --on-accent-soft: rgb(255 255 255 / 16%);
+  --on-accent-line: rgb(255 255 255 / 25%);
+  --on-warning-accent: #5b3500;
+  --surface-veil: color-mix(in srgb, var(--surface) 70%, transparent);
+  --canvas-sunken: #e6ecf5;
+  --cobalt-200: #d4e0ff;
+  --accent-border: #c4d4fa;
+  --accent-border-strong: #a9c2ff;
+  --danger-line: #f3b7bf;
+  --danger-strong: #a92e3e;
+  --warning-line: #efc56d;
+  --warning-accent: #d89622;
+  --success-line: #bee4d0;
+  --success-accent: #0b8453;
+  --scrim: rgba(8, 14, 29, .48);
+  --scrim-nav: rgba(8, 14, 29, .42);
+  --shadow-ink: #0d162d;
+  /* Always-dark media viewer and avatar placeholder: identical in both themes. */
+  --media-bg: #101522;
+  --media-scrim: rgba(12, 18, 31, .84);
+  --avatar-placeholder-bg: #5d5d5d;
+  --avatar-placeholder-fg: #c8c8c8;
+  --file-archive: #eab308;
+  /* The sidebar is navy in both themes, so its palette is theme-invariant. */
+  --sidebar-fg: #d8deef;
+  --sidebar-fg-hover: #dfe5f5;
+  --sidebar-fg-muted: #99a4bf;
+  --sidebar-fg-subtle: #8490a9;
+  --sidebar-fg-faint: #65718e;
+  --sidebar-accent: #afc1ff;
+  --sidebar-accent-hover: #c5d3ff;
+  --sidebar-active-icon: #91afff;
+  --sidebar-divider: #202a41;
+  --sidebar-line: rgba(255, 255, 255, .07);
+  --sidebar-hover-bg: rgba(77, 91, 132, .08);
+  --sidebar-collapse-border: rgba(195, 199, 207, .55);
+  --sidebar-collapse-border-hover: rgba(225, 228, 233, .85);
+  --sidebar-brand-glow: rgba(91, 158, 255, .35);
+  --sidebar-icon-glow: rgba(103, 128, 255, .45);
+  --sidebar-active-border: rgba(103, 118, 255, .82);
+  --sidebar-active-bg: linear-gradient(115deg, rgba(33, 42, 91, .96), rgba(52, 38, 105, .92));
+  --sidebar-active-shadow: 0 0 0 1px rgba(65, 107, 255, .18), 0 0 12px rgba(76, 71, 255, .22);
+  --sidebar-menu-border: rgba(111, 129, 201, .3);
+  --sidebar-menu-bg: linear-gradient(165deg, rgba(17, 27, 55, .99), rgba(10, 18, 38, .99));
+  --sidebar-menu-shadow: 0 18px 48px rgba(3, 8, 24, .38), 0 0 0 1px rgba(82, 104, 212, .08);
+  /* Stacking scale (low to high). Values 4-8 and 12 stay literal inside components: local sibling ordering only. */
+  --z-behind: -1;
+  --z-base: 0;
+  --z-raised: 1;
+  --z-lifted: 2;
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-dropdown-raised: 30;
+  --z-topbar: 35;
+  --z-bottom-nav-scrim: 39;
+  --z-bottom-nav: 40;
+  --z-bottom-nav-menu: 41;
+  --z-right-panel: 44;
+  --z-nav-scrim: 45;
+  --z-sidebar: 50;
+  --z-popover: 60;
+  --z-sidebar-menu: 70;
+  --z-floating: 100;
+  --z-calendar-popover: 119;
+  --z-overlay: 120; /* + --overlay-stack-index per stacked modal */
+  --z-skip-link: 200;
+  --z-toast: 300;
+  --z-menu-top: 1000;
+  --z-picker: 2000;
   --focus: 0 0 0 3px rgba(31, 94, 255, .24);
 }
 
@@ -139,5 +217,19 @@
   --shadow-lg: 0 18px 60px rgba(0, 0, 0, .46);
   --chat-canvas: var(--canvas);
   --chat-canvas-image: none;
+  --on-warning-accent: #2b1b00;
+  --canvas-sunken: #0d1420;
+  --cobalt-200: #34497a;
+  --accent-border: var(--cobalt-300);
+  --accent-border-strong: var(--cobalt-600);
+  --danger-line: #6b3039;
+  --danger-strong: #ff8793;
+  --warning-line: #6b5224;
+  --warning-accent: #f1bb63;
+  --success-line: #2a5c4b;
+  --success-accent: #49dda3;
+  --scrim: rgba(2, 5, 12, .64);
+  --scrim-nav: rgba(2, 5, 12, .56);
+  --shadow-ink: #000;
   --focus: 0 0 0 3px rgba(113, 149, 255, .32);
 }
