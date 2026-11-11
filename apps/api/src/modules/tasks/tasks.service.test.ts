@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthPrincipal } from '../../common/request-context.js'
-import { TaskCompatibilityService } from './task-compatibility.service.js'
+import { TasksService } from './tasks.service.js'
 
 function principal(): AuthPrincipal {
   return {
@@ -19,7 +19,7 @@ function principal(): AuthPrincipal {
 }
 
 function serviceWith(prisma: Record<string, unknown>, access: Record<string, unknown> = {}, files: Record<string, unknown> = {}, commands: Record<string, unknown> = {}) {
-  return new TaskCompatibilityService(
+  return new TasksService(
     prisma as never,
     { allowedCompanies: vi.fn().mockReturnValue(['cmp_1']) } as never,
     access as never,
@@ -30,7 +30,15 @@ function serviceWith(prisma: Record<string, unknown>, access: Record<string, unk
   )
 }
 
-describe('TaskCompatibilityService', () => {
+describe('TasksService', () => {
+  it('applies favorite and important filters together instead of overwriting one another', () => {
+    const service = serviceWith({})
+    const where = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { favorite: 'true', important: 'false' })
+    expect(where.AND).toContainEqual({ userStates: { some: { userId: 'usr_viewer', favoritedAt: { not: null } } } })
+    expect(where.AND).toContainEqual({ userStates: { none: { userId: 'usr_viewer', important: true } } })
+    expect(where).not.toHaveProperty('userStates')
+  })
+
   it('includes archived records only when requested while preserving participant scope', () => {
     const service = serviceWith({})
     const archived = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { status: 'ARCHIVED' })
@@ -103,7 +111,7 @@ describe('TaskCompatibilityService', () => {
       outboxEvent: { create: vi.fn() },
     }
     const ensureMentionWatchers = vi.fn().mockResolvedValue([])
-    const service = new TaskCompatibilityService(
+    const service = new TasksService(
       { fileLink: { findMany: vi.fn().mockResolvedValue([]) },
         $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)) } as never,
       {} as never,
@@ -129,7 +137,7 @@ describe('TaskCompatibilityService', () => {
       auditEvent: { create: vi.fn() },
       outboxEvent: { create: vi.fn() },
     }
-    const service = new TaskCompatibilityService(
+    const service = new TasksService(
       { fileLink: { findMany: vi.fn().mockResolvedValue(source === 'linked' ? [{ fileId: 'file_1' }] : []) },
         $transaction: vi.fn((callback: (client: typeof tx) => Promise<unknown>) => callback(tx)) } as never,
       {} as never,
@@ -240,8 +248,8 @@ describe('TaskCompatibilityService', () => {
     const active = service.listWhere(principal(), 'cmp_1', undefined, { preset: 'DEFERRED', favorite: 'true', search: 'Launch' })
     expect(active).toMatchObject({
       workspaceId: 'wrk_1', companyId: { in: ['cmp_1'] }, archivedAt: null,
-      userStates: { some: { userId: 'usr_viewer', favoritedAt: { not: null } } },
     })
+    expect(active.AND).toContainEqual({ userStates: { some: { userId: 'usr_viewer', favoritedAt: { not: null } } } })
     expect(active.AND).toContainEqual({ status: 'NEW' })
     expect(active.AND).toContainEqual({ OR: [
       { createdById: 'usr_viewer' }, { reporterId: 'usr_viewer' },
@@ -271,7 +279,7 @@ describe('TaskCompatibilityService', () => {
     })).rejects.toMatchObject({ status: 403, code: 'forbidden' })
   })
 
-  it('maps the legacy collaborator list onto v2 participants, dueAt and URGENT', async () => {
+  it('maps the collaborator list onto v2 participants, dueAt and URGENT', async () => {
     const task = {
       id: 'task_1',
       number: '1',
@@ -384,7 +392,7 @@ describe('TaskCompatibilityService', () => {
           : vi.fn().mockResolvedValue([]),
         retainStagedAttachments,
       })
-      const update = (photoLayout?: unknown) => service.updateLegacy(principal(), task.id, {
+      const update = (photoLayout?: unknown) => service.edit(principal(), task.id, {
         title: 'T', description: '', assigneeId: 'usr_viewer', deadline: null, priority: 'MEDIUM', expectedVersion: 2,
         ...(photoLayout === undefined ? {} : { photoLayout }),
       })
@@ -425,7 +433,7 @@ describe('TaskCompatibilityService', () => {
     })
   })
 
-  it('replaces the active responsible selected through the legacy form', async () => {
+  it('replaces the active responsible selected through the edit form', async () => {
     const task = {
       id: 'task_1',
       workspaceId: 'wrk_1',
@@ -466,7 +474,7 @@ describe('TaskCompatibilityService', () => {
       editableTask: vi.fn().mockResolvedValue(task),
     })
 
-    await service.updateLegacy(principal(), task.id, {
+    await service.edit(principal(), task.id, {
       title: 'After',
       description: '',
       assigneeId: 'usr_owner',
@@ -535,7 +543,7 @@ describe('completed task restoration', () => {
   function setup(responsible = true, status = 'DONE', version = 2, reporterId = 'poster') {
     const task = { id: 'tsk_1', reporterId, version, status, companyId: 'cmp_1' }
     const tx = { task: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUniqueOrThrow: vi.fn().mockResolvedValue({ ...task, version: 3, status: 'IN_PROGRESS' }) }, taskParticipant: { findMany: vi.fn().mockResolvedValue([]) }, notification: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) }, auditEvent: { create: vi.fn() }, outboxEvent: { create: vi.fn() } }
-    const service = new TaskCompatibilityService({ taskParticipant: { findFirst: vi.fn().mockResolvedValue(responsible ? { id: 'participant' } : null) }, $transaction: vi.fn((fn: (transaction: typeof tx) => Promise<unknown>) => fn(tx)) } as never, {} as never, { readableTask: vi.fn().mockResolvedValue(task) } as never, {} as never, {} as never, { projectTask: vi.fn() } as never, {} as never)
+    const service = new TasksService({ taskParticipant: { findFirst: vi.fn().mockResolvedValue(responsible ? { id: 'participant' } : null) }, $transaction: vi.fn((fn: (transaction: typeof tx) => Promise<unknown>) => fn(tx)) } as never, {} as never, { readableTask: vi.fn().mockResolvedValue(task) } as never, {} as never, {} as never, { projectTask: vi.fn() } as never, {} as never)
     return { service, tx }
   }
   it('restores a completed task, clears completedAt, and records the event', async () => {

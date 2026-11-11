@@ -3,7 +3,7 @@ import { reactionUsersQuerySchema } from '@lankadws/contracts'
 import type { AuthPrincipal } from './request-context.js'
 import { listReactionUsers } from './reaction-users.js'
 import { MessagesService } from '../modules/communication/messages.service.js'
-import { TaskCompatibilityService } from '../modules/tasks/task-compatibility.service.js'
+import { TasksService } from '../modules/tasks/tasks.service.js'
 
 const principal = { userId: 'me', workspaceId: 'workspace' } as AuthPrincipal
 function setup() {
@@ -59,7 +59,7 @@ describe('reaction user lists', () => {
   it('checks task access and binds the comment to that exact task', async () => {
     const { prisma } = setup()
     const readableTask = vi.fn().mockRejectedValueOnce(new Error('not found')).mockResolvedValue({ id: 'task', companyId: 'company' })
-    const service = new TaskCompatibilityService(prisma as never, {} as never, { readableTask } as never,
+    const service = new TasksService(prisma as never, {} as never, { readableTask } as never,
       {} as never, {} as never, {} as never, {} as never)
     await expect(service.commentReactionUsers(principal, 'task', 'comment', { limit: 5 })).rejects.toThrow()
     expect(prisma.taskCommentReaction.findMany).not.toHaveBeenCalled()
