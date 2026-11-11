@@ -6,6 +6,7 @@ import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { DriveSharingService } from './drive-sharing.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 const MAX_DEPTH = 16
 
@@ -224,20 +225,6 @@ export class DriveFoldersService {
   }
 
   private async audit(principal: AuthPrincipal, companyId: string, folderId: string, action: string): Promise<void> {
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action,
-        entityType: 'FOLDER',
-        entityId: folderId,
-        result: 'SUCCESS',
-        risk: 'NORMAL',
-        correlationId: id('corr'),
-      },
-    })
+    await recordAudit(this.prisma, principal, { companyId, action, entityType: 'FOLDER', entityId: folderId })
   }
 }

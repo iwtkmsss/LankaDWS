@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { AuthService } from '../auth/auth.service.js'
 import { assertPasswordPolicy } from '../auth/password-policy.js'
 import { JobsService } from '../jobs/jobs.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 export const ADMIN_USER_PAGE_SIZE = 50
 
@@ -102,7 +103,7 @@ export class AdminService {
       await this.reserveUsername(tx, principal, username, userId)
       await tx.passwordCredential.create({ data: { id: id('pwd'), userId, passwordHash } })
       if (orgUnit && company) await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.created', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: company?.id ?? null, action: 'user.created', entityType: 'USER', entityId: userId, risk: 'HIGH', safeDiff: { accountType: input.accountType, companyId: company?.id ?? null } })
     }).catch((error: unknown) => this.usernameError(error))
     return { userId, username }
   }
@@ -152,7 +153,7 @@ export class AdminService {
         await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'admin_password_changed' } })
       }
       if (!input.isActive) await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: company?.id ?? null, actorType: 'USER', actorId: principal.userId, action: 'user.updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'HIGH', safeDiffJson: JSON.stringify({ accountType: input.accountType, companyId: company?.id ?? null }), correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: company?.id ?? null, action: 'user.updated', entityType: 'USER', entityId: userId, risk: 'HIGH', safeDiff: { accountType: input.accountType, companyId: company?.id ?? null } })
       return value
     }).catch((error: unknown) => this.usernameError(error))
     return { id: updated.id }
@@ -163,7 +164,7 @@ export class AdminService {
     if (!user) throw notFound()
     await this.prisma.$transaction([
       this.prisma.user.update({ where: { id: userId }, data: { avatarAsset: fileId } }),
-      this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: user.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.avatar_updated', entityType: 'USER', entityId: userId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } }),
+      recordAudit(this.prisma, principal, { companyId: user.primaryCompanyId, action: 'user.avatar_updated', entityType: 'USER', entityId: userId }),
     ])
     return { avatarAsset: `/api/v1/me/avatar/${fileId}` }
   }
@@ -231,7 +232,7 @@ export class AdminService {
       await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
       await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: targetId }, data: { managerId: null, version: { increment: 1 } } })
       await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: target.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: input.reason, safeDiffJson: JSON.stringify({ newOwnerId: input.newOwnerId, tasks, documents }), correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: target.primaryCompanyId, action: 'user.deactivated', entityType: 'USER', entityId: targetId, risk: 'CRITICAL', reasonCode: input.reason, safeDiff: { newOwnerId: input.newOwnerId, tasks, documents } })
     })
     return { deactivated: true }
   }
@@ -383,11 +384,7 @@ export class AdminService {
             },
           })
       }
-      await tx.auditEvent.create({ data: {
-        id: id('aud'), workspaceId: principal.workspaceId, companyId, actorType: 'USER', actorId: principal.userId,
-        action: 'company.capability_changed', entityType: 'COMPANY_CAPABILITY', entityId: row.id, result: 'SUCCESS', risk: 'HIGH',
-        safeDiffJson: JSON.stringify({ code, before: current?.enabled ?? false, after: input.enabled, version: nextVersion }), correlationId: id('corr'),
-      } })
+      await recordAudit(tx, principal, { companyId, action: 'company.capability_changed', entityType: 'COMPANY_CAPABILITY', entityId: row.id, risk: 'HIGH', safeDiff: { code, before: current?.enabled ?? false, after: input.enabled, version: nextVersion } })
       await tx.outboxEvent.create({ data: {
         id: id('out'), aggregateType: 'COMPANY_CAPABILITY', aggregateId: row.id, aggregateVersion: nextVersion,
         eventType: 'capability.changed', safePayload: JSON.stringify({ companyId, code, enabled: input.enabled, version: nextVersion }),
@@ -411,7 +408,7 @@ export class AdminService {
     }, `audit-export:${principal.workspaceId}:${principal.userId}:${idempotencyKey}`)
     const job = await this.prisma.backgroundJob.findUnique({ where: { id: jobId } })
     const effectiveExportId = job?.entityId ?? exportId
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, companyId: principal.primaryCompanyId, actorType: 'USER', actorId: principal.userId, action: 'audit.export_requested', entityType: 'AUDIT_EXPORT', entityId: effectiveExportId, result: 'QUEUED', risk: 'HIGH', safeDiffJson: JSON.stringify({ jobId }), correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { companyId: principal.primaryCompanyId, action: 'audit.export_requested', entityType: 'AUDIT_EXPORT', entityId: effectiveExportId, result: 'QUEUED', risk: 'HIGH', safeDiff: { jobId } })
     return { exportId: effectiveExportId, jobId, state: job?.state ?? 'QUEUED' }
   }
 
@@ -432,7 +429,7 @@ export class AdminService {
   async retryJob(principal: AuthPrincipal, jobId: string) {
     const result = await this.prisma.backgroundJob.updateMany({ where: { id: jobId, state: 'FAILED' }, data: { state: 'QUEUED', runAt: new Date(), lastErrorCode: null, leaseOwner: null, leaseUntil: null } })
     if (!result.count) throw conflict('Фонову роботу не можна повторити в поточному стані.')
-    await this.prisma.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'job.retried', entityType: 'JOB', entityId: jobId, result: 'SUCCESS', risk: 'HIGH', correlationId: id('corr') } })
+    await recordAudit(this.prisma, principal, { action: 'job.retried', entityType: 'JOB', entityId: jobId, risk: 'HIGH' })
     return { queued: true }
   }
 

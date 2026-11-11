@@ -18,6 +18,7 @@ import { TaskRecurrenceService } from './task-recurrence.service.js'
 import { TaskReminderService } from './task-reminder.service.js'
 import { TaskValidationService } from './task-validation.service.js'
 import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class TaskCommandService {
@@ -169,22 +170,7 @@ export class TaskCommandService {
           actorId: principal.userId,
           recipientIds: parentParticipants.map((participant) => participant.userId),
         })
-        await tx.auditEvent.create({
-          data: {
-            id: id('aud'),
-            workspaceId: principal.workspaceId,
-            companyId: context.companyId,
-            actorType: 'USER',
-            actorId: principal.userId,
-            action: 'task.subtask_created',
-            entityType: 'TASK',
-            entityId: context.parentTaskId,
-            result: 'SUCCESS',
-            risk: 'NORMAL',
-            safeDiffJson: JSON.stringify({ subtaskId: taskId }),
-            correlationId: id('corr'),
-          },
-        })
+        await recordAudit(tx, principal, { companyId: context.companyId, action: 'task.subtask_created', entityType: 'TASK', entityId: context.parentTaskId, safeDiff: { subtaskId: taskId } })
         await tx.outboxEvent.create({
           data: {
             id: id('out'),
@@ -203,29 +189,14 @@ export class TaskCommandService {
         })
       }
       await recordIdempotentResult(tx, { userId: principal.userId, key: idempotencyKey, operation: operation, fingerprint: requestFingerprint }, { type: 'TASK', id: taskId })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: context.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'task.created',
-          entityType: 'TASK',
-          entityId: taskId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: context.companyId, action: 'task.created', entityType: 'TASK', entityId: taskId, safeDiff: {
             participantCount: context.participants.length,
             checklistCount: input.checklistItems.length,
             relationCount: context.relations.length,
             reminderCount: input.reminders.length,
             attachmentCount: attachmentIds.length,
             recurrence: Boolean(input.recurrence),
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -304,19 +275,7 @@ export class TaskCommandService {
         },
       })
       if (!result.count) throw conflict('task_version')
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: task.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'task.updated',
-          entityType: 'TASK',
-          entityId: taskId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, principal, { companyId: task.companyId, action: 'task.updated', entityType: 'TASK', entityId: taskId, safeDiff: {
             changedFields,
             changes: {
               ...(input.title !== undefined && input.title !== task.title ? { title: input.title } : {}),
@@ -325,10 +284,7 @@ export class TaskCommandService {
               ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
               ...(input.priority !== undefined ? { priority: input.priority } : {}),
             },
-          }),
-          correlationId: id('corr'),
-        },
-      })
+          } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -373,21 +329,7 @@ export class TaskCommandService {
           resolutionTaskVersion: expectedVersion + 1,
         },
       })
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId: principal.workspaceId,
-          companyId: task.companyId,
-          actorType: 'USER',
-          actorId: principal.userId,
-          action: 'task.archived',
-          entityType: 'TASK',
-          entityId: taskId,
-          result: 'SUCCESS',
-          risk: 'NORMAL',
-          correlationId: id('corr'),
-        },
-      })
+      await recordAudit(tx, principal, { companyId: task.companyId, action: 'task.archived', entityType: 'TASK', entityId: taskId })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),

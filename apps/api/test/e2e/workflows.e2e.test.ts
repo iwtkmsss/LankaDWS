@@ -107,6 +107,7 @@ describe('LankaDWS API workflows', () => {
         .post('/api/v1/feed')
         .set('x-csrf-token', maria.csrf)
         .set('idempotency-key', `feed-multi-company-${suffix}`)
+        .set('x-correlation-id', `corr-e2e-${suffix}`)
         .send({
           companyId: 'cmp_lankadws_ua',
           body: 'Оновлення для кількох компаній.',
@@ -115,6 +116,10 @@ describe('LankaDWS API workflows', () => {
         })
         .expect(201);
       const postId = (response.body as { id: string }).id;
+      // Audit rows carry the HTTP request's correlation ID.
+      expect(await prisma.auditEvent.findFirst({
+        where: { action: 'feed.post.published', entityId: postId },
+      })).toMatchObject({ correlationId: `corr-e2e-${suffix}` });
       const items = await prisma.feedItem.findMany({
         where: { postId },
         select: { companyId: true, eventKey: true },

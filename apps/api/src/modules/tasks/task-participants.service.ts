@@ -14,6 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { FeedProjectionService } from '../feed/feed-projection.service.js'
 import type { TaskTransaction } from './task-types.js'
+import { recordAudit } from '../../common/audit.js'
 
 @Injectable()
 export class TaskParticipantsService {
@@ -342,22 +343,7 @@ export class TaskParticipantsService {
     auditAction: string,
     safeDiff: Record<string, unknown>,
   ): Promise<void> {
-    await tx.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action: auditAction,
-        entityType: 'TASK',
-        entityId: taskId,
-        result: 'SUCCESS',
-        risk: 'NORMAL',
-        correlationId: id('corr'),
-        safeDiffJson: JSON.stringify(safeDiff),
-      },
-    })
+    await recordAudit(tx, principal, { companyId, action: auditAction, entityType: 'TASK', entityId: taskId, safeDiff: safeDiff })
     await tx.outboxEvent.create({
       data: {
         id: id('out'),

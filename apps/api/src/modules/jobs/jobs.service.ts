@@ -31,6 +31,7 @@ import {
   executeRetentionPlan,
   isRetentionCategory,
 } from '../retention/retention.plan.js';
+import { recordAudit } from '../../common/audit.js'
 
 function payloadString(
   payload: Record<string, unknown>,
@@ -555,25 +556,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
               },
             });
           }
-          await tx.auditEvent.create({
-            data: {
-              id: id('aud'),
-              workspaceId: source.workspaceId,
-              companyId: source.companyId,
-              actorType: 'SYSTEM',
-              action: 'task.recurrence_created',
-              entityType: 'TASK',
-              entityId: taskId,
-              result: 'SUCCESS',
-              risk: 'NORMAL',
-              safeDiffJson: JSON.stringify({
+          await recordAudit(tx, null, { workspaceId: source.workspaceId, companyId: source.companyId, actorType: 'SYSTEM', action: 'task.recurrence_created', entityType: 'TASK', entityId: taskId, safeDiff: {
                 sourceTaskId: source.id,
                 recurrenceId,
                 occurrenceAt: occurrenceAt.toISOString(),
-              }),
-              correlationId: id('corr'),
-            },
-          });
+              } });
           await tx.outboxEvent.create({
             data: {
               id: id('out'),
@@ -694,27 +681,12 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
       cutoff,
     );
     const deleted = await executeRetentionPlan(this.prisma, plan);
-    await this.prisma.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId,
-        actorType: actorId ? 'USER' : 'SYSTEM',
-        actorId: actorId || null,
-        action: 'retention.purge_completed',
-        entityType: 'RETENTION',
-        entityId: purgeId,
-        result: 'SUCCESS',
-        risk: 'CRITICAL',
-        reasonCode: payloadString(payload, 'reason') || null,
-        safeDiffJson: JSON.stringify({
+    await recordAudit(this.prisma, null, { workspaceId, actorType: actorId ? 'USER' : 'SYSTEM', actorId: actorId || null, action: 'retention.purge_completed', entityType: 'RETENTION', entityId: purgeId, risk: 'CRITICAL', reasonCode: payloadString(payload, 'reason') || null, safeDiff: {
           category,
           cutoff: cutoff.toISOString(),
           deleted,
           heldCount: plan.heldCount,
-        }),
-        correlationId: id('corr'),
-      },
-    });
+        } });
   }
 
   private async generateAuditExport(
@@ -821,26 +793,11 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         },
         update: {},
       });
-      await tx.auditEvent.create({
-        data: {
-          id: id('aud'),
-          workspaceId,
-          companyId: companyId || null,
-          actorType: 'USER',
-          actorId,
-          action: 'audit.export_completed',
-          entityType: 'AUDIT_EXPORT',
-          entityId: exportId,
-          result: 'SUCCESS',
-          risk: 'HIGH',
-          safeDiffJson: JSON.stringify({
+      await recordAudit(tx, null, { workspaceId, companyId: companyId || null, actorType: 'USER', actorId, action: 'audit.export_completed', entityType: 'AUDIT_EXPORT', entityId: exportId, risk: 'HIGH', safeDiff: {
             fileId,
             rows: events.length,
             expiresInHours: 24,
-          }),
-          correlationId: id('corr'),
-        },
-      });
+          } });
     });
   }
 }

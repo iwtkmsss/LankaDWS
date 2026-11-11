@@ -41,6 +41,7 @@ import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
 import { DriveSharingService } from '../documents/drive-sharing.service.js'
 import { assertIdempotencyKey, findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 import { validateStructuredMentions } from '../../common/mentions.js'
+import { recordAudit } from '../../common/audit.js'
 
 const taskStatuses = [
   'NEW',
@@ -2126,22 +2127,7 @@ export class TaskCompatibilityService {
     version: number,
     safeDiff: Record<string, unknown>,
   ): Promise<void> {
-    await tx.auditEvent.create({
-      data: {
-        id: id('aud'),
-        workspaceId: principal.workspaceId,
-        companyId: task.companyId,
-        actorType: 'USER',
-        actorId: principal.userId,
-        action,
-        entityType: 'TASK',
-        entityId: task.id,
-        result: 'SUCCESS',
-        risk: 'NORMAL',
-        correlationId: id('corr'),
-        safeDiffJson: JSON.stringify(safeDiff),
-      },
-    })
+    await recordAudit(tx, principal, { companyId: task.companyId, action, entityType: 'TASK', entityId: task.id, safeDiff: safeDiff })
     await tx.outboxEvent.create({
       data: {
         id: id('out'),

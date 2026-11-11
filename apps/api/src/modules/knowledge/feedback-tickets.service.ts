@@ -4,6 +4,7 @@ import { id } from '../../common/crypto.js'
 import { badRequest, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
+import { recordAudit } from '../../common/audit.js'
 
 const createTicket = z.object({
   title: z.string().trim().min(1).max(200),
@@ -30,7 +31,7 @@ export class FeedbackTicketsService {
       }
       await tx.feedbackTicket.create({ data: { id: ticketId, workspaceId: principal.workspaceId, ownerId: principal.userId, title, body } })
       if (attachmentIds.length) await tx.fileLink.createMany({ data: attachmentIds.map((fileId) => ({ id: id('fln'), fileId, entityType: 'FEEDBACK_TICKET', entityId: ticketId, purpose: 'ATTACHMENT', aclMode: 'INHERIT' })) })
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'feedback.created', entityType: 'FEEDBACK_TICKET', entityId: ticketId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { action: 'feedback.created', entityType: 'FEEDBACK_TICKET', entityId: ticketId })
     })
     return { submitted: true }
   }
@@ -64,7 +65,7 @@ export class FeedbackTicketsService {
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.feedbackTicket.updateMany({ where: { id: ticketId, workspaceId: principal.workspaceId, status: 'ACTIVE' }, data: { status: 'ARCHIVED' } })
       if (!result.count) throw notFound()
-      await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: principal.workspaceId, actorType: 'USER', actorId: principal.userId, action: 'feedback.archived', entityType: 'FEEDBACK_TICKET', entityId: ticketId, result: 'SUCCESS', risk: 'NORMAL', correlationId: id('corr') } })
+      await recordAudit(tx, principal, { action: 'feedback.archived', entityType: 'FEEDBACK_TICKET', entityId: ticketId })
     })
     return { archived: true }
   }
