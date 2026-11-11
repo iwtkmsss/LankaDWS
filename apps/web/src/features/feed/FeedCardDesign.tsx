@@ -11,7 +11,7 @@ import { Avatar, Button, IconButton } from '../../shared/ui'
 import { FileFormatIcon } from '../../shared/files/FileFormatIcon'
 import { FormattedText } from '../../shared/text/FormattedText'
 import { RichTextEditor } from '../../shared/text/RichTextEditor'
-import { formatDateTime } from '../../shared/lib/format'
+import { formatDateTime, formatFileSize } from '../../shared/lib/format'
 import { FileThumbnail } from '../../shared/files/FileThumbnail'
 import { InlinePhotoCanvas, placedPhotos } from '../../shared/inline-photos/InlinePhotoCanvas'
 import './feed-card-design.css'
@@ -101,10 +101,6 @@ export function FeedAcknowledgement({ value, onConfirm }: { value: CardAcknowled
   )
 }
 
-export function formatFeedFileSize(bytes: number) {
-  return bytes < 1024 ? `${bytes} Б` : bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`
-}
-
 const metadataIcons: Record<string, LucideIcon> = {
   Дата: CalendarDays,
   'Дата і час': CalendarDays,
@@ -134,7 +130,7 @@ export function FeedMetadata({ entries = [], onProfile, renderPerson }: { entrie
 export function FeedFileRow({ file, onPreview, onDownload, downloadHref, thumbnail }: { file: FeedAttachmentView; onPreview: () => void; onDownload?: () => void; downloadHref?: string; thumbnail?: ReactNode }) {
   const clean = file.scanStatus === 'CLEAN'
   const pending = file.scanStatus === 'QUARANTINED' || file.scanStatus === 'SCANNING'
-  const label = clean ? formatFeedFileSize(file.bytes) : pending ? 'Перевіряється' : file.scanStatus === 'INFECTED' ? 'Файл заблоковано' : file.scanStatus === 'UNSUPPORTED' ? 'Формат не підтримується' : 'Не вдалося перевірити'
+  const label = clean ? formatFileSize(file.bytes) : pending ? 'Перевіряється' : file.scanStatus === 'INFECTED' ? 'Файл заблоковано' : file.scanStatus === 'UNSUPPORTED' ? 'Формат не підтримується' : 'Не вдалося перевірити'
   return (
     <div className={`stream-file ${clean ? 'is-ready' : pending ? 'is-pending' : 'is-blocked'}`}>
       <span className="stream-file__icon">{clean && thumbnail ? thumbnail : <FileFormatIcon mimeType={file.mimeType} fileName={file.fileName} size={24} />}</span>

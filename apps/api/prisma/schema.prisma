@@ -129,81 +129,6 @@ enum FeedReactionKind {
   LIKE
 }
 
-enum ImportDatasetKind {
-  SNAPSHOT
-  DELTA
-}
-
-enum ImportDatasetStatus {
-  INGESTING
-  SEALED
-  INVALID
-}
-
-enum ImportFileStatus {
-  PENDING
-  VERIFIED
-  INVALID
-}
-
-enum ImportRunMode {
-  VALIDATE
-  DRY_RUN
-  APPLY
-}
-
-enum ImportRunStatus {
-  QUEUED
-  RUNNING
-  PAUSED
-  SUCCEEDED
-  FAILED
-  CANCELLED
-}
-
-enum ImportReconciliationStatus {
-  NOT_RUN
-  PASSED
-  FAILED
-}
-
-enum ImportIssueSeverity {
-  WARNING
-  BLOCKING
-}
-
-enum ImportChangeOperation {
-  CREATE
-  UPDATE
-  NOOP
-  TOMBSTONE
-  QUARANTINE
-}
-
-enum ImportBinaryTransferStatus {
-  PENDING
-  UPLOADING
-  UPLOADED
-  SCANNING
-  CLEAN
-  PROMOTED
-  FAILED
-}
-
-enum MigrationActivationStatus {
-  PREPARING
-  READY
-  ACTIVE_PRE_WRITE
-  FORWARD_FIX_ONLY
-  ROLLED_BACK
-}
-
-enum SourceCompanyMappingStatus {
-  DRAFT
-  ACTIVE
-  RETIRED
-}
-
 model Workspace {
   id                    String                 @id
   displayName           String
@@ -220,11 +145,6 @@ model Workspace {
   feedItems             FeedItem[]
   feedSourceHeads       FeedSourceHead[]
   feedFileShares        FeedFileShare[]
-  importDatasets        ImportDataset[]
-  importApplyLeases     ImportApplyLease[]
-  externalIdMaps        ExternalIdMap[]
-  sourceCompanyMappings SourceCompanyMapping[]
-  migrationActivations  MigrationActivation[]
 
   @@index([status])
 }
@@ -259,8 +179,6 @@ model Company {
   feedSourceHeads       FeedSourceHead[]
   feedFileShares        FeedFileShare[]
   feedReadCursors       FeedReadCursor[]
-  sourceCompanyMappings SourceCompanyMapping[]
-  migrationActivations  MigrationActivation[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, isActive])
@@ -325,8 +243,6 @@ model User {
   managedCompanies             Company[]                      @relation("CompanyManager")
   orgAssignments               UserOrgAssignment[]
   eventAcknowledgements        EventAcknowledgement[]
-  createdSourceCompanyMappings SourceCompanyMapping[]         @relation("SourceCompanyMappingCreator")
-  activatedMigrations          MigrationActivation[]          @relation("MigrationActivator")
   taskParticipations           TaskParticipant[]              @relation("TaskParticipantUser")
   taskParticipantsAdded        TaskParticipant[]              @relation("TaskParticipantAdder")
   tasksCreated                 Task[]                         @relation("TaskCreatedBy")
@@ -682,244 +598,6 @@ model UserOrgAssignment {
   @@unique([userId, orgUnitId, startedAt])
   @@index([orgUnitId, endedAt, isPrimary])
   @@index([companyId, userId, endedAt])
-}
-
-model SourceCompanyMapping {
-  id               String                     @id
-  workspaceId      String
-  sourceSystem     String
-  sourceTenantId   String
-  version          Int
-  sourceOrgUnitKey String
-  targetCompanyId  String
-  status           SourceCompanyMappingStatus @default(DRAFT)
-  createdById      String
-  createdAt        DateTime                   @default(now())
-  activatedAt      DateTime?
-  workspace        Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  targetCompany    Company                    @relation(fields: [targetCompanyId], references: [id], onDelete: Restrict)
-  createdBy        User                       @relation("SourceCompanyMappingCreator", fields: [createdById], references: [id], onDelete: Restrict)
-
-  @@unique([workspaceId, sourceSystem, sourceTenantId, version, sourceOrgUnitKey])
-  @@index([workspaceId, sourceSystem, sourceTenantId, version, status])
-  @@index([targetCompanyId, status])
-}
-
-model ImportDataset {
-  id                      String                 @id
-  workspaceId             String
-  sourceSystem            String
-  sourceTenantId          String
-  sourceBuild             String
-  sourceSchemaFingerprint String
-  companyMappingVersion   Int
-  kind                    ImportDatasetKind
-  parentDatasetId         String?
-  sequence                Int
-  exportedAt              DateTime
-  watermarkFromJson       String?
-  watermarkToJson         String
-  mappingVersion          Int
-  schemaVersion           Int
-  manifestSha256          String
-  encryptionKeyId         String
-  status                  ImportDatasetStatus    @default(INGESTING)
-  createdAt               DateTime               @default(now())
-  sealedAt                DateTime?
-  workspace               Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  parentDataset           ImportDataset?         @relation("ImportDatasetChain", fields: [parentDatasetId], references: [id], onDelete: Restrict)
-  childDatasets           ImportDataset[]        @relation("ImportDatasetChain")
-  files                   ImportFile[]
-  runs                    ImportRun[]
-  binaryTransfers         ImportBinaryTransfer[]
-  externalMaps            ExternalIdMap[]
-  finalActivations        MigrationActivation[]  @relation("MigrationFinalDataset")
-
-  @@unique([workspaceId, sourceSystem, sourceTenantId, sequence])
-  @@index([workspaceId, sourceSystem, sourceTenantId, status, sequence])
-  @@index([parentDatasetId])
-  @@index([companyMappingVersion])
-}
-
-model ImportFile {
-  id              String                 @id
-  datasetId       String
-  sourceType      String
-  safeFilename    String
-  bytes           Int
-  sha256          String
-  recordCount     Int?
-  status          ImportFileStatus       @default(PENDING)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
-  dataset         ImportDataset          @relation(fields: [datasetId], references: [id], onDelete: Cascade)
-  binaryTransfers ImportBinaryTransfer[]
-
-  @@unique([datasetId, safeFilename])
-  @@index([datasetId, sourceType, status])
-}
-
-model ImportRun {
-  id                   String                     @id
-  datasetId            String
-  mode                 ImportRunMode
-  checkpointJson       String                     @default("{}")
-  status               ImportRunStatus            @default(QUEUED)
-  reconciliationStatus ImportReconciliationStatus @default(NOT_RUN)
-  reconciledAt         DateTime?
-  leaseOwner           String?
-  leaseUntil           DateTime?
-  heartbeatAt          DateTime?
-  attempt              Int                        @default(0)
-  lastErrorCode        String?
-  countersJson         String                     @default("{}")
-  safeErrorSummary     String?
-  createdAt            DateTime                   @default(now())
-  updatedAt            DateTime                   @updatedAt
-  dataset              ImportDataset              @relation(fields: [datasetId], references: [id], onDelete: Restrict)
-  applyLease           ImportApplyLease?
-  issues               ImportIssue[]
-  changes              ImportChangeJournal[]
-  binaryTransfers      ImportBinaryTransfer[]
-  appliedExternalMaps  ExternalIdMap[]            @relation("ExternalMapLastAppliedRun")
-
-  @@index([datasetId, mode, status, createdAt])
-  @@index([status, leaseUntil])
-}
-
-model ImportApplyLease {
-  id             String    @id
-  workspaceId    String
-  sourceSystem   String
-  sourceTenantId String
-  runId          String    @unique
-  leaseOwner     String
-  leaseUntil     DateTime
-  version        Int       @default(1)
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  run            ImportRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, sourceSystem, sourceTenantId])
-  @@index([leaseUntil])
-}
-
-model ImportIssue {
-  id             String              @id
-  runId          String
-  sourceType     String?
-  sourceId       String?
-  severity       ImportIssueSeverity
-  code           String
-  safeDetailJson String              @default("{}")
-  owner          String?
-  resolvedAt     DateTime?
-  resolution     String?
-  createdAt      DateTime            @default(now())
-  run            ImportRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  @@index([runId, severity, resolvedAt, createdAt])
-  @@index([code, severity])
-}
-
-model ExternalIdMap {
-  id                       String                @id
-  workspaceId              String
-  sourceSystem             String
-  sourceTenantId           String
-  sourceType               String
-  sourceId                 String
-  targetType               String
-  targetId                 String
-  sourceRevision           String?
-  sourceUpdatedAt          DateTime?
-  sourceHash               String
-  lastAppliedTargetVersion Int?
-  lastAppliedTargetHash    String?
-  lastAppliedRunId         String?
-  lastSeenDatasetId        String
-  tombstonedAt             DateTime?
-  createdAt                DateTime              @default(now())
-  updatedAt                DateTime              @updatedAt
-  workspace                Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  lastAppliedRun           ImportRun?            @relation("ExternalMapLastAppliedRun", fields: [lastAppliedRunId], references: [id], onDelete: SetNull)
-  lastSeenDataset          ImportDataset         @relation(fields: [lastSeenDatasetId], references: [id], onDelete: Restrict)
-  changes                  ImportChangeJournal[]
-
-  @@unique([workspaceId, sourceSystem, sourceTenantId, sourceType, sourceId])
-  @@index([targetType, targetId])
-  @@index([lastSeenDatasetId])
-  @@index([lastAppliedRunId])
-}
-
-model ImportChangeJournal {
-  id            String                @id
-  runId         String
-  externalMapId String?
-  operation     ImportChangeOperation
-  beforeVersion Int?
-  afterVersion  Int?
-  safeDiffJson  String                @default("{}")
-  createdAt     DateTime              @default(now())
-  run           ImportRun             @relation(fields: [runId], references: [id], onDelete: Cascade)
-  externalMap   ExternalIdMap?        @relation(fields: [externalMapId], references: [id], onDelete: SetNull)
-
-  @@index([runId, operation, createdAt])
-  @@index([externalMapId])
-}
-
-model ImportBinaryTransfer {
-  id                  String                     @id
-  runId               String
-  datasetId           String
-  sourceFileId        String
-  expectedBytes       Int
-  transferredBytes    Int                        @default(0)
-  sha256              String
-  quarantineObjectKey String
-  uploadStateJson     String?
-  status              ImportBinaryTransferStatus @default(PENDING)
-  attempt             Int                        @default(0)
-  lastErrorCode       String?
-  fileObjectId        String?
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
-  run                 ImportRun                  @relation(fields: [runId], references: [id], onDelete: Cascade)
-  dataset             ImportDataset              @relation(fields: [datasetId], references: [id], onDelete: Restrict)
-  sourceFile          ImportFile                 @relation(fields: [sourceFileId], references: [id], onDelete: Restrict)
-
-  @@unique([datasetId, sourceFileId])
-  @@index([runId, status, updatedAt])
-  @@index([quarantineObjectKey])
-}
-
-model MigrationActivation {
-  id                                  String                    @id
-  workspaceId                         String
-  companyId                           String
-  sourceSystem                        String
-  sourceTenantId                      String
-  status                              MigrationActivationStatus @default(PREPARING)
-  finalDatasetId                      String?
-  cutoverWatermarksJson               String?
-  cutoverManifestSha256               String?
-  signoffRef                          String?
-  feedCutoverAt                       DateTime?
-  preApplyBackupEvidenceRef           String
-  activationBaselineBackupEvidenceRef String?
-  preparedAt                          DateTime                  @default(now())
-  activatedAt                         DateTime?
-  activatedById                       String?
-  firstNativeWriteAt                  DateTime?
-  version                             Int                       @default(1)
-  workspace                           Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  company                             Company                   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  finalDataset                        ImportDataset?            @relation("MigrationFinalDataset", fields: [finalDatasetId], references: [id], onDelete: Restrict)
-  activatedBy                         User?                     @relation("MigrationActivator", fields: [activatedById], references: [id], onDelete: SetNull)
-
-  @@unique([companyId, sourceSystem, sourceTenantId])
-  @@index([workspaceId, status])
-  @@index([finalDatasetId])
-  @@index([activatedById])
 }
 
 model PasswordCredential {
@@ -1600,19 +1278,6 @@ model Notification {
 
   @@index([recipientId, readAt, createdAt])
   @@index([recipientId, requiresAction, createdAt])
-}
-
-model NotificationPreference {
-  id        String  @id
-  userId    String
-  category  String
-  channel   String
-  enabled   Boolean @default(true)
-  digest    String  @default("IMMEDIATE")
-  quietJson String  @default("{}")
-  version   Int     @default(1)
-
-  @@unique([userId, category, channel])
 }
 
 model MessageThread {

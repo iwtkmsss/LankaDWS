@@ -29,6 +29,7 @@ import { Button, ConfirmationDialog, IconButton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { trimMentionValue } from '../shared/mentions/mentionText'
+import { formatFileSize } from '../shared/lib/format'
 
 export function FeedComposerForm({
   defaultCompanyId,
@@ -274,7 +275,7 @@ export function FeedComposerForm({
       </InlinePhotoEditor>
       <input ref={photoInput} type="file" hidden multiple accept={FEED_PHOTO_MIME_TYPES.join(',')} disabled={busy || attachmentCount >= 10} aria-label="Фото в публікацію" onChange={(event) => { selectPhotos(Array.from(event.target.files ?? [])); event.target.value = '' }} />
       {(pendingFiles.length > 0 || attachments.some((file) => !photoPreviews.some((photo) => photo.id === file.id))) && <section className="stream-composer__files" aria-label="Додані файли">
-        {pendingFiles.map((file, index) => <div key={index}><FileFormatIcon mimeType={file.type} fileName={file.name} size={24} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)} · очікує вибору аудиторії</small></span><IconButton label={'Прибрати ' + file.name} disabled={busy} onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}><X size={15} /></IconButton></div>)}
+        {pendingFiles.map((file, index) => <div key={index}><FileFormatIcon mimeType={file.type} fileName={file.name} size={24} /><span><strong>{file.name}</strong><small>{formatFileSize(file.size)} · очікує вибору аудиторії</small></span><IconButton label={'Прибрати ' + file.name} disabled={busy} onClick={() => setPendingFiles((current) => current.filter((_, i) => i !== index))}><X size={15} /></IconButton></div>)}
         {attachments.filter((file) => !photoPreviews.some((photo) => photo.id === file.id)).map((file) => <div key={file.id}><FeedFileRow file={file} onPreview={() => setPreview(file)} downloadHref={'/api/v1/files/' + encodeURIComponent(file.id) + '/download'} /><IconButton label={'Прибрати ' + file.fileName} disabled={busy} onClick={() => removeAttachment(file.id)}><X size={15} /></IconButton></div>)}
       </section>}
       <section className="stream-composer__audience">
@@ -321,8 +322,3 @@ export function FeedComposerForm({
   )
 }
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
-}

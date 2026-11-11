@@ -57,7 +57,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, ApiProblem, apiUrl, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
-import { formatDate, formatDateTime } from '../shared/lib/format'
+import { formatDate, formatDateTime, formatFileSize, toLocalDateTimeInput } from '../shared/lib/format'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { DrivePicker } from '../features/drive/DrivePicker'
 import { useDiscardDraftAttachment } from '../shared/files/useDiscardDraftAttachment'
@@ -2640,7 +2640,7 @@ function TaskAttachment({
         </strong>
         <small>
           {scanStatus === 'CLEAN'
-            ? formatBytes(attachment.bytes)
+            ? formatFileSize(attachment.bytes)
             : taskAttachmentStateLabel(scanStatus)}
         </small>
       </span>
@@ -2803,20 +2803,6 @@ function TaskParticipantGroup({
       )}
     </section>
   )
-}
-
-function toLocalDateTimeInput(value: string | null): string {
-  if (!value) return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
 function taskAttachmentStateLabel(status: TaskAttachmentView['scanStatus']): string {

@@ -31,6 +31,7 @@ import { SaveToDriveButton } from '../../../shared/files/SaveToDriveButton'
 import { isChatPhoto } from '../lib/photoAlbums'
 import { MessageBubbleOutline } from './MessageBubbleOutline'
 import { MessageLikeButton } from '../../../shared/messages/MessageLikeButton'
+import { formatFileSize } from '../../../shared/lib/format'
 
 interface MessageBubbleProps {
   idPrefix?: string
@@ -46,12 +47,6 @@ interface MessageBubbleProps {
   onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`
 }
 
 function contextMenuPosition(x: number, y: number): { left: number; top: number } {
@@ -357,7 +352,7 @@ export function MessageBubble({
                 <span className="message-attachment__copy">
                   {singleImageAttachment?.id !== attachment.id && <CompactFileName fileName={attachment.fileName} />}
                   {singleImageAttachment?.id !== attachment.id && <small>
-                    {formatBytes(attachment.bytes)}
+                    {formatFileSize(attachment.bytes)}
                     {attachment.scanStatus !== 'CLEAN' ? ` · ${attachment.scanStatus === 'SCANNING' || attachment.scanStatus === 'QUARANTINED' ? 'Перевіряється' : 'Недоступний'}` : ''}
                   </small>}
                 </span>
