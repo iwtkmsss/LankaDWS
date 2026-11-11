@@ -1,16 +1,15 @@
 name: CI
 
-# One run per change: pushes to beta are checked through the open pull request to main, so
-# beta pushes do not start a second identical run. Pushes to main (merges) are checked too.
+# One run per push to beta or main. A pull request between them shows the checks of its head
+# commit, so there is no separate pull_request run doing the same work twice.
 on:
   push:
-    branches: [main]
-  pull_request:
+    branches: [main, beta]
   workflow_dispatch:
 
-# A newer push to the same pull request cancels the run still in progress.
+# A newer push to the same branch cancels the run still in progress.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
