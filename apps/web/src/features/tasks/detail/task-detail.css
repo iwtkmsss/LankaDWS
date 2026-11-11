@@ -1009,6 +1009,15 @@
   background: color-mix(in srgb, var(--cobalt-100) 68%, transparent);
 }
 
+/* Narrow screens wrap the event instead of scrolling it sideways (a scroll region would need keyboard access). */
+@media (max-width: 620px) {
+  .task-system-event {
+    flex-wrap: wrap;
+    overflow: visible;
+    white-space: normal;
+  }
+}
+
 .task-system-event time {
   border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--cobalt-100) 52%, transparent);
