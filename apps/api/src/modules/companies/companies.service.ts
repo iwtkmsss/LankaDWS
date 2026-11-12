@@ -5,6 +5,7 @@ import { id } from '../../common/crypto.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { recordAudit } from '../../common/audit.js'
+import { leaveFormerOrgUnitThreads } from '../org/org-unit-chat.js'
 
 @Injectable()
 export class CompaniesService {
@@ -65,6 +66,7 @@ export class CompaniesService {
         await tx.company.updateMany({ where: { workspaceId: principal.workspaceId, managerId: { in: employeeIds } }, data: { managerId: null, version: { increment: 1 } } })
         await tx.orgUnit.updateMany({ where: { workspaceId: principal.workspaceId, managerId: { in: employeeIds } }, data: { managerId: null, version: { increment: 1 } } })
         await tx.userOrgAssignment.updateMany({ where: { userId: { in: employeeIds }, endedAt: null }, data: { endedAt: new Date(), isPrimary: false } })
+        await leaveFormerOrgUnitThreads(tx, employeeIds)
         await tx.user.updateMany({ where: { id: { in: employeeIds }, workspaceId: principal.workspaceId, accountType: 'USER', isActive: true }, data: { primaryCompanyId: company.id, authorizationVersion: { increment: 1 } } })
       }
       const saved = input.managerId ? await tx.company.update({ where: { id: company.id }, data: { managerId: input.managerId }, include: { manager: true } }) : company

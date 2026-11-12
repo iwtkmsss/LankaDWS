@@ -42,7 +42,7 @@ describe('AdminService administrator safeguards', () => {
       },
     }
     Object.assign(prisma, { $transaction: vi.fn((callback: (client: typeof prisma) => Promise<unknown>) => callback(prisma)) })
-    const service = new AdminService(prisma as never, {} as never, {} as never)
+    const service = new AdminService(prisma as never, {} as never, {} as never, { publish: () => Promise.resolve() } as never)
 
     await expect(service.updateUser(principal, principal.userId, update)).rejects.toMatchObject({
       status: 403,
@@ -74,7 +74,7 @@ describe('AdminService user creation', () => {
       orgUnit: { findFirst: vi.fn() },
       $transaction: vi.fn((callback: (client: typeof transaction) => Promise<void>) => callback(transaction)),
     }
-    const service = new AdminService(prisma as never, {} as never, {} as never)
+    const service = new AdminService(prisma as never, {} as never, {} as never, { publish: () => Promise.resolve() } as never)
 
     await expect(service.createUser(principal, {
       firstName: 'Test',
@@ -101,7 +101,8 @@ describe('AdminService deactivation', () => {
       user: { update: vi.fn().mockResolvedValue(user), findFirst: vi.fn(({ where }: { where: { id: unknown } }) => Promise.resolve(where.id === user.id ? user : null)) },
       task: { count: vi.fn().mockResolvedValue(0) }, document: { count: vi.fn().mockResolvedValue(0) },
       usernameReservation: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
-      company: { updateMany: vi.fn() }, orgUnit: { updateMany: vi.fn() },
+      company: { updateMany: vi.fn() }, orgUnit: { updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+      userOrgAssignment: { findMany: vi.fn().mockResolvedValue([]) }, threadParticipant: { findMany: vi.fn().mockResolvedValue([]) },
       userSession: { updateMany: vi.fn() }, auditEvent: { create: vi.fn() },
     }
     const prisma = {
@@ -109,7 +110,7 @@ describe('AdminService deactivation', () => {
       company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp_test' }) },
       $transaction: (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     }
-    const service = new AdminService(prisma as never, {} as never, {} as never)
+    const service = new AdminService(prisma as never, {} as never, {} as never, { publish: () => Promise.resolve() } as never)
     await service.updateUser(principal, user.id, { ...update, accountType: 'USER', companyId: 'cmp_test' })
     expect(tx.user.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isActive: false, authorizationVersion: { increment: 1 } }) as unknown }))
     expect(tx.userSession.updateMany).toHaveBeenCalledWith({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: expect.any(Date) as unknown, revokeReason: 'deactivated' } })

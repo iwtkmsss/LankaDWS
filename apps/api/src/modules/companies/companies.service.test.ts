@@ -12,7 +12,7 @@ function setup(foundIds = ['usr_a', 'usr_b']) {
   const tx = {
     company: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue(company), updateMany: vi.fn(), update: vi.fn().mockResolvedValue({ ...company, manager: { id: 'usr_a', displayName: 'Андрій Коваль', jobTitle: '', isActive: true, primaryCompanyId: company.id } }) },
     user: { findMany: vi.fn().mockResolvedValue(foundIds.map((id) => ({ id, primaryCompanyId: 'cmp_old' }))), updateMany: vi.fn() },
-    orgUnit: { updateMany: vi.fn() }, userOrgAssignment: { updateMany: vi.fn() }, auditEvent: { create: vi.fn() },
+    orgUnit: { updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) }, userOrgAssignment: { updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) }, threadParticipant: { findMany: vi.fn().mockResolvedValue([]) }, auditEvent: { create: vi.fn() },
   }
   const prisma = { $transaction: vi.fn(async (run: (value: typeof tx) => unknown) => await run(tx)) }
   return { tx, prisma, service: new CompaniesService(prisma as unknown as PrismaService) }

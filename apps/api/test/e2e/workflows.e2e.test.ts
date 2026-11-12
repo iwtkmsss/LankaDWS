@@ -1061,6 +1061,48 @@ describe('LankaDWS API workflows', () => {
     expect(JSON.stringify(employees.body)).not.toContain('username');
   });
 
+  it('gives every new department a member chat that announces people who join', async () => {
+    const suffix = Date.now().toString(36);
+    const admin = await login('dmytro');
+    const andrii = await login('andrii');
+    const olena = await login('olena');
+    const endpoint = '/api/v1/admin/companies/cmp_lankadws_ua/org-units';
+    const createUnit = async (name: string, managerId?: string) => (await admin.agent
+      .post(endpoint).set('x-csrf-token', admin.csrf).send({ name, ...(managerId ? { managerId } : {}) }).expect(201)).body as { id: string; version: number };
+
+    const unit = await createUnit(`Чат підрозділу ${suffix}`, 'usr_andrii');
+    const threadId = `thr_${unit.id}`;
+    const created = await andrii.agent.get(`/api/v1/messages/threads/${threadId}`).expect(200);
+    expect(created.body).toMatchObject({
+      title: `Чат підрозділу ${suffix}`, kind: 'GROUP', canManageParticipants: true, lastMessageId: null,
+      participants: [expect.objectContaining({ role: 'OWNER', id: 'usr_andrii' })],
+    });
+    await olena.agent.get(`/api/v1/messages/threads/${threadId}`).expect(404);
+
+    const assigned = await admin.agent.put(`${endpoint}/${unit.id}/employees`).set('x-csrf-token', admin.csrf)
+      .send({ employeeIds: ['usr_olena'], expectedVersion: unit.version }).expect(200);
+    const history = await olena.agent.get(`/api/v1/messages/threads/${threadId}/messages`).expect(200);
+    expect((history.body as { items: Array<{ body: string }> }).items.map((item) => item.body))
+      .toEqual([`До підрозділу «Чат підрозділу ${suffix}» додано нового учасника: Бондар Олена.`]);
+    const list = await andrii.agent.get('/api/v1/messages/threads').expect(200);
+    expect((list.body as { items: Array<{ id: string; unreadCount: number }> }).items)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: threadId, unreadCount: 1 })]));
+
+    // Assigning the same person again neither duplicates the participant nor repeats the announcement.
+    await admin.agent.put(`${endpoint}/${unit.id}/employees`).set('x-csrf-token', admin.csrf)
+      .send({ employeeIds: ['usr_olena'], expectedVersion: (assigned.body as { version: number }).version }).expect(200);
+    const detail = await andrii.agent.get(`/api/v1/messages/threads/${threadId}`).expect(200);
+    expect((detail.body as { participants: unknown[] }).participants).toHaveLength(2);
+
+    // Moving to another department moves the person between the two chats.
+    const other = await createUnit(`Інший чат ${suffix}`);
+    await admin.agent.put(`${endpoint}/${other.id}/employees`).set('x-csrf-token', admin.csrf)
+      .send({ employeeIds: ['usr_olena'], expectedVersion: other.version }).expect(200);
+    await olena.agent.get(`/api/v1/messages/threads/${threadId}`).expect(404);
+    const moved = await olena.agent.get(`/api/v1/messages/threads/thr_${other.id}/messages`).expect(200);
+    expect((moved.body as { items: unknown[] }).items).toHaveLength(1);
+  });
+
   it('lets an administrator manage a recursive organization hierarchy shared across the workspace', async () => {
     const prisma = app.get(PrismaService);
     const suffix = Date.now().toString(36);

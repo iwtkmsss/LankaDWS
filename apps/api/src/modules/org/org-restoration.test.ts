@@ -24,7 +24,7 @@ function setup(rows = original, snapshot: unknown = { structure: rows }) {
     user: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
     $transaction: vi.fn(async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx)),
   }
-  return { tx, prisma, service: new OrgService(prisma as unknown as PrismaService, new ScopeService()) }
+  return { tx, prisma, service: new OrgService(prisma as unknown as PrismaService, new ScopeService(), { publish: () => Promise.resolve() } as never) }
 }
 
 describe('organization structure restoration', () => {

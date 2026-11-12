@@ -17,12 +17,14 @@ import { AuthService } from '../auth/auth.service.js'
 import { assertPasswordPolicy } from '../auth/password-policy.js'
 import { JobsService } from '../jobs/jobs.service.js'
 import { recordAudit } from '../../common/audit.js'
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
+import { addOrgUnitThreadMembers, leaveFormerOrgUnitThreads, mergeOrgUnitChatEvents, noOrgUnitChatEvents, publishOrgUnitChatEvents } from '../org/org-unit-chat.js'
 
 export const ADMIN_USER_PAGE_SIZE = 50
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly jobQueue: JobsService) {}
+  constructor(private readonly prisma: PrismaService, private readonly auth: AuthService, private readonly jobQueue: JobsService, private readonly realtime: ChatRealtimeService) {}
 
   async overview(principal: AuthPrincipal) {
     const [activeUsers, inactiveUsers, departments, roles, without2fa, failedJobs, recentAudit] = await Promise.all([
@@ -98,13 +100,16 @@ export class AdminService {
     if (input.accountType === 'USER' && (!company || (input.orgUnitId && !orgUnit))) throw badRequest('user_assignment')
     const userId = id('usr')
     const passwordHash = await hashPassword(input.password)
-    await this.prisma.$transaction(async (tx) => {
+    const chatEvents = await this.prisma.$transaction(async (tx) => {
       await tx.user.create({ data: { id: userId, workspaceId: principal.workspaceId, primaryCompanyId: company?.id ?? null, accountType: input.accountType, firstName: input.firstName.trim(), lastName: input.lastName.trim(), middleName: input.middleName?.trim() || null, displayName, normalizedDisplayName: normalizeUserSearchValue(displayName), username, normalizedUsername: username, contactEmail: input.contactEmail.trim(), phone: input.phone?.trim() || null, gender: input.gender ?? null, birthDate: input.birthDate ? new Date(`${input.birthDate}T00:00:00.000Z`) : null, jobTitle: input.jobTitle?.trim() ?? '', isActive: input.isActive, mustEnroll2FA: false } })
       await this.reserveUsername(tx, principal, username, userId)
       await tx.passwordCredential.create({ data: { id: id('pwd'), userId, passwordHash } })
       if (orgUnit && company) await tx.userOrgAssignment.create({ data: { id: id('uoa'), userId, companyId: company.id, orgUnitId: orgUnit.id, isPrimary: true, positionTitle: input.jobTitle?.trim() || null } })
       await recordAudit(tx, principal, { companyId: company?.id ?? null, action: 'user.created', entityType: 'USER', entityId: userId, risk: 'HIGH', safeDiff: { accountType: input.accountType, companyId: company?.id ?? null } })
+      // An active newcomer joins the department chat and is announced there.
+      return orgUnit && company && input.isActive ? addOrgUnitThreadMembers(tx, principal, orgUnit, [userId]) : noOrgUnitChatEvents()
     }).catch((error: unknown) => this.usernameError(error))
+    publishOrgUnitChatEvents(this.realtime, chatEvents)
     return { userId, username }
   }
 
@@ -154,9 +159,13 @@ export class AdminService {
       }
       if (!input.isActive) await tx.userSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'deactivated' } })
       await recordAudit(tx, principal, { companyId: company?.id ?? null, action: 'user.updated', entityType: 'USER', entityId: userId, risk: 'HIGH', safeDiff: { accountType: input.accountType, companyId: company?.id ?? null } })
-      return value
+      // Department chats follow the assignment: leave former ones, join the new one.
+      const left = changesAssignment || clearsLeadership ? await leaveFormerOrgUnitThreads(tx, [userId]) : noOrgUnitChatEvents()
+      const joined = orgUnit && company && input.isActive ? await addOrgUnitThreadMembers(tx, principal, orgUnit, [userId]) : noOrgUnitChatEvents()
+      return { value, chatEvents: mergeOrgUnitChatEvents(left, joined) }
     }).catch((error: unknown) => this.usernameError(error))
-    return { id: updated.id }
+    publishOrgUnitChatEvents(this.realtime, updated.chatEvents)
+    return { id: updated.value.id }
   }
 
   async updateAvatar(principal: AuthPrincipal, userId: string, fileId: string) {

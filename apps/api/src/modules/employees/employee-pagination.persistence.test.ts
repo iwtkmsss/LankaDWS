@@ -87,7 +87,7 @@ beforeEach(async () => {
   await addUser('foreign', 'Foreign', { primaryCompanyId: 'other-company' })
   const db = prisma as unknown as PrismaService
   controller = new EmployeesController(db, scope)
-  org = new OrgService(db, scope)
+  org = new OrgService(db, scope, { publish: () => Promise.resolve() } as never)
 })
 afterEach(async () => { await prisma.$disconnect() })
 

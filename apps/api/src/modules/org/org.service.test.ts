@@ -26,7 +26,7 @@ describe('organization branch archival', () => {
       orgUnit: { findFirst: vi.fn().mockResolvedValue({ ...branch[0], children: [], assignments: [] }) },
       $transaction: vi.fn(async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx)),
     }
-    return { tx, prisma, service: new OrgService(prisma as unknown as PrismaService, {} as ScopeService) }
+    return { tx, prisma, service: new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never) }
   }
 
   it('archives every active descendant and leaves employees at company level', async () => {
@@ -107,7 +107,7 @@ describe('organization company projection', () => {
       orgUnit: { findFirst: vi.fn().mockResolvedValueOnce(unit).mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([unit]) },
       $transaction: vi.fn(async (run: (value: typeof tx) => unknown) => await run(tx)),
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
     await service.updateUnit(principal, 'cmp_one', 'unit', { icon: 'computer', expectedVersion: 2 })
     expect(tx.orgUnit.updateMany.mock.calls[0]?.[0]).toMatchObject({ where: { version: 2 }, data: { icon: 'computer', version: { increment: 1 } } })
     const result = await service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })
@@ -120,7 +120,7 @@ describe('organization company projection', () => {
       company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp_one', displayName: 'Компанія', description: 'Опис для карти', version: 3, manager: null }) },
       orgUnit: { findMany: vi.fn().mockResolvedValue([]) },
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
 
     await expect(service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })).resolves.toEqual({
       company: { id: 'cmp_one', name: 'Компанія', description: 'Опис для карти', logoAsset: null, manager: null, version: 3 },
@@ -138,7 +138,7 @@ describe('organization company projection', () => {
       },
       orgUnit: { findMany: vi.fn().mockResolvedValue([]) },
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
 
     const first = await service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })
     expect(first.company.manager).toEqual({ id: 'usr_member', displayName: 'Учасник', jobTitle: 'Керівник', avatarAsset: null })
@@ -157,7 +157,7 @@ describe('organization company projection', () => {
       company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp_one', displayName: 'Компанія', description: null, version: 1, manager: null }) },
       user: { findFirst: userFindFirst },
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
 
     await expect(service.createUnit(principal, 'cmp_one', { name: 'Відділ', description: '', managerId: 'usr_admin' }))
       .rejects.toMatchObject({ status: 404 })
@@ -174,7 +174,7 @@ describe('organization company projection', () => {
         _count: { children: 0, assignments: 4 },
       }]) },
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
 
     const response = await service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })
 
@@ -201,7 +201,7 @@ describe('organization company projection', () => {
       ]) },
       userOrgAssignment: { findMany: assignmentLookup },
     }
-    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService)
+    const service = new OrgService(prisma as unknown as PrismaService, {} as ScopeService, { publish: () => Promise.resolve() } as never)
 
     const response = await service.listAdminUnits(principal, 'cmp_one', { status: 'ALL' })
 

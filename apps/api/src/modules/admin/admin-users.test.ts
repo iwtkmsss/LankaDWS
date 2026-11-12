@@ -30,8 +30,9 @@ function setup() {
       create: vi.fn().mockResolvedValue(target), update: vi.fn().mockResolvedValue(target), count: vi.fn().mockResolvedValue(3), findMany: vi.fn().mockResolvedValue([]),
     },
     company: { findFirst: vi.fn((args: { where: { id: string } }) => Promise.resolve({ id: args.where.id })), updateMany: vi.fn() },
-    orgUnit: { findFirst: vi.fn().mockResolvedValue({ id: 'unit' }), updateMany: vi.fn() },
-    userOrgAssignment: { updateMany: vi.fn(), create: vi.fn() },
+    orgUnit: { findFirst: vi.fn().mockResolvedValue({ id: 'unit' }), updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+    userOrgAssignment: { updateMany: vi.fn(), create: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
+    threadParticipant: { findMany: vi.fn().mockResolvedValue([]) },
     usernameReservation: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
     task: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([{ id: 'task', reporterId: 'target' }]), updateMany: vi.fn() },
     document: { count: vi.fn().mockResolvedValue(0), updateMany: vi.fn() },
@@ -49,7 +50,7 @@ function setup() {
     if (!challenge) return Promise.reject(forbidden())
     return Promise.resolve()
   }) }
-  const service = new AdminService(prisma as unknown as PrismaService, auth as unknown as AuthService, {} as JobsService)
+  const service = new AdminService(prisma as unknown as PrismaService, auth as unknown as AuthService, {} as JobsService, { publish: () => Promise.resolve() } as never)
   return { service, prisma, tx, target, auth, approval }
 }
 

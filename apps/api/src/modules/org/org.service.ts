@@ -12,6 +12,11 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { recordAudit } from '../../common/audit.js'
+import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
+import {
+  addOrgUnitThreadMembers, ensureOrgUnitThread, leaveFormerOrgUnitThreads, mergeOrgUnitChatEvents, noOrgUnitChatEvents,
+  orgUnitThreadId, publishOrgUnitChatEvents,
+} from './org-unit-chat.js'
 
 type ManagerRow = { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null; isActive: boolean; primaryCompanyId: string | null; accountType?: string }
 const EMPLOYEE_PAGE_SIZE = 20
@@ -23,7 +28,7 @@ const archivedStructureSchema = z.object({ structure: z.array(z.object({
 
 @Injectable()
 export class OrgService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: ScopeService, private readonly realtime: ChatRealtimeService) {}
 
   private async uniqueNameGuard<T>(operation: () => Promise<T>): Promise<T> {
     try {
@@ -198,8 +203,11 @@ export class OrgService {
         icon: input.icon ?? null, normalizedName: normalizedName(input.name), managerId: input.managerId ?? null, sortOrder,
       } })
       await recordAudit(tx, principal, { companyId, action: 'org_unit.created', entityType: 'ORG_UNIT', entityId: unitId, risk: 'HIGH', safeDiff: { icon: input.icon ?? null, parentId, description: input.description || null, managerId: input.managerId ?? null } })
+      // The department's member chat exists from the start (decision 2026-11-12).
+      await ensureOrgUnitThread(tx, principal, created)
       return created
     }))
+    publishOrgUnitChatEvents(this.realtime, { threadIds: [orgUnitThreadId(unit.id)], messages: [] })
     return { id: unit.id, version: unit.version }
   }
 
@@ -219,7 +227,8 @@ export class OrgService {
     await this.assertUniqueName(companyId, nextParentId, nextName, unit.id)
     const parentChanged = nextParentId !== unit.parentId
     const sortOrder = parentChanged ? await this.nextSortOrder(companyId, nextParentId) : unit.sortOrder
-    await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
+    const nextManagerId = input.managerId !== undefined ? input.managerId : unit.managerId
+    const chatEvents = await this.uniqueNameGuard(() => this.prisma.$transaction(async (tx) => {
       const updated = await tx.orgUnit.updateMany({
         where: { id: unit.id, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE', version: input.expectedVersion },
         data: {
@@ -229,13 +238,28 @@ export class OrgService {
       })
       if (updated.count !== 1) throw conflict('Підрозділ уже змінено іншим адміністратором.')
       await recordAudit(tx, principal, { companyId, action: 'org_unit.updated', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { icon: input.icon, name: normalizeName(nextName), description: nextDescription, parentId: nextParentId, managerId: input.managerId } })
+      const threadId = orgUnitThreadId(unit.id)
+      // The chat follows the department's name unless someone renamed the chat itself.
+      const renamed = normalizeName(nextName) === unit.name ? { count: 0 } : await tx.messageThread.updateMany({
+        where: { id: threadId, title: unit.name.slice(0, 120) }, data: { title: normalizeName(nextName).slice(0, 120), version: { increment: 1 } },
+      })
+      if (nextManagerId === unit.managerId) return { threadIds: renamed.count ? [threadId] : [], messages: [] }
+      // A manager is a member of the unit: the new one joins the chat as its owner,
+      // the previous one stays only while still assigned to the unit.
+      const chatUnit = { ...unit, name: normalizeName(nextName), managerId: nextManagerId }
+      if (unit.managerId) await tx.threadParticipant.updateMany({ where: { threadId, userId: unit.managerId, leftAt: null }, data: { role: 'MEMBER', version: { increment: 1 } } })
+      const joined = nextManagerId ? await addOrgUnitThreadMembers(tx, principal, chatUnit, [nextManagerId]) : noOrgUnitChatEvents()
+      if (nextManagerId) await tx.threadParticipant.updateMany({ where: { threadId, userId: nextManagerId, leftAt: null, role: { not: 'OWNER' } }, data: { role: 'OWNER', version: { increment: 1 } } })
+      const left = unit.managerId ? await leaveFormerOrgUnitThreads(tx, [unit.managerId]) : noOrgUnitChatEvents()
+      return mergeOrgUnitChatEvents({ threadIds: [threadId], messages: [] }, joined, left)
     }))
+    publishOrgUnitChatEvents(this.realtime, chatEvents)
     return { id: unit.id, version: input.expectedVersion + 1 }
   }
 
   async assignEmployees(principal: AuthPrincipal, companyId: string, unitId: string, input: AssignOrgUnitEmployeesInput) {
     const [unit, employees, assignments] = await Promise.all([
-      this.prisma.orgUnit.findFirst({ where: { id: unitId, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE' }, select: { id: true, version: true } }),
+      this.prisma.orgUnit.findFirst({ where: { id: unitId, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE' }, select: { id: true, version: true, workspaceId: true, companyId: true, name: true, managerId: true } }),
       this.prisma.user.findMany({ where: { id: { in: input.employeeIds }, workspaceId: principal.workspaceId, primaryCompanyId: companyId, accountType: 'USER', isActive: true }, select: { id: true } }),
       this.prisma.userOrgAssignment.findMany({ where: { userId: { in: input.employeeIds }, endedAt: null, isPrimary: true }, select: { userId: true, orgUnitId: true, positionTitle: true } }),
     ])
@@ -249,7 +273,7 @@ export class OrgService {
     }
     if (!moved.length) return { id: unit.id, version: unit.version, moved: 0 }
     const now = new Date()
-    await this.prisma.$transaction(async (tx) => {
+    const chatEvents = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.orgUnit.updateMany({
         where: { id: unit.id, workspaceId: principal.workspaceId, companyId, status: 'ACTIVE', version: input.expectedVersion },
         data: { version: { increment: 1 } },
@@ -263,7 +287,12 @@ export class OrgService {
         } })
       }
       await recordAudit(tx, principal, { companyId, action: 'org_unit.employees_assigned', entityType: 'ORG_UNIT', entityId: unit.id, risk: 'HIGH', safeDiff: { employeesMoved: moved.length } })
+      // Move people between department chats and announce them in the new one.
+      const movedIds = moved.map((assignment) => assignment.userId)
+      const left = await leaveFormerOrgUnitThreads(tx, movedIds)
+      return mergeOrgUnitChatEvents(left, await addOrgUnitThreadMembers(tx, principal, unit, movedIds))
     })
+    publishOrgUnitChatEvents(this.realtime, chatEvents)
     return { id: unit.id, version: unit.version + 1, moved: moved.length }
   }
 
