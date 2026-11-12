@@ -75,11 +75,12 @@ import '../features/messages/messages.css'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
-import { Avatar, ErrorState, IconButton, Skeleton } from '../shared/ui'
+import { Avatar, ErrorState, handleTablistKeyDown, IconButton, Skeleton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import { FileThumbnail } from '../shared/files/FileThumbnail'
 import { FileFormatIcon } from '../shared/files/FileFormatIcon'
+import { formatCount } from '../shared/lib/format'
 import './right-communication-panel.css'
 
 type PanelTab = 'chat' | 'notifications'
@@ -179,26 +180,28 @@ function RightPanelTabs({
 }) {
   return (
     <header className="right-panel__topbar">
-      <div className="right-panel__tabs" role="tablist" aria-label="Комунікації">
+      <div className="right-panel__tabs" role="tablist" aria-label="Комунікації" onKeyDown={handleTablistKeyDown}>
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'chat'}
+          tabIndex={tab === 'chat' ? 0 : -1}
           className={tab === 'chat' ? 'is-active' : ''}
           onClick={() => onChange('chat')}
         >
           <MessageCircle size={16} aria-hidden />Чат
-          {chatUnread > 0 && <b>{Math.min(chatUnread, 99)}</b>}
+          {chatUnread > 0 && <b>{formatCount(chatUnread)}</b>}
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === 'notifications'}
+          tabIndex={tab === 'notifications' ? 0 : -1}
           className={tab === 'notifications' ? 'is-active' : ''}
           onClick={() => onChange('notifications')}
         >
           <Bell size={16} aria-hidden />Сповіщення
-          {notificationUnread > 0 && <b>{Math.min(notificationUnread, 99)}</b>}
+          {notificationUnread > 0 && <b>{formatCount(notificationUnread)}</b>}
         </button>
       </div>
       <IconButton className="right-panel__toggle" label="Закрити праву панель" onClick={onClose}>
@@ -649,7 +652,7 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
                 <div className="message-thread-meta__actions">
                   {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                     disabled={chatPin.pending} onClick={() => chatPin.toggle(thread.id, !thread.pinned)} />}
-                  {thread.unreadCount > 0 && <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{thread.unreadCount > 99 ? '99+' : thread.unreadCount}</b>}
+                  {thread.unreadCount > 0 && <b className="right-panel__thread-unread" aria-label={`Непрочитаних повідомлень: ${thread.unreadCount}`}>{formatCount(thread.unreadCount)}</b>}
                 </div>
                 </div>
                 </div>
@@ -828,13 +831,13 @@ export function RightCommunicationPanel(props: RightCommunicationPanelProps) {
       {tab === 'notifications' && (
         <section className="right-panel__screen right-panel__notifications" aria-label="Сповіщення">
           <div className="right-panel__screen-heading right-panel__notifications-heading">
-            <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень">
+            <div className="right-panel__filters" role="tablist" aria-label="Фільтр сповіщень" onKeyDown={handleTablistKeyDown}>
               {([
                 ['all', 'Усі'],
                 ['unread', 'Непрочитані'],
                 ['mentions', 'Згадки'],
               ] as const).map(([value, label]) => (
-                <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
+                <button key={value} type="button" role="tab" aria-selected={notificationFilter === value} tabIndex={notificationFilter === value ? 0 : -1} className={notificationFilter === value ? 'is-active' : ''} onClick={() => setNotificationFilter(value)}>{label}</button>
               ))}
             </div>
           </div>
@@ -1396,7 +1399,7 @@ function PanelMessageStream({
           onClick={() => scroll.scrollToBottom()}
         >
           <ChevronDown size={28} />
-          {unreadCount > 0 && <span className="right-panel__messages-bottom-count">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+          {unreadCount > 0 && <span className="right-panel__messages-bottom-count">{formatCount(unreadCount)}</span>}
         </IconButton>
       )}
     </div>

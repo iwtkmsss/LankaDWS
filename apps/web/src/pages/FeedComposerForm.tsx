@@ -121,7 +121,7 @@ export function FeedComposerForm({
   const companies = (audiences.data?.items ?? []).filter((item) => item.type === 'COMPANY')
   const defaultCompanyIds = defaultCompanyId && companies.some((item) => item.companyId === defaultCompanyId)
     ? [defaultCompanyId]
-    : []
+    : companies.map((item) => item.companyId)
   const effectiveCompanyIds = selectedCompanyIds ?? defaultCompanyIds
   const selectedCompanies = companies.filter((item) => effectiveCompanyIds.includes(item.companyId))
   const primaryCompany = selectedCompanies[0]

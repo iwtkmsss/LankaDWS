@@ -218,7 +218,7 @@ describe('RightCommunicationPanel message actions', () => {
     ] }, { ...thread, kind: 'DIRECT', title: 'Петренко Олена', participants: [
       { id: 'user-2', displayName: 'Петренко Олена', username: 'olena', jobTitle: '', avatarAsset: null, role: 'MEMBER', version: 1 },
     ] })
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     expect(screen.getByRole('img', { name: 'photo.png' })).toBeVisible()
     expect(screen.getByRole('img', { name: 'Формат PDF' })).toBeVisible()
     expect(screen.getByRole('img', { name: 'Формат TXT' })).toBeVisible()
@@ -234,7 +234,7 @@ describe('RightCommunicationPanel message actions', () => {
 
   it('opens an empty file list in a group chat and returns to messages', async () => {
     await openPanel()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     const toggle = screen.getByRole('button', { name: 'Файли в чаті' })
     fireEvent.click(toggle)
     expect(screen.getByText('У цьому чаті ще немає файлів.')).toBeVisible()
@@ -249,7 +249,7 @@ describe('RightCommunicationPanel message actions', () => {
     ] }, { ...thread, kind: 'DIRECT', title: 'Петренко Олена', participants: [
       { id: 'user-2', displayName: 'Петренко Олена', username: 'olena', jobTitle: '', avatarAsset: null, role: 'MEMBER', version: 1 },
     ] })
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: 'Розгорнути інформацію про користувача' }))
     expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Файли в чаті/ })).toHaveAttribute('aria-expanded', 'false')
@@ -316,7 +316,7 @@ describe('RightCommunicationPanel message actions', () => {
     vi.mocked(setMessageReaction).mockResolvedValueOnce({ ...message, reactions: { likeCount: 1, likedByMe: true } })
       .mockResolvedValueOnce(message)
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Подобається' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Подобається' }))
     await waitFor(() => expect(setMessageReaction).toHaveBeenCalledWith(message.id, true))
     const unlike = await screen.findByRole('button', { name: 'Прибрати вподобання' })
     expect(unlike).toHaveAttribute('aria-pressed', 'true')
@@ -326,7 +326,7 @@ describe('RightCommunicationPanel message actions', () => {
 
   it('sends a reply with the selected message id', async () => {
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Відповісти' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Відповісти' }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Моя відповідь' } })
     fireEvent.click(screen.getByRole('button', { name: 'Надіслати' }))
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith('thread-1', {
@@ -336,7 +336,7 @@ describe('RightCommunicationPanel message actions', () => {
 
   it('shows only this thread unread count while scrolled up and reads on returning to the bottom', async () => {
     const client = await openPanel()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     const viewport = document.querySelector('.right-panel__messages') as HTMLDivElement
     Object.defineProperties(viewport, {
       scrollHeight: { configurable: true, value: 1200 },
@@ -371,7 +371,7 @@ describe('RightCommunicationPanel message actions', () => {
 
   it('scrolls to the latest message after sending from older history', async () => {
     await openPanel()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     const viewport = document.querySelector('.right-panel__messages') as HTMLDivElement
     Object.defineProperties(viewport, {
       scrollHeight: { configurable: true, value: 1200 },
@@ -391,9 +391,9 @@ describe('RightCommunicationPanel message actions', () => {
     await openPanel()
     const menu = screen.getByRole('menu')
     expect(menu.parentElement).toBe(document.body)
-    fireEvent.pointerDown(within(menu).getByRole('button', { name: 'Подобається' }))
+    fireEvent.pointerDown(within(menu).getByRole('menuitem', { name: 'Подобається' }))
     expect(screen.getByRole('menu')).toBe(menu)
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(document.body, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.contextMenu(screen.getByText(message.body))
     fireEvent.pointerDown(document.body)
@@ -403,7 +403,7 @@ describe('RightCommunicationPanel message actions', () => {
   it('deletes with the expected version and displays the returned tombstone', async () => {
     vi.mocked(getMessage).mockResolvedValue({ ...message, deletedAt: '2026-10-06T11:00:00Z' })
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Видалити' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Видалити' }))
     await screen.findByText('Повідомлення видалено')
     expect(api).toHaveBeenCalledWith('/messages/message-1', {
       method: 'DELETE', body: JSON.stringify({ expectedVersion: 1 }),
@@ -419,7 +419,7 @@ describe('RightCommunicationPanel message actions', () => {
   it('saves edited text with the expected version', async () => {
     vi.mocked(getMessage).mockResolvedValue({ ...message, body: 'Змінений текст', version: 2 })
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Редагувати' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Редагувати' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Текст повідомлення' }), { target: { value: 'Змінений текст' } })
     fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
     await screen.findByText('Змінений текст')
@@ -430,7 +430,7 @@ describe('RightCommunicationPanel message actions', () => {
 
   it('opens the existing forwarding drawer', async () => {
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Переслати' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Переслати' }))
     await waitFor(() => expect(getThreadPage).toHaveBeenCalledWith('all', false, null, expect.any(AbortSignal)))
     expect(await screen.findByRole('button', { name: /^Тестовий діалог/ })).toBeInTheDocument()
   })
@@ -443,7 +443,7 @@ describe('RightCommunicationPanel message actions', () => {
       unread: false, unreadCount: 0, notificationMode: 'ALL',
     }], nextCursor: null, counts: { all: 1, unread: 0 } })
     await openPanel()
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('button', { name: 'Переслати' }))
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Переслати' }))
     fireEvent.click(await screen.findByRole('button', { name: /^Тестовий діалог/ }))
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(thread.id, {
       body: `Переслано від Марія:\n${message.body}`, attachmentIds: [], mentions: [],

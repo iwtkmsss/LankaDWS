@@ -1,10 +1,13 @@
 name: CI
 
+# One run per push to beta or main. A pull request between them shows the checks of its head
+# commit, so there is no separate pull_request run doing the same work twice.
 on:
   push:
     branches: [main, beta]
-  pull_request:
+  workflow_dispatch:
 
+# A newer push to the same branch cancels the run still in progress.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -38,7 +41,6 @@ jobs:
   web-e2e:
     name: Web end-to-end (desktop and mobile Chromium)
     runs-on: ubuntu-latest
-    needs: checks
     timeout-minutes: 30
     env:
       VITE_DEMO_MODE: 'false'
@@ -50,11 +52,27 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prisma:generate
-      - run: npx playwright install --with-deps chromium
+      # Browsers are cached per Playwright version; the system libraries are installed every run.
+      - id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
         working-directory: apps/web
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Downloads from the runner occasionally fail; retry before failing the job.
+      - name: Install Chromium for Playwright
+        working-directory: apps/web
+        run: |
+          for attempt in 1 2 3; do
+            npx playwright install --with-deps chromium && exit 0
+            echo "Install attempt $attempt failed; retrying"
+            sleep 15
+          done
+          exit 1
       - run: npm run test:e2e --workspace @lankadws/web -- --project=desktop-chromium --project=mobile-chromium
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-report
           path: apps/web/artifacts/playwright-report

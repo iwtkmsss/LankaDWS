@@ -1,4 +1,5 @@
 import { conversationName } from '../../../shared/lib/personName'
+import { pluralUk } from '../../../shared/lib/format'
 import type {
   ChatAttachmentView,
   ChatMessageView,
@@ -91,7 +92,7 @@ export function ConversationPane(props: ConversationPaneProps) {
     : null
   const subtitle = props.thread.kind === 'DIRECT'
     ? directParticipant?.jobTitle ?? ''
-    : `${props.thread.participants.length} учасників`
+    : `${props.thread.participants.length} ${pluralUk(props.thread.participants.length, ['учасник', 'учасники', 'учасників'])}`
 
   return (
     <section

@@ -31,13 +31,14 @@ import { api } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { resolveHomePath } from '../shared/auth/home'
 import { applyTheme, getStoredTheme, storeTheme } from '../shared/theme'
-import { Avatar, BrandMark, IconButton } from '../shared/ui'
+import { Avatar, BrandMark, IconButton, Menu as PopupMenu } from '../shared/ui'
 import { FeedbackDialogHost, withFeedbackOpen } from './FeedbackDialogHost'
 import { RightCommunicationPanel } from './RightCommunicationPanel'
 import { TopbarCenterContent, TopbarContent, TopbarContentProvider } from './TopbarContent'
 import { useMessageRealtime } from '../features/messages/hooks/useMessageRealtime'
 import { useMessageSoundActivation } from '../features/messages/lib/messageSound'
 import { useDocumentTitle } from '../shared/lib/useDocumentTitle'
+import { formatCount } from '../shared/lib/format'
 
 interface SidebarNavSection {
   key: NonNullable<RouteMeta['navGroup']>
@@ -84,10 +85,8 @@ export function AppShell({ children }: PropsWithChildren) {
   const [desktopNavHeight, setDesktopNavHeight] = useState<number | null>(null)
   const sidebarNavRef = useRef<HTMLElement>(null)
   const sidebarMoreTriggerRef = useRef<HTMLButtonElement>(null)
-  const sidebarMoreMenuRef = useRef<HTMLDivElement>(null)
   const profileMenuRef = useRef<HTMLDivElement>(null)
   const mobileMoreTriggerRef = useRef<HTMLButtonElement>(null)
-  const mobileMoreMenuRef = useRef<HTMLDivElement>(null)
   const companyId = user?.company?.id ?? 'global-admin'
   const feedCompanyScope = user?.company?.id ?? 'all'
   useMessageRealtime(Boolean(user), user?.id)
@@ -289,14 +288,6 @@ export function AppShell({ children }: PropsWithChildren) {
   }, [location.pathname])
 
   useEffect(() => {
-    if (!mobileMoreOpen) return
-    const frame = window.requestAnimationFrame(() => {
-      mobileMoreMenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
-    })
-    return () => { window.cancelAnimationFrame(frame) }
-  }, [mobileMoreOpen])
-
-  useEffect(() => {
     if (!profileOpen) return
     const handlePointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !profileMenuRef.current?.contains(event.target)) {
@@ -306,21 +297,6 @@ export function AppShell({ children }: PropsWithChildren) {
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [profileOpen])
-
-  useEffect(() => {
-    if (!moreOpen) return
-    const handlePointerDown = (event: PointerEvent) => {
-      if (
-        event.target instanceof Node
-        && !sidebarMoreTriggerRef.current?.contains(event.target)
-        && !sidebarMoreMenuRef.current?.contains(event.target)
-      ) {
-        setMoreOpen(false)
-      }
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [moreOpen])
 
   useEffect(() => {
     const handle = (event: KeyboardEvent) => {
@@ -372,22 +348,22 @@ export function AppShell({ children }: PropsWithChildren) {
         <span>{title}</span>
         {route.path === '/tasks' && taskUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
-            {taskUnread > 99 ? '99+' : taskUnread}
+            {formatCount(taskUnread)}
           </b>
         )}
         {route.path === '/messages' && chatUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${chatUnread} непрочитаних діалогів`}>
-            {chatUnread > 99 ? '99+' : chatUnread}
+            {formatCount(chatUnread)}
           </b>
         )}
         {route.path === '/feed' && feedUnread > 0 && (
           <b className="nav-unread-badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
-            {feedUnread > 99 ? '99+' : feedUnread}
+            {formatCount(feedUnread)}
           </b>
         )}
         {route.path === '/knowledge' && knowledgePending > 0 && (
           <b className={`nav-unread-badge nav-knowledge-badge ${(knowledgeSummary.data?.requiredUnreadCount ?? 0) > 0 ? 'is-required' : ''}`} aria-label={`${knowledgePending} неознайомлених записів`}>
-            {sidebarCollapsed ? '!' : knowledgePending > 99 ? '99+' : knowledgePending}
+            {sidebarCollapsed ? '!' : formatCount(knowledgePending)}
           </b>
         )}
       </NavLink>
@@ -483,10 +459,10 @@ export function AppShell({ children }: PropsWithChildren) {
           )}
         </nav>
         {moreOpen && overflowRoutes.length > 0 && (
-          <div ref={sidebarMoreMenuRef} className="sidebar-more__menu" role="menu" aria-label="Додаткові розділи">
+          <PopupMenu open className="sidebar-more__menu" label="Додаткові розділи" triggerRef={sidebarMoreTriggerRef} onClose={() => setMoreOpen(false)}>
             {overflowNavSections.map((section) =>
               renderNavSection(section.label, section.items, section.key, true))}
-          </div>
+          </PopupMenu>
         )}
         <div ref={profileMenuRef} className="sidebar__profile">
           {profileOpen && (
@@ -590,9 +566,7 @@ export function AppShell({ children }: PropsWithChildren) {
               {rightPanelOpen ? <PanelRightClose size={19} /> : <PanelRightOpen size={19} />}
               {(chatUnread + (notificationSummary.data?.unread ?? 0)) > 0 && (
                 <b className="topbar-badge" aria-label={`${chatUnread + (notificationSummary.data?.unread ?? 0)} непрочитаних подій`}>
-                  {chatUnread + (notificationSummary.data?.unread ?? 0) > 99
-                    ? '99+'
-                    : chatUnread + (notificationSummary.data?.unread ?? 0)}
+                  {formatCount(chatUnread + (notificationSummary.data?.unread ?? 0))}
                 </b>
               )}
             </IconButton>
@@ -629,17 +603,17 @@ export function AppShell({ children }: PropsWithChildren) {
               <span>{title}</span>
               {route.path === '/tasks' && taskUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${taskUnread} непрочитаних сповіщень про завдання`}>
-                  {taskUnread > 99 ? '99+' : taskUnread}
+                  {formatCount(taskUnread)}
                 </b>
               )}
               {route.path === '/messages' && chatUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${chatUnread} непрочитаних`}>
-                  {chatUnread > 99 ? '99+' : chatUnread}
+                  {formatCount(chatUnread)}
                 </b>
               )}
               {route.path === '/feed' && feedUnread > 0 && (
                 <b className="bottom-nav__badge" aria-label={`${feedUnread} непрочитаних оновлень у стрічці`}>
-                  {feedUnread > 99 ? '99+' : feedUnread}
+                  {formatCount(feedUnread)}
                 </b>
               )}
             </NavLink>
@@ -658,27 +632,13 @@ export function AppShell({ children }: PropsWithChildren) {
           <span>Ще</span>
         </button>
         {mobileMoreOpen && (
-          <div
-            ref={mobileMoreMenuRef}
+          <PopupMenu
+            open
             id="mobile-more-menu"
             className="bottom-nav__menu"
-            role="menu"
-            aria-label="Ще"
-            onKeyDown={(event) => {
-              const items = Array.from(mobileMoreMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])
-              const index = items.indexOf(document.activeElement as HTMLElement)
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                setMobileMoreOpen(false)
-                mobileMoreTriggerRef.current?.focus()
-              } else if (items.length > 0 && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-                event.preventDefault()
-                const nextIndex = event.key === 'Home' ? 0
-                  : event.key === 'End' ? items.length - 1
-                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-                items[nextIndex]?.focus()
-              }
-            }}
+            label="Ще"
+            triggerRef={mobileMoreTriggerRef}
+            onClose={() => setMobileMoreOpen(false)}
           >
             {mobileMoreRoutes.map((route) => {
               const Icon = route.navIcon ?? Gauge
@@ -689,7 +649,7 @@ export function AppShell({ children }: PropsWithChildren) {
                 </NavLink>
               )
             })}
-          </div>
+          </PopupMenu>
         )}
       </nav>
       </div>

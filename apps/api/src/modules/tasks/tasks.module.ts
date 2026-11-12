@@ -37,6 +37,6 @@ const taskServices = [
   imports: [DriveSharingModule, FeedModule, FilesModule, RealtimeModule],
   controllers: [TasksController],
   providers: [TasksService, ...taskServices],
-  exports: [TasksService, TaskCommandService],
+  exports: [TasksService, TaskCommandService, TaskRecurrenceService],
 })
 export class TasksModule {}

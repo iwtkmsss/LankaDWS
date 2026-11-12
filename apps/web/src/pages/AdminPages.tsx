@@ -218,13 +218,13 @@ function UsersPage() {
                         <span>
                           <strong>{personName(user.displayName)}</strong>
                           <small>
-                            @{user.username} · {user.jobTitle}
+                            @{user.username}{user.jobTitle ? ` · ${user.jobTitle}` : ''}
                           </small>
                         </span>
                       </Link>
                     </td>
                     <td>
-                      <strong>{!user.isActive ? 'Неактивний користувач' : user.accountType === 'ADMIN' ? 'Глобальний ADMIN' : 'USER'}</strong>
+                      <strong>{!user.isActive ? 'Неактивний користувач' : user.accountType === 'ADMIN' ? 'Глобальний адміністратор' : 'Користувач'}</strong>
                       <small>{user.company?.name ?? 'Без прив’язки до компанії'}</small>
                     </td>
                     <td>
@@ -294,8 +294,8 @@ function UserFilters({ params, onChange }: { params: URLSearchParams; onChange: 
         onChange={(event) => set('accountType', event.target.value)}
       >
         <option value="">Усі типи</option>
-        <option value="USER">USER</option>
-        <option value="ADMIN">ADMIN</option>
+        <option value="USER">Користувач</option>
+        <option value="ADMIN">Адміністратор</option>
       </select>
       <select
         aria-label="Фільтр за станом"

@@ -6,10 +6,11 @@ import type {
 } from '@lankadws/contracts'
 import { LoaderCircle, MessageCircle, Search, UsersRound, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Avatar, ErrorState, PageDataLoader, Skeleton } from '../../../shared/ui'
+import { Avatar, ErrorState, handleTablistKeyDown, PageDataLoader, Skeleton } from '../../../shared/ui'
 import { formatChatListTime } from '../lib/chatDates'
 import type { MessageDrafts } from '../lib/messageDrafts'
 import { highlightNormalizedText, normalizedCodePointLength } from '../lib/messageText'
+import { formatCount, pluralUk } from '../../../shared/lib/format'
 import { ChatPinButton } from './ChatPinButton'
 
 interface MessagesSidebarProps {
@@ -175,11 +176,12 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
         </section>
       ) : (
         <>
-          <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів">
+          <div className="messages-tabs" role="tablist" aria-label="Фільтр діалогів" onKeyDown={handleTablistKeyDown}>
             <button
               type="button"
               role="tab"
               aria-selected={!props.unreadOnly}
+              tabIndex={!props.unreadOnly ? 0 : -1}
               className={!props.unreadOnly ? 'is-active' : ''}
               onClick={() => props.onUnreadChange(false)}
             >
@@ -189,6 +191,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
               type="button"
               role="tab"
               aria-selected={props.unreadOnly}
+              tabIndex={props.unreadOnly ? 0 : -1}
               className={props.unreadOnly ? 'is-active' : ''}
               onClick={() => props.onUnreadChange(true)}
             >
@@ -227,7 +230,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                         <small>
                           {props.drafts[thread.id]?.body.trim()
                             ? <><span className="message-draft-label">Чернетка:</span> {props.drafts[thread.id]!.body}</>
-                            : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} учасників`)}
+                            : thread.lastMessage || (thread.kind === 'DIRECT' ? 'Почніть розмову' : `${thread.participantCount} ${pluralUk(thread.participantCount, ['учасник', 'учасники', 'учасників'])}`)}
                         </small>
                       </span>
                     </span>
@@ -240,7 +243,7 @@ export function MessagesSidebar(props: MessagesSidebarProps) {
                     {(thread.pinned || thread.unreadCount === 0) && <ChatPinButton pinned={Boolean(thread.pinned)} name={conversationName(thread)}
                       disabled={Boolean(props.pinPending) || !props.onPinThread}
                       onClick={() => props.onPinThread?.(thread.id, !thread.pinned)} />}
-                    {thread.unreadCount > 0 && <b className="message-thread-unread">{Math.min(thread.unreadCount, 99)}</b>}
+                    {thread.unreadCount > 0 && <b className="message-thread-unread">{formatCount(thread.unreadCount)}</b>}
                   </div>
                   </div>
                   </div>

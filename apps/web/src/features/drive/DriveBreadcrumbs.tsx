@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, FolderPlus, MoreHorizontal, Upload } from 'lucide-react'
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useRef, useState, type ReactNode } from 'react'
+import { Menu, MenuItem } from '../../shared/ui'
 
 export interface DriveCrumb {
   key: string
@@ -20,28 +21,13 @@ interface Props {
 const LEADING = 1
 const TRAILING = 2
 
-function useDismiss(open: boolean, close: () => void) {
-  const ref = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (!open) return
-    const onPointer = (event: PointerEvent) => { if (!ref.current?.contains(event.target as Node)) close() }
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
-    document.addEventListener('pointerdown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('pointerdown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open, close])
-  return ref
-}
-
 function HiddenCrumbs({ crumbs }: { crumbs: DriveCrumb[] }) {
   const [open, setOpen] = useState(false)
-  const ref = useDismiss(open, () => setOpen(false))
+  const trigger = useRef<HTMLButtonElement>(null)
   return (
-    <div className="drive-path__menu" ref={ref}>
+    <div className="drive-path__menu">
       <button
+        ref={trigger}
         type="button"
         className="drive-path__crumb drive-path__more"
         aria-label="Показати приховані папки"
@@ -50,13 +36,13 @@ function HiddenCrumbs({ crumbs }: { crumbs: DriveCrumb[] }) {
         onClick={() => setOpen((value) => !value)}
       ><MoreHorizontal size={18} aria-hidden /></button>
       {open && (
-        <div className="drive-item__menu-body drive-path__menu-body">
+        <Menu open className="drive-item__menu-body drive-path__menu-body" label="Приховані папки" triggerRef={trigger} onClose={() => setOpen(false)}>
           {crumbs.map((crumb) => (
-            <button key={crumb.key} type="button" title={crumb.name} onClick={() => { setOpen(false); crumb.onOpen() }}>
+            <MenuItem key={crumb.key} title={crumb.name} onClick={() => { setOpen(false); crumb.onOpen() }}>
               <span className="drive-path__menu-label">{crumb.label}</span>
-            </button>
+            </MenuItem>
           ))}
-        </div>
+        </Menu>
       )}
     </div>
   )
@@ -64,14 +50,15 @@ function HiddenCrumbs({ crumbs }: { crumbs: DriveCrumb[] }) {
 
 function CurrentFolder({ crumb, onNewFolder, onUpload }: { crumb: DriveCrumb; onNewFolder?: () => void; onUpload?: () => void }) {
   const [open, setOpen] = useState(false)
-  const ref = useDismiss(open, () => setOpen(false))
+  const trigger = useRef<HTMLButtonElement>(null)
   if (!onNewFolder && !onUpload) {
     return <span className="drive-path__current" aria-current="page" title={crumb.name}><span className="drive-path__label">{crumb.label}</span></span>
   }
   const run = (action?: () => void) => { setOpen(false); action?.() }
   return (
-    <div className="drive-path__menu" ref={ref}>
+    <div className="drive-path__menu">
       <button
+        ref={trigger}
         type="button"
         className="drive-path__crumb drive-path__current"
         aria-current="page"
@@ -84,10 +71,10 @@ function CurrentFolder({ crumb, onNewFolder, onUpload }: { crumb: DriveCrumb; on
         <ChevronDown size={18} aria-hidden />
       </button>
       {open && (
-        <div className="drive-item__menu-body drive-path__menu-body" role="menu" aria-label={`Дії: ${crumb.name}`}>
-          {onNewFolder && <button type="button" role="menuitem" onClick={() => run(onNewFolder)}><FolderPlus size={15} aria-hidden />Нова папка</button>}
-          {onUpload && <button type="button" role="menuitem" onClick={() => run(onUpload)}><Upload size={15} aria-hidden />Завантажити файли</button>}
-        </div>
+        <Menu open className="drive-item__menu-body drive-path__menu-body" label={`Дії: ${crumb.name}`} triggerRef={trigger} onClose={() => setOpen(false)}>
+          {onNewFolder && <MenuItem onClick={() => run(onNewFolder)}><FolderPlus size={15} aria-hidden />Нова папка</MenuItem>}
+          {onUpload && <MenuItem onClick={() => run(onUpload)}><Upload size={15} aria-hidden />Завантажити файли</MenuItem>}
+        </Menu>
       )}
     </div>
   )

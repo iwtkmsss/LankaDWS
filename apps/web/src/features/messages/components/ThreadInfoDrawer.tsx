@@ -1,4 +1,5 @@
 import { useUserSearch } from '../../../shared/lib/useUserSearch'
+import { pluralUk } from '../../../shared/lib/format'
 import { conversationName, personName } from '../../../shared/lib/personName'
 import type { ChatContactUser, ChatParticipantView, ChatThreadDetail } from '@lankadws/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -118,7 +119,7 @@ export function ThreadInfoDrawer({
               : <Avatar size="lg" name={conversationName(thread)} />}
           </span>
           <h2>{conversationName(thread)}</h2>
-          <p>{thread.kind === 'DIRECT' ? 'Особистий діалог' : `${thread.participants.length} учасників`}</p>
+          <p>{thread.kind === 'DIRECT' ? 'Особистий діалог' : `${thread.participants.length} ${pluralUk(thread.participants.length, ['учасник', 'учасники', 'учасників'])}`}</p>
         </section>
 
         <button
