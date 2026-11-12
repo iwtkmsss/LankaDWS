@@ -223,6 +223,6 @@ test('new group remains a local messages-only action', async ({ page }, testInfo
   await expect(page).toHaveURL(/\/messages\/thr_/)
   const conversation = page.getByRole('region', { name: `Діалог: ${title}` })
   await expect(conversation).toBeVisible()
-  await expect(conversation.getByText('3 учасників')).toBeVisible()
+  await expect(conversation.getByText('3 учасники')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

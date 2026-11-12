@@ -61,11 +61,13 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
       # Downloads from the runner occasionally fail; retry before failing the job.
+      # A hung download must not eat the whole job timeout.
       - name: Install Chromium for Playwright
         working-directory: apps/web
+        timeout-minutes: 10
         run: |
           for attempt in 1 2 3; do
-            npx playwright install --with-deps chromium && exit 0
+            timeout 180 npx playwright install --with-deps chromium && exit 0
             echo "Install attempt $attempt failed; retrying"
             sleep 15
           done
