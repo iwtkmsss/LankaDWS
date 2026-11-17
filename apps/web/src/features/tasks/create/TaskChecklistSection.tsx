@@ -1,6 +1,7 @@
 import { Check, GripVertical, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { randomId } from '../../../shared/api/client'
+import { isImeComposing } from '../../../shared/lib/ime'
 import { Button } from '../../../shared/ui'
 import type { TaskCreateDraft, UpdateTaskCreateDraft } from './types'
 
@@ -49,7 +50,7 @@ export function TaskChecklistSection({
             placeholder="Наприклад, погодити прототип"
             onChange={(event) => setTitle(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !isImeComposing(event)) {
                 event.preventDefault()
                 addItem()
               }

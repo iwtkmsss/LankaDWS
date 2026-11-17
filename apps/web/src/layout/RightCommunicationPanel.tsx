@@ -1,5 +1,6 @@
 import { conversationName, personName, personPatronymic, personNamesInLabel } from '../shared/lib/personName'
 import { useDocumentVisible } from '../shared/lib/useDocumentVisible'
+import { isImeComposing } from '../shared/lib/ime'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 import { NotificationReadStatus } from '../features/notifications/NotificationReadStatus'
 import { useReadingMessageThread } from '../features/messages/lib/messageSound'
@@ -1073,15 +1074,6 @@ function DirectDraftComposer({
     return () => window.cancelAnimationFrame(frame)
   }, [contact.id])
 
-  useEffect(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = '0'
-    const style = getComputedStyle(textarea)
-    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
-    textarea.style.height = `${Math.min(144, textarea.scrollHeight + borders)}px`
-  }, [body])
-
   function addFiles(nextFiles: File[]) {
     if (!nextFiles.length || sending) return
     onEdit()
@@ -1180,7 +1172,7 @@ function DirectDraftComposer({
             setBody(event.target.value)
           }}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+            if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event)) return
             event.preventDefault()
             void submit()
           }}

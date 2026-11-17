@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Bold, Italic, Underline, List, ListOrdered, Quote, Link, Unlink, AlignLeft, AlignCenter, AlignRight, AlignJustify, Eraser, Table, Smile, Undo2, Redo2 } from 'lucide-react'
 import { safeEditorLink } from './richTextDom'
+import { isImeComposing } from '../lib/ime'
 
 const actions = [
   { label: 'Жирний', Icon: Bold, command: 'bold' },
@@ -59,7 +60,7 @@ export function FormattingToolbar({ onCommand, onSaveSelection, disabled, fontSi
     {linkOpen && <div className="formatting-link">
       <label>Адреса посилання<input type="url" value={href} autoFocus placeholder="https://" onChange={(event) => setHref(event.target.value)} onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); setLinkOpen(false) }
-        if (event.key === 'Enter') { event.preventDefault(); if (safeEditorLink(href)) addLink() }
+        if (event.key === 'Enter' && !isImeComposing(event)) { event.preventDefault(); if (safeEditorLink(href)) addLink() }
       }} /></label>
       <button type="button" disabled={disabled || !safeEditorLink(href)} onClick={addLink}>Додати</button>
       <button type="button" onClick={() => setLinkOpen(false)}>Скасувати</button>

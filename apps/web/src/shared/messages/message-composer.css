@@ -48,6 +48,10 @@
 .message-composer__input textarea,
 .message-composer__row > textarea.message-composer__input {
   display: block;
+  /* Grow with the text up to 144px, then scroll. Browsers without
+     field-sizing keep a one-row field that scrolls (progressive enhancement). */
+  field-sizing: content;
+  height: auto;
   min-height: var(--composer-action-size);
   max-height: 144px;
   width: 100%;

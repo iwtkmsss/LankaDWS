@@ -86,10 +86,6 @@ export function Skeleton({ rows = 4 }: { rows?: number }) { return <div classNam
 
 export function PageDataLoader({ delay = 180 }: { delay?: number }) {
   const [visible, setVisible] = useState(false)
-  const loaderId = useId().replace(/:/g, '')
-  const orbitGradientId = `lankadws-loader-orbit-${loaderId}`
-  const lockGradientId = `lankadws-loader-lock-${loaderId}`
-  const markFilterId = `lankadws-loader-mark-${loaderId}`
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), delay)
     return () => window.clearTimeout(timer)
@@ -99,44 +95,9 @@ export function PageDataLoader({ delay = 180 }: { delay?: number }) {
   return (
     <div className="page-data-loader" role="status" aria-label="Завантажуємо дані">
       <span className="page-data-loader__mark" aria-hidden="true">
-        <span className="page-data-loader__halo" />
-        <svg className="page-data-loader__orbit" viewBox="0 0 100 100">
-          <defs>
-            <linearGradient id={orbitGradientId} x1="0" x2="1">
-              <stop offset="0" stopColor="#fff" stopOpacity="0" />
-              <stop offset=".54" stopColor="#bcd8ff" stopOpacity=".58" />
-              <stop offset="1" stopColor="#fff" stopOpacity=".96" />
-            </linearGradient>
-            <linearGradient id={lockGradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#fff" stopOpacity=".98" />
-              <stop offset=".52" stopColor="#9ac6ff" stopOpacity=".88" />
-              <stop offset="1" stopColor="#297eff" stopOpacity=".18" />
-            </linearGradient>
-          </defs>
-          <ellipse className="page-data-loader__orbit-base" cx="50" cy="50" rx="43" ry="36" />
-          <ellipse className="page-data-loader__orbit-soft" cx="50" cy="50" rx="47" ry="40" />
-          <ellipse className="page-data-loader__orbit-bloom" cx="50" cy="50" rx="43" ry="36" pathLength="100" style={{ stroke: `url(#${orbitGradientId})` }} />
-          <ellipse className="page-data-loader__orbit-tail" cx="50" cy="50" rx="43" ry="36" pathLength="100" />
-          <ellipse className="page-data-loader__orbit-chase" cx="50" cy="50" rx="43" ry="36" pathLength="100" style={{ stroke: `url(#${orbitGradientId})` }} />
-          <line className="page-data-loader__lock-beam" x1="50" y1="15.5" x2="50" y2="36.5" pathLength="1" style={{ stroke: `url(#${lockGradientId})` }} />
-          <circle className="page-data-loader__orbit-node page-data-loader__orbit-node--one" cx="50" cy="14" r="1.05" />
-          <circle className="page-data-loader__orbit-node page-data-loader__orbit-node--two" cx="86" cy="70" r="1.05" />
-          <circle className="page-data-loader__orbit-node page-data-loader__orbit-node--three" cx="15" cy="71" r="1.05" />
-        </svg>
-        <span className="page-data-loader__core">
-          <i className="page-data-loader__core-aura" />
-          <svg className="page-data-loader__brand-mark" viewBox="0 0 1238 1233">
-            <defs>
-              <filter id={markFilterId} colorInterpolationFilters="sRGB" x="-25%" y="-25%" width="150%" height="150%">
-                <feColorMatrix values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 3 3 3 0 -7.1" />
-              </filter>
-            </defs>
-            <image href="/favicon.svg" width="1238" height="1233" filter={`url(#${markFilterId})`} />
-          </svg>
-          <svg className="page-data-loader__brand-flash" viewBox="0 0 1238 1233">
-            <image href="/favicon.svg" width="1238" height="1233" filter={`url(#${markFilterId})`} />
-          </svg>
-        </span>
+        <span className="page-data-loader__glow" />
+        <span className="page-data-loader__sweep" />
+        <img className="page-data-loader__logo" src="/favicon.svg" alt="" width={64} height={64} />
       </span>
       <span>Оновлюємо робочий простір</span>
     </div>

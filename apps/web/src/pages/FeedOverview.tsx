@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import type { DashboardView } from '@lankadws/contracts'
 import {
@@ -45,16 +45,20 @@ function OverviewFocusPanel({ attention, children }: { attention: boolean; child
   )
 }
 
+// Shared with FeedPage so the summary header is requested together with the
+// first feed page and the page appears in one step instead of two.
+export const dashboardQueryOptions = queryOptions({
+  queryKey: ['dashboard'],
+  queryFn: () => api<DashboardView>('/dashboard'),
+  staleTime: 0,
+  refetchOnMount: 'always',
+  refetchInterval: 60_000,
+  refetchOnWindowFocus: true,
+})
+
 export function FeedOverview() {
   const { user } = useAuth()
-  const query = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => api<DashboardView>('/dashboard'),
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchInterval: 60_000,
-    refetchOnWindowFocus: true,
-  })
+  const query = useQuery(dashboardQueryOptions)
   if (query.isLoading) {
     return (
       <div className="feed-overview">

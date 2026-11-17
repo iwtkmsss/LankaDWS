@@ -38,7 +38,7 @@ import { FeedDraftPhotos } from '../features/feed/FeedDraftPhotos'
 import { useFeedCommentPhotos } from '../features/feed/useFeedCommentPhotos'
 import '../features/feed/feed-page.css'
 import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
-import { FeedOverview } from './FeedOverview'
+import { dashboardQueryOptions, FeedOverview } from './FeedOverview'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 
 export const FEED_FALLBACK_POLL_MS = 60_000
@@ -90,6 +90,9 @@ export function FeedPage() {
     mentioned,
     important,
   ].join('|')
+  // Started alongside the feed request (same cache entry FeedOverview reads), so the
+  // header and the list render together after one wait.
+  const dashboard = useQuery(dashboardQueryOptions)
   const pages = useInfiniteQuery({
     queryKey: [
       'feed',
@@ -221,7 +224,7 @@ export function FeedPage() {
     setParams(next, { flushSync: true })
   }
 
-  if (pages.isLoading || !user) {
+  if (pages.isLoading || dashboard.isLoading || !user) {
     return (
       <>
         <PageHeader title="Жива стрічка" />

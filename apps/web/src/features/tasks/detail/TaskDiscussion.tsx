@@ -6,6 +6,7 @@ import { ApiProblem, api, idempotencyKey, jsonBody } from '../../../shared/api/c
 import { useAuth } from '../../../shared/auth/AuthProvider'
 import { formatDateTime } from '../../../shared/lib/format'
 import { personName } from '../../../shared/lib/personName'
+import { isImeComposing } from '../../../shared/lib/ime'
 import { DrivePicker } from '../../drive/DrivePicker'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { formatChatTime } from '../../messages/lib/chatDates'
@@ -676,7 +677,7 @@ export function TaskDiscussion({
               visuallyHiddenLabel
               placeholder={replyTo ? 'Напишіть коротку відповідь…' : 'Напишіть повідомлення…'}
               onKeyDown={(event) => {
-                if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event)) return
                 event.preventDefault()
                 event.currentTarget.closest('form')?.requestSubmit()
               }}

@@ -5,6 +5,7 @@ import { useUserSearch } from '../lib/useUserSearch'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type CompositionEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { Avatar } from '../ui'
 import { reconcileMentionChange } from './mentionText'
+import { isImeComposing } from '../lib/ime'
 import { RichTextEditor, type RichEditorHandle } from '../text/RichTextEditor'
 import { AtSign } from 'lucide-react'
 
@@ -159,6 +160,8 @@ export function MentionTextarea({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter that confirms an IME candidate must neither pick a mention nor send.
+    if (event.key === 'Enter' && isImeComposing(event)) return
     if (!active) {
       if (event.key === 'Escape') setActive(null)
       onKeyDown?.(event)

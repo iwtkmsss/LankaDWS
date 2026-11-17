@@ -1,5 +1,6 @@
 import { FileFormatIcon } from '../../../shared/files/FileFormatIcon'
 import { personName } from '../../../shared/lib/personName'
+import { isImeComposing } from '../../../shared/lib/ime'
 import type { ChatAttachmentView, ChatMessageView, StructuredMentionInput } from '@lankadws/contracts'
 import { HardDrive, LoaderCircle, Paperclip, Send, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ClipboardEvent } from 'react'
@@ -62,15 +63,6 @@ export function MessageComposer(props: MessageComposerProps) {
     const frame = requestAnimationFrame(() => textareaRef.current?.focus())
     return () => cancelAnimationFrame(frame)
   }, [props.threadId])
-
-  useEffect(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    textarea.style.height = '0'
-    const style = getComputedStyle(textarea)
-    const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth)
-    textarea.style.height = `${Math.min(144, textarea.scrollHeight + borders)}px`
-  }, [body])
 
   useEffect(() => {
     if (props.sending || !focusAfterSendRef.current) return
@@ -194,7 +186,7 @@ export function MessageComposer(props: MessageComposerProps) {
               setMessageDraft(props.currentUserId, props.threadId, nextBody, nextMentions)
             }}
             onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event)) return
               event.preventDefault()
               void submit()
             }}

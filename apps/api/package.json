@@ -30,7 +30,9 @@
     "backup:check": "tsx scripts/backup-check.ts",
     "restore:verify": "tsx scripts/restore-verify.ts",
     "openapi": "tsx scripts/generate-openapi.ts",
-    "feed:rehearse": "tsx scripts/feed-rehearsal.ts"
+    "feed:rehearse": "tsx scripts/feed-rehearsal.ts",
+    "bitrix:extract": "tsx scripts/bitrix-import/extract.ts",
+    "bitrix:load": "tsx scripts/bitrix-import/load.ts"
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",
