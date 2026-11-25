@@ -1,5 +1,4 @@
 import { searchUsers } from '../../../shared/api/user-search'
-import { USER_SEARCH_LIMIT } from '@lankadws/contracts'
 import type {
   ChatAttachmentView,
   ChatContactUser,
@@ -10,7 +9,6 @@ import type {
   ChatThreadPage,
   ChatThreadPreview,
   CreateChatThreadInput,
-  RecommendedChatUsersPage,
   SendChatMessageInput,
 } from '@lankadws/contracts'
 import { api, ApiProblem, idempotencyKey, jsonBody, uploadApi } from '../../../shared/api/client'
@@ -81,11 +79,6 @@ export function searchChatUsers(
 export function getChatUser(companyId: string, userId: string, signal?: AbortSignal) {
   const query = new URLSearchParams({ company: companyId })
   return api<ChatContactUser>(`/messages/users/${encodeURIComponent(userId)}?${query}`, { signal })
-}
-
-export function getRecommendedChatUsers(companyId: string, signal?: AbortSignal) {
-  const query = new URLSearchParams({ company: companyId, limit: String(USER_SEARCH_LIMIT) })
-  return api<RecommendedChatUsersPage>(`/messages/users/recommended?${query}`, { signal })
 }
 
 export function createThread(input: CreateChatThreadInput, key = idempotencyKey('chat-thread')) {
@@ -182,6 +175,22 @@ export function setMessageReaction(messageId: string, liked: boolean) {
   return api<ChatMessageView>(`/messages/${encodeURIComponent(messageId)}/reactions`, {
     method: liked ? 'POST' : 'DELETE',
     body: jsonBody({ kind: 'LIKE' }),
+  })
+}
+
+/** Restores a deleted message (its author within 10 minutes, or an administrator). */
+export function restoreMessage(messageId: string, expectedVersion: number) {
+  return api<ChatMessageView>(`/messages/${encodeURIComponent(messageId)}/restore`, {
+    method: 'POST',
+    body: jsonBody({ expectedVersion }),
+  })
+}
+
+/** Undoes leaving a group chat; the server allows it for 10 minutes. */
+export function rejoinThread(threadId: string, expectedVersion: number) {
+  return api<{ threadVersion: number }>(`/messages/threads/${encodeURIComponent(threadId)}/rejoin`, {
+    method: 'POST',
+    body: jsonBody({ expectedVersion }),
   })
 }
 

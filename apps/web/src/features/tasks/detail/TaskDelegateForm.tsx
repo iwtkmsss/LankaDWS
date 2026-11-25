@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { api, jsonBody } from '../../../shared/api/client'
 import { UserSearchCombobox } from '../../employees/UserSearchCombobox'
 import { Button } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { refreshTask } from './useTaskDetail'
 
 export function TaskDelegateForm({
@@ -28,6 +29,7 @@ export function TaskDelegateForm({
     onSuccess: () => {
       closeDelegate()
       refreshTask(client, id)
+      notifySuccess('Завдання делеговано')
     },
     onError: () => setDelegateError('Не вдалося делегувати завдання. Оновіть сторінку та перевірте доступ.'),
   })

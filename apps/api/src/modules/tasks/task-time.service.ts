@@ -7,6 +7,7 @@ import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
 import { recordAudit } from '../../common/audit.js'
+import { assertTaskRestoreAllowed } from './task-restore-policy.js'
 
 @Injectable()
 export class TaskTimeService {
@@ -18,7 +19,7 @@ export class TaskTimeService {
   async list(principal: AuthPrincipal, taskId: string) {
     await this.access.readableTask(principal, taskId)
     const entries = await this.prisma.timeEntry.findMany({
-      where: { taskId },
+      where: { taskId, deletedAt: null },
       include: {
         user: {
           select: {
@@ -83,7 +84,7 @@ export class TaskTimeService {
       throw badRequest('task_time')
     }
     const active = await this.prisma.timeEntry.findFirst({
-      where: { userId: principal.userId, endedAt: null },
+      where: { userId: principal.userId, endedAt: null, deletedAt: null },
       select: { id: true, taskId: true },
     })
     if (active) throw conflict('task_timer_active')
@@ -100,7 +101,7 @@ export class TaskTimeService {
       })
     } catch (error) {
       const concurrent = await this.prisma.timeEntry.findFirst({
-        where: { userId: principal.userId, endedAt: null },
+        where: { userId: principal.userId, endedAt: null, deletedAt: null },
         select: { id: true },
       })
       if (concurrent) throw conflict('task_timer_active')
@@ -119,6 +120,7 @@ export class TaskTimeService {
         taskId,
         userId: principal.userId,
         endedAt: null,
+        deletedAt: null,
       },
     })
     if (!active) throw notFound()
@@ -146,7 +148,7 @@ export class TaskTimeService {
   ) {
     const task = await this.access.readableTask(principal, taskId)
     const entry = await this.prisma.timeEntry.findFirst({
-      where: { id: entryId, taskId },
+      where: { id: entryId, taskId, deletedAt: null },
     })
     if (!entry) throw notFound()
     this.assertOwnOrManage(principal, entry.userId)
@@ -161,7 +163,7 @@ export class TaskTimeService {
       throw badRequest('task_time')
     }
     const updated = await this.prisma.timeEntry.update({
-      where: { id: entryId },
+      where: { id: entryId, deletedAt: null },
       data: {
         startedAt,
         endedAt,
@@ -180,17 +182,41 @@ export class TaskTimeService {
   async remove(principal: AuthPrincipal, taskId: string, entryId: string) {
     const task = await this.access.readableTask(principal, taskId)
     const entry = await this.prisma.timeEntry.findFirst({
-      where: { id: entryId, taskId },
+      where: { id: entryId, taskId, deletedAt: null },
       select: { id: true, userId: true, endedAt: true },
     })
     if (!entry) throw notFound()
     this.assertOwnOrManage(principal, entry.userId)
     if (!entry.endedAt) throw conflict('task_timer_active')
-    await this.prisma.timeEntry.delete({ where: { id: entryId } })
+    // Content is hidden, never deleted (decision 2026-11-18).
+    const hidden = await this.prisma.timeEntry.updateMany({
+      where: { id: entryId, deletedAt: null },
+      data: { deletedAt: new Date(), deletedById: principal.userId },
+    })
+    if (!hidden.count) throw notFound()
     await this.audit(principal, task.companyId, taskId, 'task.time_deleted', {
       entryId,
     })
     return { id: entryId, deleted: true }
+  }
+
+  /** Brings a hidden entry back into the list and the total (decision 2026-11-18). */
+  async restore(principal: AuthPrincipal, taskId: string, entryId: string) {
+    const task = await this.access.readableTask(principal, taskId)
+    const entry = await this.prisma.timeEntry.findFirst({
+      where: { id: entryId, taskId },
+      select: { id: true, deletedAt: true, deletedById: true },
+    })
+    if (!entry) throw notFound()
+    if (!entry.deletedAt) throw conflict('task_time_not_hidden')
+    assertTaskRestoreAllowed(principal, entry.deletedById, entry.deletedAt)
+    const restored = await this.prisma.timeEntry.updateMany({
+      where: { id: entryId, deletedAt: { not: null } },
+      data: { deletedAt: null, deletedById: null },
+    })
+    if (!restored.count) throw conflict('task_time_not_hidden')
+    await this.audit(principal, task.companyId, taskId, 'task.time_restored', { entryId })
+    return this.mapEntry(await this.prisma.timeEntry.findUniqueOrThrow({ where: { id: entryId } }))
   }
 
   private assertOwnOrManage(principal: AuthPrincipal, userId: string): void {

@@ -18,6 +18,8 @@ import { trimMentionValue } from '../../../shared/mentions/mentionText'
 import { MessageComposerFrame } from '../../../shared/messages/MessageComposerFrame'
 import { MessageLikeButton } from '../../../shared/messages/MessageLikeButton'
 import { Avatar, Button, ConfirmationDialog, Menu, MenuItem, Skeleton } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
+import { hiddenByLabel } from './TaskHiddenItems'
 import { TaskAttachment, TaskFilesArchive } from './taskFiles'
 import { refreshTask } from './useTaskDetail'
 
@@ -162,14 +164,30 @@ export function TaskDiscussion({
       }),
     onSuccess: (_result, input) => {
       setEditingComment((current) => current?.id === input.commentId ? null : current)
-      setContentMessage('Повідомлення видалено.')
+      setContentMessage('')
       refreshTask(client, id)
+      notifySuccess('Коментар видалено', {
+        undo: () => restoreComment(input.commentId, input.expectedVersion + 1),
+      })
     },
     onError: (error) => setContentMessage(
       error instanceof ApiProblem && error.problem.status === 409
         ? 'Повідомлення вже змінилося. Оновіть завдання та повторіть дію.'
         : 'Не вдалося видалити повідомлення.',
     ),
+  })
+  // A hidden comment comes back through its own restore (decision 2026-11-18).
+  const restoreComment = async (commentId: string, expectedVersion: number) => {
+    await api(`/tasks/${id}/comments/${encodeURIComponent(commentId)}/restore`, {
+      method: 'POST',
+      body: jsonBody({ expectedVersion }),
+    })
+    refreshTask(client, id)
+  }
+  const restoreHiddenComment = useMutation({
+    mutationFn: (item: TaskDetailView['comments'][number]) => restoreComment(item.id, item.version),
+    onSuccess: () => notifySuccess('Коментар відновлено'),
+    onError: () => setContentMessage('Не вдалося відновити коментар. Оновіть завдання та повторіть дію.'),
   })
   const reactToComment = useMutation({
     mutationFn: (item: TaskDetailView['comments'][number]) => api(
@@ -326,6 +344,37 @@ export function TaskDiscussion({
             }
             const item = entry.item
             const ownComment = item.author.id === user?.id
+            if (item.deletedAt) {
+              // Only an administrator receives hidden comments; they stay in place, muted.
+              return (
+                <div className="task-comment-row" key={item.id}>
+                  <article className="task-comment is-other is-hidden" aria-label={`Видалений коментар: ${personName(item.author.displayName)}`}>
+                    <Avatar size="sm" name={personName(item.author.displayName)} src={item.author.avatarAsset} />
+                    <div className="task-comment__bubble">
+                      <div className="task-comment__heading">
+                        <span className="task-comment__author">{personName(item.author.displayName)}</span>
+                        <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
+                          {new Date(item.createdAt).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' })} {formatChatTime(item.createdAt)}
+                        </time>
+                      </div>
+                      {item.body.trim() ? <FormattedText body={item.body} mentions={item.mentions} hideMentionPrefix /> : null}
+                      <footer className="task-comment__hidden">
+                        <span>{hiddenByLabel({ deletedAt: item.deletedAt, deletedBy: item.deletedBy ?? null })}</span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          aria-label="Відновити коментар"
+                          disabled={restoreHiddenComment.isPending}
+                          onClick={() => restoreHiddenComment.mutate(item)}
+                        >
+                          Відновити
+                        </Button>
+                      </footer>
+                    </div>
+                  </article>
+                </div>
+              )
+            }
             return (
               <div className="task-comment-row" key={item.id}>
               <article

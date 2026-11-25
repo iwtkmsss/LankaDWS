@@ -5,6 +5,7 @@ import { Forward } from 'lucide-react'
 import { useState } from 'react'
 import { idempotencyKey, randomId } from '../../../shared/api/client'
 import { Avatar, Drawer, EmptyState, Skeleton } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { getThreadDetail, getThreadPage, sendMessage } from '../api/messageApi'
 import { messageKeys } from '../api/messageKeys'
 import { replyPreviewText } from '../lib/replyPreview'
@@ -41,7 +42,10 @@ export function ForwardMessageDrawer({
       attachmentIds: [],
       mentions: [],
     }, `chat-forward:${randomId()}:${idempotencyKey('f')}`),
-    onSuccess: (_result, threadId) => onForwarded(threadId),
+    onSuccess: (_result, threadId) => {
+      onForwarded(threadId)
+      notifySuccess('Повідомлення переслано')
+    },
     onError: () => setError('Не вдалося переслати повідомлення. Спробуйте ще раз.'),
   })
   const currentThread = useQuery({

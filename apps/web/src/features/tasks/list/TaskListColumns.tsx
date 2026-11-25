@@ -11,6 +11,7 @@ import {
 import { RotateCcw, Settings2 } from 'lucide-react'
 import { api, ApiProblem, jsonBody } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 
 export const DEFAULT_TASK_LIST_COLUMNS: TaskListColumnsPreferenceValue = {
   visible: ['reporter', 'responsibles', 'dueDate', 'status', 'activity'],
@@ -69,6 +70,7 @@ export function useTaskListColumnsPreference() {
     }),
     onSuccess: () => {
       client.setQueryData<TaskListColumnsUserUiPreferenceResult>(preferenceQueryKey, { preference: null })
+      notifySuccess('Колонки скинуто')
     },
     onError: () => void client.invalidateQueries({ queryKey: preferenceQueryKey }),
   })

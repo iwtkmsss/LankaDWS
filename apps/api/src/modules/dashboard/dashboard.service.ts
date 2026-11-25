@@ -183,6 +183,7 @@ export class DashboardService {
   ): Promise<{ items: EventListItem[]; todayCount: number }> {
     const where = {
       workspaceId: principal.workspaceId,
+      deletedAt: null,
       audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
       OR: [
         { ownerId: principal.userId },

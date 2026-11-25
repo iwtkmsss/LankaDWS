@@ -1,6 +1,7 @@
 import { ResizableTextarea } from '../shared/ui/ResizableTextarea'
 import { DateTimePicker } from '../shared/ui/DateTimePicker'
 import './calendar-event-popover.css'
+import '../styles/hidden-content.css'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   OrganizationCapability,
@@ -9,9 +10,10 @@ import {
   type CalendarRecurrenceInput,
   type CalendarEventAudienceInput,
   type EventListItem,
+  type HiddenContentMarker,
   type TaskDetailView,
 } from '@lankadws/contracts'
-import { CalendarDays, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, Eye, Flag, Pencil, ShieldCheck, Trash2, UserRound, UserRoundPen, UserRoundCheck } from 'lucide-react'
+import { CalendarDays, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, Eye, Flag, Pencil, RotateCcw, ShieldCheck, Trash2, UserRound, UserRoundPen, UserRoundCheck } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -26,9 +28,11 @@ import {
 import { createPortal } from 'react-dom'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { formatDateTime, statusLabels } from '../shared/lib/format'
+import { hiddenContentLabel } from '../shared/lib/hiddenContent'
 import { personName } from '../shared/lib/personName'
 import { useTopbarContent } from '../layout/TopbarContent'
 import {
@@ -69,7 +73,11 @@ type CalendarEvent = EventListItem & {
 }
 type CalendarView = 'day' | 'week' | 'month' | 'schedule'
 type CalendarScope = 'ALL' | 'MINE' | 'TEAM' | 'TASKS'
+const CALENDAR_SCOPE_FILTERS: Array<Exclude<CalendarScope, 'ALL'>> = ['MINE', 'TEAM', 'TASKS']
 type CalendarAnchor = { element: HTMLAnchorElement; rect: DOMRect }
+type DeletedCalendarEvent = CalendarEvent & { hidden: HiddenContentMarker }
+// Everything a calendar event change can show up in.
+const CALENDAR_EVENT_QUERY_KEYS = ['calendar', 'calendar-deleted', 'feed', 'dashboard', 'notifications'] as const
 
 export default function CalendarPage() {
   const [params, setParams] = useSearchParams()
@@ -111,8 +119,26 @@ export default function CalendarPage() {
   const view: CalendarView = rawView === 'day' || rawView === 'week' || rawView === 'schedule' || rawView === 'list'
     ? rawView === 'list' ? 'schedule' : rawView
     : 'month'
-  const rawScope = params.get('scope')
-  const scope: CalendarScope = rawScope === 'MINE' || rawScope === 'TEAM' || rawScope === 'TASKS' ? rawScope : 'ALL'
+  // `scope` is a comma-separated subset of MINE/TEAM/TASKS; absent (or all three) means ALL.
+  const selectedScopes = CALENDAR_SCOPE_FILTERS.filter((value) => (params.get('scope') ?? '').split(',').includes(value))
+  const scope = selectedScopes.length && selectedScopes.length < CALENDAR_SCOPE_FILTERS.length ? selectedScopes.join(',') : 'ALL'
+  const isAdmin = user?.accountType === 'ADMIN'
+  // Administrator-only «Видалені» view (decision 2026-11-18), URL-addressable as `deleted=1`.
+  const showDeleted = isAdmin && params.get('deleted') === '1'
+  const toggleDeleted = () => setParams((current) => {
+    if (current.get('deleted') === '1') current.delete('deleted')
+    else current.set('deleted', '1')
+    return current
+  })
+  const toggleScope = (value: CalendarScope) => setParams((current) => {
+    current.delete('deleted')
+    const next = value === 'ALL' ? []
+      : selectedScopes.includes(value) ? selectedScopes.filter((item) => item !== value) : [...selectedScopes, value]
+    const ordered = CALENDAR_SCOPE_FILTERS.filter((item) => next.includes(item))
+    if (!ordered.length || ordered.length === CALENDAR_SCOPE_FILTERS.length) current.delete('scope')
+    else current.set('scope', ordered.join(','))
+    return current
+  })
   const requestedCreate = params.get('new') === '1'
   const selectedDate = params.get('date') ?? localDateKey(new Date())
   const selectedTaskId = !eventId ? params.get('task') : null
@@ -126,6 +152,9 @@ export default function CalendarPage() {
   const range = useMemo(() => calendarRange(view, date), [view, selectedDate])
   const query = useQuery({
     queryKey: ['calendar', view, selectedDate, scope],
+    // Switching only the category filter keeps the current grid on screen instead of the full-page loader.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === view && previousQuery.queryKey[2] === selectedDate ? previous : undefined,
     queryFn: () => api<{
       items: CalendarEvent[]
       counts: Record<CalendarScope, number>
@@ -203,6 +232,7 @@ export default function CalendarPage() {
         client.invalidateQueries({ queryKey: ['calendar'] }),
         client.invalidateQueries({ queryKey: ['calendar-event', eventId] }),
       ])
+      notifySuccess('Подію оновлено')
     },
   })
   const acknowledge = useMutation({
@@ -214,16 +244,25 @@ export default function CalendarPage() {
       client.invalidateQueries({ queryKey: ['feed'] }),
     ]),
   })
+  const invalidateEventQueries = () => Promise.all(CALENDAR_EVENT_QUERY_KEYS.map((key) =>
+    client.invalidateQueries({ queryKey: [key] })))
   const remove = useMutation({
-    mutationFn: (event: CalendarEvent) => api(`/calendar/events/${event.id}`, {
+    mutationFn: (event: CalendarEvent) => api<{ id: string; version?: number }>(`/calendar/events/${event.id}`, {
       method: 'DELETE', body: jsonBody({ expectedVersion: event.version }),
     }),
-    onSuccess: async (_, event) => {
+    onSuccess: async (hidden, event) => {
       setDeleteOpen(false)
       navigate(`/calendar?${params.toString()}`)
       client.removeQueries({ queryKey: ['calendar-event', event.id] })
-      await Promise.all(['calendar', 'feed', 'dashboard', 'notifications'].map((key) =>
-        client.invalidateQueries({ queryKey: [key] })))
+      await invalidateEventQueries()
+      notifySuccess('Подію видалено', {
+        undo: async () => {
+          await api(`/calendar/events/${event.id}/restore`, {
+            method: 'POST', body: jsonBody({ expectedVersion: hidden?.version ?? event.version + 1 }),
+          })
+          await invalidateEventQueries()
+        },
+      })
     },
   })
   const days = useMemo(() => {
@@ -345,23 +384,32 @@ export default function CalendarPage() {
               />
               {calendarNavigation}
               <div className="calendar-scope-tabs">
-                <Tabs
-                  value={scope}
-                  onChange={(value) => setParams((current) => {
-                    if (value === 'ALL') current.delete('scope')
-                    else current.set('scope', value)
-                    return current
+                <div className="tabs" role="group" aria-label="Фільтр календаря">
+                  {([
+                    { value: 'ALL', label: 'Усі' },
+                    { value: 'MINE', label: 'Особисті' },
+                    { value: 'TEAM', label: 'Компанія' },
+                    { value: 'TASKS', label: 'Завдання' },
+                  ] as const).map((item) => {
+                    const active = item.value === 'ALL' ? scope === 'ALL' : scope !== 'ALL' && selectedScopes.includes(item.value)
+                    return (
+                      <button key={item.value} type="button" aria-pressed={active && !showDeleted} className={active && !showDeleted ? 'is-active' : ''}
+                        onClick={() => toggleScope(item.value)}>
+                        {item.label}{query.data && <span>{query.data.counts[item.value]}</span>}
+                      </button>
+                    )
                   })}
-                  items={[
-                    { value: 'ALL', label: 'Усі', count: query.data?.counts.ALL },
-                    { value: 'MINE', label: 'Особисті', count: query.data?.counts.MINE },
-                    { value: 'TEAM', label: 'Компанія', count: query.data?.counts.TEAM },
-                    { value: 'TASKS', label: 'Завдання', count: query.data?.counts.TASKS },
-                  ]}
-                />
+                  {isAdmin && (
+                    <button type="button" aria-pressed={showDeleted} className={showDeleted ? 'is-active' : ''} onClick={toggleDeleted}>
+                      Видалені
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-            {view === 'schedule' ? (
+            {showDeleted ? (
+              <CalendarDeletedEvents from={range.from} to={range.to} onRestored={invalidateEventQueries} />
+            ) : view === 'schedule' ? (
               query.data?.items.length ? (
                 <div className="calendar-agenda">
                   {query.data.items.map((event) => (
@@ -703,6 +751,56 @@ export default function CalendarPage() {
   )
 }
 
+/** Administrator «Видалені» list for the shown period: muted rows with who/when and «Відновити». */
+function CalendarDeletedEvents({ from, to, onRestored }: { from: Date; to: Date; onRestored: () => Promise<unknown> }) {
+  const deleted = useQuery({
+    queryKey: ['calendar-deleted', from.toISOString(), to.toISOString()],
+    queryFn: () => api<{ items: DeletedCalendarEvent[] }>(
+      `/calendar/events?company=all&from=${from.toISOString()}&to=${to.toISOString()}&deleted=1`,
+    ),
+  })
+  const restore = useMutation({
+    mutationFn: (event: DeletedCalendarEvent) => api(`/calendar/events/${event.id}/restore`, {
+      method: 'POST', body: jsonBody({ expectedVersion: event.version }),
+    }),
+    onSuccess: async () => {
+      await onRestored()
+      notifySuccess('Подію відновлено')
+    },
+  })
+  if (deleted.isPending) return <PageDataLoader />
+  if (deleted.isError) return <ErrorState onRetry={() => void deleted.refetch()} />
+  if (!deleted.data.items.length) return <p className="hidden-content-empty">За цей період видалених подій немає.</p>
+  return (
+    <>
+      {restore.isError && <p className="form-error" role="alert">Не вдалося відновити подію. Оновіть список і спробуйте ще раз.</p>}
+      <ul className="hidden-content-list" aria-label="Видалені події">
+        {deleted.data.items.map((event) => {
+          const restoring = restore.isPending && restore.variables?.id === event.id
+          return (
+            <li className="hidden-content-row" key={event.id}>
+              <span className="hidden-content-row__body">
+                <strong>{event.title}</strong>
+                <small>
+                  {event.allDay ? `${formatDateTime(event.startAt)} · увесь день` : `${formatDateTime(event.startAt)} — ${formatDateTime(event.endAt)}`}
+                  {' · '}{event.visibility === 'PRIVATE' ? 'Особиста подія' : event.audienceLabel}
+                  {' · '}{personName(event.ownerName)}
+                </small>
+                <span className="hidden-content-row__marker">{hiddenContentLabel(event.hidden, 'Видалено')}</span>
+              </span>
+              <Button variant="secondary" aria-label={`Відновити подію ${event.title}`} disabled={restoring}
+                onClick={() => restore.mutate(event)}>
+                <RotateCcw size={16} aria-hidden="true" />
+                {restoring ? 'Відновлюємо…' : 'Відновити'}
+              </Button>
+            </li>
+          )
+        })}
+      </ul>
+    </>
+  )
+}
+
 function CalendarEventDialog({ anchor, editing, category = '', ...props }: Omit<DialogBaseProps, 'variant'> & {
   anchor: CalendarAnchor | null
   editing: boolean
@@ -887,7 +985,10 @@ function CalendarCreateModal({
           reminderMinutes: input.reminderMinutes,
         }),
       }),
-    onSuccess: (result) => closeGuard.closeForSuccess(() => onCreated(result.id)),
+    onSuccess: (result) => {
+      closeGuard.closeForSuccess(() => onCreated(result.id))
+      notifySuccess('Подію створено')
+    },
   })
 
   function submit(values: CalendarEventFormValues) {

@@ -41,7 +41,7 @@ export async function deliverCalendarReminder(prisma: PrismaService, eventId: st
   const { minutes, version, occurrenceAt } = payload
   if (typeof minutes !== 'number' || typeof version !== 'number' || typeof occurrenceAt !== 'string') return null
   return prisma.$transaction(async (tx) => {
-    const event = await tx.event.findFirst({ where: { id: eventId, version, visibility: 'PRIVATE' } })
+    const event = await tx.event.findFirst({ where: { id: eventId, version, visibility: 'PRIVATE', deletedAt: null } })
     if (!event) return null
     const owner = await tx.user.findFirst({ where: { id: event.ownerId, workspaceId: event.workspaceId, isActive: true } })
     if (!owner) return null

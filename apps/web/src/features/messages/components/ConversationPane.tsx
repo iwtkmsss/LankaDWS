@@ -7,7 +7,7 @@ import type {
   ChatThreadListItem,
   StructuredMentionInput,
 } from '@lankadws/contracts'
-import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
+import { ArrowLeft, Bell, BellOff, Search, UsersRound } from 'lucide-react'
 import { useState } from 'react'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
@@ -44,6 +44,8 @@ interface ConversationPaneProps {
   onReplyCancel: () => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
+  /** Administrator restore of a deleted message shown in place. */
+  onRestore?: (message: ChatMessageView) => Promise<void>
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
   onDriveAttachment?: (attachment: ChatAttachmentView) => void
@@ -71,7 +73,6 @@ function ConversationAvatar({
 export function ConversationPane(props: ConversationPaneProps) {
   useReadingMessageThread(props.currentUserId, !props.loading && !props.error ? props.thread?.id : undefined)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const { isDragging, dropTargetProps } = useFileDropTarget({
     disabled: !props.thread?.canPost || props.uploading || props.sending,
     onFiles: props.onFiles,
@@ -127,45 +128,12 @@ export function ConversationPane(props: ConversationPaneProps) {
           >
             <Search size={20} />
           </IconButton>
-          <IconButton label="Інформація про діалог" onClick={props.onInfo}>
-            <Info size={20} />
+          <IconButton
+            label={props.thread.notificationMode === 'NONE' ? 'Увімкнути сповіщення' : 'Вимкнути сповіщення'}
+            onClick={props.onToggleMute}
+          >
+            {props.thread.notificationMode === 'NONE' ? <BellOff size={20} /> : <Bell size={20} />}
           </IconButton>
-          <div className="conversation-more">
-            <IconButton
-              label="Інші дії"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((value) => !value)}
-            >
-              <MoreVertical size={20} />
-            </IconButton>
-            {menuOpen && (
-              <div className="conversation-more__menu">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    props.onToggleMute()
-                  }}
-                >
-                  {props.thread.notificationMode === 'NONE'
-                    ? <Bell size={17} />
-                    : <BellOff size={17} />}
-                  {props.thread.notificationMode === 'NONE'
-                    ? 'Увімкнути сповіщення'
-                    : 'Вимкнути сповіщення'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    props.onInfo()
-                  }}
-                >
-                  <Info size={17} /> Інформація
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
@@ -201,6 +169,7 @@ export function ConversationPane(props: ConversationPaneProps) {
         onForward={props.onForward}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
+        onRestore={props.onRestore}
       />
 
       {props.thread.canPost && (

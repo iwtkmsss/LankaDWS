@@ -1,7 +1,6 @@
-import { Check, X } from 'lucide-react'
-import { lazy, Suspense, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { lazy, Suspense } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { notifySuccess } from '../shared/ui/notify'
 
 // The dialog lives with the knowledge base, which owns feedback tickets; it shares that route's chunk.
 const KnowledgeFeedbackDialog = lazy(() => import('../pages/ContentPages').then((module) => ({ default: module.KnowledgeFeedbackDialog })))
@@ -19,14 +18,7 @@ export function withFeedbackOpen(search: string) {
 export function FeedbackDialogHost() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [sent, setSent] = useState(false)
   const open = new URLSearchParams(location.search).get(FEEDBACK_PARAM) === 'new'
-
-  useEffect(() => {
-    if (!sent) return
-    const timer = window.setTimeout(() => setSent(false), 6_000)
-    return () => window.clearTimeout(timer)
-  }, [sent])
 
   const close = () => {
     const next = new URLSearchParams(location.search)
@@ -37,12 +29,7 @@ export function FeedbackDialogHost() {
 
   return <>
     {open && <Suspense fallback={null}>
-      <KnowledgeFeedbackDialog onClose={close} onSubmitted={() => setSent(true)} />
+      <KnowledgeFeedbackDialog onClose={close} onSubmitted={() => notifySuccess('Звернення надіслано адміністратору. Дякуємо за відгук!')} />
     </Suspense>}
-    {sent && createPortal(<div className="feedback-sent-notice" role="status">
-      <Check size={20} aria-hidden="true" />
-      <span>Звернення надіслано адміністратору. Дякуємо за відгук!</span>
-      <button type="button" aria-label="Закрити повідомлення" onClick={() => setSent(false)}><X size={18} /></button>
-    </div>, document.body)}
   </>
 }

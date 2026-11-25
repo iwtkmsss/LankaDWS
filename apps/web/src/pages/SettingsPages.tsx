@@ -9,6 +9,7 @@ import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton } from '../shared/ui'
+import { notifySuccess } from '../shared/ui/notify'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
 import { previewMessageSound, useMessageSoundPreference } from '../features/messages/lib/messageSound'
@@ -197,7 +198,6 @@ function ProfileSettings() {
               <option value="">Не вказувати</option>
               <option value="FEMALE">Жінка</option>
               <option value="MALE">Чоловік</option>
-              <option value="OTHER">Інше</option>
             </select>
           </label>
           <label>
@@ -303,11 +303,11 @@ function SessionsSettings() {
   const query = useQuery({ queryKey: ['sessions'], queryFn: () => api<SessionView[]>('/me/sessions') })
   const revoke = useMutation({
     mutationFn: (id: string) => api(`/me/sessions/${id}`, { method: 'DELETE' }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ['sessions'] }); notifySuccess('Сеанс завершено') },
   })
   const others = useMutation({
     mutationFn: () => api('/me/sessions/revoke-others', { method: 'POST' }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['sessions'] }),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ['sessions'] }); notifySuccess('Інші сеанси завершено') },
   })
   return (
     <Card className="settings-card">

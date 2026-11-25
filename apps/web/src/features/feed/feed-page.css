@@ -24,15 +24,6 @@
 .stream-page-state h2 { margin: var(--space-1) 0 0; font-size: var(--text-heading); color: var(--fg-strong); font-weight: var(--weight-bold); }
 .stream-page-state p { max-width: 420px; margin: 0; font-size: var(--text-ui); line-height: 1.6; }
 .stream-page-state .button { margin-top: var(--space-2); }
-.stream-skeleton { display: grid; gap: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-6); background: var(--surface); }
-.stream-skeleton i { display: block; height: 13px; border-radius: var(--radius-xs); background: var(--surface-hover); }
-.stream-skeleton > div { display: flex; align-items: center; gap: var(--space-3); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
-.stream-skeleton > div > i { width: 40px; height: 40px; border-radius: var(--radius-full); }
-.stream-skeleton > div > span { display: grid; gap: var(--space-2); width: min(180px, 70%); }
-.stream-skeleton > div > span > i:last-child { width: 70%; }
-.stream-skeleton > i:nth-child(3) { width: 75%; }
-.stream-skeleton footer { display: flex; gap: var(--space-3); border-top: 1px solid var(--line); margin-top: var(--space-2); padding-top: var(--space-4); }
-.stream-skeleton footer i { width: 100px; height: 30px; }
 .feed-page .feed-attention__actions { padding: var(--space-6); border-radius: var(--radius-lg); }
 .feed-page .feed-attention__actions h2 { margin: var(--space-2) 0 var(--space-4); }
 .feed-page .feed-attention__actions > a { padding: var(--space-4) 0; border-radius: 0; border-top: 1px solid var(--line); background: transparent; }

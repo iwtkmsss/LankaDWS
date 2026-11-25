@@ -96,12 +96,10 @@ export function AppShell({ children }: PropsWithChildren) {
     if (!user?.company?.id) return
 
     const company = user.company.id
-    if (route.path === '/tasks') {
-      void queryClient.prefetchQuery({
-        queryKey: ['tasks', 'RESPONSIBLE', 1, null, '', '', '', '', '', false, '', '', '', '', '', '', '', ''],
-        queryFn: () => api('/tasks?role=RESPONSIBLE&page=1&company=&search=&status=&priority=&favorite=&important=&overdue=&preset=&dueFrom=&dueTo=&assigneeId=&creatorId=&coExecutorId=&observerId='),
-      })
-    } else if (route.path === '/feed') {
+    // No task-list prefetch: the page builds its query from URL filters and the
+    // default "Active" preset, so a generic prefetch never matched its cache key
+    // and only cost an extra all-statuses /tasks request.
+    if (route.path === '/feed') {
       void queryClient.prefetchQuery({ queryKey: ['dashboard'], queryFn: () => api('/dashboard') })
       void queryClient.prefetchInfiniteQuery({
         queryKey: ['feed', company, 'ALL', 'ALL', null, null, null, null, null, false, false, false],

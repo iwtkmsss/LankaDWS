@@ -7,7 +7,7 @@ const principal = { userId: 'admin', workspaceId: 'workspace', accountType: 'ADM
 const input = { title: ' Updated title ', body: ' Updated body ', changeSummary: ' Changes ', expectedVersion: 2 }
 
 function setup(count = 1, audience: object | null = {}) {
-  const tx = { knowledgeArticle: { updateMany: vi.fn().mockResolvedValue({ count }) }, knowledgeArticleVersion: { create: vi.fn() }, fileLink: { upsert: vi.fn(), deleteMany: vi.fn() }, auditEvent: { create: vi.fn() } }
+  const tx = { knowledgeArticle: { updateMany: vi.fn().mockResolvedValue({ count }) }, knowledgeArticleVersion: { create: vi.fn() }, fileLink: { upsert: vi.fn(), updateMany: vi.fn() }, auditEvent: { create: vi.fn() } }
   const prisma = {
     knowledgeArticle: { findFirst: vi.fn().mockResolvedValue({ id: 'article', workspaceId: 'workspace', version: 2, versions: [] }), updateMany: vi.fn().mockResolvedValue({ count }) },
     articleAudience: { findFirst: vi.fn().mockResolvedValue(audience), findMany: vi.fn().mockResolvedValue([{ principalId: 'company' }]) },
@@ -36,7 +36,7 @@ describe('knowledge updates', () => {
     expect((await service.list(principal)).items[0]?.hasAcknowledged).toBe(false)
     prisma.acknowledgement.findMany.mockResolvedValue([{ entityId: 'article', version: 2 }] as never)
     expect((await service.list(principal)).items[0]?.hasAcknowledged).toBe(true)
-    expect(prisma.fileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: { in: ['article'] }, purpose: 'ATTACHMENT' } }))
+    expect(prisma.fileLink.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: { in: ['article'] }, purpose: 'ATTACHMENT', removedAt: null } }))
     expect(prisma.fileObject.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ workspaceId: 'workspace', scanStatus: 'CLEAN', detectedMime: { in: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] } }) as unknown }))
   })
   it('publishes the next version atomically with an audit record', async () => {
@@ -72,19 +72,23 @@ describe('knowledge updates', () => {
     prisma.fileLink.findMany.mockResolvedValue([{ fileId: 'file' }] as never)
     prisma.fileObject.findMany.mockResolvedValue([{ id: 'file', safeFilename: 'file.pdf', bytes: 10, detectedMime: 'application/pdf', scanStatus: 'CLEAN' }] as never)
     await service.update(principal, 'policy', { ...input, removedAttachmentIds: ['file'] })
-    expect(tx.fileLink.deleteMany).toHaveBeenCalledWith({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: 'article', purpose: 'ATTACHMENT', fileId: { in: ['file'] } } })
+    // Detached attachments are hidden, never deleted.
+    expect(tx.fileLink.updateMany).toHaveBeenCalledWith({
+      where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: 'article', purpose: 'ATTACHMENT', fileId: { in: ['file'] }, removedAt: null },
+      data: { removedAt: expect.any(Date) as unknown, removedById: principal.userId },
+    })
     expect(tx.knowledgeArticleVersion.create).toHaveBeenCalledOnce()
   })
   it('rejects removal of a file that is not attached to this article', async () => {
     const { service, prisma, tx } = setup()
     await expect(service.update(principal, 'policy', { ...input, removedAttachmentIds: ['foreign'] })).rejects.toMatchObject({ status: 400 })
     expect(prisma.$transaction).not.toHaveBeenCalled()
-    expect(tx.fileLink.deleteMany).not.toHaveBeenCalled()
+    expect(tx.fileLink.updateMany).not.toHaveBeenCalled()
   })
   it('archives an article using the supplied version', async () => {
     const { service, prisma } = setup()
-    await expect(service.archive(principal, 'policy', 2)).resolves.toEqual({ archived: true })
-    expect(prisma.knowledgeArticle.updateMany).toHaveBeenCalledWith({ where: { id: 'article', workspaceId: 'workspace', status: 'ACTIVE', version: 2 }, data: { status: 'ARCHIVED', version: { increment: 1 } } })
+    await expect(service.archive(principal, 'policy', 2)).resolves.toEqual({ archived: true, version: 3 })
+    expect(prisma.knowledgeArticle.updateMany).toHaveBeenCalledWith({ where: { id: 'article', workspaceId: 'workspace', status: 'ACTIVE', version: 2 }, data: { status: 'ARCHIVED', archivedAt: expect.any(Date) as unknown, archivedById: 'admin', version: { increment: 1 } } })
   })
 })
 

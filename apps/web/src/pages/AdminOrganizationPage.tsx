@@ -15,6 +15,7 @@ import { CompanyCreateForm } from '../features/organization/CompanyCreateForm'
 import { UnassignedEmployees } from '../features/organization/UnassignedEmployees'
 import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
 import { api, jsonBody } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { Avatar, Button, Card, ConfirmationDialog, EmptyState, ErrorState, Skeleton, StatusBadge } from '../shared/ui'
 
 interface CompanySettings {
@@ -96,6 +97,7 @@ export default function AdminOrganizationPage() {
       await refresh()
       await client.invalidateQueries({ queryKey: ['admin-org-unit-employees', companyId] })
       await client.invalidateQueries({ queryKey: ['org-unit-employees'] })
+      notifySuccess('Працівника переміщено')
     },
   })
 
@@ -317,6 +319,7 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
     onSuccess: async (saved) => {
       client.setQueryData(['admin-company', companyId], saved)
       await onSaved()
+      notifySuccess('Зміни збережено')
     },
   })
   const status = useMutation({
@@ -325,6 +328,7 @@ function CompanyDetail({ company, companyId, childCount, onSaved, onArchived }: 
       setConfirmArchive(false)
       await onSaved()
       if (!active) onArchived()
+      notifySuccess(active ? 'Компанію відновлено' : 'Компанію архівовано')
     },
   })
   if (settings.isLoading) return <Skeleton rows={5} />
@@ -396,7 +400,10 @@ function UnitEditor({ companyId, unit, defaultParentId, companies, onSaved }: {
       }
       return saved
     },
-    onSuccess: (result) => onSaved(result.id, unit ? companyId : targetCompanyId),
+    onSuccess: async (result) => {
+      await onSaved(result.id, unit ? companyId : targetCompanyId)
+      notifySuccess(unit ? 'Зміни збережено' : 'Підрозділ створено')
+    },
   })
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -459,11 +466,11 @@ function UnitDetail({ unit, units, companyId, companies, onChanged }: {
     mutationFn: () => api(`/admin/companies/${companyId}/org-units/${unit.id}/archive`, {
       method: 'POST', body: jsonBody({ expectedVersion: unit.version, ...(archiveBranch ? { archiveBranch: true } : {}) }),
     }),
-    onSuccess: onChanged,
+    onSuccess: async () => { await onChanged(); notifySuccess('Підрозділ архівовано') },
   })
   const restore = useMutation({
     mutationFn: (body: object) => api(`/admin/companies/${companyId}/org-units/${unit.id}/restore`, { method: 'POST', body: jsonBody(body) }),
-    onSuccess: onChanged,
+    onSuccess: async () => { await onChanged(); notifySuccess('Підрозділ відновлено') },
   })
   if (unit.status === 'ARCHIVED') return <>
     <header><span className="eyebrow">Архівований підрозділ</span><h2>{unit.name}</h2><p>Відновиться вся збережена гілка з попередніми зв’язками. Працівники залишаться в «{UNASSIGNED_DEPARTMENT_LABEL}» своєї компанії. Їхні призначення автоматично не відновлюються.</p></header>

@@ -21,6 +21,7 @@ interface MessageStreamProps {
   onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
+  onRestore?: (message: ChatMessageView) => Promise<void>
 }
 
 export function MessageStream(props: MessageStreamProps) {
@@ -174,6 +175,7 @@ export function MessageStream(props: MessageStreamProps) {
                   onForward={props.onForward}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
+                  onRestore={props.onRestore}
                 />
               </div>
             )

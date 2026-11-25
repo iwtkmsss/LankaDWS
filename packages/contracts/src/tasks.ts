@@ -62,6 +62,16 @@ export const deleteTaskCommentSchema = z.object({
 })
 export type DeleteTaskCommentInput = z.infer<typeof deleteTaskCommentSchema>
 
+/**
+ * Body of the restore endpoints that use an optimistic version (decision
+ * 2026-11-18): the task version for unarchive, checklist and relations, the
+ * comment version for a comment.
+ */
+export const restoreTaskContentSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+})
+export type RestoreTaskContentInput = z.infer<typeof restoreTaskContentSchema>
+
 export const taskChecklistItemInputSchema = z.object({
   clientId: entityIdSchema,
   title: z.string().trim().min(1).max(300),

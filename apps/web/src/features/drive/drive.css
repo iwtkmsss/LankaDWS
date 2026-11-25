@@ -78,6 +78,7 @@ span.drive-path__current { display: inline-flex; min-width: 0; max-width: 240px;
 .drive-file-miniature { flex: none; width: 32px; height: 32px; border-radius: var(--radius-xs); object-fit: cover; }
 
 .drive-banner { margin: 0; }
+.drive-owner-trash { display: flex; justify-content: flex-end; }
 
 .drive-grids { display: grid; gap: var(--space-6); min-width: 0; }
 .drive-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); align-items: start; }

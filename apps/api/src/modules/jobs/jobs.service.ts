@@ -288,6 +288,8 @@ export class JobsService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (!file || file.createdAt > new Date(Date.now() - 86_400_000)) return;
+      // Any link row keeps the file, including links marked removed: hidden
+      // content is kept forever (decision 2026-11-18), so never filter removedAt here.
       const link = await tx.fileLink.findFirst({
         where: { fileId },
         select: { id: true },

@@ -40,6 +40,12 @@ it('keeps all readable entries in All while the three category filters never ove
   expect(all.counts.ALL).toBe(all.counts.MINE + all.counts.TEAM + all.counts.TASKS)
   expect(categories.map((result) => result.items.length)).toEqual([all.counts.MINE, all.counts.TEAM, all.counts.TASKS])
 })
+it('combines several category filters and rejects unknown ones', async () => {
+  const { controller } = setup()
+  const load = (scope: string) => controller.events(request, 'all', '2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z', scope)
+  expect((await load('MINE,TASKS')).items.map((item) => item.id)).toEqual(['private', 'task'])
+  await expect(load('MINE,NOPE')).rejects.toThrow()
+})
 it('keeps readable shared events in Company even without a primary company', async () => {
   const { controller } = setup()
   const result = await controller.events({ principal: { ...principal, primaryCompanyId: null } } as LankaDWSRequest,

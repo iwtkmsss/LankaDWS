@@ -165,15 +165,7 @@ export class EmployeesController {
         ] })) },
         select: { id: true, name: true },
       }),
-      this.prisma.user.findMany({
-        where: { workspaceId: principal.workspaceId, OR: [
-          { managedOrgUnits: { some: { status: 'ACTIVE', OR: companyIds.map((companyId) => ({ companyId,
-            assignments: { some: { companyId, endedAt: null, isPrimary: true, user: { ...inScope, primaryCompanyId: companyId } } } })) } } },
-          { approverFor: { some: { OR: companyIds.map((companyId) => ({ ...inScope, primaryCompanyId: companyId,
-            orgAssignments: { none: currentAssignment(companyId, { managerId: { not: null } }) } })) } } },
-        ] },
-        select: { id: true, displayName: true },
-      }),
+      this.managerOptions(principal.workspaceId, companyIds, inScope),
     ])
     const items = users.slice(0, DIRECTORY_PAGE_SIZE).map(({ orgAssignments, approver, managedOrgUnits, ...user }) => {
       const assignment = orgAssignments.find((item) => item.orgUnit.companyId === user.primaryCompanyId)
@@ -200,6 +192,34 @@ export class EmployeesController {
         managers: managers.sort((a, b) => a.displayName.localeCompare(b.displayName, 'uk')),
       },
     }
+  }
+
+  /**
+   * Managers facet: the manager of an active unit with a current primary member in scope, or the
+   * personal approver of an in-scope person without a current unit manager. Collected from the
+   * units and approver links first, so SQLite does not walk every user with nested subqueries.
+   */
+  private async managerOptions(workspaceId: string, companyIds: string[], inScope: Prisma.UserWhereInput) {
+    const [units, approved] = await Promise.all([
+      this.prisma.orgUnit.findMany({
+        where: { status: 'ACTIVE', managerId: { not: null }, OR: companyIds.map((companyId) => ({ companyId,
+          assignments: { some: { companyId, endedAt: null, isPrimary: true, user: { ...inScope, primaryCompanyId: companyId } } } })) },
+        select: { managerId: true },
+      }),
+      this.prisma.user.findMany({
+        where: { approverId: { not: null }, OR: companyIds.map((companyId) => ({ ...inScope, primaryCompanyId: companyId,
+          orgAssignments: { none: currentAssignment(companyId, { managerId: { not: null } }) } })) },
+        select: { approverId: true },
+      }),
+    ])
+    const ids = new Set<string>()
+    for (const { managerId } of units) if (managerId) ids.add(managerId)
+    for (const { approverId } of approved) if (approverId) ids.add(approverId)
+    if (!ids.size) return []
+    return this.prisma.user.findMany({
+      where: { workspaceId, id: { in: [...ids] } },
+      select: { id: true, displayName: true },
+    })
   }
 
   @Get(':id')

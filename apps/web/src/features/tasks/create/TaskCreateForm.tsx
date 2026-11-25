@@ -26,6 +26,7 @@ import {
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { loadTaskCreateOptions } from './api'
 import type { UserSearchOption } from '../../employees/UserSearchCombobox'
 import type { TaskDetailView } from '@lankadws/contracts'
@@ -252,6 +253,7 @@ export function TaskCreateForm({
       clearTaskDraft(draftKey)
       void queryClient.invalidateQueries({ queryKey: ['tasks'] })
       closeGuard.closeForSuccess(() => onDone(result.id))
+      notifySuccess('Завдання створено')
     },
     onError: (error) => {
       setValidation(null)

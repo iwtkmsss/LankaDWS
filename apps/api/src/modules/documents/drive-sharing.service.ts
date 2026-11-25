@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import type { DriveShareRole, DriveShareTargetType } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ChatRealtimeService } from '../communication/chat-realtime.service.js'
@@ -41,6 +42,8 @@ export class DriveSharingService {
     const shares = await this.prisma.driveShare.findMany({
       where: {
         workspaceId: principal.workspaceId,
+        // A revoked share (decision 2026-11-18) grants nothing.
+        revokedAt: null,
         OR: keys.map((key) => ({ principalType: key.principalType, principalId: key.principalId })),
       },
       select: { targetType: true, targetId: true, role: true },
@@ -114,7 +117,7 @@ export class DriveSharingService {
   async list(principal: AuthPrincipal, targetType: DriveShareTargetType, targetId: string) {
     await this.assertTargetVisible(principal, targetType, targetId)
     const shares = await this.prisma.driveShare.findMany({
-      where: { workspaceId: principal.workspaceId, targetType, targetId },
+      where: { workspaceId: principal.workspaceId, targetType, targetId, revokedAt: null },
       orderBy: { createdAt: 'asc' },
     })
     const userIds = shares.filter((share) => share.principalType === 'USER').map((share) => share.principalId)
@@ -151,9 +154,12 @@ export class DriveSharingService {
     if (!target) throw notFound()
     const shareId = id('drsh')
     const changed = await this.prisma.$transaction(async (tx) => {
-      const existing = await tx.driveShare.findUnique({ where: { targetType_targetId_principalType_principalId: {
+      const stored = await tx.driveShare.findUnique({ where: { targetType_targetId_principalType_principalId: {
         targetType: input.targetType, targetId: input.targetId, principalType: input.principalType, principalId: input.principalId,
-      } }, select: { role: true } })
+      } }, select: { role: true, revokedAt: true } })
+      // A revoked share is revived by re-granting the same principal; it counts as a new grant.
+      const revived = Boolean(stored?.revokedAt)
+      const existing = stored && !revived ? stored : null
       const share = await tx.driveShare.upsert({
         where: {
           targetType_targetId_principalType_principalId: {
@@ -173,7 +179,10 @@ export class DriveSharingService {
           role: input.role,
           createdBy: principal.userId,
         },
-        update: { role: input.role },
+        update: {
+          role: input.role,
+          ...(revived ? { revokedAt: null, revokedById: null, createdBy: principal.userId, createdAt: new Date() } : {}),
+        },
       })
       await recordAudit(tx, principal, { companyId: target.companyId, action: 'drive.shared', entityType: input.targetType, entityId: input.targetId, risk: 'HIGH', safeDiff: { principalType: input.principalType, role: input.role } })
       if (existing?.role === input.role) return false
@@ -200,13 +209,58 @@ export class DriveSharingService {
 
   async revoke(principal: AuthPrincipal, shareId: string) {
     const share = await this.prisma.driveShare.findFirst({
-      where: { id: shareId, workspaceId: principal.workspaceId },
+      where: { id: shareId, workspaceId: principal.workspaceId, revokedAt: null },
     })
     if (!share) throw notFound()
     await this.assertTargetOwned(principal, share.targetType as DriveShareTargetType, share.targetId)
-    await this.prisma.driveShare.delete({ where: { id: shareId } })
+    // Content is hidden, never deleted (decision 2026-11-18): the share is
+    // marked revoked and grants nothing; re-granting revives the row.
+    const revoked = await this.prisma.driveShare.updateMany({
+      where: { id: shareId, revokedAt: null },
+      data: { revokedAt: new Date(), revokedById: principal.userId },
+    })
+    if (!revoked.count) throw notFound()
     await recordAudit(this.prisma, principal, { companyId: await this.companyOf(principal, share.targetType as DriveShareTargetType, share.targetId), action: 'drive.share_revoked', entityType: share.targetType, entityId: share.targetId, risk: 'HIGH' })
     return this.list(principal, share.targetType as DriveShareTargetType, share.targetId)
+  }
+
+  /**
+   * Undo for a revoke (decision 2026-11-18): the same share row comes back
+   * unchanged — original grantor, creation time and role — and the recipient is
+   * not told about "new" access. The target's owner and a global administrator
+   * may restore at any time; whoever revoked it may undo for 10 minutes.
+   */
+  async restore(principal: AuthPrincipal, shareId: string) {
+    const share = await this.prisma.driveShare.findFirst({
+      where: { id: shareId, workspaceId: principal.workspaceId },
+    })
+    if (!share) throw notFound()
+    const targetType = share.targetType as DriveShareTargetType
+    if (!share.revokedAt) return this.list(principal, targetType, share.targetId)
+    const target = targetType === 'FOLDER'
+      ? await this.prisma.driveFolder.findFirst({ where: { id: share.targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true, companyId: true } })
+      : await this.prisma.document.findFirst({ where: { id: share.targetId, companyId: { in: principal.allowedCompanyIds } }, select: { ownerId: true, companyId: true } })
+    if (!target) throw notFound()
+    if (
+      target.ownerId !== principal.userId
+      && !isGlobalAdmin(principal)
+      && !canActorRestore(share.revokedById, share.revokedAt, principal.userId)
+    ) {
+      await this.assertTargetVisible(principal, targetType, share.targetId)
+      throw forbidden()
+    }
+    const recipient = await this.prisma.user.findFirst({
+      where: { id: share.principalId, workspaceId: principal.workspaceId, isActive: true },
+      select: { id: true },
+    })
+    if (!recipient) throw badRequest('drive_share_principal_invalid')
+    const restored = await this.prisma.driveShare.updateMany({
+      where: { id: share.id, revokedAt: share.revokedAt },
+      data: { revokedAt: null, revokedById: null },
+    })
+    if (!restored.count) throw conflict()
+    await recordAudit(this.prisma, principal, { companyId: target.companyId, action: 'drive.share_restored', entityType: share.targetType, entityId: share.targetId, risk: 'HIGH', safeDiff: { principalType: share.principalType, role: share.role } })
+    return this.list(principal, targetType, share.targetId)
   }
 
   private async companyOf(principal: AuthPrincipal, targetType: DriveShareTargetType, targetId: string): Promise<string> {

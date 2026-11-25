@@ -25,6 +25,7 @@ import { useUserSearch } from '../../shared/lib/useUserSearch'
 import { useDocumentVisible } from '../../shared/lib/useDocumentVisible'
 import { useEntityNotificationRead } from '../notifications/useEntityNotificationRead'
 import { Button, EmptyState, ErrorState, Skeleton } from '../../shared/ui'
+import { notifySuccess } from '../../shared/ui/notify'
 import {
   createThread,
   getChatUser,
@@ -32,6 +33,7 @@ import {
   getMessagePage,
   getThreadDetail,
   getThreadPage,
+  restoreMessage,
   sendMessage,
   setMessageReaction,
 } from './api/messageApi'
@@ -320,11 +322,19 @@ export function MessagesPage() {
   }
 
   async function deleteMessage(message: ChatMessageView) {
-    await api(`/messages/${message.id}`, {
+    const currentThreadId = threadId!
+    const deleted = await api<{ version: number }>(`/messages/${message.id}`, {
       method: 'DELETE',
       body: jsonBody({ expectedVersion: message.version }),
     })
-    upsertMessageCache(client, threadId!, await getMessage(message.id))
+    upsertMessageCache(client, currentThreadId, await getMessage(message.id))
+    notifySuccess('Повідомлення видалено', {
+      undo: () => restoreDeletedMessage(currentThreadId, message.id, deleted.version),
+    })
+  }
+
+  async function restoreDeletedMessage(messageThreadId: string, messageId: string, expectedVersion: number) {
+    upsertMessageCache(client, messageThreadId, await restoreMessage(messageId, expectedVersion))
   }
 
   async function openSearchResult(messageId: string) {
@@ -573,6 +583,8 @@ export function MessagesPage() {
           onReplyCancel={() => setReplyTo(null)}
           onEdit={editMessage}
           onDelete={deleteMessage}
+          onRestore={(message) => restoreDeletedMessage(threadId, message.id, message.version)
+            .then(() => notifySuccess('Повідомлення відновлено'))}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((item) => item.id !== id))}
           onFiles={addFiles}
           onDriveAttachment={(attachment) => setAttachments((current) => [...current, attachment])}

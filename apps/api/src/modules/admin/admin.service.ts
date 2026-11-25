@@ -418,7 +418,7 @@ export class AdminService {
     let payload: Record<string, unknown> = {}
     try { payload = JSON.parse(job.safePayload) as Record<string, unknown> } catch { throw notFound() }
     if (payload.workspaceId !== principal.workspaceId) throw notFound()
-    const link = await this.prisma.fileLink.findFirst({ where: { entityType: 'AUDIT_EXPORT', entityId: exportId, purpose: 'EXPORT' }, select: { fileId: true } })
+    const link = await this.prisma.fileLink.findFirst({ where: { entityType: 'AUDIT_EXPORT', entityId: exportId, purpose: 'EXPORT', removedAt: null }, select: { fileId: true } })
     return { exportId, jobId: job.id, state: job.state, progress: job.progress, lastErrorCode: job.lastErrorCode, fileId: link?.fileId ?? null, expiresAt: link ? new Date(job.createdAt.getTime() + 24 * 3_600_000).toISOString() : null }
   }
 

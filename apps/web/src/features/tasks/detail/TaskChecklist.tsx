@@ -4,6 +4,8 @@ import { CheckCircle2, ChevronDown, ListChecks } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { api, jsonBody } from '../../../shared/api/client'
 import { Button } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
+import { TaskHiddenItems } from './TaskHiddenItems'
 
 export function TaskChecklist({
   id,
@@ -45,6 +47,16 @@ export function TaskChecklist({
     },
     onSuccess: () => void client.invalidateQueries({ queryKey: ['task', id] }),
   })
+  const restoreItem = useMutation({
+    mutationFn: (itemId: string) => api(`/tasks/${id}/checklist/${encodeURIComponent(itemId)}/restore`, {
+      method: 'POST',
+      body: jsonBody({ expectedVersion: task.version }),
+    }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['task', id] })
+      notifySuccess('Крок відновлено')
+    },
+  })
   return (
     <details className="task-detail-disclosure" data-task-section="checklist">
     <summary aria-label="Чек-лист">
@@ -78,6 +90,14 @@ export function TaskChecklist({
         </div>
       ) : (
         <p className="muted">Кроків немає</p>
+      )}
+      {task.hiddenContent && (
+        <TaskHiddenItems
+          label="Видалені кроки"
+          items={task.hiddenContent.checklist.map((item) => ({ ...item, title: item.text }))}
+          pending={restoreItem.isPending}
+          onRestore={(itemId) => restoreItem.mutate(itemId)}
+        />
       )}
       {canManageTask && (
         <form

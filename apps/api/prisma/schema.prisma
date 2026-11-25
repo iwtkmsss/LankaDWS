@@ -130,55 +130,55 @@ enum FeedReactionKind {
 }
 
 model Workspace {
-  id                    String                 @id
-  displayName           String
-  status                RecordStatus           @default(ACTIVE)
-  defaultTimezone       String                 @default("Europe/Kyiv")
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  companies             Company[]
-  users                 User[]
-  projects              Project[]
-  tags                  Tag[]
-  orgUnits              OrgUnit[]
-  feedPosts             FeedPost[]
-  feedItems             FeedItem[]
-  feedSourceHeads       FeedSourceHead[]
-  feedFileShares        FeedFileShare[]
+  id              String           @id
+  displayName     String
+  status          RecordStatus     @default(ACTIVE)
+  defaultTimezone String           @default("Europe/Kyiv")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  companies       Company[]
+  users           User[]
+  projects        Project[]
+  tags            Tag[]
+  orgUnits        OrgUnit[]
+  feedPosts       FeedPost[]
+  feedItems       FeedItem[]
+  feedSourceHeads FeedSourceHead[]
+  feedFileShares  FeedFileShare[]
 
   @@index([status])
 }
 
 model Company {
-  id                    String                 @id
-  workspaceId           String
-  displayName           String
-  legalName             String
-  logoFileId            String?
-  code                  String
-  description           String?
-  isActive              Boolean                @default(true)
-  timezone              String                 @default("Europe/Kyiv")
-  locale                String                 @default("uk-UA")
-  workingDaysJson       String                 @default("[1,2,3,4,5]")
-  holidayJson           String                 @default("[]")
-  version               Int                    @default(1)
-  managerId             String?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  workspace             Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  manager               User?                  @relation("CompanyManager", fields: [managerId], references: [id], onDelete: SetNull)
-  primaryUsers          User[]                 @relation("PrimaryCompany")
-  capabilities          CompanyCapability[]
-  projects              Project[]
-  tags                  Tag[]
-  orgUnits              OrgUnit[]
-  orgAssignments        UserOrgAssignment[]
-  feedPosts             FeedPost[]
-  feedItems             FeedItem[]
-  feedSourceHeads       FeedSourceHead[]
-  feedFileShares        FeedFileShare[]
-  feedReadCursors       FeedReadCursor[]
+  id              String              @id
+  workspaceId     String
+  displayName     String
+  legalName       String
+  logoFileId      String?
+  code            String
+  description     String?
+  isActive        Boolean             @default(true)
+  timezone        String              @default("Europe/Kyiv")
+  locale          String              @default("uk-UA")
+  workingDaysJson String              @default("[1,2,3,4,5]")
+  holidayJson     String              @default("[]")
+  version         Int                 @default(1)
+  managerId       String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  manager         User?               @relation("CompanyManager", fields: [managerId], references: [id], onDelete: SetNull)
+  primaryUsers    User[]              @relation("PrimaryCompany")
+  capabilities    CompanyCapability[]
+  projects        Project[]
+  tags            Tag[]
+  orgUnits        OrgUnit[]
+  orgAssignments  UserOrgAssignment[]
+  feedPosts       FeedPost[]
+  feedItems       FeedItem[]
+  feedSourceHeads FeedSourceHead[]
+  feedFileShares  FeedFileShare[]
+  feedReadCursors FeedReadCursor[]
 
   @@unique([workspaceId, code])
   @@index([workspaceId, isActive])
@@ -193,68 +193,68 @@ enum TaskApprovalStatus {
 }
 
 model User {
-  id                           String                         @id
-  workspaceId                  String
-  primaryCompanyId             String?
-  accountType                  AccountType                    @default(USER)
-  firstName                    String                         @default("")
-  lastName                     String                         @default("")
-  middleName                   String?
-  phone                        String?
-  gender                       String?
-  birthDate                    DateTime?
-  displayName                  String
-  normalizedDisplayName        String
-  username                     String
-  normalizedUsername           String
-  contactEmail                 String?
-  jobTitle                     String                         @default("")
-  approverId                   String?
-  timezone                     String                         @default("Europe/Kyiv")
-  locale                       String                         @default("uk-UA")
-  isActive                     Boolean                        @default(true)
-  mustEnroll2FA                Boolean                        @default(false)
-  authorizationVersion         Int                            @default(1)
-  avatarAsset                  String?
-  createdAt                    DateTime                       @default(now())
-  updatedAt                    DateTime                       @updatedAt
-  workspace                    Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  primaryCompany               Company?                       @relation("PrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: Restrict)
-  approver                     User?                          @relation("UserApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  approverFor                  User[]                         @relation("UserApprover")
-  passwordCredential           PasswordCredential?
-  totpCredential               TotpCredential?
-  recoveryCodes                RecoveryCode[]
-  sessions                     UserSession[]
-  enabledCapabilities          CompanyCapability[]            @relation("CapabilityEnabler")
-  authoredFeedPosts            FeedPost[]                     @relation("FeedPostAuthor")
-  feedItems                    FeedItem[]                     @relation("FeedItemActor")
-  ownedFeedFileShares          FeedFileShare[]                @relation("FeedFileShareOwner")
-  feedFileShareRecipients      FeedFileShareRecipient[]       @relation("FeedFileShareRecipientUser")
-  feedItemRecipients           FeedItemRecipient[]            @relation("FeedItemRecipientUser")
-  feedAckRecipients            FeedAcknowledgementRecipient[] @relation("FeedAckRecipientUser")
-  feedAcknowledgements         FeedPostAcknowledgement[]      @relation("FeedAcknowledgementUser")
-  feedReactions                FeedReaction[]                 @relation("FeedReactionUser")
-  feedSubscriptions            FeedSubscription[]             @relation("FeedSubscriptionUser")
-  feedMentions                 FeedMention[]                  @relation("FeedMentionUser")
-  feedReadCursors              FeedReadCursor[]               @relation("FeedReadCursorUser")
-  feedItemStates               FeedUserItemState[]            @relation("FeedUserItemStateUser")
-  managedOrgUnits              OrgUnit[]                      @relation("OrgUnitManager")
-  managedCompanies             Company[]                      @relation("CompanyManager")
-  orgAssignments               UserOrgAssignment[]
-  eventAcknowledgements        EventAcknowledgement[]
-  taskParticipations           TaskParticipant[]              @relation("TaskParticipantUser")
-  taskParticipantsAdded        TaskParticipant[]              @relation("TaskParticipantAdder")
-  tasksCreated                 Task[]                         @relation("TaskCreatedBy")
-  tasksReported                Task[]                         @relation("TaskReporter")
-  taskRelationsCreated         TaskRelation[]                 @relation("TaskRelationCreator")
-  taskTimeEntries              TimeEntry[]
-  taskStates                   TaskUserState[]
-  taskReminders                TaskReminder[]
-  taskApprovalRequests         TaskApprovalRound[]            @relation("TaskApprovalRequester")
-  taskApprovalsAssigned        TaskApprovalRound[]            @relation("TaskApprovalApprover")
-  taskApprovalInvalidations    TaskApprovalRound[]            @relation("TaskApprovalInvalidator")
-  uiPreferences                UserUiPreference[]
+  id                        String                         @id
+  workspaceId               String
+  primaryCompanyId          String?
+  accountType               AccountType                    @default(USER)
+  firstName                 String                         @default("")
+  lastName                  String                         @default("")
+  middleName                String?
+  phone                     String?
+  gender                    String?
+  birthDate                 DateTime?
+  displayName               String
+  normalizedDisplayName     String
+  username                  String
+  normalizedUsername        String
+  contactEmail              String?
+  jobTitle                  String                         @default("")
+  approverId                String?
+  timezone                  String                         @default("Europe/Kyiv")
+  locale                    String                         @default("uk-UA")
+  isActive                  Boolean                        @default(true)
+  mustEnroll2FA             Boolean                        @default(false)
+  authorizationVersion      Int                            @default(1)
+  avatarAsset               String?
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+  workspace                 Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  primaryCompany            Company?                       @relation("PrimaryCompany", fields: [primaryCompanyId], references: [id], onDelete: Restrict)
+  approver                  User?                          @relation("UserApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  approverFor               User[]                         @relation("UserApprover")
+  passwordCredential        PasswordCredential?
+  totpCredential            TotpCredential?
+  recoveryCodes             RecoveryCode[]
+  sessions                  UserSession[]
+  enabledCapabilities       CompanyCapability[]            @relation("CapabilityEnabler")
+  authoredFeedPosts         FeedPost[]                     @relation("FeedPostAuthor")
+  feedItems                 FeedItem[]                     @relation("FeedItemActor")
+  ownedFeedFileShares       FeedFileShare[]                @relation("FeedFileShareOwner")
+  feedFileShareRecipients   FeedFileShareRecipient[]       @relation("FeedFileShareRecipientUser")
+  feedItemRecipients        FeedItemRecipient[]            @relation("FeedItemRecipientUser")
+  feedAckRecipients         FeedAcknowledgementRecipient[] @relation("FeedAckRecipientUser")
+  feedAcknowledgements      FeedPostAcknowledgement[]      @relation("FeedAcknowledgementUser")
+  feedReactions             FeedReaction[]                 @relation("FeedReactionUser")
+  feedSubscriptions         FeedSubscription[]             @relation("FeedSubscriptionUser")
+  feedMentions              FeedMention[]                  @relation("FeedMentionUser")
+  feedReadCursors           FeedReadCursor[]               @relation("FeedReadCursorUser")
+  feedItemStates            FeedUserItemState[]            @relation("FeedUserItemStateUser")
+  managedOrgUnits           OrgUnit[]                      @relation("OrgUnitManager")
+  managedCompanies          Company[]                      @relation("CompanyManager")
+  orgAssignments            UserOrgAssignment[]
+  eventAcknowledgements     EventAcknowledgement[]
+  taskParticipations        TaskParticipant[]              @relation("TaskParticipantUser")
+  taskParticipantsAdded     TaskParticipant[]              @relation("TaskParticipantAdder")
+  tasksCreated              Task[]                         @relation("TaskCreatedBy")
+  tasksReported             Task[]                         @relation("TaskReporter")
+  taskRelationsCreated      TaskRelation[]                 @relation("TaskRelationCreator")
+  taskTimeEntries           TimeEntry[]
+  taskStates                TaskUserState[]
+  taskReminders             TaskReminder[]
+  taskApprovalRequests      TaskApprovalRound[]            @relation("TaskApprovalRequester")
+  taskApprovalsAssigned     TaskApprovalRound[]            @relation("TaskApprovalApprover")
+  taskApprovalInvalidations TaskApprovalRound[]            @relation("TaskApprovalInvalidator")
+  uiPreferences             UserUiPreference[]
 
   @@unique([workspaceId, normalizedUsername])
   @@index([workspaceId, isActive])
@@ -309,6 +309,7 @@ model FeedPost {
   publishedAt               DateTime                       @default(now())
   editedAt                  DateTime?
   archivedAt                DateTime?
+  archivedById              String?
   createdAt                 DateTime                       @default(now())
   updatedAt                 DateTime                       @updatedAt
   workspace                 Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
@@ -749,6 +750,7 @@ model Task {
   recurrenceId           String?
   recurrenceOccurrenceAt DateTime?
   archivedAt             DateTime?
+  archivedById           String?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   checklist              TaskChecklistItem[]
@@ -771,6 +773,8 @@ model Task {
 
   @@unique([recurrenceId, recurrenceOccurrenceAt])
   @@index([companyId, status, dueAt, id])
+  @@index([companyId, status, completedAt])
+  @@index([dueAt])
   @@index([projectId, status, dueAt, id])
   @@index([parentTaskId, status, dueAt, id])
   @@index([reporterId, status, dueAt])
@@ -879,6 +883,9 @@ model TaskChecklistItem {
   version       Int       @default(1)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  // Soft delete: hidden items keep their position so @@unique([taskId, position]) stays valid.
+  deletedAt     DateTime?
+  deletedById   String?
   task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, position])
@@ -935,6 +942,9 @@ model TaskRelation {
   type         TaskRelationType
   createdById  String
   createdAt    DateTime         @default(now())
+  // Soft delete: re-creating the same pair revives this row (unique source/target).
+  deletedAt    DateTime?
+  deletedById  String?
   sourceTask   Task             @relation("TaskRelationSource", fields: [sourceTaskId], references: [id], onDelete: Cascade)
   targetTask   Task             @relation("TaskRelationTarget", fields: [targetTaskId], references: [id], onDelete: Cascade)
   createdBy    User             @relation("TaskRelationCreator", fields: [createdById], references: [id], onDelete: Restrict)
@@ -976,6 +986,8 @@ model TimeEntry {
   description     String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  deletedById     String?
   task            Task      @relation(fields: [taskId], references: [id], onDelete: Restrict)
   user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
 
@@ -998,24 +1010,27 @@ model EntityLink {
 }
 
 model Event {
-  id             String          @id
-  workspaceId    String
-  companyId      String
-  ownerId        String
-  title          String
-  description    String?
-  startAt        DateTime
-  endAt          DateTime
-  sourceTimezone String
-  allDay         Boolean         @default(false)
-  visibility     String          @default("INTERNAL")
-  version        Int             @default(1)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  recurrenceJson String?
-  audiences      EventAudience[]
-  requiresAcknowledgement Boolean @default(false)
-  acknowledgements EventAcknowledgement[]
+  id                      String                 @id
+  workspaceId             String
+  companyId               String
+  ownerId                 String
+  title                   String
+  description             String?
+  startAt                 DateTime
+  endAt                   DateTime
+  sourceTimezone          String
+  allDay                  Boolean                @default(false)
+  visibility              String                 @default("INTERNAL")
+  version                 Int                    @default(1)
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  recurrenceJson          String?
+  audiences               EventAudience[]
+  requiresAcknowledgement Boolean                @default(false)
+  acknowledgements        EventAcknowledgement[]
+  // Soft delete (decision 2026-11-18): hidden events are invisible to ordinary readers.
+  deletedAt               DateTime?
+  deletedById             String?
 
   @@index([companyId, startAt, endAt])
   @@index([ownerId, startAt])
@@ -1117,34 +1132,39 @@ model FileObject {
 }
 
 model FileLink {
-  id         String   @id
-  fileId     String
-  entityType String
-  entityId   String
-  purpose    String
-  aclMode    String
-  createdAt  DateTime @default(now())
+  id          String    @id
+  fileId      String
+  entityType  String
+  entityId    String
+  purpose     String
+  aclMode     String
+  createdAt   DateTime  @default(now())
+  // Soft removal: a removed link grants no access but keeps the file "attached"
+  // (never purged). Re-attaching the same file revives the row.
+  removedAt   DateTime?
+  removedById String?
 
   @@unique([fileId, entityType, entityId, purpose])
   @@index([entityType, entityId])
 }
 
 model Document {
-  id               String            @id
-  workspaceId      String
-  companyId        String
-  number           String            @unique
-  name             String
-  ownerId          String
-  status           String
-  confidentiality  Confidentiality   @default(INTERNAL)
-  fileId           String?
-  folderId         String?
-  version          Int               @default(1)
-  archivedAt       DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  folder           DriveFolder?      @relation(fields: [folderId], references: [id])
+  id              String          @id
+  workspaceId     String
+  companyId       String
+  number          String          @unique
+  name            String
+  ownerId         String
+  status          String
+  confidentiality Confidentiality @default(INTERNAL)
+  fileId          String?
+  folderId        String?
+  version         Int             @default(1)
+  archivedAt      DateTime?
+  archivedById    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  folder          DriveFolder?    @relation(fields: [folderId], references: [id])
 
   @@index([companyId, status, updatedAt, id])
   @@index([ownerId, updatedAt])
@@ -1159,6 +1179,7 @@ model DriveFolder {
   parentId    String?
   ownerId     String
   trashedAt   DateTime?
+  trashedById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   parent      DriveFolder?  @relation("DriveFolderTree", fields: [parentId], references: [id])
@@ -1170,7 +1191,7 @@ model DriveFolder {
 }
 
 model DriveShare {
-  id            String   @id
+  id            String    @id
   workspaceId   String
   targetType    String
   targetId      String
@@ -1178,7 +1199,10 @@ model DriveShare {
   principalId   String
   role          String
   createdBy     String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
+  // Soft revoke: a revoked share grants nothing; re-granting revives the row.
+  revokedAt     DateTime?
+  revokedById   String?
 
   @@unique([targetType, targetId, principalType, principalId])
   @@index([principalType, principalId])
@@ -1196,30 +1220,34 @@ model DocumentAcl {
 }
 
 model FeedbackTicket {
-  id          String       @id
-  workspaceId String
-  ownerId     String
-  title       String
-  body        String
-  status      RecordStatus @default(ACTIVE)
-  createdAt   DateTime     @default(now())
+  id           String       @id
+  workspaceId  String
+  ownerId      String
+  title        String
+  body         String
+  status       RecordStatus @default(ACTIVE)
+  archivedAt   DateTime?
+  archivedById String?
+  createdAt    DateTime     @default(now())
 
   @@index([workspaceId, status, createdAt, id])
 }
 
 model KnowledgeArticle {
-  id               String                    @id
-  workspaceId      String
-  slug             String
-  ownerId          String
-  status           RecordStatus              @default(ACTIVE)
-  currentVersionId String?
-  requiresAcknowledgement Boolean           @default(false)
-  reviewAt         DateTime?
-  version          Int                       @default(1)
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
-  versions         KnowledgeArticleVersion[]
+  id                      String                    @id
+  workspaceId             String
+  slug                    String
+  ownerId                 String
+  status                  RecordStatus              @default(ACTIVE)
+  archivedAt              DateTime?
+  archivedById            String?
+  currentVersionId        String?
+  requiresAcknowledgement Boolean                   @default(false)
+  reviewAt                DateTime?
+  version                 Int                       @default(1)
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  versions                KnowledgeArticleVersion[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId, status, updatedAt])
@@ -1319,17 +1347,18 @@ model ThreadParticipant {
 }
 
 model Message {
-  id        String            @id
-  threadId  String
-  authorId  String
-  body      String
-  replyToId String?
-  createdAt DateTime          @default(now())
-  editedAt  DateTime?
-  deletedAt DateTime?
-  version   Int               @default(1)
-  thread    MessageThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  reactions MessageReaction[]
+  id          String            @id
+  threadId    String
+  authorId    String
+  body        String
+  replyToId   String?
+  createdAt   DateTime          @default(now())
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  deletedById String?
+  version     Int               @default(1)
+  thread      MessageThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  reactions   MessageReaction[]
 
   @@index([threadId, createdAt, id])
   @@index([threadId, deletedAt, createdAt, id])
@@ -1349,7 +1378,7 @@ model MessageReaction {
 }
 
 model Comment {
-  id               String    @id
+  id               String                @id
   workspaceId      String
   companyId        String
   entityType       String
@@ -1358,10 +1387,11 @@ model Comment {
   body             String
   visibility       String
   replyToCommentId String?
-  createdAt        DateTime  @default(now())
+  createdAt        DateTime              @default(now())
   editedAt         DateTime?
   deletedAt        DateTime?
-  version          Int       @default(1)
+  deletedById      String?
+  version          Int                   @default(1)
   reactions        TaskCommentReaction[]
 
   @@index([entityType, entityId, createdAt])

@@ -113,17 +113,12 @@ test('messages workspace covers user-only search, direct history and real chat a
   await expect(conversation.getByRole('button', { name: /Повернутися до нових/ })).toBeVisible()
   await conversation.getByRole('button', { name: /Повернутися до нових/ }).click()
 
-  await conversation.getByRole('button', { name: 'Інші дії' }).click()
   const mute = conversation.getByRole('button', { name: 'Вимкнути сповіщення' })
   const unmute = conversation.getByRole('button', { name: 'Увімкнути сповіщення' })
-  if (await mute.isVisible()) {
-    await mute.click()
-    await conversation.getByRole('button', { name: 'Інші дії' }).click()
-  }
+  if (await mute.isVisible()) await mute.click()
   await expect(unmute).toBeVisible()
-  await conversation.getByRole('button', { name: 'Інші дії' }).click()
 
-  await conversation.getByRole('button', { name: 'Інформація про діалог' }).click()
+  await conversation.getByRole('button', { name: /^Інформація та файли:/ }).click()
   const profilePanel = page.getByRole('complementary', { name: 'Чат і сповіщення' })
   await expect(profilePanel.getByText('HR-фахівчиня').first()).toBeVisible()
   await expect(profilePanel.getByRole('region', { name: 'Коротка інформація про користувача' })).toBeVisible()

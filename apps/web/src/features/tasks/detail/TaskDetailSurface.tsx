@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TaskAttachmentView } from '@lankadws/contracts'
 import { AlertTriangle, CalendarDays, Plus } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ApiProblem, api, apiUrl, jsonBody } from '../../../shared/api/client'
 import { useAuth } from '../../../shared/auth/AuthProvider'
@@ -17,6 +17,7 @@ import {
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../../../shared/ui'
+import { notifyError, notifySuccess } from '../../../shared/ui/notify'
 import { TaskChecklist } from './TaskChecklist'
 import { TaskDelegateForm } from './TaskDelegateForm'
 import { TaskDetailHeading } from './TaskDetailHeading'
@@ -42,6 +43,8 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
   const location = useLocation()
   const { user } = useAuth()
   const { query, activity } = useTaskDetail(id)
+  const detailStackRef = useRef<HTMLDivElement>(null)
+  useDiscussionBaselineHeight(detailStackRef, id, Boolean(query.data))
   const [editPhotos, setEditPhotos] = useState<InlinePhoto[]>([])
   const [delegateOpen, setDelegateOpen] = useState(false)
   const [commentAttachments, setCommentAttachments] = useState<TaskAttachmentView[]>([])
@@ -79,13 +82,19 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
   const status = useMutation({
     mutationFn: (input: { action: 'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'; expectedVersion: number; note?: string }) =>
       api(`/tasks/${id}/transitions`, { method: 'POST', body: jsonBody(input) }),
-    onSuccess: () => {
+    onSuccess: (_result, input) => {
       setStatusError('')
       void client.invalidateQueries({ queryKey: ['task', id] })
       if (query.data?.parentTaskId) {
         void client.invalidateQueries({ queryKey: ['task', query.data.parentTaskId] })
       }
       void client.invalidateQueries({ queryKey: ['tasks'] })
+      notifySuccess(
+        input.action === 'START' ? 'Завдання взято в роботу'
+          : input.action === 'COMPLETE' ? 'Завдання завершено'
+            : input.action === 'APPROVE' ? 'Завдання підтверджено'
+              : 'Завдання повернуто в роботу',
+      )
     },
     onError: (error) => {
       setStatusError(
@@ -115,6 +124,7 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
       }
       setContentMessage('Файл додано. Він відкриється після безпечної перевірки.')
       refreshTask(client, id)
+      notifySuccess('Файл додано')
     },
     onError: () => setContentMessage('Не вдалося додати файл. Перевірте формат, розмір або ліміт.'),
   })
@@ -128,16 +138,38 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
       setEditPhotos((current) => current.filter((photo) => photo.id !== fileId))
       setCommentAttachments((current) => current.filter((attachment) => attachment.id !== fileId))
       refreshTask(client, id)
+      notifySuccess('Файл видалено', { undo: () => restoreAttachment(fileId) })
     },
     onError: () => setContentMessage('Не вдалося вилучити файл. Оновіть завдання й спробуйте ще раз.'),
   })
+  // Restores also serve «Скасувати» on the success notices (decision 2026-11-18).
+  const restoreAttachment = async (fileId: string) => {
+    await api(`/tasks/${id}/attachments/${encodeURIComponent(fileId)}/restore`, { method: 'POST' })
+    setContentMessage('')
+    refreshTask(client, id)
+  }
+  const unarchive = async (expectedVersion: number) => {
+    await api(`/tasks/${id}/restore`, { method: 'POST', body: jsonBody({ expectedVersion }) })
+    refreshTask(client, id)
+  }
   const archiveTask = useMutation({
-    mutationFn: () => api(`/tasks/${id}/archive`, {
+    mutationFn: () => api<{ id: string; version: number }>(`/tasks/${id}/archive`, {
       method: 'POST', body: jsonBody({ expectedVersion: query.data?.version }),
     }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       refreshTask(client, id)
+      notifySuccess('Завдання архівовано', { undo: () => unarchive(result.version) })
     },
+  })
+  const restoreTask = useMutation({
+    mutationFn: (expectedVersion: number) => unarchive(expectedVersion),
+    onSuccess: () => notifySuccess('Завдання відновлено'),
+    onError: () => notifyError('Не вдалося відновити завдання. Оновіть його та спробуйте ще раз'),
+  })
+  const restoreHiddenAttachment = useMutation({
+    mutationFn: (fileId: string) => restoreAttachment(fileId),
+    onSuccess: () => notifySuccess('Файл відновлено'),
+    onError: () => setContentMessage('Не вдалося відновити файл. Оновіть завдання й спробуйте ще раз.'),
   })
   const attachDriveFile = useMutation({
     mutationFn: (fileId: string) => api<TaskAttachmentView>(`/tasks/${id}/attachments/from-drive?draft=true`, {
@@ -186,7 +218,7 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
       ) : query.isError || !query.data ? (
         <ErrorState onRetry={() => void query.refetch()} />
       ) : (
-        <div className="detail-stack">
+        <div className="detail-stack" ref={detailStackRef}>
           <div className="task-detail-main">
           <section className="task-detail-overview">
             <TaskDetailHeading
@@ -196,12 +228,14 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
               canManageTask={canManageTask}
               statusPending={status.isPending}
               archivePending={archiveTask.isPending}
+              restorePending={restoreTask.isPending}
               onStatus={(input) => status.mutate({
                 action: input.action,
                 expectedVersion: query.data.version,
                 ...(input.note !== undefined ? { note: input.note } : {}),
               })}
               onArchive={() => archiveTask.mutate()}
+              onRestore={() => restoreTask.mutate(query.data.version)}
               onToggleEdit={toggleEdit}
               onDelegate={() => setDelegateOpen(true)}
               onCreateSubtask={() => {
@@ -265,6 +299,8 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
             removePending={removeAttachment.isPending}
             uploadFiles={uploadFiles}
             onRemoveAttachment={(fileId) => removeAttachment.mutate(fileId)}
+            restorePending={restoreHiddenAttachment.isPending}
+            onRestoreAttachment={(fileId) => restoreHiddenAttachment.mutate(fileId)}
             contentMessage={contentMessage}
           />
           <TaskDiscussion
@@ -354,6 +390,56 @@ export function TaskDetailSurface({ id, onBack }: { id: string; onBack: () => vo
       />
     </>
   )
+}
+
+const DESKTOP_DETAIL_QUERY = '(min-width: 861px)'
+const DISCUSSION_MIN_HEIGHT = 360
+
+/**
+ * On desktop the collapsed discussion ends where the sidebar ends in its initial
+ * state. The height follows the sidebar while its sections load, then is frozen
+ * at the first interaction inside the sidebar, so adding participants or opening
+ * sidebar sections extends only the sidebar, not the chat.
+ */
+function useDiscussionBaselineHeight(stackRef: RefObject<HTMLDivElement | null>, taskId: string, ready: boolean) {
+  useEffect(() => {
+    const stack = stackRef.current
+    const sidebar = stack?.querySelector<HTMLElement>('.task-detail-sidebar')
+    const main = stack?.querySelector<HTMLElement>('.task-detail-main')
+    if (!stack || !sidebar || !main || typeof ResizeObserver === 'undefined') return
+    let frozen = false
+    let width = window.innerWidth
+    const measure = () => {
+      const discussion = main.querySelector<HTMLElement>('.task-discussion')
+      if (!discussion || discussion.classList.contains('is-expanded')) return
+      if (!window.matchMedia?.(DESKTOP_DETAIL_QUERY).matches) {
+        stack.style.removeProperty('--task-discussion-height')
+        return
+      }
+      const offset = discussion.getBoundingClientRect().top - main.getBoundingClientRect().top
+      const height = Math.max(DISCUSSION_MIN_HEIGHT, Math.round(sidebar.getBoundingClientRect().height - offset))
+      stack.style.setProperty('--task-discussion-height', `${height}px`)
+    }
+    const freeze = () => { frozen = true }
+    const observer = new ResizeObserver(() => { if (!frozen) measure() })
+    const onResize = () => {
+      if (window.innerWidth === width) return
+      width = window.innerWidth
+      if (!frozen) measure()
+    }
+    observer.observe(sidebar)
+    measure()
+    sidebar.addEventListener('pointerdown', freeze)
+    sidebar.addEventListener('focusin', freeze)
+    window.addEventListener('resize', onResize)
+    return () => {
+      observer.disconnect()
+      sidebar.removeEventListener('pointerdown', freeze)
+      sidebar.removeEventListener('focusin', freeze)
+      window.removeEventListener('resize', onResize)
+      stack.style.removeProperty('--task-discussion-height')
+    }
+  }, [stackRef, taskId, ready])
 }
 
 function TaskDetailLayout({

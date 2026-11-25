@@ -4,7 +4,8 @@ import type { DriveShareRole, DriveShareTargetType } from '@lankadws/contracts'
 import { Check, Folder, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Avatar, Button, ErrorState, Field, IconButton, Modal, Skeleton } from '../../shared/ui'
-import { createShare, fetchDrive, listShares, revokeShare } from './api'
+import { notifySuccess } from '../../shared/ui/notify'
+import { createShare, fetchDrive, listShares, restoreShare, revokeShare } from './api'
 import { useAuth } from '../../shared/auth/AuthProvider'
 import { personName } from '../../shared/lib/personName'
 
@@ -93,17 +94,21 @@ export function ShareDialog({
   }
   const grant = useMutation({
     mutationFn: () => createShare({ targetType, targetId, principalType, principalId, role }),
-    onSuccess: () => { setPrincipalId(''); setError(''); invalidate() },
+    onSuccess: () => { setPrincipalId(''); setError(''); invalidate(); notifySuccess('Доступ надано') },
     onError: () => setError('Не вдалося надати доступ.'),
   })
   const revoke = useMutation({
     mutationFn: (shareId: string) => revokeShare(shareId),
-    onSuccess: () => { setError(''); invalidate() },
+    onSuccess: (_, shareId) => {
+      setError('')
+      invalidate()
+      notifySuccess('Доступ скасовано', { undo: () => restoreShare(shareId).then(invalidate) })
+    },
     onError: () => setError('Не вдалося відкликати доступ.'),
   })
   const changeRole = useMutation({
     mutationFn: (input: { principalId: string; role: DriveShareRole }) => createShare({ targetType, targetId, principalType, ...input }),
-    onSuccess: () => { setError(''); invalidate() },
+    onSuccess: () => { setError(''); invalidate(); notifySuccess('Роль змінено') },
     onError: () => setError('Не вдалося змінити рівень доступу.'),
   })
 

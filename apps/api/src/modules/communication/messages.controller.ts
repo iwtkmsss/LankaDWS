@@ -17,7 +17,7 @@ import {
   editChatMessageSchema,
   markChatReadSchema,
   removeChatParticipantSchema,
-  recommendedChatUsersQuerySchema,
+  restoreHiddenContentSchema,
   sendChatMessageSchema,
   setChatPinSchema,
   updateChatParticipantSchema,
@@ -126,16 +126,6 @@ export class MessagesController {
     return this.messages.searchUsers(principalFrom(request), parsed.data)
   }
 
-  @Get('users/recommended')
-  recommendedUsers(
-    @Req() request: LankaDWSRequest,
-    @Query() rawQuery: Record<string, unknown>,
-  ) {
-    const parsed = recommendedChatUsersQuerySchema.safeParse(rawQuery)
-    if (!parsed.success) throw badRequest('chat_recommendations_query_invalid')
-    return this.messages.recommendedUsers(principalFrom(request), parsed.data)
-  }
-
   @Get('users/:id')
   user(
     @Req() request: LankaDWSRequest,
@@ -201,6 +191,18 @@ export class MessagesController {
     const parsed = removeChatParticipantSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('chat_participant_invalid')
     return this.messages.removeParticipant(principalFrom(request), id, userId, parsed.data)
+  }
+
+  /** Undo for leaving a group chat: the person who left may rejoin within 10 minutes. */
+  @Post('threads/:id/rejoin')
+  rejoin(
+    @Req() request: LankaDWSRequest,
+    @Param('id') id: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreHiddenContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('chat_participant_invalid')
+    return this.messages.rejoinThread(principalFrom(request), id, parsed.data)
   }
 
   @Post('threads/:id/read')
@@ -280,6 +282,17 @@ export class MessagesController {
     const parsed = deleteChatMessageSchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('chat_message_invalid')
     return this.messages.deleteMessage(principalFrom(request), id, parsed.data)
+  }
+
+  @Post(':id/restore')
+  restoreMessage(
+    @Req() request: LankaDWSRequest,
+    @Param('id') id: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreHiddenContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('chat_message_invalid')
+    return this.messages.restoreMessage(principalFrom(request), id, parsed.data)
   }
 
   @Get(':id/reactions')

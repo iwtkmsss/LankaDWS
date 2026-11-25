@@ -33,14 +33,15 @@ describe('task list sorting', () => {
         CREATE TABLE User (id TEXT, displayName TEXT);
         CREATE TABLE TaskParticipant (id TEXT, taskId TEXT, userId TEXT, role TEXT, removedAt INTEGER, createdAt INTEGER);
         CREATE TABLE Comment (entityType TEXT, entityId TEXT, deletedAt INTEGER);
-        CREATE TABLE FileLink (entityType TEXT, entityId TEXT, purpose TEXT);
+        CREATE TABLE FileLink (entityType TEXT, entityId TEXT, purpose TEXT, removedAt INTEGER);
         INSERT INTO User VALUES ('anna', 'Anna'), ('zoya', 'Zoya');
         INSERT INTO Task VALUES ('a', 'A', 10, 'LOW', 'DONE', 'zoya', NULL, NULL), ('b', 'B', 20, 'HIGH', 'NEW', 'anna', NULL, NULL);
         INSERT INTO Task VALUES ('child', 'Child', NULL, 'LOW', 'NEW', 'anna', 'a', NULL);
         INSERT INTO TaskParticipant VALUES ('p1', 'a', 'anna', 'RESPONSIBLE', NULL, 1), ('p2', 'b', 'zoya', 'RESPONSIBLE', NULL, 1);
         INSERT INTO TaskParticipant VALUES ('removed', 'b', 'anna', 'RESPONSIBLE', 1, 0);
         INSERT INTO Comment VALUES ('TASK', 'a', NULL), ('TASK', 'b', 1);
-        INSERT INTO FileLink VALUES ('TASK', 'a', 'ATTACHMENT');
+        INSERT INTO FileLink VALUES ('TASK', 'a', 'ATTACHMENT', NULL);
+        INSERT INTO FileLink VALUES ('TASK', 'b', 'ATTACHMENT', 1), ('TASK', 'b', 'ATTACHMENT', 1), ('TASK', 'b', 'ATTACHMENT', 1);
       `)
       const run = (sort: keyof typeof taskListSortExpressions) => {
         const query = taskListSortQuery(['a', 'b'], sort, 'asc', 1, 25)

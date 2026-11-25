@@ -7,6 +7,7 @@ import { UserSearchCombobox, type UserSearchOption } from '../employees/UserSear
 import { api, jsonBody } from '../../shared/api/client'
 import { personName } from '../../shared/lib/personName'
 import { Button, Field } from '../../shared/ui'
+import { notifySuccess } from '../../shared/ui/notify'
 
 export function CompanyCreateForm({ onClose, onCreated }: {
   onClose: () => void
@@ -31,6 +32,7 @@ export function CompanyCreateForm({ onClose, onCreated }: {
       void client.invalidateQueries({ queryKey: ['employees'] })
       onCreated(savedCompany)
       onClose()
+      notifySuccess('Компанію створено')
     },
   })
   function submit(event: FormEvent<HTMLFormElement>) {

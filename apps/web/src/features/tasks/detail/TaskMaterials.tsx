@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Link2, Paperclip, Trash2 } from 'lucide-reac
 import { Link } from 'react-router-dom'
 import { formatDateTime } from '../../../shared/lib/format'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
+import { TaskHiddenItems } from './TaskHiddenItems'
 import { TaskAttachment, TaskFilesArchive } from './taskFiles'
 
 export function TaskMaterials({
@@ -12,6 +13,8 @@ export function TaskMaterials({
   removePending,
   uploadFiles,
   onRemoveAttachment,
+  restorePending,
+  onRestoreAttachment,
   contentMessage,
 }: {
   task: TaskDetailView
@@ -20,6 +23,8 @@ export function TaskMaterials({
   removePending: boolean
   uploadFiles: (files: File[], selectForComment: boolean) => Promise<void>
   onRemoveAttachment: (fileId: string) => void
+  restorePending: boolean
+  onRestoreAttachment: (fileId: string) => void
   contentMessage: string
 }) {
   const materialsDrop = useFileDropTarget({
@@ -82,6 +87,14 @@ export function TaskMaterials({
               ))}
               <TaskFilesArchive attachments={task.attachments} />
             </div>
+          )}
+          {task.hiddenContent && (
+            <TaskHiddenItems
+              label="Видалені файли"
+              items={task.hiddenContent.attachments.map((file) => ({ ...file, title: file.fileName }))}
+              pending={restorePending}
+              onRestore={onRestoreAttachment}
+            />
           )}
           {task.canAttachFiles && (
             <label className="task-file-picker">

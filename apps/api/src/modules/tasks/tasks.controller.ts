@@ -22,6 +22,7 @@ import {
   deleteTaskCommentSchema,
   manualTimeEntrySchema,
   mentionSearchQuerySchema,
+  restoreTaskContentSchema,
   taskCommentInputSchema,
   taskParticipantRoleV2Schema,
   taskRecurrenceInputSchema,
@@ -226,6 +227,15 @@ export class TasksController {
     return this.tasks.removeAttachment(principalFrom(request), taskId, fileId)
   }
 
+  @Post(':id/attachments/:fileId/restore')
+  restoreAttachment(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.tasks.restoreAttachment(principalFrom(request), taskId, fileId)
+  }
+
   @Post()
   create(
     @Req() request: LankaDWSRequest,
@@ -380,6 +390,18 @@ export class TasksController {
     return this.tasks.deleteComment(principalFrom(request), taskId, commentId, parsed.data)
   }
 
+  @Post(':id/comments/:commentId/restore')
+  restoreComment(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('commentId') commentId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreTaskContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_comment_invalid')
+    return this.tasks.restoreComment(principalFrom(request), taskId, commentId, parsed.data)
+  }
+
   @Get(':id/comments/:commentId/reactions')
   commentReactionUsers(
     @Req() request: LankaDWSRequest,
@@ -455,6 +477,18 @@ export class TasksController {
     )
   }
 
+  @Post(':id/checklist/:itemId/restore')
+  restoreChecklistItem(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('itemId') itemId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreTaskContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_version')
+    return this.checklist.restore(principalFrom(request), taskId, itemId, parsed.data.expectedVersion)
+  }
+
   @Put(':id/checklist-order')
   reorderChecklist(
     @Req() request: LankaDWSRequest,
@@ -506,6 +540,18 @@ export class TasksController {
     )
   }
 
+  @Post(':id/relations/:relationId/restore')
+  restoreRelation(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('relationId') relationId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreTaskContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_relation')
+    return this.relations.restore(principalFrom(request), taskId, relationId, parsed.data.expectedVersion)
+  }
+
   @Post(':id/archive')
   archive(
     @Req() request: LankaDWSRequest,
@@ -513,6 +559,18 @@ export class TasksController {
     @Body() body: { expectedVersion: number },
   ) {
     return this.commands.archive(principalFrom(request), taskId, body.expectedVersion)
+  }
+
+  /** Unarchives a task (decision 2026-11-18). */
+  @Post(':id/restore')
+  restore(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Body() rawBody: unknown,
+  ) {
+    const parsed = restoreTaskContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('task_version')
+    return this.commands.restore(principalFrom(request), taskId, parsed.data.expectedVersion)
   }
 
   @Put(':id/recurrence')
@@ -590,6 +648,15 @@ export class TasksController {
     const parsed = updateTimeEntrySchema.safeParse(rawBody)
     if (!parsed.success) throw badRequest('task_time')
     return this.time.update(principalFrom(request), taskId, entryId, parsed.data)
+  }
+
+  @Post(':id/time-entries/:entryId/restore')
+  restoreTimeEntry(
+    @Req() request: LankaDWSRequest,
+    @Param('id') taskId: string,
+    @Param('entryId') entryId: string,
+  ) {
+    return this.time.restore(principalFrom(request), taskId, entryId)
   }
 
   @Delete(':id/time-entries/:entryId')

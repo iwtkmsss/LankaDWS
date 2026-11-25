@@ -10,6 +10,4 @@ export const messageKeys = {
     [...messageKeys.detail(threadId), 'search', query] as const,
   users: (companyId: string, query: string) =>
     [...messageKeys.all, 'users', companyId, query] as const,
-  recommended: (companyId: string) =>
-    [...messageKeys.all, 'recommended', companyId] as const,
 }

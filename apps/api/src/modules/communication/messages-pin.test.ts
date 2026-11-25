@@ -11,7 +11,9 @@ function setup() {
   }
   const findMany = vi.fn().mockResolvedValue([])
   const publishSummary = vi.fn()
-  const service = new MessagesService({ userUiPreference: preferences, messageThread: { findMany } } as never,
+  const service = new MessagesService({
+    userUiPreference: preferences, messageThread: { findMany }, $queryRaw: vi.fn().mockResolvedValue([]),
+  } as never,
     { allowedCompanies: () => ['company'] } as never, {} as never, { publishSummary } as never)
   const readableThread = vi.fn().mockResolvedValue({ participants: [{ userId: 'me', leftAt: null }] })
   Object.assign(service, {

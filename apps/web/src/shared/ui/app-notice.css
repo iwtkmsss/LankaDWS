@@ -1,0 +1,11 @@
+.app-notice { position: fixed; z-index: var(--z-toast); top: 16px; left: 50%; display: flex; align-items: center; gap: var(--space-2); width: max-content; max-width: min(600px, calc(100% - 24px)); border: 1px solid; border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--text-meta); font-weight: var(--weight-medium); box-shadow: var(--shadow-lg); transform: translateX(-50%); animation: app-notice-in 160ms ease-out; }
+.app-notice--success { border-color: var(--success-line); background: var(--success-bg); color: var(--success); }
+.app-notice--error { border-color: var(--danger-line); background: var(--danger-bg); color: var(--danger); }
+.app-notice > svg { flex: none; }
+.app-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.app-notice > button { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; }
+.app-notice > button:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+.app-notice > .app-notice__undo { display: inline-flex; align-items: center; gap: var(--space-1); width: auto; padding: 0 var(--space-2); border: 1px solid color-mix(in srgb, currentColor 45%, transparent); font: inherit; font-weight: var(--weight-semibold, 600); white-space: nowrap; }
+.app-notice > .app-notice__undo:disabled { opacity: .7; cursor: progress; }
+@keyframes app-notice-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) { .app-notice { animation: none; } }

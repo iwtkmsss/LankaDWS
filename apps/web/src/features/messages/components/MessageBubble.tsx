@@ -11,6 +11,7 @@ import {
   Heart,
   Pencil,
   Reply,
+  RotateCcw,
   Trash2,
   X,
 } from 'lucide-react'
@@ -30,7 +31,7 @@ import { SaveToDriveButton } from '../../../shared/files/SaveToDriveButton'
 import { isChatPhoto } from '../lib/photoAlbums'
 import { MessageBubbleOutline } from './MessageBubbleOutline'
 import { MessageLikeButton } from '../../../shared/messages/MessageLikeButton'
-import { formatFileSize } from '../../../shared/lib/format'
+import { formatDateTime, formatFileSize } from '../../../shared/lib/format'
 
 interface MessageBubbleProps {
   idPrefix?: string
@@ -46,6 +47,52 @@ interface MessageBubbleProps {
   onForward: (message: ChatMessageView) => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
+  /** Administrator restore of a deleted message; without it the restore button is hidden. */
+  onRestore?: (message: ChatMessageView) => Promise<void>
+}
+
+/**
+ * A deleted message as an administrator sees it (decision 2026-11-18): muted, in
+ * place, with who deleted it and when, and a restore action. Everyone else keeps
+ * the plain «Повідомлення видалено» tombstone.
+ */
+function DeletedMessageContent({ message, onRestore }: {
+  message: ChatMessageView
+  onRestore?: (message: ChatMessageView) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const deletedBy = message.deletedBy ? personName(message.deletedBy.displayName) : 'невідомо ким'
+  return (
+    <>
+      <span className="message-bubble__hidden-meta">
+        Видалено {deletedBy}, {formatDateTime(message.deletedAt!)}
+      </span>
+      {message.body && <p className="message-bubble__hidden-body">{message.body}</p>}
+      {message.attachments.length > 0 && (
+        <ul className="message-bubble__hidden-files" aria-label="Вкладення">
+          {message.attachments.map((attachment) => <li key={attachment.id}>{attachment.fileName}</li>)}
+        </ul>
+      )}
+      {onRestore && (
+        <Button
+          variant="secondary"
+          className="message-bubble__restore"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            setError('')
+            void onRestore(message)
+              .catch(() => setError('Не вдалося відновити. Оновіть діалог і спробуйте ще раз.'))
+              .finally(() => setBusy(false))
+          }}
+        >
+          <RotateCcw size={15} aria-hidden /> {busy ? 'Відновлюємо…' : 'Відновити'}
+        </Button>
+      )}
+      {error && <span className="form-error" role="alert">{error}</span>}
+    </>
+  )
 }
 
 export function MessageBubble({
@@ -62,6 +109,7 @@ export function MessageBubble({
   onForward,
   onEdit,
   onDelete,
+  onRestore,
 }: MessageBubbleProps) {
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [editing, setEditing] = useState(false)
@@ -208,8 +256,9 @@ export function MessageBubble({
             <Avatar size="sm" name={personName(message.author.displayName)} src={message.author.avatarAsset} />
           </UserProfileLink>
         )}
-        <div className="message-bubble is-deleted">
+        <div className={`message-bubble is-deleted${message.canRestore ? ' is-admin-hidden' : ''}`}>
           <em>Повідомлення видалено</em>
+          {message.canRestore && <DeletedMessageContent message={message} onRestore={onRestore} />}
           <time>{formatChatTime(message.createdAt)}</time>
         </div>
       </article>

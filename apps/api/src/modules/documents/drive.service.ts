@@ -249,7 +249,8 @@ export class DriveService {
   async list(principal: AuthPrincipal, query: DriveListQuery): Promise<DriveListResult> {
     if ((query.view === 'USERS' || query.ownerId) && !isGlobalAdmin(principal)) throw forbidden()
     if (query.view === 'USERS' && !query.ownerId) throw badRequest('drive_owner_required')
-    if (query.ownerId && query.view !== 'USERS') throw badRequest('drive_query_invalid')
+    // An administrator opens one user's trash as `view=TRASH&ownerId=…` (decision 2026-11-18).
+    if (query.ownerId && query.view !== 'USERS' && query.view !== 'TRASH') throw badRequest('drive_query_invalid')
     const selectedOwner = query.ownerId ? await this.prisma.user.findFirst({
       where: { id: query.ownerId, workspaceId: principal.workspaceId }, select: { id: true, displayName: true, username: true },
     }) : null
@@ -257,7 +258,7 @@ export class DriveService {
     const companyIds = this.scope.allowedCompanies(principal)
     const grants = await this.sharing.grantsFor(principal)
     const admin = isGlobalAdmin(principal)
-    const browseAll = admin && query.view === 'USERS'
+    const browseAll = admin && (query.view === 'USERS' || (query.view === 'TRASH' && Boolean(query.ownerId)))
     const since = modifiedSince(query.modified)
     const search = query.search?.trim()
     const ownerFilter = query.ownerId ? { ownerId: query.ownerId } : {}
@@ -311,8 +312,8 @@ export class DriveService {
     const fileById = new Map(files.map((file) => [file.id, file]))
 
     const [folderShareCounts, documentShareCounts, childCounts, childFileCounts] = await Promise.all([
-      this.prisma.driveShare.groupBy({ by: ['targetId'], where: { targetType: 'FOLDER' }, _count: { targetId: true } }),
-      this.prisma.driveShare.groupBy({ by: ['targetId'], where: { targetType: 'DOCUMENT' }, _count: { targetId: true } }),
+      this.prisma.driveShare.groupBy({ by: ['targetId'], where: { targetType: 'FOLDER', revokedAt: null }, _count: { targetId: true } }),
+      this.prisma.driveShare.groupBy({ by: ['targetId'], where: { targetType: 'DOCUMENT', revokedAt: null }, _count: { targetId: true } }),
       this.prisma.driveFolder.groupBy({ by: ['parentId'], where: {
         companyId: { in: companyIds }, trashedAt: null, parentId: { in: visibleFolders.map((folder) => folder.id) }, ...folderAccess,
       }, _count: { parentId: true } }),

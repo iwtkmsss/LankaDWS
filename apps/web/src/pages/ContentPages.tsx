@@ -2,16 +2,20 @@ import { FileFormatIcon } from '../shared/files/FileFormatIcon'
 import { personName } from '../shared/lib/personName'
 import './knowledge-reading.css'
 import './knowledge-library.css'
+import '../styles/hidden-content.css'
 import { KnowledgeFeedbackTickets } from './KnowledgeFeedbackTickets'
 import { FormattedText } from '../shared/text/FormattedText'
 import { FormattedTextarea } from '../shared/text/FormattedTextarea'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, BookOpenCheck, Building2, Check, ChevronRight, Download, Eye, MessageCircle, Network, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { AlertTriangle, BookOpenCheck, Building2, Check, ChevronRight, Download, Eye, MessageCircle, Network, Pencil, Plus, RotateCcw, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { api, apiUrl, jsonBody, randomId } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate, formatDateTime } from '../shared/lib/format'
+import { hiddenContentLabel } from '../shared/lib/hiddenContent'
+import type { HiddenContentMarker } from '@lankadws/contracts'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { CursorPager, useCursorPages } from '../features/organization/CursorPager'
@@ -68,6 +72,7 @@ export default function ContentPages() {
 
 
 type ReadingFilter = 'all' | 'unread' | 'read'
+type ArchivedArticle = ArticleList & { hidden: HiddenContentMarker }
 const readingFilters: Array<{ value: ReadingFilter; label: string }> = [
   { value: 'all', label: 'Усі' },
   { value: 'unread', label: 'До ознайомлення' },
@@ -99,6 +104,8 @@ function KnowledgePage() {
   const client = useQueryClient()
   const canManage = user?.accountType === 'ADMIN'
   const managing = canManage && params.get('manage') === '1'
+  // Administrator-only «Архів» (decision 2026-11-18), URL-addressable as `status=archived`.
+  const showArchived = canManage && statusParam === 'archived'
   const editor = managing ? params.get('edit') : null
   const updateParams = (change: (next: URLSearchParams) => void, replace = false) => setParams((previous) => {
     const next = new URLSearchParams(previous)
@@ -121,10 +128,17 @@ function KnowledgePage() {
   const overview = useQuery(articleListQuery('', !articleSlug))
   const query = useQuery({ ...articleListQuery(search, !articleSlug), placeholderData: keepPreviousData })
   const remove = useMutation({
-    mutationFn: (article: ArticleList) => api(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
-    onSuccess: async () => {
+    mutationFn: (article: ArticleList) => api<{ archived: true; version?: number }>(`/knowledge/articles/${article.slug}`, { method: 'DELETE', body: jsonBody({ expectedVersion: article.version }) }),
+    onSuccess: async (archived, article) => {
       setDeleting(null)
-      await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      const invalidate = () => Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      await invalidate()
+      notifySuccess('Статтю видалено', {
+        undo: async () => {
+          await api(`/knowledge/articles/${article.slug}/restore`, { method: 'POST', body: jsonBody({ expectedVersion: archived?.version ?? article.version + 1 }) })
+          await invalidate()
+        },
+      })
     },
   })
   const openEditor = (slug: string) => updateParams((next) => { next.set('manage', '1'); next.set('edit', slug) })
@@ -132,6 +146,7 @@ function KnowledgePage() {
   const toggleManaging = () => updateParams((next) => {
     if (managing) { next.delete('manage'); next.delete('edit') } else next.set('manage', '1')
   })
+  const toggleArchived = () => updateParams((next) => { if (showArchived) next.delete('status'); else next.set('status', 'archived') }, true)
   const setFilter = (value: ReadingFilter) => updateParams((next) => { if (value === 'all') next.delete('status'); else next.set('status', value) }, true)
   const clearSearch = () => {
     setSearchInput('')
@@ -161,7 +176,8 @@ function KnowledgePage() {
   const searching = query.isFetching && query.isPlaceholderData
 
   let listContent: ReactNode
-  if (query.isError && !query.data) listContent = <ErrorState onRetry={() => void query.refetch()} />
+  if (showArchived) listContent = <KnowledgeArchivedArticles />
+  else if (query.isError && !query.data) listContent = <ErrorState onRetry={() => void query.refetch()} />
   else if (!items.length && search) listContent = <EmptyState
     illustration="search"
     title="Нічого не знайдено"
@@ -222,10 +238,11 @@ function KnowledgePage() {
             {readingFilters.map((option) => <button
               key={option.value}
               type="button"
-              className={filter === option.value ? 'is-active' : ''}
-              aria-pressed={filter === option.value}
+              className={filter === option.value && !showArchived ? 'is-active' : ''}
+              aria-pressed={filter === option.value && !showArchived}
               onClick={() => setFilter(option.value)}
             >{option.label}<span className="knowledge-filters__count">{counts[option.value]}</span></button>)}
+            {canManage && <button type="button" className={showArchived ? 'is-active' : ''} aria-pressed={showArchived} onClick={toggleArchived}>Архів</button>}
           </div>
           <p className="knowledge-library__summary" aria-live="polite">
             {searching ? 'Шукаємо…' : search && items.length ? `${items.length} ${plural(items.length, 'результат', 'результати', 'результатів')} за запитом «${search}»` : ''}
@@ -254,11 +271,48 @@ function KnowledgePage() {
         {canManage && <KnowledgeFeedbackTickets renderAttachment={(file) => <KnowledgeAttachmentPreview attachment={file} />} />}
       </aside>
     </div>
-    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Його можна буде відновити лише через технічне втручання.`} onRequestClose={() => { if (!remove.isPending) setDeleting(null) }} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending}>
+    {deleting && <ConfirmationDialog title="Видалити матеріал?" description={`«${deleting.title}» буде прибрано з бази знань. Адміністратор зможе відновити його з архіву.`} onRequestClose={() => { if (!remove.isPending) setDeleting(null) }} onConfirm={() => remove.mutate(deleting)} confirmLabel={remove.isPending ? 'Видаляємо…' : 'Видалити'} confirmDisabled={remove.isPending}>
       {remove.isError && <p className="form-error" role="alert">Не вдалося видалити матеріал. Спробуйте ще раз.</p>}
     </ConfirmationDialog>}
     {editor && <KnowledgeEditor key={editor} slug={editor === 'new' ? undefined : editor} onClose={closeEditor} />}
   </div>
+}
+
+/** Administrator «Архів»: archived articles, muted, with who archived them and when, and «Відновити». */
+function KnowledgeArchivedArticles() {
+  const client = useQueryClient()
+  const archived = useQuery({
+    queryKey: ['knowledge', 'archived'],
+    queryFn: () => api<{ items: ArchivedArticle[] }>('/knowledge/articles?status=ARCHIVED'),
+  })
+  const restore = useMutation({
+    mutationFn: (article: ArchivedArticle) => api(`/knowledge/articles/${article.slug}/restore`, { method: 'POST', body: jsonBody({ expectedVersion: article.version }) }),
+    onSuccess: async () => {
+      await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      notifySuccess('Статтю відновлено')
+    },
+  })
+  if (archived.isPending) return <PageDataLoader />
+  if (archived.isError) return <ErrorState onRetry={() => void archived.refetch()} />
+  if (!archived.data.items.length) return <p className="hidden-content-empty">В архіві матеріалів немає.</p>
+  return <>
+    {restore.isError && <p className="form-error" role="alert">Не вдалося відновити матеріал. Оновіть список і спробуйте ще раз.</p>}
+    <ul className="hidden-content-list" aria-label="Архів матеріалів">
+      {archived.data.items.map((item) => {
+        const restoring = restore.isPending && restore.variables?.id === item.id
+        return <li className="hidden-content-row" key={item.id}>
+          <span className="hidden-content-row__body">
+            <strong>{item.title}</strong>
+            <small>Створено {formatDate(item.createdAt)}{item.requiresAcknowledgement ? ' · обов’язкове ознайомлення' : ''}</small>
+            <span className="hidden-content-row__marker">{hiddenContentLabel(item.hidden, 'Видалено')}</span>
+          </span>
+          <Button variant="secondary" aria-label={`Відновити ${item.title}`} disabled={restoring} onClick={() => restore.mutate(item)}>
+            <RotateCcw size={16} aria-hidden />{restoring ? 'Відновлюємо…' : 'Відновити'}
+          </Button>
+        </li>
+      })}
+    </ul>
+  </>
 }
 
 function KnowledgeArticleRow({ item, search, managing, onEdit, onDelete }: { item: ArticleList; search: string; managing: boolean; onEdit: () => void; onDelete: () => void }) {
@@ -358,6 +412,7 @@ function KnowledgeEditor({ slug, ticket = false, onClose, onSubmitted }: { slug?
         await client.invalidateQueries({ queryKey: ['feedback-tickets'] })
         onSubmitted?.()
       } else await Promise.all([client.invalidateQueries({ queryKey: ['knowledge'] }), client.invalidateQueries({ queryKey: ['article'] }), client.invalidateQueries({ queryKey: ['dashboard'] })])
+      if (!ticket) notifySuccess(slug ? 'Статтю збережено' : 'Статтю опубліковано')
       closeGuard.closeForSuccess(onClose)
     },
   })

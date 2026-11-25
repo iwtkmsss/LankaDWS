@@ -6,8 +6,9 @@ import {
   type UpdateCalendarEventInput,
 } from '@lankadws/contracts'
 import { fingerprint, id } from '../../common/crypto.js'
-import { badRequest, conflict, notFound } from '../../common/errors.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
+import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -95,6 +96,7 @@ export class CalendarService {
         workspaceId: principal.workspaceId,
         companyId: { in: principal.allowedCompanyIds },
         ownerId: principal.userId,
+        deletedAt: null,
       },
     })
     if (!event) throw notFound()
@@ -122,6 +124,7 @@ export class CalendarService {
           id: event.id,
           ownerId: principal.userId,
           version: input.expectedVersion,
+          deletedAt: null,
         },
         data: {
           title: input.title,
@@ -182,14 +185,21 @@ export class CalendarService {
     const where = {
       id: eventId, workspaceId: principal.workspaceId,
       companyId: { in: principal.allowedCompanyIds }, ownerId: principal.userId,
+      deletedAt: null,
     }
     const event = await this.prisma.event.findFirst({ where })
     if (!event) throw notFound()
     await this.capabilities.assertEnabled(principal, event.companyId, OrganizationCapability.CalendarWrite)
     await this.prisma.$transaction(async (tx) => {
-      const deleted = await tx.event.deleteMany({ where: { ...where, version: expectedVersion } })
-      if (deleted.count !== 1) throw conflict('Подія вже змінилася. Оновіть календар перед видаленням.')
-      // Audience rows and acknowledgement receipts cascade with the event.
+      // Content is hidden, never deleted (decision 2026-11-18). Audience rows and
+      // acknowledgement receipts stay with the hidden event.
+      const hidden = await tx.event.updateMany({
+        where: { ...where, version: expectedVersion },
+        data: { deletedAt: new Date(), deletedById: principal.userId, version: { increment: 1 } },
+      })
+      if (hidden.count !== 1) throw conflict('Подія вже змінилася. Оновіть календар перед видаленням.')
+      // Derived projections are removed so the event leaves every live list;
+      // `restore` rebuilds them (Feed head, acknowledgement requests, reminder).
       await tx.backgroundJob.updateMany({
         where: { type: 'calendar.reminder', entityId: eventId, state: 'QUEUED' },
         data: { state: 'CANCELLED' },
@@ -205,14 +215,91 @@ export class CalendarService {
         eventType: 'calendar.event.deleted', safePayload: JSON.stringify({ eventId, companyId: event.companyId }),
       } })
     })
-    return { id: eventId }
+    // The hidden version is what an undo («Скасувати») passes to restore.
+    return { id: eventId, version: expectedVersion + 1 }
+  }
+
+  /**
+   * Restores a hidden event (decision 2026-11-18): a global administrator
+   * always, the person who hid it for 10 minutes. Rebuilds what `remove`
+   * dropped: the live Feed head, acknowledgement requests for the restored
+   * version and the PRIVATE reminder job.
+   */
+  async restore(principal: AuthPrincipal, eventId: string, expectedVersion: number): Promise<{ id: string; version: number }> {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, workspaceId: principal.workspaceId, deletedAt: { not: null } },
+      include: { audiences: { select: { companyId: true } } },
+    })
+    if (!event) throw notFound()
+    if (!isGlobalAdmin(principal)) {
+      if (event.deletedById !== principal.userId || !principal.allowedCompanyIds.includes(event.companyId)) throw notFound()
+      if (!canActorRestore(event.deletedById, event.deletedAt, principal.userId)) {
+        throw forbidden('Час для скасування минув. Відновити подію може адміністратор.')
+      }
+      await this.capabilities.assertEnabled(principal, event.companyId, OrganizationCapability.CalendarWrite)
+    }
+    const hiddenVersion = expectedVersion
+    const restoredVersion = expectedVersion + 1
+    await this.prisma.$transaction(async (tx) => {
+      const restored = await tx.event.updateMany({
+        where: { id: event.id, workspaceId: principal.workspaceId, deletedAt: { not: null }, version: expectedVersion },
+        data: { deletedAt: null, deletedById: null, version: { increment: 1 } },
+      })
+      if (restored.count !== 1) throw conflict('Подія вже змінилася. Оновіть календар.')
+      // `remove` bumped the version once, so the live state before hiding is hiddenVersion - 1.
+      const liveVersion = hiddenVersion - 1
+      if (event.visibility === privateVisibility) {
+        const minutes = await readReminderMinutes(tx, event.id, liveVersion)
+        await scheduleCalendarReminder(tx, { ...event, version: restoredVersion }, minutes, new Date(), true)
+      } else {
+        if (event.requiresAcknowledgement) {
+          await snapshotEventAcknowledgements(tx, {
+            id: event.id, version: restoredVersion, ownerId: event.ownerId, workspaceId: event.workspaceId,
+          }, event.audiences.map((audience) => audience.companyId))
+          // The content is unchanged, so people who already acknowledged it are not asked again.
+          const acknowledged = await tx.eventAcknowledgement.findMany({
+            where: { eventId: event.id, eventVersion: liveVersion, acknowledgedAt: { not: null } },
+            select: { userId: true, acknowledgedAt: true },
+          })
+          for (const receipt of acknowledged) {
+            await tx.eventAcknowledgement.updateMany({
+              where: { eventId: event.id, userId: receipt.userId, eventVersion: restoredVersion },
+              data: { acknowledgedAt: receipt.acknowledgedAt },
+            })
+            // Notifications are derived, not content: drop the request just snapshotted for them.
+            await tx.notification.deleteMany({
+              where: { recipientId: receipt.userId, dedupeKey: `calendar-ack:${event.id}:${restoredVersion}:${receipt.userId}` },
+            })
+          }
+        }
+        // The card returns to its original place in the Feed.
+        await writeFeedProjection(tx, {
+          workspaceId: event.workspaceId,
+          companyId: event.companyId,
+          sourceType: 'EVENT',
+          sourceId: event.id,
+          sourceVersion: restoredVersion,
+          action: 'RESTORED',
+          actorId: event.ownerId,
+          recipientIds: [],
+          visibility: 'COMPANY',
+          occurredAt: event.createdAt,
+        })
+      }
+      await recordAudit(tx, principal, { companyId: event.companyId, action: 'calendar.event.restored', entityType: 'EVENT', entityId: event.id })
+      await tx.outboxEvent.create({ data: {
+        id: id('out'), aggregateType: 'EVENT', aggregateId: event.id, aggregateVersion: restoredVersion,
+        eventType: 'calendar.event.restored', safePayload: JSON.stringify({ eventId: event.id, companyId: event.companyId }),
+      } })
+    })
+    return { id: event.id, version: restoredVersion }
   }
 
   async acknowledge(principal: AuthPrincipal, eventId: string, expectedVersion: number) {
     return this.prisma.$transaction(async (tx) => {
       const event = await tx.event.findFirst({
         where: {
-          id: eventId, workspaceId: principal.workspaceId,
+          id: eventId, workspaceId: principal.workspaceId, deletedAt: null,
           audiences: { some: { companyId: { in: this.scope.allowedCompanies(principal, 'all') } } },
           visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] }, requiresAcknowledgement: true,
         },
@@ -272,6 +359,7 @@ export class CalendarService {
           workspaceId: principal.workspaceId,
           companyId,
           ownerId: principal.userId,
+          deletedAt: null,
         },
         select: { id: true, version: true },
       })

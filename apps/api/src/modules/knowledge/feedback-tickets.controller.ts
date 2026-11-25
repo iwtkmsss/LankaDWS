@@ -22,13 +22,18 @@ export class FeedbackTicketsController {
   }
 
   @Get()
-  list(@Req() request: LankaDWSRequest, @Query('cursor') cursor?: string) {
-    return this.tickets.list(principalFrom(request), cursor)
+  list(@Req() request: LankaDWSRequest, @Query('cursor') cursor?: string, @Query('status') status?: string) {
+    return this.tickets.list(principalFrom(request), cursor, status === 'ARCHIVED')
   }
 
   @Get(':id')
   detail(@Req() request: LankaDWSRequest, @Param('id') id: string) {
     return this.tickets.detail(principalFrom(request), id)
+  }
+
+  @Post(':id/restore')
+  restore(@Req() request: LankaDWSRequest, @Param('id') id: string) {
+    return this.tickets.restore(principalFrom(request), id)
   }
 
   @Delete(':id')

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
 import { id } from '../../common/crypto.js'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { recordAudit } from '../../common/audit.js'
@@ -36,25 +36,34 @@ export class FeedbackTicketsService {
     return { submitted: true }
   }
 
-  async list(principal: AuthPrincipal, cursor?: string) {
+  /** `archived` lists the «Архів» (hidden tickets with who archived them and when). */
+  async list(principal: AuthPrincipal, cursor?: string, archived = false) {
     this.assertAdmin(principal)
     const boundary = cursor ? await this.prisma.feedbackTicket.findFirst({ where: { id: cursor, workspaceId: principal.workspaceId }, select: { createdAt: true, id: true } }) : null
     if (cursor && !boundary) throw notFound()
     const rows = await this.prisma.feedbackTicket.findMany({
-      where: { workspaceId: principal.workspaceId, status: 'ACTIVE', ...(boundary ? { OR: [{ createdAt: { lt: boundary.createdAt } }, { createdAt: boundary.createdAt, id: { lt: boundary.id } }] } : {}) },
-      select: { id: true, title: true, ownerId: true, createdAt: true },
+      where: { workspaceId: principal.workspaceId, status: archived ? 'ARCHIVED' : 'ACTIVE', ...(boundary ? { OR: [{ createdAt: { lt: boundary.createdAt } }, { createdAt: boundary.createdAt, id: { lt: boundary.id } }] } : {}) },
+      select: { id: true, title: true, ownerId: true, createdAt: true, archivedAt: true, archivedById: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 21,
     })
     const page = rows.slice(0, 20)
-    const authors = page.length ? await this.prisma.user.findMany({ where: { workspaceId: principal.workspaceId, id: { in: [...new Set(page.map((row) => row.ownerId))] } }, select: { id: true, displayName: true } }) : []
-    return { items: page.map((row) => ({ ...row, author: authors.find((author) => author.id === row.ownerId)?.displayName ?? 'Користувач' })), nextCursor: rows.length > 20 ? page.at(-1)!.id : null }
+    const userIds = [...new Set(page.flatMap((row) => [row.ownerId, ...(row.archivedById ? [row.archivedById] : [])]))]
+    const users = page.length ? await this.prisma.user.findMany({ where: { workspaceId: principal.workspaceId, id: { in: userIds } }, select: { id: true, displayName: true } }) : []
+    return { items: page.map(({ archivedAt, archivedById, ...row }) => ({
+      ...row,
+      author: users.find((user) => user.id === row.ownerId)?.displayName ?? 'Користувач',
+      ...(archived ? { hidden: {
+        hiddenAt: (archivedAt ?? row.createdAt).toISOString(),
+        hiddenBy: archivedById ? users.find((user) => user.id === archivedById) ?? { id: archivedById, displayName: 'Недоступний користувач' } : null,
+      } } : {}),
+    })), nextCursor: rows.length > 20 ? page.at(-1)!.id : null }
   }
 
   async detail(principal: AuthPrincipal, ticketId: string) {
     this.assertAdmin(principal)
     const ticket = await this.prisma.feedbackTicket.findFirst({ where: { id: ticketId, workspaceId: principal.workspaceId, status: 'ACTIVE' } })
     if (!ticket) throw notFound()
-    const links = await this.prisma.fileLink.findMany({ where: { entityType: 'FEEDBACK_TICKET', entityId: ticketId }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { fileId: true } })
+    const links = await this.prisma.fileLink.findMany({ where: { entityType: 'FEEDBACK_TICKET', entityId: ticketId, removedAt: null }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { fileId: true } })
     const files = links.length ? await this.prisma.fileObject.findMany({ where: { workspaceId: principal.workspaceId, id: { in: links.map((link) => link.fileId) } }, select: { id: true, safeFilename: true, bytes: true, detectedMime: true, scanStatus: true } }) : []
     const author = await this.prisma.user.findFirst({ where: { id: ticket.ownerId, workspaceId: principal.workspaceId }, select: { displayName: true } })
     return { ...ticket, author: author?.displayName ?? 'Користувач', attachments: links.flatMap((link) => { const file = files.find((row) => row.id === link.fileId); return file ? [{ id: file.id, safeFilename: file.safeFilename, bytes: file.bytes, mimeType: file.detectedMime, scanStatus: file.scanStatus }] : [] }) }
@@ -63,11 +72,24 @@ export class FeedbackTicketsService {
   async remove(principal: AuthPrincipal, ticketId: string) {
     this.assertAdmin(principal)
     await this.prisma.$transaction(async (tx) => {
-      const result = await tx.feedbackTicket.updateMany({ where: { id: ticketId, workspaceId: principal.workspaceId, status: 'ACTIVE' }, data: { status: 'ARCHIVED' } })
+      const result = await tx.feedbackTicket.updateMany({ where: { id: ticketId, workspaceId: principal.workspaceId, status: 'ACTIVE' }, data: { status: 'ARCHIVED', archivedAt: new Date(), archivedById: principal.userId } })
       if (!result.count) throw notFound()
       await recordAudit(tx, principal, { action: 'feedback.archived', entityType: 'FEEDBACK_TICKET', entityId: ticketId })
     })
     return { archived: true }
+  }
+
+  /** Tickets are administrator-only, so only an administrator restores one. A ticket that is already active is a conflict. */
+  async restore(principal: AuthPrincipal, ticketId: string) {
+    this.assertAdmin(principal)
+    await this.prisma.$transaction(async (tx) => {
+      const ticket = await tx.feedbackTicket.findFirst({ where: { id: ticketId, workspaceId: principal.workspaceId }, select: { status: true } })
+      if (!ticket) throw notFound()
+      const result = await tx.feedbackTicket.updateMany({ where: { id: ticketId, workspaceId: principal.workspaceId, status: 'ARCHIVED' }, data: { status: 'ACTIVE', archivedAt: null, archivedById: null } })
+      if (!result.count) throw conflict('Звернення вже відновлено.')
+      await recordAudit(tx, principal, { action: 'feedback.restored', entityType: 'FEEDBACK_TICKET', entityId: ticketId })
+    })
+    return { restored: true }
   }
 
   private assertAdmin(principal: AuthPrincipal) {

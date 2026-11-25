@@ -21,11 +21,11 @@ beforeEach(async () => {
   prisma = new PrismaClient({ adapter: new LankaSqliteAdapter({ url: ':memory:' }) })
   await prisma.$executeRawUnsafe(`CREATE TABLE DriveFolder (
     id TEXT PRIMARY KEY, workspaceId TEXT, companyId TEXT, name TEXT, parentId TEXT, ownerId TEXT,
-    trashedAt DATETIME, createdAt DATETIME, updatedAt DATETIME
+    trashedAt DATETIME, trashedById TEXT, createdAt DATETIME, updatedAt DATETIME
   )`)
   await prisma.$executeRawUnsafe('CREATE TABLE Document (id TEXT PRIMARY KEY, workspaceId TEXT, companyId TEXT, ownerId TEXT, version INTEGER, folderId TEXT, name TEXT, archivedAt DATETIME, fileId TEXT, confidentiality TEXT, updatedAt DATETIME)')
   await prisma.$executeRawUnsafe('CREATE TABLE FileObject (id TEXT PRIMARY KEY, workspaceId TEXT, detectedMime TEXT, declaredMime TEXT, bytes INTEGER)')
-  await prisma.$executeRawUnsafe('CREATE TABLE DriveShare (id TEXT PRIMARY KEY, workspaceId TEXT, principalType TEXT, principalId TEXT, targetType TEXT, targetId TEXT, role TEXT, createdBy TEXT, createdAt DATETIME)')
+  await prisma.$executeRawUnsafe('CREATE TABLE DriveShare (id TEXT PRIMARY KEY, workspaceId TEXT, principalType TEXT, principalId TEXT, targetType TEXT, targetId TEXT, role TEXT, createdBy TEXT, createdAt DATETIME, revokedAt DATETIME, revokedById TEXT)')
   const date = new Date('2026-10-15T10:00:00Z')
   await prisma.driveFolder.createMany({ data: [
     { id: 'source', name: 'Source', parentId: null },
@@ -37,6 +37,8 @@ beforeEach(async () => {
   await prisma.$executeRawUnsafe("INSERT INTO Document VALUES ('contents', 'workspace', 'company', 'me', 1, 'source', 'Nested file', NULL, 'nested-file', 'CONFIDENTIAL', 1000)")
   await prisma.$executeRawUnsafe("INSERT INTO FileObject VALUES ('root-file', 'workspace', 'application/pdf', 'application/pdf', 123), ('nested-file', 'workspace', 'text/plain', 'text/plain', 456)")
   await prisma.$executeRawUnsafe("ALTER TABLE FileObject ADD COLUMN safeFilename TEXT DEFAULT 'file.txt'")
+  // Generated so the positional `INSERT INTO Document VALUES` fixtures below keep their column count.
+  await prisma.$executeRawUnsafe('ALTER TABLE Document ADD COLUMN archivedById TEXT GENERATED ALWAYS AS (NULL) VIRTUAL')
   await prisma.$executeRawUnsafe("UPDATE FileObject SET safeFilename = 'original.pdf' WHERE id = 'root-file'")
   const db = prisma as PrismaService
   const sharing = new DriveSharingService(db)

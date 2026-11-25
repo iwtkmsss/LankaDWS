@@ -29,6 +29,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDate } from '../shared/lib/format'
+import { notifySuccess } from '../shared/ui/notify'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { TaskListColumnsControl, useTaskListColumnsPreference } from '../features/tasks/list/TaskListColumns'
@@ -143,6 +144,7 @@ function TasksListPage() {
     onSuccess: () => {
       setViewName('')
       void savedViews.refetch()
+      notifySuccess('Вигляд збережено')
     },
   })
   const queryString = new URLSearchParams({

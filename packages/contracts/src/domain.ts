@@ -56,7 +56,7 @@ export interface PrincipalView extends UserSummary {
   orgUnitPath: Array<{ id: string; name: string }>
   contactEmail: string | null
   phone: string | null
-  gender: 'FEMALE' | 'MALE' | 'OTHER' | null
+  gender: 'FEMALE' | 'MALE' | null
   birthDate: string | null
   timezone: string
   locale: 'uk-UA' | 'en-US'
@@ -184,6 +184,9 @@ export interface TaskDetailView extends TaskListItem {
       body: string
     } | null
     attachments: TaskAttachmentView[]
+    /** Present only for an administrator viewing a hidden comment (decision 2026-11-18). */
+    deletedAt?: string
+    deletedBy?: TaskHiddenBy
   }>
   attachments: TaskAttachmentView[]
   sourceLinks: TaskSourceLinkView[]
@@ -200,6 +203,42 @@ export interface TaskDetailView extends TaskListItem {
   requiresAcceptance: boolean
   availableStatusActions: Array<'START' | 'COMPLETE' | 'APPROVE' | 'RETURN_TO_WORK'>
   personalState: TaskPersonalStateView
+  /** Present only for an archived task: whether the viewer may unarchive it. */
+  canRestore?: boolean
+  /** Present only for a global administrator: hidden records that can be restored. */
+  hiddenContent?: TaskHiddenContentView
+}
+
+/** Who hid a record; null when the account is no longer available. */
+export type TaskHiddenBy = Pick<UserSummary, 'id' | 'displayName'> | null
+
+export interface TaskHiddenMarker {
+  deletedAt: string
+  deletedBy: TaskHiddenBy
+}
+
+export interface TaskHiddenContentView {
+  checklist: Array<TaskHiddenMarker & {
+    id: string
+    text: string
+    isDone: boolean
+    version: number
+  }>
+  attachments: Array<TaskAttachmentView & TaskHiddenMarker>
+  relations: Array<TaskHiddenMarker & {
+    id: string
+    type: 'RELATED' | 'BLOCKS' | 'DUPLICATES'
+    /** For BLOCKS: OUTGOING means this task blocks the other one. */
+    direction: 'OUTGOING' | 'INCOMING' | null
+    task: TaskReference
+  }>
+  timeEntries: Array<TaskHiddenMarker & {
+    id: string
+    user: Pick<UserSummary, 'id' | 'displayName' | 'avatarAsset'>
+    startedAt: string
+    durationSeconds: number | null
+    description: string
+  }>
 }
 
 export interface EventListItem {

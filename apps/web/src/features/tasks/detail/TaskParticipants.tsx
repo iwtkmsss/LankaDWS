@@ -7,6 +7,7 @@ import { personName } from '../../../shared/lib/personName'
 import { UserSearchCombobox } from '../../employees/UserSearchCombobox'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 import { Avatar, ConfirmationDialog } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { refreshTask } from './useTaskDetail'
 
 type TaskRolePerson = { id: string; displayName: string }
@@ -106,14 +107,28 @@ export function TaskParticipants({
       userId: string
       role: TaskParticipantRole
       expectedVersion: number
-    }) => api(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}`, {
+    }) => api<{ version: number }>(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}`, {
       method: 'DELETE',
       body: jsonBody({ expectedVersion: input.expectedVersion }),
     }),
-    onSuccess: () => {
-      setParticipantMessage('Учасника вилучено.')
+    onSuccess: (result, input) => {
+      setParticipantMessage('')
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
+      // «Скасувати» re-adds the person in the same role (decision 2026-11-18).
+      notifySuccess('Учасника вилучено', {
+        undo: async () => {
+          await api(`/tasks/${id}/participants/${encodeURIComponent(input.userId)}`, {
+            method: 'PUT',
+            body: jsonBody({
+              role: input.role === 'CO_EXECUTOR' ? 'COLLABORATOR' : 'WATCHER',
+              expectedVersion: result.version,
+            }),
+          })
+          void client.invalidateQueries({ queryKey: ['task', id] })
+          void client.invalidateQueries({ queryKey: ['tasks'] })
+        },
+      })
     },
     onError: (error) => {
       setParticipantMessage(

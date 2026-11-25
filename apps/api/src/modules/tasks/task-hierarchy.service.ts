@@ -4,6 +4,25 @@ import { badRequest } from '../../common/errors.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import type { Prisma } from '../../generated/prisma/client.js'
+
+/** Parent IDs per `parentTaskId IN (...)` query; keeps SQLite bound-variable counts small. */
+const hierarchyBatchSize = 500
+const nodeSelect = {
+  id: true,
+  number: true,
+  title: true,
+  status: true,
+  projectId: true,
+  parentTaskId: true,
+  createdAt: true,
+  workspaceId: true,
+  companyId: true,
+  archivedAt: true,
+  createdById: true,
+  reporterId: true,
+} satisfies Prisma.TaskSelect
+type NodeRow = Prisma.TaskGetPayload<{ select: typeof nodeSelect }>
 
 @Injectable()
 export class TaskHierarchyService {
@@ -17,66 +36,86 @@ export class TaskHierarchyService {
     selectedTaskId: string,
   ): Promise<{ rootId: string; items: TaskOption[] }> {
     const selectedTask = await this.access.readableTask(principal, selectedTaskId)
-    const items = await this.prisma.task.findMany({
-      where: {
-        workspaceId: principal.workspaceId,
-        companyId: selectedTask.companyId,
-        projectId: selectedTask.projectId,
-        archivedAt: null,
-        ...(isGlobalAdmin(principal)
-          ? {}
-          : {
-              OR: [
-                { createdById: principal.userId },
-                { reporterId: principal.userId },
-                {
-                  participants: {
-                    some: { userId: principal.userId, removedAt: null },
-                  },
-                },
-              ],
-            }),
-      },
-      select: {
-        id: true,
-        number: true,
-        title: true,
-        status: true,
-        projectId: true,
-        parentTaskId: true,
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    })
-    const byId = new Map(items.map((item) => [item.id, item]))
-    const childrenByParent = new Map<string, string[]>()
-    for (const item of items) {
-      if (!item.parentTaskId) continue
-      const children = childrenByParent.get(item.parentTaskId) ?? []
-      children.push(item.id)
-      childrenByParent.set(item.parentTaskId, children)
+    const globalAdmin = isGlobalAdmin(principal)
+    // A tree node must be in the selected task's workspace/company/project, not archived, and readable:
+    // created by, reported by or an active participant (removedAt null) for the principal; admins read all.
+    //
+    // The predicate is evaluated here instead of in the SQL WHERE on purpose: SQLite has no sqlite_stat1 and,
+    // given `workspaceId = ? AND ... AND id/parentTaskId IN (...)`, it plans on the workspace index and walks
+    // the whole company. Queries below therefore filter only by id / parentTaskId (PK / parentTaskId index).
+    const inScope = (row: NodeRow) => row.workspaceId === principal.workspaceId
+      && row.companyId === selectedTask.companyId
+      && row.projectId === selectedTask.projectId
+      && row.archivedAt === null
+    const readableWithoutParticipation = (row: NodeRow) => globalAdmin
+      || row.createdById === principal.userId
+      || row.reporterId === principal.userId
+    /** Keeps the in-scope rows that are readable, checking active participation only where needed. */
+    const readableNodes = async (rows: NodeRow[]): Promise<NodeRow[]> => {
+      const scoped = rows.filter(inScope)
+      const needParticipation = scoped.filter((row) => !readableWithoutParticipation(row)).map((row) => row.id)
+      const participating = new Set<string>()
+      for (let offset = 0; offset < needParticipation.length; offset += hierarchyBatchSize) {
+        const participants = await this.prisma.taskParticipant.findMany({
+          where: {
+            userId: principal.userId,
+            removedAt: null,
+            taskId: { in: needParticipation.slice(offset, offset + hierarchyBatchSize) },
+          },
+          select: { taskId: true },
+        })
+        for (const participant of participants) participating.add(participant.taskId)
+      }
+      return scoped.filter((row) => readableWithoutParticipation(row) || participating.has(row.id))
     }
-    let root = byId.get(selectedTask.id)
+    const findNode = async (id: string): Promise<NodeRow | null> => {
+      const row = await this.prisma.task.findUnique({ where: { id }, select: nodeSelect })
+      return row ? (await readableNodes([row]))[0] ?? null : null
+    }
+
+    let root = await findNode(selectedTask.id)
     if (!root) return { rootId: selectedTask.id, items: [] }
 
+    // Walk up while the parent is itself a readable in-scope node; stop on the first revisited node.
     const visited = new Set<string>()
-    while (root.parentTaskId && byId.has(root.parentTaskId) && !visited.has(root.id)) {
+    while (root.parentTaskId && !visited.has(root.id)) {
+      const parent = await findNode(root.parentTaskId)
+      if (!parent) break
       visited.add(root.id)
-      root = byId.get(root.parentTaskId)!
+      root = parent
     }
 
-    const included = new Set<string>()
-    const queue = [root.id]
-    while (queue.length) {
-      const taskId = queue.shift()!
-      if (included.has(taskId)) continue
-      included.add(taskId)
-      queue.push(...(childrenByParent.get(taskId) ?? []))
+    // Walk down level by level through readable in-scope children only; unreadable nodes cut their subtree.
+    const included = new Map<string, NodeRow>([[root.id, root]])
+    let frontier = [root.id]
+    while (frontier.length) {
+      const next: string[] = []
+      for (let offset = 0; offset < frontier.length; offset += hierarchyBatchSize) {
+        const candidates = await this.prisma.task.findMany({
+          where: { parentTaskId: { in: frontier.slice(offset, offset + hierarchyBatchSize) } },
+          select: nodeSelect,
+        })
+        for (const child of await readableNodes(candidates.filter((candidate) => !included.has(candidate.id)))) {
+          if (included.has(child.id)) continue
+          included.set(child.id, child)
+          next.push(child.id)
+        }
+      }
+      frontier = next
     }
 
-    return {
-      rootId: root.id,
-      items: items.filter((item) => included.has(item.id)),
-    }
+    const items = [...included.values()]
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime()
+        || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      .map((item) => ({
+        id: item.id,
+        number: item.number,
+        title: item.title,
+        status: item.status,
+        projectId: item.projectId,
+        parentTaskId: item.parentTaskId,
+      }))
+    return { rootId: root.id, items }
   }
 
   async assertValidParent(

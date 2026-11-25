@@ -16,6 +16,7 @@ import { useDebouncedSearchValue } from '../../shared/lib/useDebouncedSearchValu
 import { FileDropOverlay, useFileDropTarget } from '../../shared/files/FileDropzone'
 import { FilePreviewModal } from '../../shared/files/FilePreviewModal'
 import { Button, EmptyState, ErrorState, PageDataLoader, PageHeader } from '../../shared/ui'
+import { notifySuccess } from '../../shared/ui/notify'
 import {
   createFolder, fetchDrive, moveDocument, moveFolder, renameDocument, renameFolder,
   restoreDocument, restoreFolder, trashDocument, trashFolder, uploadToDrive,
@@ -109,6 +110,8 @@ export default function DrivePage() {
   const isUsersView = isAdmin && view === 'USERS'
   const ownerId = isUsersView ? params.get('owner') ?? undefined : undefined
   const ownersRoot = isUsersView && !ownerId
+  // An administrator opens one user's trash from «Файли користувачів» (decision 2026-11-18).
+  const userTrash = isUsersView && Boolean(ownerId) && params.get('trash') === '1'
   const folderId = params.get('folder') ?? undefined
   const type = (params.get('type') ?? 'ALL') as DriveFileType
   const people = (params.get('people') ?? 'ANYONE') as DrivePeopleFilter
@@ -125,7 +128,7 @@ export default function DrivePage() {
   }
 
   const queryInput = {
-    view, folderId, ownerId, type, people, modified, sort, direction,
+    view: userTrash ? 'TRASH' as const : view, folderId: userTrash ? undefined : folderId, ownerId, type, people, modified, sort, direction,
     ...(debouncedValue ? { search: debouncedValue } : {}),
   }
   const query = useQuery({
@@ -144,7 +147,7 @@ export default function DrivePage() {
       setUploading(true)
       for (const file of files) await uploadToDrive(file, folderId ?? null)
     },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: (_, files) => { setBanner(''); refresh(); notifySuccess(files.length > 1 ? 'Файли завантажено' : 'Файл завантажено') },
     onError: (error) => {
       const code = error instanceof ApiProblem ? error.problem.code : error.message
       if (code === 'file_type') setBanner(FILE_UPLOAD_FORMATS_MESSAGE)
@@ -154,30 +157,49 @@ export default function DrivePage() {
     },
     onSettled: () => setUploading(false),
   })
+  // Each success notice offers «Скасувати», which reverts the action and refreshes the same queries.
+  const undoThenRefresh = (revert: () => Promise<unknown>) => () => revert().then(refresh)
   const move = useMutation({
     mutationFn: async ({ target, destination }: { target: DriveTarget; destination: string | null }) => {
-      if (target.kind === 'FOLDER') await moveFolder(target.folder.id, destination)
-      else await moveDocument(target.file.id, destination, target.file.version)
+      if (target.kind === 'FOLDER') {
+        const previous = target.folder.parentId
+        await moveFolder(target.folder.id, destination)
+        return () => moveFolder(target.folder.id, previous)
+      }
+      const previous = target.file.folderId
+      const moved = await moveDocument(target.file.id, destination, target.file.version)
+      return () => moveDocument(target.file.id, previous, moved.version)
     },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: (revert) => { setBanner(''); refresh(); notifySuccess('Переміщено', { undo: undoThenRefresh(revert) }) },
     onError: fail('Не вдалося перемістити. Можливо, бракує прав.'),
   })
   const rename = useMutation({
     mutationFn: async ({ target, name }: { target: DriveTarget; name: string }) => {
-      if (target.kind === 'FOLDER') await renameFolder(target.folder.id, name)
-      else await renameDocument(target.file.id, name, target.file.version)
+      if (target.kind === 'FOLDER') {
+        const previous = target.folder.name
+        await renameFolder(target.folder.id, name)
+        return () => renameFolder(target.folder.id, previous)
+      }
+      const previous = target.file.name
+      const renamed = await renameDocument(target.file.id, name, target.file.version)
+      return () => renameDocument(target.file.id, previous, renamed.version)
     },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: (revert) => { setBanner(''); refresh(); notifySuccess('Перейменовано', { undo: undoThenRefresh(revert) }) },
   })
   const trash = useMutation({
     mutationFn: async (target: DriveTarget) => {
-      if (target.kind === 'FOLDER') await trashFolder(target.folder.id)
-      else await trashDocument(target.file.id, target.file.version)
+      if (target.kind === 'FOLDER') {
+        await trashFolder(target.folder.id)
+        return () => restoreFolder(target.folder.id)
+      }
+      const archived = await trashDocument(target.file.id, target.file.version)
+      return () => restoreDocument(target.file.id, archived.version)
     },
-    onSuccess: (_, target) => {
+    onSuccess: (revert, target) => {
       setBanner('')
       if (target.kind === 'FILE') setPreview((current) => current?.id === target.file.id ? null : current)
       refresh()
+      notifySuccess('Переміщено в кошик', { undo: undoThenRefresh(revert) })
     },
     onError: fail('Не вдалося перемістити в кошик.'),
   })
@@ -186,12 +208,12 @@ export default function DrivePage() {
       if (target.kind === 'FOLDER') await restoreFolder(target.folder.id)
       else await restoreDocument(target.file.id, target.file.version)
     },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: () => { setBanner(''); refresh(); notifySuccess('Відновлено') },
     onError: fail('Не вдалося відновити.'),
   })
   const newFolder = useMutation({
     mutationFn: async (name: string) => { await createFolder({ name, parentId: folderId ?? null }) },
-    onSuccess: () => { setBanner(''); refresh() },
+    onSuccess: () => { setBanner(''); refresh(); notifySuccess('Папку створено') },
   })
 
   const dropTarget = useFileDropTarget({
@@ -220,7 +242,7 @@ export default function DrivePage() {
 
   const breadcrumbs = query.data?.breadcrumbs ?? []
   const counts = query.data?.counts
-  const isTrash = view === 'TRASH'
+  const isTrash = view === 'TRASH' || userTrash
   const emptyCopy = useMemo(() => {
     if (debouncedValue) return { title: 'Нічого не знайдено', description: 'Спробуйте інші слова або скиньте фільтри.' }
     if (isTrash) return { title: 'Кошик порожній', description: 'Видалені файли й папки зʼявляться тут.' }
@@ -271,7 +293,7 @@ export default function DrivePage() {
                 type="button"
                 className={view === entry.id ? 'is-active' : ''}
                 aria-current={view === entry.id ? 'page' : undefined}
-                onClick={() => update({ view: entry.id === 'MY_DRIVE' ? undefined : entry.id, folder: undefined, owner: undefined, ownerCursor: undefined })}
+                onClick={() => update({ view: entry.id === 'MY_DRIVE' ? undefined : entry.id, folder: undefined, owner: undefined, ownerCursor: undefined, trash: undefined })}
               >
                 <Icon size={17} aria-hidden />
                 <span>{entry.label}</span>
@@ -319,13 +341,13 @@ export default function DrivePage() {
                   key: 'root',
                   name: isUsersView ? 'Файли користувачів' : 'Мій диск',
                   label: isUsersView ? 'Файли користувачів' : 'Мій диск',
-                  onOpen: () => update({ folder: undefined, ...(isUsersView ? { owner: undefined, ownerCursor: undefined } : {}) }),
+                  onOpen: () => update({ folder: undefined, ...(isUsersView ? { owner: undefined, ownerCursor: undefined, trash: undefined } : {}) }),
                 },
                 ...(isUsersView && query.data?.owner ? [{
                   key: 'owner',
                   name: query.data.owner.displayName,
                   label: <>{query.data.owner.displayName} <span className="drive-owner-tag">@{query.data.owner.username}</span></>,
-                  onOpen: () => update({ folder: undefined }),
+                  onOpen: () => update({ folder: undefined, trash: undefined }),
                 }] : []),
                 ...breadcrumbs.map((crumb) => ({ key: crumb.id, name: crumb.name, label: crumb.name, onOpen: () => update({ folder: crumb.id }) })),
               ]}
@@ -334,10 +356,22 @@ export default function DrivePage() {
             />
           )}
 
+          {isUsersView && ownerId && (
+            <div className="drive-owner-trash">
+              <Button
+                variant={userTrash ? 'primary' : 'secondary'}
+                aria-pressed={userTrash}
+                onClick={() => update({ trash: userTrash ? undefined : '1', folder: undefined })}
+              >
+                <Trash2 size={17} aria-hidden />Кошик користувача
+              </Button>
+            </div>
+          )}
+
           {banner && <div className="form-error drive-banner" role="alert">{banner}</div>}
 
           {ownersRoot ? <DriveOwners search={debouncedValue} cursor={params.get('ownerCursor') ?? undefined}
-            onOpen={(id) => { setSearchInput(''); update({ owner: id, folder: undefined, q: undefined, ownerCursor: undefined, type: undefined, people: undefined, modified: undefined }) }}
+            onOpen={(id) => { setSearchInput(''); update({ owner: id, folder: undefined, q: undefined, ownerCursor: undefined, type: undefined, people: undefined, modified: undefined, trash: undefined }) }}
             onPage={(cursor) => update({ ownerCursor: cursor })} /> : query.isPending ? <PageDataLoader /> : query.isError ? (
             <ErrorState onRetry={() => void query.refetch()} />
           ) : (query.data && query.data.folders.length + query.data.files.length === 0) ? (

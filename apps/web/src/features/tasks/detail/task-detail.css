@@ -1181,9 +1181,16 @@ a.task-files-archive > svg { flex-shrink: 0; }
 }
 
 @media (min-width: 861px) {
+  /* Columns no longer stretch each other: the collapsed chat keeps the height
+     measured against the sidebar's initial state (TaskDetailSurface sets
+     --task-discussion-height), so a growing sidebar does not grow the chat. */
+  .task-detail-page .detail-stack {
+    align-items: start;
+  }
+
   .task-discussion {
-    flex: 1 0 0;
-    height: 0;
+    flex: 0 0 auto;
+    height: var(--task-discussion-height, 640px);
     min-height: 360px;
   }
 
@@ -1332,3 +1339,15 @@ a.task-files-archive > svg { flex-shrink: 0; }
 }
 
 .task-edit-field-label { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Hidden content an administrator can restore (decision 2026-11-18). */
+.task-comments article.task-comment.is-hidden { opacity: .72; }
+.task-comment.is-hidden .task-comment__bubble { border-style: dashed; background: var(--surface-soft); box-shadow: none; }
+.task-comment__hidden { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); color: var(--ink-500); font-size: var(--text-meta); }
+.task-hidden-items { margin-top: var(--space-2); border-top: 1px solid var(--line); padding-top: var(--space-2); }
+.task-hidden-items > summary { cursor: pointer; color: var(--ink-600); font-size: var(--text-small); font-weight: var(--weight-medium); }
+.task-hidden-items > ul { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.task-hidden-items li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); color: var(--ink-500); }
+.task-hidden-items li > span { display: grid; min-width: 0; }
+.task-hidden-items li strong { overflow: hidden; color: var(--ink-600); font-weight: var(--weight-regular); text-overflow: ellipsis; white-space: nowrap; }
+.task-hidden-items li small { font-size: var(--text-meta); }

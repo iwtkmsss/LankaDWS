@@ -140,4 +140,9 @@ export class DriveController {
   revokeShare(@Req() request: LankaDWSRequest, @Param('id') shareId: string) {
     return this.sharing.revoke(principalFrom(request), shareId)
   }
+
+  @Post('shares/:id/restore')
+  restoreShare(@Req() request: LankaDWSRequest, @Param('id') shareId: string) {
+    return this.sharing.restore(principalFrom(request), shareId)
+  }
 }

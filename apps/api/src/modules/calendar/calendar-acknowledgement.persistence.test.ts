@@ -6,10 +6,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { PrismaClient } from '../../generated/prisma/client.js'
 import { LankaSqliteAdapter } from '../../prisma/sqlite-adapter.js'
 import type { PrismaService } from '../../prisma/prisma.service.js'
-import type { AuthPrincipal } from '../../common/request-context.js'
+import type { AuthPrincipal, LankaDWSRequest } from '../../common/request-context.js'
 import type { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { CalendarService } from './calendar.service.js'
+import { CalendarController } from './calendar.controller.js'
 import { eventAcknowledgementView, snapshotEventAcknowledgements } from './calendar-acknowledgement.js'
 
 let prisma: PrismaClient
@@ -85,7 +86,7 @@ it('takes a fresh recipient snapshot for the revised series and leaves old recei
   await expect(service.acknowledge(principal, 'event', 1)).rejects.toMatchObject({ status: 409 })
 })
 
-it('restricts deletion to the owner and atomically removes receipts, audiences and live feed references', async () => {
+it('restricts deletion to the owner and hides the event, keeping receipts and audiences but removing live references', async () => {
   service = new CalendarService(prisma as PrismaService,
     { assertEnabled: vi.fn() } as unknown as CapabilitiesService, new ScopeService())
   await prisma.backgroundJob.create({ data: {
@@ -108,14 +109,29 @@ it('restricts deletion to the owner and atomically removes receipts, audiences a
   await expect(service.remove(owner, 'event', 2)).rejects.toMatchObject({ status: 409 })
   expect(await prisma.eventAudience.count()).toBe(1)
   expect(await prisma.notification.count()).toBeGreaterThan(0)
+  const controller = new CalendarController(prisma as PrismaService, new ScopeService(), service)
+  const range = ['company', '2099-10-01T00:00:00Z', '2099-11-01T00:00:00Z'] as const
+  expect((await controller.events({ principal } as LankaDWSRequest, ...range)).items.map((item) => item.id)).toEqual(['event'])
   await service.remove(owner, 'event', 1)
-  expect(await prisma.event.count()).toBe(0)
-  expect(await prisma.eventAudience.count()).toBe(0)
-  expect(await prisma.eventAcknowledgement.count()).toBe(0)
+  // Content is hidden, never deleted: the row stays with its audience and receipts.
+  expect(await prisma.event.findUniqueOrThrow({ where: { id: 'event' } })).toMatchObject({
+    deletedAt: expect.any(Date) as unknown, deletedById: 'owner', version: 2,
+  })
+  expect(await prisma.eventAudience.count()).toBe(1)
+  expect(await prisma.eventAcknowledgement.count()).toBeGreaterThan(0)
   expect(await prisma.notification.count()).toBe(0)
   expect(await prisma.feedSourceHead.count()).toBe(0)
   expect(await prisma.feedItem.count()).toBe(1)
   expect(await prisma.backgroundJob.findUnique({ where: { id: 'reminder' } })).toMatchObject({ state: 'CANCELLED' })
   expect(await prisma.auditEvent.count({ where: { action: 'calendar.event.deleted' } })).toBe(1)
   expect(await prisma.outboxEvent.count({ where: { eventType: 'calendar.event.deleted' } })).toBe(1)
+  // Hidden events are invisible to every ordinary reader path, even their owner.
+  for (const reader of [principal, owner]) {
+    const request = { principal: reader } as LankaDWSRequest
+    expect((await controller.events(request, ...range)).items).toEqual([])
+    expect(await controller.eventDetail(request, 'event', 'company')).toBeNull()
+  }
+  await expect(service.remove(owner, 'event', 2)).rejects.toMatchObject({ status: 404 })
+  await expect(service.acknowledge(principal, 'event', 2)).rejects.toMatchObject({ status: 404 })
+  await expect(service.acknowledge(principal, 'event', 1)).rejects.toMatchObject({ status: 404 })
 })

@@ -1,0 +1,66 @@
+/* Administrator «Видалені»/«Архів» views (decision 2026-11-18): hidden records
+   are shown muted with who hid them and when, plus a visible «Відновити». */
+.hidden-content-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hidden-content-row {
+  display: grid;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-3) var(--space-4);
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--surface-soft);
+}
+.hidden-content-row:last-child {
+  border-bottom: 0;
+}
+.hidden-content-row__body {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+}
+.hidden-content-row__body strong {
+  overflow: hidden;
+  color: var(--fg-body);
+  font-size: var(--text-ui);
+  font-weight: var(--weight-medium);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hidden-content-row__body small,
+.hidden-content-row__marker {
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+}
+.hidden-content-row__excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-meta);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.hidden-content-empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  color: var(--fg-muted);
+  text-align: center;
+}
+@media (max-width: 640px) {
+  .hidden-content-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.hidden-content-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
