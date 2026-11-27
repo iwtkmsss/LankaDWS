@@ -575,11 +575,7 @@
 }
 .calendar-card {
   overflow: hidden;
-  container-type: inline-size;
 }
-/* Flex-wrap instead of a 1fr/auto/1fr grid: the scope tabs are wider than a
-   third of the card on common desktop widths and used to slide under the
-   period navigation. When the row is too narrow they wrap to their own line. */
 .calendar-view-switch {
   display: flex;
   flex-wrap: wrap;
@@ -590,17 +586,36 @@
   padding: var(--space-2) var(--space-3);
 }
 .calendar-view-switch > .calendar-scope-tabs {
-  min-width: 0;
-  margin-left: auto;
+  min-inline-size: 0;
+  margin-inline-start: auto;
+}
+.calendar-scope-tabs .tabs {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.calendar-scope-tabs .tabs button {
+  padding-inline: var(--space-2);
+}
+.calendar-scope-tabs.is-all-selected .tabs,
+.calendar-scope-tabs .tabs button.is-active {
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.calendar-scope-tabs .tabs button.is-active {
+  color: var(--fg-strong);
+}
+.calendar-scope-tabs.is-all-selected .tabs button.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+.calendar-scope-tabs.is-all-selected .tabs button span,
+.calendar-scope-tabs .tabs button.is-active span {
+  background: var(--surface);
 }
 .calendar-view-switch > .calendar-nav {
   margin-inline: auto;
-}
-@container (min-width: 1150px) {
-  .calendar-view-switch {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  }
 }
 .calendar-weekdays,
 .calendar-grid {
@@ -4029,7 +4044,7 @@ button.organization-unassigned__person:focus-visible strong {
     flex-direction: column;
   }
   .calendar-view-switch > .calendar-scope-tabs {
-    margin-left: 0;
+    margin-inline-start: 0;
   }
   .calendar-view-switch > .calendar-nav {
     align-self: center;
@@ -4037,12 +4052,7 @@ button.organization-unassigned__person:focus-visible strong {
   .calendar-view-switch .tabs {
     width: 100%;
   }
-  /* Four scope tabs do not fit one phone row; a 2×2 grid keeps all visible. */
-  .calendar-scope-tabs .tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .calendar-view-switch .tabs button {
+  .calendar-view-switch > .tabs button {
     flex: 1;
     justify-content: center;
   }
@@ -4483,18 +4493,15 @@ button.organization-unassigned__person:focus-visible strong {
 }
 
 /* Calendar category colors apply in month, day, week and schedule views. */
-.calendar-item-private,
-.calendar-scope-tabs .tabs button:nth-child(2) {
+.calendar-item-private {
   --calendar-color: var(--cobalt-600);
   --calendar-tint: var(--cobalt-50);
 }
-.calendar-item-work,
-.calendar-scope-tabs .tabs button:nth-child(3) {
+.calendar-item-work {
   --calendar-color: var(--violet);
   --calendar-tint: color-mix(in srgb, var(--violet) 12%, var(--surface));
 }
-.calendar-item-task,
-.calendar-scope-tabs .tabs button:nth-child(4) {
+.calendar-item-task {
   --calendar-color: var(--success);
   --calendar-tint: var(--success-bg);
 }
@@ -4505,13 +4512,6 @@ button.organization-unassigned__person:focus-visible strong {
 }
 .calendar-grid a:is(.calendar-item-private, .calendar-item-work, .calendar-item-task)::before {
   background: var(--calendar-color);
-}
-.calendar-scope-tabs .tabs button:nth-child(n+2) {
-  color: var(--calendar-color);
-}
-.calendar-scope-tabs .tabs button:nth-child(n+2).is-active,
-.calendar-scope-tabs .tabs button:nth-child(n+2) span {
-  background: var(--calendar-tint);
 }
 
 .organization-universe-page .organization-context-bar .organization-heading-actions { display: grid; gap: var(--space-2); justify-items: end; }

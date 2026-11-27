@@ -7,8 +7,7 @@ import type {
   ChatThreadListItem,
   StructuredMentionInput,
 } from '@lankadws/contracts'
-import { ArrowLeft, Bell, BellOff, Info, MoreVertical, Search, UsersRound } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Bell, BellOff, UsersRound } from 'lucide-react'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
 import { ConversationSearch } from './ConversationSearch'
@@ -70,8 +69,6 @@ function ConversationAvatar({
 
 export function ConversationPane(props: ConversationPaneProps) {
   useReadingMessageThread(props.currentUserId, !props.loading && !props.error ? props.thread?.id : undefined)
-  const [searchOpen, setSearchOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const { isDragging, dropTargetProps } = useFileDropTarget({
     disabled: !props.thread?.canPost || props.uploading || props.sending,
     onFiles: props.onFiles,
@@ -120,65 +117,19 @@ export function ConversationPane(props: ConversationPaneProps) {
           </button>
         </h1>
         <div className="conversation-header__actions">
+          <ConversationSearch
+            key={props.thread.id}
+            threadId={props.thread.id}
+            onOpenResult={props.onOpenSearchResult}
+          />
           <IconButton
-            label="Пошук у діалозі"
-            className={searchOpen ? 'is-active' : ''}
-            onClick={() => setSearchOpen((value) => !value)}
+            label={props.thread.notificationMode === 'NONE' ? 'Увімкнути сповіщення' : 'Вимкнути сповіщення'}
+            onClick={props.onToggleMute}
           >
-            <Search size={20} />
+            {props.thread.notificationMode === 'NONE' ? <BellOff size={20} /> : <Bell size={20} />}
           </IconButton>
-          <IconButton label="Інформація про діалог" onClick={props.onInfo}>
-            <Info size={20} />
-          </IconButton>
-          <div className="conversation-more">
-            <IconButton
-              label="Інші дії"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((value) => !value)}
-            >
-              <MoreVertical size={20} />
-            </IconButton>
-            {menuOpen && (
-              <div className="conversation-more__menu">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    props.onToggleMute()
-                  }}
-                >
-                  {props.thread.notificationMode === 'NONE'
-                    ? <Bell size={17} />
-                    : <BellOff size={17} />}
-                  {props.thread.notificationMode === 'NONE'
-                    ? 'Увімкнути сповіщення'
-                    : 'Вимкнути сповіщення'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    props.onInfo()
-                  }}
-                >
-                  <Info size={17} /> Інформація
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </header>
-
-      {searchOpen && (
-        <ConversationSearch
-          threadId={props.thread.id}
-          onClose={() => setSearchOpen(false)}
-          onOpenResult={(messageId) => {
-            setSearchOpen(false)
-            props.onOpenSearchResult(messageId)
-          }}
-        />
-      )}
 
       {props.highlightedMessageId && (
         <button className="conversation-latest" type="button" onClick={props.onLatest}>

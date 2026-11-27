@@ -344,9 +344,10 @@ export default function CalendarPage() {
                 ]}
               />
               {calendarNavigation}
-              <div className="calendar-scope-tabs">
+              <div className={`calendar-scope-tabs${scope === 'ALL' ? ' is-all-selected' : ''}`}>
                 <Tabs
                   value={scope}
+                  label="Фільтр календаря"
                   onChange={(value) => setParams((current) => {
                     if (value === 'ALL') current.delete('scope')
                     else current.set('scope', value)
