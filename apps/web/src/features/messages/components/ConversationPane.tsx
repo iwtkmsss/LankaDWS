@@ -7,8 +7,7 @@ import type {
   ChatThreadListItem,
   StructuredMentionInput,
 } from '@lankadws/contracts'
-import { ArrowLeft, Bell, BellOff, Search, UsersRound } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, Bell, BellOff, UsersRound } from 'lucide-react'
 import { FileDropOverlay, useFileDropTarget } from '../../../shared/files/FileDropzone'
 import { Avatar, ErrorState, IconButton, Skeleton } from '../../../shared/ui'
 import { ConversationSearch } from './ConversationSearch'
@@ -72,7 +71,6 @@ function ConversationAvatar({
 
 export function ConversationPane(props: ConversationPaneProps) {
   useReadingMessageThread(props.currentUserId, !props.loading && !props.error ? props.thread?.id : undefined)
-  const [searchOpen, setSearchOpen] = useState(false)
   const { isDragging, dropTargetProps } = useFileDropTarget({
     disabled: !props.thread?.canPost || props.uploading || props.sending,
     onFiles: props.onFiles,
@@ -121,13 +119,11 @@ export function ConversationPane(props: ConversationPaneProps) {
           </button>
         </h1>
         <div className="conversation-header__actions">
-          <IconButton
-            label="Пошук у діалозі"
-            className={searchOpen ? 'is-active' : ''}
-            onClick={() => setSearchOpen((value) => !value)}
-          >
-            <Search size={20} />
-          </IconButton>
+          <ConversationSearch
+            key={props.thread.id}
+            threadId={props.thread.id}
+            onOpenResult={props.onOpenSearchResult}
+          />
           <IconButton
             label={props.thread.notificationMode === 'NONE' ? 'Увімкнути сповіщення' : 'Вимкнути сповіщення'}
             onClick={props.onToggleMute}
@@ -136,17 +132,6 @@ export function ConversationPane(props: ConversationPaneProps) {
           </IconButton>
         </div>
       </header>
-
-      {searchOpen && (
-        <ConversationSearch
-          threadId={props.thread.id}
-          onClose={() => setSearchOpen(false)}
-          onOpenResult={(messageId) => {
-            setSearchOpen(false)
-            props.onOpenSearchResult(messageId)
-          }}
-        />
-      )}
 
       {props.highlightedMessageId && (
         <button className="conversation-latest" type="button" onClick={props.onLatest}>

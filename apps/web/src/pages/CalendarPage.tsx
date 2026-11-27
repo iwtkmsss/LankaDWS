@@ -385,20 +385,22 @@ export default function CalendarPage() {
               {calendarNavigation}
               <div className="calendar-scope-tabs">
                 <div className="tabs" role="group" aria-label="Фільтр календаря">
-                  {([
-                    { value: 'ALL', label: 'Усі' },
-                    { value: 'MINE', label: 'Особисті' },
-                    { value: 'TEAM', label: 'Компанія' },
-                    { value: 'TASKS', label: 'Завдання' },
-                  ] as const).map((item) => {
-                    const active = item.value === 'ALL' ? scope === 'ALL' : scope !== 'ALL' && selectedScopes.includes(item.value)
-                    return (
-                      <button key={item.value} type="button" aria-pressed={active && !showDeleted} className={active && !showDeleted ? 'is-active' : ''}
-                        onClick={() => toggleScope(item.value)}>
-                        {item.label}{query.data && <span>{query.data.counts[item.value]}</span>}
-                      </button>
-                    )
-                  })}
+                  <div className={`calendar-scope-tabs__group${scope === 'ALL' && !showDeleted ? ' is-active' : ''}`}>
+                    {([
+                      { value: 'ALL', label: 'Усі' },
+                      { value: 'MINE', label: 'Особисті' },
+                      { value: 'TEAM', label: 'Компанія' },
+                      { value: 'TASKS', label: 'Завдання' },
+                    ] as const).map((item) => {
+                      const active = !showDeleted && (item.value === 'ALL' ? scope === 'ALL' : scope !== 'ALL' && selectedScopes.includes(item.value))
+                      return (
+                        <button key={item.value} type="button" aria-pressed={active} className={active && item.value !== 'ALL' ? 'is-active' : ''}
+                          onClick={() => toggleScope(item.value)}>
+                          {item.label}{query.data && <span>{query.data.counts[item.value]}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
                   {isAdmin && (
                     <button type="button" aria-pressed={showDeleted} className={showDeleted ? 'is-active' : ''} onClick={toggleDeleted}>
                       Видалені
