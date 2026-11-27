@@ -1,8 +1,8 @@
 import { Inbox, Search, TriangleAlert } from 'lucide-react'
-import { Button } from '../../shared/ui'
+import { Button, PageDataLoader } from '../../shared/ui'
 
 export function FeedLoading() {
-  return <div className="stream-skeleton" role="status" aria-label="Завантаження стрічки"><div><i /><span><i /><i /></span></div><i /><i /><footer><i /><i /></footer><span className="sr-only">Завантаження…</span></div>
+  return <PageDataLoader delay={0} label="Завантаження стрічки" />
 }
 
 export function FeedPageState({ kind, onAction }: { kind: 'empty' | 'filtered' | 'error'; onAction: () => void }) {

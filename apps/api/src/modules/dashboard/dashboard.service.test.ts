@@ -84,6 +84,7 @@ describe('DashboardService', () => {
     const result = await service.get(principal('ADMIN'));
     const access = {
       workspaceId: 'wrk_test',
+      deletedAt: null,
       audiences: { some: { companyId: { in: ['cmp_test'] } } },
       OR: [
         { ownerId: 'usr_test' },

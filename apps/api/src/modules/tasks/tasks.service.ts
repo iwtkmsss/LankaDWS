@@ -10,6 +10,9 @@ import {
   type TaskActivityPage,
   type TaskAttachmentView,
   type TaskDetailView,
+  type TaskHiddenBy,
+  type TaskHiddenContentView,
+  type RestoreTaskContentInput,
   type TaskCommentInput,
   type DeleteTaskCommentInput,
   type TaskListItem,
@@ -43,6 +46,7 @@ import { DriveSharingService } from '../documents/drive-sharing.service.js'
 import { assertIdempotencyKey, findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 import { validateStructuredMentions } from '../../common/mentions.js'
 import { recordAudit } from '../../common/audit.js'
+import { assertTaskRestoreAllowed } from './task-restore-policy.js'
 
 const taskStatuses = [
   'NEW',
@@ -243,12 +247,26 @@ export class TasksService {
         : preset === 'DEFERRED'
         ? { status: 'NEW' }
         : preset === 'OVERDUE'
-          ? { dueAt: { lt: now }, status: { notIn: [...terminalTaskStatuses] } }
+          ? { dueAt: { lt: now }, status: { in: [...activeTaskStatuses] } }
           : {
                 dueAt: { gte: now, lte: soonEndsAt },
-                status: { notIn: [...terminalTaskStatuses] },
+                status: { in: [...activeTaskStatuses] },
               })
     const presetWhere = presetConditions.length > 1 ? { OR: presetConditions } : presetConditions[0]
+    // Redundant top-level status bound: the union of statuses any selected preset branch can match.
+    // It does not change the result set, but gives SQLite a status range instead of a full company scan.
+    const presetStatuses = new Set<TaskStatusValue>(presets.flatMap((preset): readonly TaskStatusValue[] => preset === 'NONE'
+      ? []
+      : taskStatuses.includes(preset as TaskStatusValue)
+        ? [preset as TaskStatusValue]
+        : preset === 'OTHER_ACTIVE'
+          ? ['IN_PROGRESS', 'IN_REVIEW']
+          : preset === 'DEFERRED'
+            ? ['NEW']
+            : activeTaskStatuses))
+    const presetStatusBound: Prisma.TaskWhereInput | undefined = presetStatuses.size > 0 && presetStatuses.size < taskStatuses.length
+      ? { status: { in: taskStatuses.filter((status) => presetStatuses.has(status)) } }
+      : undefined
     const roleWhere = role !== undefined ? viewRoles.includes('ALL') ? {} : viewRoles.length === 1
       ? this.roleWhere(principal.userId, viewRoles[0])
       : { OR: viewRoles.map((viewRole) => this.roleWhere(principal.userId, viewRole)) }
@@ -264,6 +282,7 @@ export class TasksService {
       AND: [
         roleWhere,
         ...(presetWhere ? [presetWhere] : []),
+        ...(presetStatusBound ? [presetStatusBound] : []),
         // Each personal-state filter is its own AND clause so favorite + important combine.
         ...(filters.favorite
           ? [{
@@ -345,7 +364,7 @@ export class TasksService {
     }
     const nonTerminalWhere: Prisma.TaskWhereInput = {
       ...baseWhere,
-      status: { notIn: [...terminalTaskStatuses] },
+      status: { in: [...activeTaskStatuses] },
     }
     const activeWhere: Prisma.TaskWhereInput = {
       ...baseWhere,
@@ -402,7 +421,7 @@ export class TasksService {
       where: { id: taskId },
       include: {
         ...this.listInclude(),
-        checklist: { orderBy: { position: 'asc' } },
+        checklist: { where: { deletedAt: null }, orderBy: { position: 'asc' } },
         createdBy: {
           select: {
             id: true,
@@ -412,9 +431,12 @@ export class TasksService {
       },
     })
     const canEdit = this.canEdit(principal, task)
-    const [comments, entityLinks, personalState, reminders] = await Promise.all([
+    // A global administrator also sees hidden records (decision 2026-11-18);
+    // everyone else gets exactly the visible payload.
+    const admin = isGlobalAdmin(principal)
+    const [comments, entityLinks, personalState, reminders, hiddenContent] = await Promise.all([
       this.prisma.comment.findMany({
-        where: { entityType: 'TASK', entityId: task.id, deletedAt: null },
+        where: { entityType: 'TASK', entityId: task.id, ...(admin ? {} : { deletedAt: null }) },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.entityLink.findMany({
@@ -443,10 +465,13 @@ export class TasksService {
         },
         orderBy: [{ remindAt: 'asc' }, { id: 'asc' }],
       }),
+      admin ? this.hiddenContent(principal, task) : undefined,
     ])
+    const visibleCommentCount = comments.filter((comment) => !comment.deletedAt).length
     const [fileLinks, contentMentions] = await Promise.all([
       this.prisma.fileLink.findMany({
         where: {
+          removedAt: null,
           OR: [
             {
               entityType: 'TASK',
@@ -561,7 +586,7 @@ export class TasksService {
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
       version: task.version,
-      commentCount: comments.length,
+      commentCount: visibleCommentCount,
       attachmentCount: taskAttachments.length,
       subtaskProgress: {
         done: subtasks.filter((subtask) => this.isTerminal(subtask.status)).length,
@@ -598,8 +623,8 @@ export class TasksService {
         createdAt: comment.createdAt.toISOString(),
         editedAt: comment.editedAt?.toISOString() ?? null,
         version: comment.version,
-        canEdit: isGlobalAdmin(principal),
-        canDelete: isGlobalAdmin(principal),
+        canEdit: admin && !comment.deletedAt,
+        canDelete: admin && !comment.deletedAt,
         reactions: reactionsByComment.get(comment.id) ?? { likeCount: 0, likedByMe: false },
         replyToCommentId: comment.replyToCommentId,
         replyPreview: (() => {
@@ -620,6 +645,12 @@ export class TasksService {
             const file = filesById.get(link.fileId)
             return file ? [attachmentView(file)] : []
           }),
+        ...(comment.deletedAt
+          ? {
+              deletedAt: comment.deletedAt.toISOString(),
+              deletedBy: hiddenContent?.people.get(comment.deletedById ?? '') ?? null,
+            }
+          : {}),
       })),
       attachments: taskAttachments,
       sourceLinks,
@@ -650,6 +681,125 @@ export class TasksService {
             : []
         )),
       },
+      ...(task.archivedAt ? { canRestore: this.canRestoreArchived(principal, task) } : {}),
+      ...(hiddenContent ? { hiddenContent: hiddenContent.view } : {}),
+    }
+  }
+
+  private canRestoreArchived(principal: AuthPrincipal, task: Task): boolean {
+    try {
+      assertTaskRestoreAllowed(
+        principal,
+        task.archivedById,
+        task.archivedAt,
+        task.reporterId === principal.userId || task.createdById === principal.userId,
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Hidden task content for a global administrator, newest first. */
+  private async hiddenContent(
+    principal: AuthPrincipal,
+    task: Task,
+  ): Promise<{ view: TaskHiddenContentView; people: Map<string, NonNullable<TaskHiddenBy>> }> {
+    const [checklist, links, relations, timeEntries, hiddenComments] = await Promise.all([
+      this.prisma.taskChecklistItem.findMany({
+        where: { taskId: task.id, deletedAt: { not: null } },
+        orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+      }),
+      this.prisma.fileLink.findMany({
+        where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', removedAt: { not: null } },
+        orderBy: [{ removedAt: 'desc' }, { id: 'asc' }],
+      }),
+      this.prisma.taskRelation.findMany({
+        where: { deletedAt: { not: null }, OR: [{ sourceTaskId: task.id }, { targetTaskId: task.id }] },
+        include: {
+          sourceTask: { select: { id: true, number: true, title: true, status: true } },
+          targetTask: { select: { id: true, number: true, title: true, status: true } },
+        },
+        orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+      }),
+      this.prisma.timeEntry.findMany({
+        where: { taskId: task.id, deletedAt: { not: null } },
+        include: { user: { select: { id: true, displayName: true, avatarAsset: true } } },
+        orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+      }),
+      this.prisma.comment.findMany({
+        where: { entityType: 'TASK', entityId: task.id, deletedAt: { not: null } },
+        select: { deletedById: true },
+      }),
+    ])
+    const files = await this.prisma.fileObject.findMany({
+      where: {
+        id: { in: links.map((link) => link.fileId) },
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+      },
+    })
+    const filesById = new Map(files.map((file) => [file.id, file]))
+    const actorIds = [...new Set([
+      ...checklist.map((item) => item.deletedById),
+      ...links.map((link) => link.removedById),
+      ...relations.map((relation) => relation.deletedById),
+      ...timeEntries.map((entry) => entry.deletedById),
+      ...hiddenComments.map((comment) => comment.deletedById),
+    ].filter((userId): userId is string => Boolean(userId)))]
+    const people = new Map((await this.prisma.user.findMany({
+      where: { id: { in: actorIds }, workspaceId: principal.workspaceId },
+      select: { id: true, displayName: true },
+    })).map((person) => [person.id, person]))
+    const marker = (hiddenAt: Date | null, hiddenById: string | null) => ({
+      deletedAt: (hiddenAt ?? new Date(0)).toISOString(),
+      deletedBy: people.get(hiddenById ?? '') ?? null,
+    })
+    return {
+      people,
+      view: {
+        checklist: checklist.map((item) => ({
+          id: item.id,
+          text: item.title,
+          isDone: item.isCompleted,
+          version: item.version,
+          ...marker(item.deletedAt, item.deletedById),
+        })),
+        attachments: links.flatMap((link) => {
+          const file = filesById.get(link.fileId)
+          return file
+            ? [{
+                id: file.id,
+                fileName: file.safeFilename,
+                bytes: file.bytes,
+                mimeType: file.detectedMime ?? file.declaredMime,
+                scanStatus: file.scanStatus,
+                createdAt: file.createdAt.toISOString(),
+                canRemove: false,
+                ...marker(link.removedAt, link.removedById),
+              }]
+            : []
+        }),
+        relations: relations.map((relation) => {
+          const outgoing = relation.sourceTaskId === task.id
+          const other = outgoing ? relation.targetTask : relation.sourceTask
+          return {
+            id: relation.id,
+            type: relation.type,
+            direction: relation.type === 'BLOCKS' ? (outgoing ? 'OUTGOING' as const : 'INCOMING' as const) : null,
+            task: this.taskReference(other),
+            ...marker(relation.deletedAt, relation.deletedById),
+          }
+        }),
+        timeEntries: timeEntries.map((entry) => ({
+          id: entry.id,
+          user: entry.user,
+          startedAt: entry.startedAt.toISOString(),
+          durationSeconds: entry.durationSeconds,
+          description: entry.description ?? '',
+          ...marker(entry.deletedAt, entry.deletedById),
+        })),
+      },
     }
   }
 
@@ -665,7 +815,7 @@ export class TasksService {
     const fileIds = parsed.data.map((placement) => placement.fileId)
     if (!fileIds.length) return { layout: parsed.data, stagedIds: [] }
     const links = await this.prisma.fileLink.findMany({
-      where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', fileId: { in: fileIds } },
+      where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', fileId: { in: fileIds }, removedAt: null },
       select: { fileId: true },
     })
     const linkedIds = new Set(links.map((link) => link.fileId))
@@ -751,7 +901,7 @@ export class TasksService {
     await this.prisma.$transaction(async (tx) => {
       if (stagedPhotoIds.length) {
         const [attachmentCount, alreadyLinked] = await Promise.all([
-          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT' } }),
+          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', removedAt: null } }),
           tx.fileLink.findFirst({ where: { fileId: { in: stagedPhotoIds } }, select: { id: true } }),
         ])
         if (alreadyLinked) throw badRequest('task_photo_layout_invalid')
@@ -883,6 +1033,7 @@ export class TasksService {
         entityType: 'TASK',
         entityId: task.id,
         purpose: 'ATTACHMENT',
+        removedAt: null,
       },
     })
     if (attachmentCount >= 20) throw badRequest('task_attachment_limit')
@@ -962,8 +1113,9 @@ export class TasksService {
         },
       },
     })
-    if (existing || draft) {
-      if (draft && !existing) {
+    const attached = existing && !existing.removedAt ? existing : null
+    if (attached || draft) {
+      if (draft && !attached) {
         await this.files.assertTaskStagedAttachments(principal, task.companyId, [fileId])
       }
       return {
@@ -981,20 +1133,29 @@ export class TasksService {
         entityType: 'TASK',
         entityId: task.id,
         purpose: 'ATTACHMENT',
+        removedAt: null,
       },
     })
     if (attachmentCount >= 20) throw badRequest('task_attachment_limit')
     await this.prisma.$transaction(async (tx) => {
-      await tx.fileLink.create({
-        data: {
-          id: id('fln'),
-          fileId: file.id,
-          entityType: 'TASK',
-          entityId: task.id,
-          purpose: 'ATTACHMENT',
-          aclMode: 'ENTITY',
-        },
-      })
+      if (existing) {
+        // Re-attaching a removed file revives its link (unique per file/entity/purpose).
+        await tx.fileLink.update({
+          where: { id: existing.id },
+          data: { removedAt: null, removedById: null, aclMode: 'ENTITY' },
+        })
+      } else {
+        await tx.fileLink.create({
+          data: {
+            id: id('fln'),
+            fileId: file.id,
+            entityType: 'TASK',
+            entityId: task.id,
+            purpose: 'ATTACHMENT',
+            aclMode: 'ENTITY',
+          },
+        })
+      }
       const updated = await tx.task.update({
         where: { id: task.id },
         data: { version: { increment: 1 } },
@@ -1032,7 +1193,7 @@ export class TasksService {
         },
       },
     })
-    if (!link) throw notFound()
+    if (!link || link.removedAt) throw notFound()
     const file = await this.prisma.fileObject.findFirst({
       where: {
         id: fileId,
@@ -1048,14 +1209,23 @@ export class TasksService {
       select: { id: true },
     })
     await this.prisma.$transaction(async (tx) => {
-      await tx.fileLink.delete({ where: { id: link.id } })
-      await tx.fileLink.deleteMany({
+      // Content is hidden, never deleted (decision 2026-11-18): the links are
+      // marked removed, grant nothing, and keep the file from being purged.
+      const removedAt = new Date()
+      const removed = await tx.fileLink.updateMany({
+        where: { id: link.id, removedAt: null },
+        data: { removedAt, removedById: principal.userId },
+      })
+      if (!removed.count) throw notFound()
+      await tx.fileLink.updateMany({
         where: {
           fileId,
           entityType: 'TASK_COMMENT',
           entityId: { in: commentIds.map((comment) => comment.id) },
           purpose: 'ATTACHMENT',
+          removedAt: null,
         },
+        data: { removedAt, removedById: principal.userId },
       })
       const updated = await tx.task.update({
         where: { id: task.id },
@@ -1345,6 +1515,7 @@ export class TasksService {
               entityId: task.id,
               purpose: 'ATTACHMENT',
               aclMode: 'ENTITY',
+              removedAt: null,
             },
             select: { fileId: true },
           })
@@ -1361,7 +1532,7 @@ export class TasksService {
     const createComment = () => this.prisma.$transaction(async (tx) => {
       if (stagedIds.length) {
         const [attachmentCount, alreadyLinked] = await Promise.all([
-          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT' } }),
+          tx.fileLink.count({ where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', removedAt: null } }),
           tx.fileLink.findFirst({ where: { fileId: { in: stagedIds } }, select: { id: true } }),
         ])
         if (alreadyLinked) throw badRequest('task_comment_attachments')
@@ -1706,30 +1877,29 @@ export class TasksService {
     if (!comment) throw notFound()
 
     return this.prisma.$transaction(async (tx) => {
+      const deletedAt = new Date()
       const removed = await tx.comment.updateMany({
         where: { id: comment.id, version: input.expectedVersion, deletedAt: null },
         data: {
-          deletedAt: new Date(),
+          deletedAt,
+          deletedById: principal.userId,
           version: { increment: 1 },
         },
       })
       if (!removed.count) throw conflict('task_comment_version')
-      await Promise.all([
-        tx.contentMention.deleteMany({
-          where: {
-            workspaceId: principal.workspaceId,
-            sourceType: 'TASK_COMMENT',
-            sourceId: comment.id,
-          },
-        }),
-        tx.fileLink.deleteMany({
-          where: {
-            entityType: 'TASK_COMMENT',
-            entityId: comment.id,
-            purpose: 'ATTACHMENT',
-          },
-        }),
-      ])
+      // Content is hidden, never deleted (decision 2026-11-18): the hidden comment
+      // keeps its mentions (they are only listed with a visible comment) and its
+      // attachment links, marked removed at the same instant so a restore can
+      // revive exactly them.
+      await tx.fileLink.updateMany({
+        where: {
+          entityType: 'TASK_COMMENT',
+          entityId: comment.id,
+          purpose: 'ATTACHMENT',
+          removedAt: null,
+        },
+        data: { removedAt: deletedAt, removedById: principal.userId },
+      })
       const updatedTask = await tx.task.update({
         where: { id: task.id },
         data: { version: { increment: 1 } },
@@ -1740,6 +1910,131 @@ export class TasksService {
       })
       return { id: comment.id, deleted: true, taskVersion: updatedTask.version }
     })
+  }
+
+  /**
+   * Brings a hidden comment back (decision 2026-11-18) with the attachment links
+   * its deletion removed. Mentions are kept while a comment is hidden, so they
+   * come back with it; a comment hidden before that returns as plain text.
+   */
+  async restoreComment(
+    principal: AuthPrincipal,
+    taskId: string,
+    commentId: string,
+    input: RestoreTaskContentInput,
+  ): Promise<{ id: string; version: number; taskVersion: number }> {
+    const task = await this.access.readableTask(principal, taskId)
+    const comment = await this.prisma.comment.findFirst({
+      where: {
+        id: commentId,
+        workspaceId: principal.workspaceId,
+        companyId: task.companyId,
+        entityType: 'TASK',
+        entityId: task.id,
+      },
+      select: { id: true, deletedAt: true, deletedById: true },
+    })
+    if (!comment) throw notFound()
+    if (!comment.deletedAt) throw conflict('task_comment_not_hidden')
+    assertTaskRestoreAllowed(principal, comment.deletedById, comment.deletedAt)
+    const deletedAt = comment.deletedAt
+
+    return this.prisma.$transaction(async (tx) => {
+      const restored = await tx.comment.updateMany({
+        where: { id: comment.id, version: input.expectedVersion, deletedAt: { not: null } },
+        data: { deletedAt: null, deletedById: null, version: { increment: 1 } },
+      })
+      if (!restored.count) throw conflict('task_comment_version')
+      // Revive only the links hidden together with the comment (same instant; a
+      // one-second tolerance covers comments hidden before the instant was
+      // shared) whose file is still attached to the task.
+      const attachedFileIds = (await tx.fileLink.findMany({
+        where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', removedAt: null },
+        select: { fileId: true },
+      })).map((link) => link.fileId)
+      await tx.fileLink.updateMany({
+        where: {
+          entityType: 'TASK_COMMENT',
+          entityId: comment.id,
+          purpose: 'ATTACHMENT',
+          fileId: { in: attachedFileIds },
+          removedAt: {
+            gte: new Date(deletedAt.getTime() - 1_000),
+            lte: new Date(deletedAt.getTime() + 1_000),
+          },
+        },
+        data: { removedAt: null, removedById: null },
+      })
+      const updatedTask = await tx.task.update({
+        where: { id: task.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await this.recordEvent(tx, principal, task, 'task.comment_restored', updatedTask.version, {
+        commentId: comment.id,
+      })
+      return { id: comment.id, version: input.expectedVersion + 1, taskVersion: updatedTask.version }
+    })
+  }
+
+  /**
+   * Re-attaches a file removed from the task (decision 2026-11-18): the task
+   * link and the comment links that the same removal hid come back together.
+   */
+  async restoreAttachment(
+    principal: AuthPrincipal,
+    taskId: string,
+    fileId: string,
+  ): Promise<{ id: string; restored: true }> {
+    const task = await this.access.readableTask(principal, taskId)
+    const link = await this.prisma.fileLink.findUnique({
+      where: {
+        fileId_entityType_entityId_purpose: {
+          fileId,
+          entityType: 'TASK',
+          entityId: task.id,
+          purpose: 'ATTACHMENT',
+        },
+      },
+    })
+    if (!link) throw notFound()
+    if (!link.removedAt) throw conflict('task_attachment_not_hidden')
+    assertTaskRestoreAllowed(principal, link.removedById, link.removedAt)
+    const removedAt = link.removedAt
+    const commentIds = await this.prisma.comment.findMany({
+      where: { entityType: 'TASK', entityId: task.id, deletedAt: null },
+      select: { id: true },
+    })
+    await this.prisma.$transaction(async (tx) => {
+      const attachmentCount = await tx.fileLink.count({
+        where: { entityType: 'TASK', entityId: task.id, purpose: 'ATTACHMENT', removedAt: null },
+      })
+      if (attachmentCount >= 20) throw badRequest('task_attachment_limit')
+      const restored = await tx.fileLink.updateMany({
+        where: { id: link.id, removedAt },
+        data: { removedAt: null, removedById: null },
+      })
+      if (!restored.count) throw conflict('task_attachment_not_hidden')
+      await tx.fileLink.updateMany({
+        where: {
+          fileId,
+          entityType: 'TASK_COMMENT',
+          entityId: { in: commentIds.map((comment) => comment.id) },
+          purpose: 'ATTACHMENT',
+          removedAt,
+        },
+        data: { removedAt: null, removedById: null },
+      })
+      const updated = await tx.task.update({
+        where: { id: task.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await this.recordEvent(tx, principal, task, 'task.attachment_restored', updated.version, {
+        attachmentCount: 1,
+      })
+    })
+    return { id: fileId, restored: true }
   }
 
   private listInclude() {
@@ -1815,6 +2110,7 @@ export class TasksService {
             entityType: 'TASK',
             entityId: row.id,
             purpose: 'ATTACHMENT',
+            removedAt: null,
           },
         }),
       ])
@@ -1941,7 +2237,7 @@ export class TasksService {
       where: {
         parentTaskId: taskId,
         archivedAt: null,
-        status: { notIn: [...terminalTaskStatuses] },
+        status: { in: [...activeTaskStatuses] },
       },
       select: { id: true },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
@@ -2184,6 +2480,9 @@ export class TasksService {
       'task.participant_changed': 'Склад учасників змінено',
       'task.participant_removed': 'Вилучено учасника',
       'task.archived': 'Завдання архівовано',
+      'task.restored': 'Завдання відновлено з архіву',
+      'task.comment_restored': 'Повідомлення відновлено',
+      'task.attachment_restored': 'Вкладення відновлено',
       'task.approval_requested': 'Запитано погодження',
       'task.approval_approved': 'Завдання погоджено',
       'task.approval_needs_changes': 'Повернуто на доопрацювання',

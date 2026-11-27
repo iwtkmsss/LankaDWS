@@ -19,6 +19,7 @@ import { TaskReminderService } from './task-reminder.service.js'
 import { TaskValidationService } from './task-validation.service.js'
 import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 import { recordAudit } from '../../common/audit.js'
+import { assertTaskRestoreAllowed, restoredTaskStatus } from './task-restore-policy.js'
 
 @Injectable()
 export class TaskCommandService {
@@ -310,15 +311,19 @@ export class TaskCommandService {
   ): Promise<{ id: string; version: number }> {
     const task = await this.access.editableTask(principal, taskId)
     return this.prisma.$transaction(async (tx) => {
+      // The status before archiving is kept in the audit event, so a restore
+      // can put the task back where it was (decision 2026-11-18).
+      const current = await tx.task.findUnique({ where: { id: taskId }, select: { status: true } })
       const result = await tx.task.updateMany({
         where: { id: taskId, version: expectedVersion, archivedAt: null },
         data: {
           status: 'ARCHIVED',
           archivedAt: new Date(),
+          archivedById: principal.userId,
           version: { increment: 1 },
         },
       })
-      if (!result.count) throw conflict('task_version')
+      if (!result.count || !current) throw conflict('task_version')
       await settleTaskActions(tx, taskId)
       await tx.taskApprovalRound.updateMany({
         where: { taskId, status: 'PENDING' },
@@ -329,7 +334,7 @@ export class TaskCommandService {
           resolutionTaskVersion: expectedVersion + 1,
         },
       })
-      await recordAudit(tx, principal, { companyId: task.companyId, action: 'task.archived', entityType: 'TASK', entityId: taskId })
+      await recordAudit(tx, principal, { companyId: task.companyId, action: 'task.archived', entityType: 'TASK', entityId: taskId, safeDiff: { previousStatus: current.status } })
       await tx.outboxEvent.create({
         data: {
           id: id('out'),
@@ -341,6 +346,50 @@ export class TaskCommandService {
         },
       })
       return { id: task.id, version: expectedVersion + 1 }
+    })
+  }
+
+  /**
+   * Unarchives a task (decision 2026-11-18). Invalidated approval rounds and
+   * settled notifications stay as they are; only the task itself comes back.
+   */
+  async restore(
+    principal: AuthPrincipal,
+    taskId: string,
+    expectedVersion: number,
+  ): Promise<{ id: string; version: number; status: 'NEW' | 'IN_PROGRESS' | 'DONE' }> {
+    const task = await this.access.readableTask(principal, taskId)
+    if (!task.archivedAt) throw conflict('task_not_archived')
+    assertTaskRestoreAllowed(
+      principal,
+      task.archivedById,
+      task.archivedAt,
+      task.reporterId === principal.userId || task.createdById === principal.userId,
+    )
+    return this.prisma.$transaction(async (tx) => {
+      const archiveEvent = await tx.auditEvent.findFirst({
+        where: { workspaceId: principal.workspaceId, entityType: 'TASK', entityId: taskId, action: 'task.archived' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { safeDiffJson: true },
+      })
+      const status = restoredTaskStatus(archiveEvent?.safeDiffJson)
+      const result = await tx.task.updateMany({
+        where: { id: taskId, version: expectedVersion, archivedAt: { not: null } },
+        data: { status, archivedAt: null, archivedById: null, version: { increment: 1 } },
+      })
+      if (!result.count) throw conflict('task_version')
+      await recordAudit(tx, principal, { companyId: task.companyId, action: 'task.restored', entityType: 'TASK', entityId: taskId, safeDiff: { status } })
+      await tx.outboxEvent.create({
+        data: {
+          id: id('out'),
+          aggregateType: 'TASK',
+          aggregateId: taskId,
+          aggregateVersion: expectedVersion + 1,
+          eventType: 'task.restored',
+          safePayload: JSON.stringify({ taskId, actorId: principal.userId }),
+        },
+      })
+      return { id: task.id, version: expectedVersion + 1, status }
     })
   }
 

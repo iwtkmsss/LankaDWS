@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { id } from '../../common/crypto.js'
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { recordAudit } from '../../common/audit.js'
 
@@ -14,7 +15,7 @@ export class KnowledgeService {
     const rows = await this.prisma.knowledgeArticle.findMany({ where: { workspaceId: principal.workspaceId, id: { in: audiences.map((entry) => entry.articleId) }, status: 'ACTIVE', ...(search ? { versions: { some: { OR: [{ title: { contains: search } }, { body: { contains: search } }] } } } : {}) }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: { updatedAt: 'desc' } })
     const receipts = rows.length ? await this.prisma.acknowledgement.findMany({ where: { entityType: 'ARTICLE', entityId: { in: rows.map((row) => row.id) }, userId: principal.userId, confirmedAt: { not: null } }, select: { entityId: true, version: true } }) : []
     const confirmed = new Set(receipts.map((receipt) => `${receipt.entityId}:${receipt.version}`))
-    const links = rows.length ? await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: { in: rows.map((row) => row.id) }, purpose: 'ATTACHMENT' }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { entityId: true, fileId: true } }) : []
+    const links = rows.length ? await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: { in: rows.map((row) => row.id) }, purpose: 'ATTACHMENT', removedAt: null }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { entityId: true, fileId: true } }) : []
     const images = links.length ? await this.prisma.fileObject.findMany({ where: { id: { in: links.map((link) => link.fileId) }, workspaceId: principal.workspaceId, scanStatus: 'CLEAN', detectedMime: { in: ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] } }, select: { id: true } }) : []
     const imageIds = new Set(images.map((image) => image.id))
     const thumbnails = new Map<string, string>()
@@ -54,7 +55,7 @@ export class KnowledgeService {
     const audience = await this.prisma.articleAudience.findFirst({ where: { articleId: resolved.id, OR: [{ principalType: 'COMPANY', principalId: { in: principal.allowedCompanyIds } }, { principalType: 'USER', principalId: principal.userId }] } })
     if (!audience) throw notFound()
     const acknowledgement = await this.prisma.acknowledgement.findFirst({ where: { entityType: 'ARTICLE', entityId: resolved.id, version: resolved.version, userId: principal.userId } })
-    const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT' }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { fileId: true } })
+    const attachmentLinks = await this.prisma.fileLink.findMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: resolved.id, purpose: 'ATTACHMENT', removedAt: null }, orderBy: [{ createdAt: 'asc' }, { fileId: 'asc' }], select: { fileId: true } })
     const attachmentRows = attachmentLinks.length === 0 ? [] : await this.prisma.fileObject.findMany({ where: { id: { in: attachmentLinks.map((link) => link.fileId) }, workspaceId: principal.workspaceId }, select: { id: true, safeFilename: true, bytes: true, detectedMime: true, scanStatus: true } })
     const attachments = attachmentLinks.flatMap((link) => {
       const row = attachmentRows.find((file) => file.id === link.fileId)
@@ -107,8 +108,9 @@ export class KnowledgeService {
         await tx.articleAudience.deleteMany({ where: { articleId: article.id, principalType: 'COMPANY' } })
         await tx.articleAudience.createMany({ data: companyIds.map((companyId) => ({ id: id('audn'), articleId: article.id, principalType: 'COMPANY', principalId: companyId })) })
       }
-      for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: {} })
-      if (removedAttachmentIds.length) await tx.fileLink.deleteMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds } } })
+      for (const fileId of attachmentIds) await tx.fileLink.upsert({ where: { fileId_entityType_entityId_purpose: { fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT' } }, create: { id: id('fln'), fileId, entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', aclMode: 'INHERIT' }, update: { removedAt: null, removedById: null } })
+      // Content is hidden, never deleted (decision 2026-11-18); re-attaching revives the link above.
+      if (removedAttachmentIds.length) await tx.fileLink.updateMany({ where: { entityType: 'KNOWLEDGE_ARTICLE', entityId: article.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds }, removedAt: null }, data: { removedAt: new Date(), removedById: principal.userId } })
       await recordAudit(tx, principal, { action: 'knowledge.published', entityType: 'ARTICLE', entityId: article.id })
     })
     return { id: article.id, slug }
@@ -118,10 +120,65 @@ export class KnowledgeService {
     if (principal.accountType !== 'ADMIN') throw forbidden()
     if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('article_version')
     const article = await this.detail(principal, slug)
-    const updated = await this.prisma.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, status: 'ACTIVE', version: expectedVersion }, data: { status: 'ARCHIVED', version: { increment: 1 } } })
+    const updated = await this.prisma.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, status: 'ACTIVE', version: expectedVersion }, data: { status: 'ARCHIVED', archivedAt: new Date(), archivedById: principal.userId, version: { increment: 1 } } })
     if (updated.count !== 1) throw conflict('Матеріал уже змінено. Оновіть сторінку та повторіть дію.')
     await recordAudit(this.prisma, principal, { action: 'knowledge.archived', entityType: 'ARTICLE', entityId: article.id })
-    return { archived: true }
+    return { archived: true, version: expectedVersion + 1 }
+  }
+
+  /**
+   * Administrator «Архів» listing (decision 2026-11-18): every archived article
+   * of the workspace with who archived it and when, newest archive first.
+   */
+  async archivedList(principal: AuthPrincipal) {
+    if (principal.accountType !== 'ADMIN') throw forbidden()
+    const rows = await this.prisma.knowledgeArticle.findMany({
+      where: { workspaceId: principal.workspaceId, status: 'ARCHIVED' },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+      orderBy: [{ archivedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
+    })
+    const actorIds = [...new Set(rows.flatMap((row) => row.archivedById ? [row.archivedById] : []))]
+    const actors = actorIds.length ? await this.prisma.user.findMany({ where: { workspaceId: principal.workspaceId, id: { in: actorIds } }, select: { id: true, displayName: true } }) : []
+    const actorById = new Map(actors.map((actor) => [actor.id, actor]))
+    return { items: rows.map((row) => ({
+      id: row.id, slug: row.slug, title: row.versions[0]?.title ?? row.slug, changeSummary: row.versions[0]?.changeSummary ?? '',
+      reviewAt: row.reviewAt?.toISOString() ?? null, version: row.version, createdAt: row.createdAt.toISOString(),
+      requiresAcknowledgement: row.requiresAcknowledgement, hasAcknowledged: false, updatedAt: row.updatedAt.toISOString(), imageFileId: null,
+      hidden: {
+        hiddenAt: (row.archivedAt ?? row.updatedAt).toISOString(),
+        hiddenBy: row.archivedById ? actorById.get(row.archivedById) ?? { id: row.archivedById, displayName: 'Недоступний користувач' } : null,
+      },
+    })) }
+  }
+
+  /**
+   * Restores an archived article: a global administrator always, the person who
+   * archived it for 10 minutes. The content is unchanged, so restoring works
+   * like re-publishing the same version: receipts confirmed before archiving
+   * carry over to the restored version and nobody is asked to re-acknowledge.
+   * Mandatory-reading reminders reappear only for people who had not confirmed.
+   */
+  async restore(principal: AuthPrincipal, slug: string, expectedVersion: number) {
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw badRequest('article_version')
+    const article = await this.prisma.knowledgeArticle.findFirst({ where: { workspaceId: principal.workspaceId, slug, status: 'ARCHIVED' } })
+    if (!article) throw notFound()
+    if (principal.accountType !== 'ADMIN') {
+      if (article.archivedById !== principal.userId) throw notFound()
+      if (!canActorRestore(article.archivedById, article.archivedAt, principal.userId)) throw forbidden('Час для скасування минув. Відновити матеріал може адміністратор.')
+    }
+    const restoredVersion = expectedVersion + 1
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.knowledgeArticle.updateMany({ where: { id: article.id, workspaceId: principal.workspaceId, status: 'ARCHIVED', version: expectedVersion }, data: { status: 'ACTIVE', archivedAt: null, archivedById: null, version: { increment: 1 } } })
+      if (updated.count !== 1) throw conflict('Матеріал уже змінено. Оновіть сторінку та повторіть дію.')
+      // `archive` bumped the version once; receipts of the live version before it carry over.
+      const receipts = await tx.acknowledgement.findMany({ where: { entityType: 'ARTICLE', entityId: article.id, version: expectedVersion - 1, confirmedAt: { not: null } } })
+      if (receipts.length) await tx.acknowledgement.createMany({ data: receipts.map((receipt) => ({
+        id: id('ack'), entityType: 'ARTICLE', entityId: article.id, version: restoredVersion, userId: receipt.userId,
+        dueAt: receipt.dueAt, openedAt: receipt.openedAt, confirmedAt: receipt.confirmedAt,
+      })) })
+      await recordAudit(tx, principal, { action: 'knowledge.restored', entityType: 'ARTICLE', entityId: article.id })
+    })
+    return { id: article.id, slug: article.slug, version: restoredVersion }
   }
 
   private async assertAttachments(principal: AuthPrincipal, input: string[] | undefined) {

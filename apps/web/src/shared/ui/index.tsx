@@ -82,9 +82,22 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`status status--${tone}`} data-status={status}><Icon size={13} aria-hidden />{statusLabels[status] ?? status}</span>
 }
 
-export function Skeleton({ rows = 4 }: { rows?: number }) { return <div className="skeleton-stack" role="status" aria-label="Завантаження">{Array.from({ length: rows }, (_, index) => <span key={index} className="skeleton-row" />)}</div> }
+function LoaderMark() {
+  return (
+    <span className="page-data-loader__mark" aria-hidden="true">
+      <span className="page-data-loader__glow" />
+      <span className="page-data-loader__sweep" />
+      <img className="page-data-loader__logo" src="/favicon.svg" alt="" width={64} height={64} />
+    </span>
+  )
+}
 
-export function PageDataLoader({ delay = 180 }: { delay?: number }) {
+/** Compact branded loader for panels, drawers and lists. `rows` is kept for call-site compatibility. */
+export function Skeleton(_props: { rows?: number }) {
+  return <div className="inline-data-loader" role="status" aria-label="Завантаження"><LoaderMark /></div>
+}
+
+export function PageDataLoader({ delay = 180, label = 'Завантажуємо дані' }: { delay?: number; label?: string }) {
   const [visible, setVisible] = useState(false)
   useEffect(() => {
     const timer = window.setTimeout(() => setVisible(true), delay)
@@ -93,12 +106,8 @@ export function PageDataLoader({ delay = 180 }: { delay?: number }) {
 
   if (!visible) return <div className="page-data-loader page-data-loader--pending" aria-hidden="true" />
   return (
-    <div className="page-data-loader" role="status" aria-label="Завантажуємо дані">
-      <span className="page-data-loader__mark" aria-hidden="true">
-        <span className="page-data-loader__glow" />
-        <span className="page-data-loader__sweep" />
-        <img className="page-data-loader__logo" src="/favicon.svg" alt="" width={64} height={64} />
-      </span>
+    <div className="page-data-loader" role="status" aria-label={label}>
+      <LoaderMark />
       <span>Оновлюємо робочий простір</span>
     </div>
   )

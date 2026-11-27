@@ -26,7 +26,7 @@ describe('private feedback tickets', () => {
     expect(prisma.fileLink.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ entityType: 'FEEDBACK_TICKET', fileId: 'file' })] })
   })
 
-  it.each(['list', 'detail', 'remove'] as const)('denies %s to all ordinary users including the author before reading data', async (method) => {
+  it.each(['list', 'detail', 'remove', 'restore'] as const)('denies %s to all ordinary users including the author before reading data', async (method) => {
     const { service, prisma } = setup()
     await expect(service[method](user, 'ticket')).rejects.toMatchObject({ status: 403 })
     expect(prisma.feedbackTicket.findFirst).not.toHaveBeenCalled()
@@ -70,11 +70,36 @@ describe('private feedback tickets', () => {
   it('archives with an audit record and returns 404 on an already removed or foreign ticket', async () => {
     const { service, prisma } = setup()
     await expect(service.remove(admin, 'ticket')).resolves.toEqual({ archived: true })
-    expect(prisma.feedbackTicket.updateMany).toHaveBeenCalledWith({ where: { id: 'ticket', workspaceId: 'workspace', status: 'ACTIVE' }, data: { status: 'ARCHIVED' } })
+    expect(prisma.feedbackTicket.updateMany).toHaveBeenCalledWith({ where: { id: 'ticket', workspaceId: 'workspace', status: 'ACTIVE' }, data: { status: 'ARCHIVED', archivedAt: expect.any(Date) as unknown, archivedById: 'admin' } })
     expect(prisma.auditEvent.create).toHaveBeenCalledOnce()
     prisma.auditEvent.create.mockClear()
     prisma.feedbackTicket.updateMany.mockResolvedValue({ count: 0 })
     await expect(service.remove(admin, 'ticket')).rejects.toMatchObject({ status: 404 })
     expect(prisma.auditEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('lists archived tickets for an administrator with who archived them and when', async () => {
+    const { service, prisma } = setup()
+    const createdAt = new Date('2026-10-19T12:00:00Z')
+    const archivedAt = new Date('2026-10-20T12:00:00Z')
+    prisma.feedbackTicket.findMany.mockResolvedValue([{ id: 'ticket', ownerId: 'sender', title: 'Title', createdAt, archivedAt, archivedById: 'admin' }])
+    prisma.user.findMany.mockResolvedValue([{ id: 'sender', displayName: 'Автор' }, { id: 'admin', displayName: 'Адмін' }])
+    const result = await service.list(admin, undefined, true)
+    expect(prisma.feedbackTicket.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { workspaceId: 'workspace', status: 'ARCHIVED' } }))
+    expect(result.items).toEqual([{ id: 'ticket', ownerId: 'sender', title: 'Title', createdAt, author: 'Автор',
+      hidden: { hiddenAt: archivedAt.toISOString(), hiddenBy: { id: 'admin', displayName: 'Адмін' } } }])
+    expect((await service.list(admin)).items[0]).not.toHaveProperty('hidden')
+  })
+
+  it('restores an archived ticket for an administrator, refusing an active (409) or foreign (404) one', async () => {
+    const { service, prisma } = setup()
+    prisma.feedbackTicket.findFirst.mockResolvedValue({ status: 'ARCHIVED' })
+    await expect(service.restore(admin, 'ticket')).resolves.toEqual({ restored: true })
+    expect(prisma.feedbackTicket.updateMany).toHaveBeenCalledWith({ where: { id: 'ticket', workspaceId: 'workspace', status: 'ARCHIVED' }, data: { status: 'ACTIVE', archivedAt: null, archivedById: null } })
+    expect(prisma.auditEvent.create).toHaveBeenCalledOnce()
+    prisma.feedbackTicket.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.restore(admin, 'ticket')).rejects.toMatchObject({ status: 409 })
+    prisma.feedbackTicket.findFirst.mockResolvedValue(null)
+    await expect(service.restore(admin, 'foreign')).rejects.toMatchObject({ status: 404 })
   })
 })

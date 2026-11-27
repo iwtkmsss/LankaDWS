@@ -4,6 +4,7 @@ import {
   acknowledgeFeedPostSchema,
   createFeedCommentSchema,
   createFeedPostSchema,
+  feedArchivedListQuerySchema,
   feedMentionCandidatesQuerySchema,
   feedListQuerySchema,
   FEED_PHOTO_MAX_BYTES,
@@ -41,6 +42,14 @@ export class FeedController {
   @Get('summary')
   summary(@Req() request: LankaDWSRequest, @Query('company') company?: string) {
     return this.feed.summary(principalFrom(request), company)
+  }
+
+  /** Administrator-only archived posts (decision 2026-11-18). */
+  @Get('archived')
+  archived(@Req() request: LankaDWSRequest, @Query() rawQuery: Record<string, unknown>) {
+    const parsed = feedArchivedListQuerySchema.safeParse(rawQuery)
+    if (!parsed.success) throw badRequest('feed_query_invalid')
+    return this.feed.archivedList(principalFrom(request), parsed.data)
   }
 
   @Get('audiences')
@@ -134,6 +143,15 @@ export class FeedController {
     @Body() body: unknown,
   ) {
     return this.feed.archive(principalFrom(request), postId, feedExpectedVersion(body))
+  }
+
+  @Post(':id/restore')
+  restore(
+    @Req() request: LankaDWSRequest,
+    @Param('id') postId: string,
+    @Body() body: unknown,
+  ) {
+    return this.feed.restore(principalFrom(request), postId, feedExpectedVersion(body))
   }
 
   @Post(':id/comments')

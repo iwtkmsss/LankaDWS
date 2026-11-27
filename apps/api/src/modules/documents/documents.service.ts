@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import type { DocumentListItem } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict, notFound } from '../../common/errors.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -157,15 +158,22 @@ export class DocumentsService {
   async archive(principal: AuthPrincipal, documentId: string, expectedVersion: number) {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, archivedAt: null },
-      select: { id: true, companyId: true, version: true },
+      select: { id: true, companyId: true, version: true, ownerId: true },
     })
     if (!document) throw notFound()
+    // Same rule as rename/move: owner, global administrator or an EDITOR share.
+    // A user without any access must not learn that the document exists.
+    if (document.ownerId !== principal.userId && !isGlobalAdmin(principal)) {
+      const role = (await this.sharing.grantsFor(principal)).roleOf('DOCUMENT', document.id)
+      if (!role) throw notFound()
+      if (role !== 'EDITOR') throw forbidden()
+    }
     if (document.version !== expectedVersion) throw conflict()
     const archivedAt = new Date()
     await this.prisma.$transaction(async (tx) => {
       await tx.document.update({
         where: { id: document.id },
-        data: { archivedAt, version: { increment: 1 } },
+        data: { archivedAt, archivedById: principal.userId, version: { increment: 1 } },
       })
       await recordAudit(tx, principal, { companyId: document.companyId, action: 'document.archived', entityType: 'DOCUMENT', entityId: document.id })
     })
@@ -175,15 +183,23 @@ export class DocumentsService {
   async restore(principal: AuthPrincipal, documentId: string, expectedVersion: number) {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, companyId: { in: principal.allowedCompanyIds }, archivedAt: { not: null } },
-      select: { id: true, companyId: true, version: true },
+      select: { id: true, companyId: true, version: true, ownerId: true, archivedAt: true, archivedById: true },
     })
     if (!document) throw notFound()
+    // Decision 2026-11-18: the owner and a global administrator restore from the
+    // trash at any time; whoever archived it may undo for 10 minutes.
+    if (
+      document.ownerId !== principal.userId
+      && !isGlobalAdmin(principal)
+      && !canActorRestore(document.archivedById, document.archivedAt, principal.userId)
+    ) throw forbidden()
     if (document.version !== expectedVersion) throw conflict()
     await this.prisma.$transaction(async (tx) => {
-      await tx.document.update({
-        where: { id: document.id },
-        data: { archivedAt: null, version: { increment: 1 } },
+      const restored = await tx.document.updateMany({
+        where: { id: document.id, version: expectedVersion, archivedAt: { not: null } },
+        data: { archivedAt: null, archivedById: null, version: { increment: 1 } },
       })
+      if (restored.count !== 1) throw conflict()
       await recordAudit(tx, principal, { companyId: document.companyId, action: 'document.restored', entityType: 'DOCUMENT', entityId: document.id })
     })
     return { restored: true, version: expectedVersion + 1 }

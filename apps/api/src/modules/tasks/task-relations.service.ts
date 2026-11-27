@@ -2,10 +2,11 @@ import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import type { TaskRelationInput } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict } from '../../common/errors.js'
+import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import { assertTaskRestoreAllowed } from './task-restore-policy.js'
 import type { TaskTransaction } from './task-types.js'
 
 interface RelationRow {
@@ -48,17 +49,32 @@ export class TaskRelationsService {
     const row = this.normalize(taskId, relation)
     await this.assertCompatibleTarget(principal, task, relation.targetTaskId)
     if (row.type === 'BLOCKS') await this.assertNoBlockingCycle(row)
-    const relationId = id('trel')
 
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
-      await tx.taskRelation.create({
-        data: {
-          id: relationId,
-          ...row,
-          createdById: principal.userId,
-        },
+      // A hidden relation for the same pair keeps @@unique([sourceTaskId,
+      // targetTaskId]); re-creating it revives that row instead of inserting.
+      const hidden = await tx.taskRelation.findFirst({
+        where: { sourceTaskId: row.sourceTaskId, targetTaskId: row.targetTaskId, deletedAt: { not: null } },
+        select: { id: true },
       })
+      let relationId: string
+      if (hidden) {
+        relationId = hidden.id
+        await tx.taskRelation.update({
+          where: { id: hidden.id },
+          data: { type: row.type, createdById: principal.userId, createdAt: new Date(), deletedAt: null, deletedById: null },
+        })
+      } else {
+        relationId = id('trel')
+        await tx.taskRelation.create({
+          data: {
+            id: relationId,
+            ...row,
+            createdById: principal.userId,
+          },
+        })
+      }
       await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { id: relationId, version: expectedVersion + 1 }
     })
@@ -74,13 +90,51 @@ export class TaskRelationsService {
     this.assertVersion(expectedVersion)
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
-      const removed = await tx.taskRelation.deleteMany({
+      // Content is hidden, never deleted (decision 2026-11-18).
+      const removed = await tx.taskRelation.updateMany({
         where: {
           id: relationId,
+          deletedAt: null,
           OR: [{ sourceTaskId: taskId }, { targetTaskId: taskId }],
         },
+        data: { deletedAt: new Date(), deletedById: principal.userId },
       })
       if (!removed.count) throw badRequest('task_relation')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
+      return { version: expectedVersion + 1 }
+    })
+  }
+
+  /** Brings a hidden relation back (decision 2026-11-18); a blocking edge must still not close a cycle. */
+  async restore(
+    principal: AuthPrincipal,
+    taskId: string,
+    relationId: string,
+    expectedVersion: number,
+  ): Promise<{ version: number }> {
+    await this.access.readableTask(principal, taskId)
+    this.assertVersion(expectedVersion)
+    const relation = await this.prisma.taskRelation.findFirst({
+      where: { id: relationId, OR: [{ sourceTaskId: taskId }, { targetTaskId: taskId }] },
+      select: { sourceTaskId: true, targetTaskId: true, type: true, deletedAt: true, deletedById: true },
+    })
+    if (!relation) throw notFound()
+    if (!relation.deletedAt) throw conflict('task_relation_not_hidden')
+    assertTaskRestoreAllowed(principal, relation.deletedById, relation.deletedAt)
+    if (relation.type === 'BLOCKS') {
+      await this.assertNoBlockingCycle({
+        sourceTaskId: relation.sourceTaskId,
+        targetTaskId: relation.targetTaskId,
+        type: 'BLOCKS',
+      })
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await this.advanceVersion(tx, taskId, expectedVersion)
+      const restored = await tx.taskRelation.updateMany({
+        where: { id: relationId, deletedAt: { not: null } },
+        data: { deletedAt: null, deletedById: null },
+      })
+      if (!restored.count) throw conflict('task_relation_not_hidden')
       await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.relation_changed')
       return { version: expectedVersion + 1 }
     })
@@ -128,6 +182,7 @@ export class TaskRelationsService {
         where: {
           sourceTaskId: { in: frontier },
           type: 'BLOCKS',
+          deletedAt: null,
         },
         select: { targetTaskId: true },
       })

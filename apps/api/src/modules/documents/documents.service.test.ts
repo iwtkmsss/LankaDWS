@@ -41,3 +41,38 @@ describe('documents without file versions', () => {
     expect(files.copyForPrincipal).toHaveBeenCalledWith(principal, 'file', 'cmp')
   })
 })
+
+describe('document archive access', () => {
+  function setup(role: 'VIEWER' | 'EDITOR' | null, owner = 'other') {
+    const prisma = {
+      document: { findFirst: vi.fn().mockResolvedValue({ id: 'doc', companyId: 'cmp', version: 2, ownerId: owner }), update: vi.fn() },
+      auditEvent: { create: vi.fn() },
+      $transaction: vi.fn(),
+    }
+    prisma.$transaction.mockImplementation((callback: (transaction: typeof prisma) => Promise<unknown>) => callback(prisma))
+    const sharing = { grantsFor: vi.fn().mockResolvedValue({ roleOf: () => role }) }
+    return { prisma, service: new DocumentsService(prisma as never, {} as never, sharing as never) }
+  }
+
+  it('hides the document from a user without access', async () => {
+    const { prisma, service } = setup(null)
+    await expect(service.archive(principal, 'doc', 2)).rejects.toMatchObject({ status: 404 })
+    expect(prisma.document.update).not.toHaveBeenCalled()
+  })
+
+  it('refuses a viewer', async () => {
+    const { prisma, service } = setup('VIEWER')
+    await expect(service.archive(principal, 'doc', 2)).rejects.toMatchObject({ status: 403 })
+    expect(prisma.document.update).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an editor', 'EDITOR' as const, 'other', principal],
+    ['the owner', null, 'usr', principal],
+    ['a global administrator', null, 'other', { ...principal, accountType: 'ADMIN' as const }],
+  ])('lets %s archive', async (_label, role, owner, actor) => {
+    const { prisma, service } = setup(role, owner)
+    await expect(service.archive(actor, 'doc', 2)).resolves.toMatchObject({ archived: true, version: 3 })
+    expect(prisma.document.update).toHaveBeenCalledOnce()
+  })
+})

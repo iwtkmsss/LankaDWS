@@ -373,7 +373,7 @@ export class TaskRecurrenceService {
         templateTask: {
           include: {
             participants: { where: { removedAt: null } },
-            checklist: { orderBy: { position: 'asc' } },
+            checklist: { where: { deletedAt: null }, orderBy: { position: 'asc' } },
             tags: true,
             reminders: {
               where: {
@@ -382,10 +382,10 @@ export class TaskRecurrenceService {
               },
             },
             outgoingRelations: {
-              where: { type: { in: ['RELATED', 'DUPLICATES'] } },
+              where: { type: { in: ['RELATED', 'DUPLICATES'] }, deletedAt: null },
             },
             incomingRelations: {
-              where: { type: { in: ['RELATED', 'DUPLICATES'] } },
+              where: { type: { in: ['RELATED', 'DUPLICATES'] }, deletedAt: null },
             },
           },
         },

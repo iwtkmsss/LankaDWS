@@ -8,6 +8,7 @@ import { UserSearchCombobox } from '../../employees/UserSearchCombobox'
 import { FormattedTextarea } from '../../../shared/text/FormattedTextarea'
 import { DateTimePicker } from '../../../shared/ui/DateTimePicker'
 import { Button, StatusBadge } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 
 export function TaskRelations({
   id,
@@ -52,6 +53,7 @@ export function TaskRelations({
       setSubtaskFormOpen(false)
       void client.invalidateQueries({ queryKey: ['task', id] })
       void client.invalidateQueries({ queryKey: ['tasks'] })
+      notifySuccess('Підзавдання створено')
     },
     onError: (error) => {
       setSubtaskError(

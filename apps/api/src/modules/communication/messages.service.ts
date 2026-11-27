@@ -25,9 +25,8 @@ import {
   type EditChatMessageInput,
   type MarkChatReadInput,
   type MentionCandidateView,
-  type RecommendedChatUsersPage,
-  type RecommendedChatUsersQuery,
   type RemoveChatParticipantInput,
+  type RestoreHiddenContentInput,
   type SendChatMessageInput,
   type StructuredMentionInput,
   type StructuredMentionView,
@@ -37,15 +36,15 @@ import {
 import { fingerprint, id } from '../../common/crypto.js'
 import { listReactionUsers } from '../../common/reaction-users.js'
 import type { ReactionUsersQuery } from '@lankadws/contracts'
-import { badRequest, conflict, DomainError, notFound } from '../../common/errors.js'
+import { badRequest, conflict, DomainError, forbidden, notFound } from '../../common/errors.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { parseUserSearchExcludedIds, searchUsers } from '../../common/search-users.js'
-import { USER_SEARCH_LIMIT } from '@lankadws/contracts'
-import type { FileObject, Message, MessageThread, Prisma, ThreadParticipant, User } from '../../generated/prisma/client.js'
+import { Prisma } from '../../generated/prisma/client.js'
+import type { FileObject, Message, MessageThread, ThreadParticipant, User } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
 import { FilesService, type UploadedBinary } from '../files/files.service.js'
-import { scoreChatRecommendation, type ChatRecommendationSignals } from './chat-recommendations.js'
 import { ChatRealtimeService } from './chat-realtime.service.js'
 import { findIdempotentResult, recordIdempotentResult } from '../../common/idempotency.js'
 import { validateStructuredMentions } from '../../common/mentions.js'
@@ -90,7 +89,7 @@ export class MessagesService {
         )
       : null
     const selectedIds = unreadPageIds?.slice(0, query.limit)
-    const rows = selectedIds?.length === 0 ? [] : await this.prisma.messageThread.findMany({
+    const threadRows = selectedIds?.length === 0 ? [] : await this.prisma.messageThread.findMany({
       where: {
         workspaceId: principal.workspaceId,
         companyId: { in: companyIds },
@@ -109,19 +108,12 @@ export class MessagesService {
         ...(cursor ? this.threadCursorWhere(cursor) : {}),
         ...(selectedIds ? { id: { in: selectedIds } } : {}),
       },
-      include: {
-        participants: true,
-        messages: {
-          where: { deletedAt: null },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
-        },
-      },
+      include: { participants: true },
       orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       ...(selectedIds ? {} : { take: query.limit + 1 }),
     })
     // Fetch pins independently of the activity cursor so old pinned chats remain visible.
-    const pinnedRows = !cursor && pinnedIds.length ? await this.prisma.messageThread.findMany({
+    const pinnedThreadRows = !cursor && pinnedIds.length ? await this.prisma.messageThread.findMany({
       where: {
         id: { in: pinnedIds },
         workspaceId: principal.workspaceId,
@@ -129,12 +121,20 @@ export class MessagesService {
         participants: { some: { userId: principal.userId, leftAt: null } },
         OR: [{ kind: { not: 'DIRECT' } }, { messages: { some: { deletedAt: null } } }],
       },
-      include: {
-        participants: true,
-        messages: { where: { deletedAt: null }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 },
-      },
+      include: { participants: true },
       orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
     }) : []
+    // The latest message is resolved per thread with a bounded query instead of a nested
+    // `messages: { take: 1 }` include, which Prisma runs without LIMIT over every thread's history.
+    const latestByThread = await this.latestThreadMessages(
+      [...pinnedThreadRows, ...threadRows.slice(0, query.limit)].map((thread) => thread.id),
+    )
+    const withLatest = (thread: ThreadWithParticipants): ThreadListRow => {
+      const latest = latestByThread.get(thread.id)
+      return { ...thread, messages: latest ? [latest] : [] }
+    }
+    const rows = threadRows.map(withLatest)
+    const pinnedRows = pinnedThreadRows.map(withLatest)
     const pageRows = rows.slice(0, query.limit)
     const authorizedRows = [...new Map([...pinnedRows, ...pageRows].map((thread) => [thread.id, thread])).values()]
     const usersById = await this.safeUsers(
@@ -147,6 +147,7 @@ export class MessagesService {
             entityType: 'MESSAGE',
             entityId: { in: lastMessageIds },
             purpose: 'ATTACHMENT',
+            removedAt: null,
           },
           select: { entityId: true },
         })
@@ -496,6 +497,7 @@ export class MessagesService {
             entityType: 'MESSAGE',
             entityId: latest[0].id,
             purpose: 'ATTACHMENT',
+            removedAt: null,
           },
           select: { id: true },
         }))
@@ -566,149 +568,6 @@ export class MessagesService {
       where: { id: { in: participantIds } }, limit: query.limit,
     })
     return { items: users }
-  }
-
-  async recommendedUsers(
-    principal: AuthPrincipal,
-    query: RecommendedChatUsersQuery,
-  ): Promise<RecommendedChatUsersPage> {
-    query = { ...query, limit: Math.min(query.limit, USER_SEARCH_LIMIT) }
-    const companyId = this.scope.assertCompany(principal, query.company)
-    const since = new Date(Date.now() - 90 * 86_400_000)
-    const [directThreads, relatedTasks, ownAssignments] = await Promise.all([
-      this.prisma.messageThread.findMany({
-        where: {
-          workspaceId: principal.workspaceId,
-          companyId,
-          kind: 'DIRECT',
-          participants: { some: { userId: principal.userId, leftAt: null } },
-        },
-        orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
-        take: 80,
-        select: {
-          participants: { where: { leftAt: null }, select: { userId: true } },
-          messages: {
-            where: { deletedAt: null, createdAt: { gte: since } },
-            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-            take: 40,
-            select: { authorId: true, createdAt: true },
-          },
-        },
-      }),
-      this.prisma.task.findMany({
-        where: {
-          companyId,
-          archivedAt: null,
-          status: { notIn: ['DONE', 'ARCHIVED'] },
-          OR: [
-            { createdById: principal.userId },
-            { reporterId: principal.userId },
-            { participants: { some: { userId: principal.userId, removedAt: null } } },
-          ],
-        },
-        select: {
-          createdById: true,
-          reporterId: true,
-          participants: {
-            where: { removedAt: null },
-            select: { userId: true },
-          },
-        },
-        take: 100,
-      }),
-      this.prisma.userOrgAssignment.findMany({
-        where: { companyId, userId: principal.userId, endedAt: null },
-        select: { orgUnitId: true },
-        take: 100,
-      }),
-    ])
-    const orgUnitIds = ownAssignments.map((assignment) => assignment.orgUnitId)
-    const [orgPeers] = await Promise.all([
-      orgUnitIds.length
-        ? this.prisma.userOrgAssignment.findMany({
-            where: {
-              companyId,
-              orgUnitId: { in: orgUnitIds },
-              userId: { not: principal.userId },
-              endedAt: null,
-            },
-            select: { userId: true },
-            take: 100,
-          })
-        : [],
-    ])
-    const signals = new Map<string, ChatRecommendationSignals>()
-    const ensure = (userId: string) => {
-      const existing = signals.get(userId)
-      if (existing) return existing
-      const created: ChatRecommendationSignals = {
-        lastInteractionAt: null,
-        sentCount: 0,
-        receivedCount: 0,
-        activeTaskRelationship: false,
-        sharedOrgUnit: false,
-      }
-      if (signals.size < 200) signals.set(userId, created)
-      return created
-    }
-    for (const thread of directThreads) {
-      const contactId = thread.participants.find(
-        (participant) => participant.userId !== principal.userId,
-      )?.userId
-      if (!contactId) continue
-      const signal = ensure(contactId)
-      for (const message of thread.messages) {
-        signal.lastInteractionAt ??= message.createdAt
-        if (message.authorId === principal.userId) signal.sentCount += 1
-        else signal.receivedCount += 1
-      }
-    }
-    for (const peer of orgPeers) ensure(peer.userId).sharedOrgUnit = true
-    for (const task of relatedTasks) {
-      for (const userId of [
-        task.createdById,
-        task.reporterId,
-        ...task.participants.map((participant) => participant.userId),
-      ]) {
-        if (userId !== principal.userId) ensure(userId).activeTaskRelationship = true
-      }
-    }
-
-    const candidateIds = [...signals.keys()]
-    const users = candidateIds.length
-      ? await this.recommendationUsers(principal, companyId, candidateIds)
-      : []
-    if (users.length < query.limit) {
-      const fallback = await this.recommendationUsers(principal, companyId)
-      for (const user of fallback) {
-        if (users.some((existing) => existing.id === user.id)) continue
-        ensure(user.id).fallbackTeam = true
-        users.push(user)
-        if (users.length >= 200) break
-      }
-    }
-    const collator = new Intl.Collator('uk-UA')
-    return {
-      items: users
-        .map((user) => ({
-          user,
-          ...scoreChatRecommendation(signals.get(user.id) ?? {
-            lastInteractionAt: null,
-            sentCount: 0,
-            receivedCount: 0,
-            activeTaskRelationship: false,
-            sharedOrgUnit: false,
-            fallbackTeam: true,
-          }),
-        }))
-        .sort((left, right) =>
-          right.score - left.score
-          || collator.compare(left.user.displayName, right.user.displayName)
-          || left.user.id.localeCompare(right.user.id),
-        )
-        .slice(0, query.limit)
-        .map(({ user, reason }) => ({ ...this.contactUser(user), reason })),
-    }
   }
 
   async post(
@@ -883,7 +742,7 @@ export class MessagesService {
     if (!message) throw notFound()
     const thread = await this.readableThread(principal, message.threadId)
     const links = await this.prisma.fileLink.findMany({
-      where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT' },
+      where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT', removedAt: null },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { fileId: true },
     })
@@ -1193,7 +1052,7 @@ export class MessagesService {
     const body = input.body.trim()
     const attachmentLinks = input.attachmentIds !== undefined || !body
       ? await this.prisma.fileLink.findMany({
-          where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT' },
+          where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT', removedAt: null },
           select: { fileId: true },
         })
       : null
@@ -1259,8 +1118,10 @@ export class MessagesService {
         throw conflict('Повідомлення вже змінилося. Оновіть діалог.')
       }
       if (removedAttachmentIds.length) {
-        await tx.fileLink.deleteMany({
-          where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds } },
+        // Content is hidden, never deleted (decision 2026-11-18).
+        await tx.fileLink.updateMany({
+          where: { entityType: 'MESSAGE', entityId: message.id, purpose: 'ATTACHMENT', fileId: { in: removedAttachmentIds }, removedAt: null },
+          data: { removedAt: new Date(), removedById: principal.userId },
         })
       }
       if (mentionsChanged) {
@@ -1443,6 +1304,7 @@ export class MessagesService {
         },
         data: {
           deletedAt,
+          deletedById: principal.userId,
           version: { increment: 1 },
         },
       })
@@ -1475,6 +1337,168 @@ export class MessagesService {
       id: message.id,
       deletedAt: deletedAt.toISOString(),
       version: input.expectedVersion + 1,
+    }
+  }
+
+  /**
+   * Brings a deleted message back (decision 2026-11-18). A global administrator
+   * may always restore; the person who deleted it may undo for 10 minutes while
+   * still a participant. Deletion keeps attachment links and mentions, so the
+   * restored message is exactly what it was.
+   */
+  async restoreMessage(
+    principal: AuthPrincipal,
+    messageId: string,
+    input: RestoreHiddenContentInput,
+  ): Promise<ChatMessageView> {
+    const admin = isGlobalAdmin(principal)
+    const message = await this.prisma.message.findFirst({
+      where: {
+        id: messageId,
+        thread: {
+          workspaceId: principal.workspaceId,
+          companyId: { in: principal.allowedCompanyIds },
+          ...(!admin ? { participants: { some: { userId: principal.userId, leftAt: null } } } : {}),
+        },
+      },
+      include: { thread: { select: { id: true, companyId: true } } },
+    })
+    if (!message) throw notFound()
+    const thread = await this.readableThread(principal, message.threadId)
+    if (!message.deletedAt) {
+      const [view] = await this.messageViews(principal, thread, [message])
+      if (!view) throw notFound()
+      return view
+    }
+    if (!admin && !canActorRestore(message.deletedById, message.deletedAt, principal.userId)) {
+      throw forbidden('Відновити повідомлення може лише адміністратор.')
+    }
+    if (message.version !== input.expectedVersion) {
+      throw conflict('Повідомлення вже змінилося. Оновіть діалог.')
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.message.updateMany({
+        where: {
+          id: message.id,
+          version: input.expectedVersion,
+          deletedAt: { not: null },
+        },
+        data: {
+          deletedAt: null,
+          deletedById: null,
+          version: { increment: 1 },
+        },
+      })
+      if (changed.count !== 1) {
+        throw conflict('Повідомлення вже змінилося. Оновіть діалог.')
+      }
+      const aggregate = await tx.messageThread.update({
+        where: { id: message.threadId },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await recordAudit(tx, principal, { companyId: message.thread.companyId, action: 'message.restored', entityType: 'MESSAGE', entityId: message.id })
+      await tx.outboxEvent.create({
+        data: {
+          id: id('out'),
+          aggregateType: 'MESSAGE_THREAD',
+          aggregateId: message.threadId,
+          aggregateVersion: aggregate.version,
+          eventType: 'message.restored',
+          safePayload: JSON.stringify({
+            threadId: message.threadId,
+            messageId: message.id,
+            companyId: message.thread.companyId,
+          }),
+        },
+      })
+    })
+    // Open clients refetch an edited message, which is exactly what a restore needs.
+    void this.realtime.publish(message.threadId, 'message.edited', message.id).catch(() => undefined)
+    const restored = await this.prisma.message.findUniqueOrThrow({ where: { id: message.id } })
+    const [view] = await this.messageViews(principal, thread, [restored])
+    if (!view) throw notFound()
+    return view
+  }
+
+  /**
+   * Undo for leaving a group chat (decision 2026-11-18): the person who left may
+   * rejoin within 10 minutes. Removal by an owner is undone through the regular
+   * add-participant route instead. The thread itself is unreadable once left, so
+   * the row is located without the participant filter and checked explicitly.
+   */
+  async rejoinThread(
+    principal: AuthPrincipal,
+    threadId: string,
+    input: RestoreHiddenContentInput,
+  ): Promise<{ participant: ChatParticipantView; threadVersion: number }> {
+    const thread = await this.prisma.messageThread.findFirst({
+      where: {
+        id: threadId,
+        workspaceId: principal.workspaceId,
+        companyId: { in: principal.allowedCompanyIds },
+      },
+      include: { participants: true },
+    })
+    if (!thread) throw notFound()
+    const participant = thread.participants.find((entry) => entry.userId === principal.userId)
+    if (!participant?.leftAt) throw notFound()
+    this.assertCollaborativeThread(thread)
+    // ThreadParticipant has no `leftById`; the audit event written in the same
+    // transaction as the leave tells a self-leave from a removal by an owner.
+    const selfLeave = await this.prisma.auditEvent.findFirst({
+      where: {
+        workspaceId: principal.workspaceId,
+        action: 'message.participant_left',
+        entityType: 'MESSAGE_THREAD',
+        entityId: thread.id,
+        actorId: principal.userId,
+        createdAt: { gte: participant.leftAt },
+      },
+      select: { id: true },
+    })
+    if (!selfLeave || !canActorRestore(principal.userId, participant.leftAt, principal.userId)) throw notFound()
+    if (participant.version !== input.expectedVersion) {
+      throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
+    }
+    if (thread.participants.filter((entry) => !entry.leftAt).length >= 50) {
+      throw badRequest('chat_participant_limit')
+    }
+    const leftAt = participant.leftAt
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.threadParticipant.updateMany({
+        where: { id: participant.id, version: input.expectedVersion, leftAt },
+        data: { leftAt: null, version: { increment: 1 } },
+      })
+      if (changed.count !== 1) {
+        throw conflict('Склад діалогу вже змінився. Оновіть сторінку.')
+      }
+      const aggregate = await tx.messageThread.update({
+        where: { id: thread.id },
+        data: { version: { increment: 1 } },
+        select: { version: true },
+      })
+      await recordAudit(tx, principal, { companyId: thread.companyId, action: 'message.participant_rejoined', entityType: 'MESSAGE_THREAD', entityId: thread.id, safeDiff: { participantCount: 1 } })
+      await tx.outboxEvent.create({
+        data: {
+          id: id('out'),
+          aggregateType: 'MESSAGE_THREAD',
+          aggregateId: thread.id,
+          aggregateVersion: aggregate.version,
+          eventType: 'message.participant_added',
+          safePayload: JSON.stringify({ threadId: thread.id, companyId: thread.companyId }),
+        },
+      })
+      return {
+        participant: await tx.threadParticipant.findUniqueOrThrow({ where: { id: participant.id } }),
+        threadVersion: aggregate.version,
+      }
+    })
+    void this.realtime.publish(thread.id, 'participant.updated').catch(() => undefined)
+    const usersById = await this.safeUsers([principal.userId])
+    return {
+      participant: this.participantView(updated.participant, usersById),
+      threadVersion: updated.threadVersion,
     }
   }
 
@@ -1754,6 +1778,7 @@ export class MessagesService {
           entityType: 'MESSAGE',
           entityId: { in: attachmentMessageIds },
           purpose: 'ATTACHMENT',
+          removedAt: null,
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
@@ -1790,7 +1815,11 @@ export class MessagesService {
         })
       : []
     const allMessages = [...messages, ...replyMessages]
-    const usersById = await this.safeUsers(allMessages.map((message) => message.authorId))
+    // An administrator sees who deleted a message (decision 2026-11-18).
+    const deleterIds = isGlobalAdmin(principal)
+      ? messages.flatMap((message) => message.deletedAt && message.deletedById ? [message.deletedById] : [])
+      : []
+    const usersById = await this.safeUsers([...allMessages.map((message) => message.authorId), ...deleterIds])
     const messagesById = new Map(allMessages.map((message) => [message.id, message]))
     const readMarkerById = new Map(readMarkerMessages.map((message) => [message.id, message]))
     const filesById = new Map(attachmentFiles.map((file) => [file.id, file]))
@@ -2062,32 +2091,6 @@ export class MessagesService {
     return result
   }
 
-  private recommendationUsers(
-    principal: AuthPrincipal,
-    _companyId: string,
-    userIds?: string[],
-  ): Promise<SafeUser[]> {
-    return this.prisma.user.findMany({
-      where: {
-        workspaceId: principal.workspaceId,
-        isActive: true,
-        id: {
-          not: principal.userId,
-          ...(userIds ? { in: userIds } : {}),
-        },
-      },
-      select: {
-        id: true,
-        displayName: true,
-        username: true,
-        jobTitle: true,
-        avatarAsset: true,
-      },
-      orderBy: [{ normalizedDisplayName: 'asc' }, { id: 'asc' }],
-      take: 200,
-    })
-  }
-
   private threadCursorWhere(cursor: ChatThreadCursor): Prisma.MessageThreadWhereInput {
     const createdAt = new Date(cursor.createdAt)
     if (cursor.lastMessageAt) {
@@ -2169,6 +2172,32 @@ export class MessagesService {
     } catch {
       throw badRequest('chat_message_cursor_invalid')
     }
+  }
+
+  /**
+   * Latest non-deleted message of each thread, keyed by thread id. One correlated
+   * `LIMIT 1` subquery per thread uses Message(threadId, deletedAt, createdAt, id), so
+   * the cost does not grow with thread history. Ordering matches the message pages:
+   * createdAt DESC, id DESC. Callers must pass only threads they already authorized.
+   */
+  private async latestThreadMessages(threadIds: string[]): Promise<Map<string, Message>> {
+    const uniqueIds = [...new Set(threadIds)]
+    if (!uniqueIds.length) return new Map()
+    const latest = await this.prisma.$queryRaw<Array<{ messageId: string | null }>>(Prisma.sql`
+      SELECT (
+        SELECT m."id" FROM "Message" AS m
+        WHERE m."threadId" = t."id" AND m."deletedAt" IS NULL
+        ORDER BY m."createdAt" DESC, m."id" DESC
+        LIMIT 1
+      ) AS "messageId"
+      FROM "MessageThread" AS t
+      WHERE t."id" IN (${Prisma.join(uniqueIds)})`)
+    const messageIds = latest.flatMap((row) => row.messageId ? [row.messageId] : [])
+    if (!messageIds.length) return new Map()
+    const messages = await this.prisma.message.findMany({
+      where: { id: { in: messageIds }, deletedAt: null },
+    })
+    return new Map(messages.map((message) => [message.threadId, message]))
   }
 
   private async safeUsers(userIds: string[]): Promise<Map<string, SafeUser>> {
@@ -2314,17 +2343,22 @@ export class MessagesService {
     const replyAuthor = reply ? usersById.get(reply.authorId) : null
     const deleted = Boolean(message.deletedAt)
     const canManage = isGlobalAdmin(principal)
+    // Everyone else gets the same empty tombstone as before; an administrator
+    // reads the hidden content in place and may restore it.
+    const revealDeleted = deleted && canManage
+    const hidden = deleted && !revealDeleted
+    const deleter = revealDeleted && message.deletedById ? usersById.get(message.deletedById) : null
     const attachments = attachmentsByMessage.get(message.id) ?? []
     return {
       id: message.id,
       authorId: message.authorId,
-      body: deleted ? '' : message.body,
+      body: hidden ? '' : message.body,
       createdAt: message.createdAt.toISOString(),
       editedAt: message.editedAt?.toISOString() ?? null,
       deletedAt: message.deletedAt?.toISOString() ?? null,
       version: message.version,
       replyToId: message.replyToId,
-      mentions: deleted ? [] : mentions,
+      mentions: hidden ? [] : mentions,
       replyPreview: reply
         ? {
             id: reply.id,
@@ -2339,11 +2373,19 @@ export class MessagesService {
         displayName: author?.displayName ?? 'Користувач',
         avatarAsset: author?.avatarAsset ?? null,
       },
-      attachments: deleted ? [] : attachments,
+      attachments: hidden ? [] : attachments,
       readByCount,
       reactions: deleted ? { likeCount: 0, likedByMe: false } : reactions,
       canEdit: !deleted && (message.authorId === principal.userId || canManage),
       canDelete: !deleted && (message.authorId === principal.userId || canManage),
+      ...(revealDeleted
+        ? {
+            deletedBy: message.deletedById
+              ? { id: message.deletedById, displayName: deleter?.displayName ?? 'Користувач' }
+              : null,
+            canRestore: true,
+          }
+        : {}),
     }
   }
 

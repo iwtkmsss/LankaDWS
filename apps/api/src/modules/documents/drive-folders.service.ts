@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import type { DriveBreadcrumb } from '@lankadws/contracts'
 import { id } from '../../common/crypto.js'
-import { badRequest, forbidden, notFound } from '../../common/errors.js'
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js'
+import { canActorRestore } from '../../common/restore-window.js'
 import { isGlobalAdmin, type AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ScopeService } from '../authorization/scope.service.js'
@@ -68,30 +69,69 @@ export class DriveFoldersService {
     return this.detail(principal, folderId)
   }
 
-  /** Trashing a folder trashes everything beneath it, the way Drive does. */
+  /**
+   * Trashing a folder trashes everything beneath it, the way Drive does. Every
+   * folder and document hidden by this operation gets the same timestamp and
+   * actor, which is how restore later tells them from items trashed on their own.
+   */
   async trash(principal: AuthPrincipal, folderId: string) {
     await this.assertEditable(principal, folderId)
     const folder = await this.readable(principal, folderId)
+    if (folder.trashedAt) return { trashed: true, folders: 0, trashedAt: folder.trashedAt.toISOString() }
     const subtree = [...await this.sharing.expandSubtree(principal, [folderId])]
     const trashedAt = new Date()
-    await this.prisma.$transaction(async (tx) => {
-      await tx.driveFolder.updateMany({ where: { id: { in: subtree } }, data: { trashedAt } })
-      await tx.document.updateMany({ where: { folderId: { in: subtree }, archivedAt: null }, data: { archivedAt: trashedAt } })
+    const trashed = await this.prisma.$transaction(async (tx) => {
+      const folders = await tx.driveFolder.updateMany({
+        where: { id: { in: subtree }, trashedAt: null },
+        data: { trashedAt, trashedById: principal.userId },
+      })
+      await tx.document.updateMany({
+        where: { folderId: { in: subtree }, archivedAt: null },
+        data: { archivedAt: trashedAt, archivedById: principal.userId, version: { increment: 1 } },
+      })
+      return folders.count
     })
     await this.audit(principal, folder.companyId, folderId, 'drive.folder_trashed')
-    return { trashed: true, folders: subtree.length, trashedAt: trashedAt.toISOString() }
+    return { trashed: true, folders: trashed, trashedAt: trashedAt.toISOString() }
   }
 
+  /**
+   * Restores what one trash operation hid (decision 2026-11-18): the folder plus
+   * every descendant folder and document carrying the same trash timestamp and
+   * actor. Items trashed separately before stay in the trash. The owner and a
+   * global administrator may restore at any time; whoever trashed it may undo
+   * for 10 minutes. DriveFolder has no version, so the folder's own trash
+   * timestamp is the optimistic precondition.
+   */
   async restore(principal: AuthPrincipal, folderId: string) {
-    await this.assertEditable(principal, folderId)
     const folder = await this.readable(principal, folderId)
+    if (!folder.trashedAt) return { restored: true, folders: 0 }
+    if (
+      folder.ownerId !== principal.userId
+      && !isGlobalAdmin(principal)
+      && !canActorRestore(folder.trashedById, folder.trashedAt, principal.userId)
+    ) throw forbidden()
+    const trashedAt = folder.trashedAt
+    const trashedById = folder.trashedById
     const subtree = [...await this.sharing.expandSubtree(principal, [folderId])]
-    await this.prisma.$transaction(async (tx) => {
-      await tx.driveFolder.updateMany({ where: { id: { in: subtree } }, data: { trashedAt: null } })
-      await tx.document.updateMany({ where: { folderId: { in: subtree } }, data: { archivedAt: null } })
+    const restored = await this.prisma.$transaction(async (tx) => {
+      const root = await tx.driveFolder.updateMany({
+        where: { id: folderId, trashedAt, trashedById },
+        data: { trashedAt: null, trashedById: null },
+      })
+      if (root.count !== 1) throw conflict()
+      const descendants = await tx.driveFolder.updateMany({
+        where: { id: { in: subtree.filter((entry) => entry !== folderId) }, trashedAt, trashedById },
+        data: { trashedAt: null, trashedById: null },
+      })
+      await tx.document.updateMany({
+        where: { folderId: { in: subtree }, archivedAt: trashedAt, archivedById: trashedById },
+        data: { archivedAt: null, archivedById: null, version: { increment: 1 } },
+      })
+      return 1 + descendants.count
     })
     await this.audit(principal, folder.companyId, folderId, 'drive.folder_restored')
-    return { restored: true, folders: subtree.length }
+    return { restored: true, folders: restored }
   }
 
   async breadcrumbs(principal: AuthPrincipal, folderId: string | null, includeAll = false): Promise<DriveBreadcrumb[]> {
@@ -132,7 +172,7 @@ export class DriveFoldersService {
           }),
         },
       }),
-      this.prisma.driveShare.count({ where: { targetType: 'FOLDER', targetId: folder.id } }),
+      this.prisma.driveShare.count({ where: { targetType: 'FOLDER', targetId: folder.id, revokedAt: null } }),
       this.sizes(principal, [folder.id]),
     ])
     return {

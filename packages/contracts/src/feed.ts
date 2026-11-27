@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { CalendarAcknowledgementView } from './chat.js'
 import { companyScopeSchema } from './domain.js'
+import type { HiddenContentMarker } from './hidden-content.js'
 import { mentionSearchQuerySchema, structuredMentionInputSchema, type StructuredMentionView } from './mentions.js'
 
 export const feedPostStatusSchema = z.enum(['PUBLISHED', 'ARCHIVED'])
@@ -45,6 +46,13 @@ export const feedListQuerySchema = z
     }
   })
 export type FeedListQuery = z.infer<typeof feedListQuerySchema>
+
+/** Administrator-only listing of archived (hidden) posts, newest archive first. */
+export const feedArchivedListQuerySchema = z.object({
+  cursor: z.string().max(500).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+export type FeedArchivedListQuery = z.infer<typeof feedArchivedListQuerySchema>
 
 export const feedMentionCandidatesQuerySchema = mentionSearchQuerySchema
   .extend({
@@ -269,6 +277,13 @@ export interface FeedPostView {
   version: number
   canEdit: boolean
   canModerate: boolean
+  /** Present only in the administrator archived listing. */
+  hidden?: HiddenContentMarker | null
+}
+
+export interface FeedArchivedListResult {
+  items: FeedPostView[]
+  nextCursor: string | null
 }
 
 export interface FeedSourceView {

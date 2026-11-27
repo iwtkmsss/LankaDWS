@@ -5,7 +5,8 @@ import { api } from '../../shared/api/client'
 import { formatDateTime } from '../../shared/lib/format'
 import { FilePreviewModal } from '../../shared/files/FilePreviewModal'
 import { Button, Modal, ErrorState, Skeleton } from '../../shared/ui'
-import { trashDocument } from './api'
+import { notifySuccess } from '../../shared/ui/notify'
+import { restoreDocument, trashDocument } from './api'
 
 interface DocumentFile { name: string; mimeType: string; bytes: number; scanStatus: string }
 interface DocumentDetail {
@@ -25,10 +26,16 @@ export function DriveDetailsDrawer({ documentId, onClose }: { documentId: string
   const queryClient = useQueryClient()
   const remove = useMutation({
     mutationFn: (document: DocumentDetail) => trashDocument(document.id, document.version),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['drive'] })
-      void queryClient.invalidateQueries({ queryKey: ['drive-document', documentId] })
+    onSuccess: (archived) => {
+      const refresh = () => Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['drive'] }),
+        queryClient.invalidateQueries({ queryKey: ['drive-document', documentId] }),
+      ])
+      void refresh()
       onClose()
+      notifySuccess('Переміщено в кошик', {
+        undo: () => restoreDocument(documentId, archived.version).then(refresh),
+      })
     },
   })
   const query = useQuery({

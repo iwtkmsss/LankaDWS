@@ -115,9 +115,7 @@ test('messages workspace covers user-only search, direct history and real chat a
 
   const mute = conversation.getByRole('button', { name: 'Вимкнути сповіщення' })
   const unmute = conversation.getByRole('button', { name: 'Увімкнути сповіщення' })
-  if (await mute.isVisible()) {
-    await mute.click()
-  }
+  if (await mute.isVisible()) await mute.click()
   await expect(unmute).toBeVisible()
 
   await conversation.getByRole('button', { name: /^Інформація та файли:/ }).click()

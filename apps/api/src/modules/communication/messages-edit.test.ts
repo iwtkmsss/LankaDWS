@@ -6,10 +6,10 @@ const principal = { userId: 'me', workspaceId: 'workspace' } as AuthPrincipal
 
 function setup(version = 1) {
   const findMany = vi.fn().mockResolvedValue([{ fileId: 'photo-1' }, { fileId: 'photo-2' }])
-  const deleteMany = vi.fn().mockResolvedValue({ count: 1 })
+  const removeLinks = vi.fn().mockResolvedValue({ count: 1 })
   const updateMany = vi.fn().mockResolvedValue({ count: 1 })
   const tx = {
-    message: { updateMany }, fileLink: { deleteMany },
+    message: { updateMany }, fileLink: { updateMany: removeLinks },
     messageThread: { update: vi.fn().mockResolvedValue({ version: 2 }) },
     auditEvent: { create: vi.fn() }, outboxEvent: { create: vi.fn() },
   }
@@ -22,19 +22,20 @@ function setup(version = 1) {
       deletedAt: null, createdAt: new Date(), thread: { companyId: 'company' } }),
     readableThread: vi.fn().mockResolvedValue({ participants: [] }),
   })
-  return { service, findMany, deleteMany, updateMany, transaction }
+  return { service, findMany, removeLinks, updateMany, transaction }
 }
 
 describe('editing message attachments', () => {
   it('persists attachment removal even when the text stays the same', async () => {
-    const { service, deleteMany, updateMany } = setup()
+    const { service, removeLinks, updateMany } = setup()
     expect(await service.editMessage(principal, 'message', {
       body: 'Текст', expectedVersion: 1, attachmentIds: ['photo-2'],
     })).toMatchObject({ version: 2 })
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'message', version: 1, deletedAt: null } }))
-    expect(deleteMany).toHaveBeenCalledWith({ where: {
-      entityType: 'MESSAGE', entityId: 'message', purpose: 'ATTACHMENT', fileId: { in: ['photo-1'] },
-    } })
+    // Removed attachments are hidden, never deleted.
+    expect(removeLinks).toHaveBeenCalledWith({ where: {
+      entityType: 'MESSAGE', entityId: 'message', purpose: 'ATTACHMENT', fileId: { in: ['photo-1'] }, removedAt: null,
+    }, data: { removedAt: expect.any(Date) as unknown, removedById: 'me' } })
   })
 
   it('allows a file-only message to keep its remaining attachment', async () => {
@@ -56,10 +57,10 @@ describe('editing message attachments', () => {
   })
 
   it('keeps attachments unchanged for existing text-only edit requests', async () => {
-    const { service, findMany, deleteMany } = setup()
+    const { service, findMany, removeLinks } = setup()
     await service.editMessage(principal, 'message', { body: 'Новий текст', expectedVersion: 1 })
     expect(findMany).not.toHaveBeenCalled()
-    expect(deleteMany).not.toHaveBeenCalled()
+    expect(removeLinks).not.toHaveBeenCalled()
   })
 
   it('does not detach anything when the version is stale or changes during saving', async () => {
@@ -73,6 +74,6 @@ describe('editing message attachments', () => {
     await expect(concurrent.service.editMessage(principal, 'message', {
       body: 'Текст', expectedVersion: 1, attachmentIds: [],
     })).rejects.toThrow()
-    expect(concurrent.deleteMany).not.toHaveBeenCalled()
+    expect(concurrent.removeLinks).not.toHaveBeenCalled()
   })
 })

@@ -52,13 +52,17 @@ it('creates one canonical feed reference in the event transaction for a shared c
   expect(tx.eventAudience.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ companyId: 'audience-company' })] })
 })
 
-it('deletes only an owned workspace event at its current version and cleans live references', async () => {
+it('hides only an owned workspace event at its current version and cleans live references', async () => {
   const { service, prisma, tx } = setup()
   prisma.event.findFirst.mockResolvedValue({ id: 'event', version: 1, companyId: 'owner-company' })
   await service.remove(principal, 'event', 1)
-  const where = { id: 'event', workspaceId: 'workspace', ownerId: 'owner', companyId: { in: principal.allowedCompanyIds } }
+  const where = { id: 'event', workspaceId: 'workspace', ownerId: 'owner', companyId: { in: principal.allowedCompanyIds }, deletedAt: null }
   expect(prisma.event.findFirst).toHaveBeenCalledWith({ where })
-  expect(tx.event.deleteMany).toHaveBeenCalledWith({ where: { ...where, version: 1 } })
+  expect(tx.event.deleteMany).not.toHaveBeenCalled()
+  expect(tx.event.updateMany).toHaveBeenCalledWith({
+    where: { ...where, version: 1 },
+    data: { deletedAt: expect.any(Date) as unknown, deletedById: 'owner', version: { increment: 1 } },
+  })
   expect(tx.backgroundJob.updateMany).toHaveBeenCalledWith({
     where: { type: 'calendar.reminder', entityId: 'event', state: 'QUEUED' }, data: { state: 'CANCELLED' },
   })
@@ -72,13 +76,13 @@ it('rejects deletion of an inaccessible or foreign event before a transaction', 
   const { service, prisma, tx } = setup()
   prisma.event.findFirst.mockResolvedValue(null)
   await expect(service.remove(principal, 'event', 1)).rejects.toThrow()
-  expect(tx.event.deleteMany).not.toHaveBeenCalled()
+  expect(tx.event.updateMany).not.toHaveBeenCalled()
   expect(prisma.$transaction).not.toHaveBeenCalled()
 })
 
 it('rejects stale deletion before cleaning references', async () => {
   const { service, tx } = setup()
-  tx.event.deleteMany.mockResolvedValue({ count: 0 })
+  tx.event.updateMany.mockResolvedValue({ count: 0 })
   await expect(service.remove(principal, 'event', 1)).rejects.toMatchObject({ status: 409 })
   expect(tx.notification.deleteMany).not.toHaveBeenCalled()
   expect(tx.feedSourceHead.deleteMany).not.toHaveBeenCalled()

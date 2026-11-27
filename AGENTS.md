@@ -66,7 +66,7 @@ Do not run repo-wide `git show`, `git diff HEAD~1`, empty-pattern `rg`, or `find
 - Return at most 5 user search results, enforced in database queries by the shared implementation. A client-side slice or scrollable dropdown is not a limit. Search the full authorized dataset, not only the first cached page, and exclude already selected users before applying the limit.
 - Include active administrators by default in user search. Apply explicit eligibility restrictions only for actions that require them (for example, company employee transfer). Preserve contextual mention/chat access checks before searching.
 - Show user avatars in search results using the existing `Avatar` component and its placeholder when no photo exists.
-- Recent-user suggestions are opt-in product behavior and must have an explicit server limit (5 for the established chat recommendations). Do not substitute all users for recent users.
+- Recent-user suggestions are opt-in product behavior and must have an explicit server limit (5, the shared user-search limit). Do not substitute all users for recent users.
 - Preserve selected people by ID independently of search results. Preserve workspace/access checks, safe projections and keyboard behavior.
 - For large memberships, pass an aggregate ID and exclude members with a SQL relationship predicate. The shared request builder uses a JSON search body for long explicit exclusion lists; never truncate exclusions or put thousands of IDs in a URL.
 - Audit both the UI and its endpoint when adding or reusing a selector. Directories and membership lists require pagination or a separate scoped design; do not silently truncate them to make a selector scalable.

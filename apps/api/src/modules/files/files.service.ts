@@ -376,6 +376,7 @@ export class FilesService {
           createdAt: true,
         },
       }),
+      // Every link row counts, including removed ones: a once-attached file is never staged.
       this.prisma.fileLink.findMany({
         where: { fileId: { in: uniqueIds } },
         select: { fileId: true },
@@ -439,8 +440,9 @@ export class FilesService {
       select: { id: true },
     })
     if (fileShare) return file
+    // A removed link (decision 2026-11-18) grants nothing.
     const links = await this.prisma.fileLink.findMany({
-      where: { fileId },
+      where: { fileId, removedAt: null },
       select: { entityType: true, entityId: true },
     })
     const ticketIds = links.filter((link) => link.entityType === 'FEEDBACK_TICKET').map((link) => link.entityId)

@@ -34,7 +34,7 @@ Chat participant selectors exclude already selected/current participants before 
 
 Global search combines tasks and people in one request, so its existing mixed-result client remains separate; all user matching/ranking runs in the shared server implementation. Message text search and task/catalog search are separate behaviors with their own limits.
 
-Chat recommendations remain an explicit separate recent/context scoring feature. Client, prefetch and server now all use the shared limit of five, including older clients requesting larger pages.
+Chat recommendations (`GET /messages/users/recommended`) were removed on 2026-11-18; see `docs/decisions.md`.
 
 ## Avatars
 

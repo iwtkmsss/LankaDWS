@@ -25,6 +25,7 @@ import { FeedFileRow } from '../features/feed/FeedCardDesign'
 import { FilePreviewModal } from '../shared/files/FilePreviewModal'
 import '../features/feed/feed-composer.css'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { Button, ConfirmationDialog, IconButton } from '../shared/ui'
 import { FileDropOverlay, useFileDropTarget } from '../shared/files/FileDropzone'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
@@ -97,6 +98,7 @@ export function FeedComposerForm({
       setMessage('')
       onFeedChanged()
       onPostCreated()
+      notifySuccess('Публікацію створено')
     },
   })
   const busy = create.isPending || uploading

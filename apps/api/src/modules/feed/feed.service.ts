@@ -4,6 +4,8 @@ import { fileTypeFromBuffer } from 'file-type';
 import {
   type CreateFeedCommentInput,
   type CreateFeedPostInput,
+  type FeedArchivedListQuery,
+  type FeedArchivedListResult,
   type FeedAudienceOption,
   type FeedAudienceFacetOption,
   type FeedAuthorOption,
@@ -24,7 +26,8 @@ import {
 } from '@lankadws/contracts';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { id } from '../../common/crypto.js';
-import { badRequest, conflict, notFound } from '../../common/errors.js';
+import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js';
+import { canActorRestore } from '../../common/restore-window.js';
 import {
   isGlobalAdmin,
   type AuthPrincipal,
@@ -405,6 +408,7 @@ export class FeedService {
       where: {
         workspaceId: principal.workspaceId,
         companyId: { in: companyIds },
+        deletedAt: null,
         visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] },
         audiences: { some: { companyId: { in: companyIds } } },
         requiresAcknowledgement: true,
@@ -540,7 +544,10 @@ export class FeedService {
             },
             archivedAt: null,
             dueAt: { lt: new Date() },
-            status: { notIn: ['DONE', 'ARCHIVED'] },
+            // Same set as `notIn: ['DONE', 'ARCHIVED']` (TaskStatus enum), but an
+            // explicit IN lets SQLite range-scan Task(companyId, status, dueAt)
+            // instead of walking every task of the company.
+            status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] },
           },
         }),
         this.unreadCount(principal, companyIds, access),
@@ -680,7 +687,7 @@ export class FeedService {
         if (!post) throw notFound();
       } else {
         const event = await tx.event.findFirst({ where: {
-          id: sourceId, workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds },
+          id: sourceId, workspaceId: principal.workspaceId, companyId: { in: principal.allowedCompanyIds }, deletedAt: null,
           audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
           OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
         } });
@@ -995,8 +1002,9 @@ export class FeedService {
       if (attachmentIds.length) {
         const existingLinks = await tx.fileLink.findMany({ where: {
           entityType: 'FEED_POST', entityId: postId, purpose: 'ATTACHMENT',
-        }, select: { fileId: true } });
-        const existingIds = new Set(existingLinks.map((link) => link.fileId));
+        }, select: { fileId: true, removedAt: true } });
+        const existingIds = new Set(existingLinks.filter((link) => !link.removedAt).map((link) => link.fileId));
+        const removedIds = new Set(existingLinks.filter((link) => link.removedAt).map((link) => link.fileId));
         const addedIds = attachmentIds.filter((fileId) => !existingIds.has(fileId));
         const existingPhotos = await tx.fileObject.count({ where: {
           id: { in: [...existingIds] }, OR: [
@@ -1007,7 +1015,14 @@ export class FeedService {
         if (existingIds.size + addedIds.length > 10 || existingPhotos + addedIds.length > 5) {
           throw badRequest('feed_post_photo_limit');
         }
-        if (addedIds.length) await tx.fileLink.createMany({ data: addedIds.map((fileId) => ({
+        // A removed link for the same file is revived (unique per file/entity/purpose).
+        const revivedIds = addedIds.filter((fileId) => removedIds.has(fileId));
+        if (revivedIds.length) await tx.fileLink.updateMany({
+          where: { entityType: 'FEED_POST', entityId: postId, purpose: 'ATTACHMENT', fileId: { in: revivedIds } },
+          data: { removedAt: null, removedById: null },
+        });
+        const createdIds = addedIds.filter((fileId) => !removedIds.has(fileId));
+        if (createdIds.length) await tx.fileLink.createMany({ data: createdIds.map((fileId) => ({
           id: id('flink'), fileId, entityType: 'FEED_POST', entityId: postId,
           purpose: 'ATTACHMENT', aclMode: 'INHERIT',
         })) });
@@ -1015,7 +1030,7 @@ export class FeedService {
       if (input.photoLayout?.length) {
         const placedIds = input.photoLayout.map((placement) => placement.fileId);
         const linkedPhotos = await tx.fileLink.findMany({ where: {
-          entityType: 'FEED_POST', entityId: postId, purpose: 'ATTACHMENT', fileId: { in: placedIds },
+          entityType: 'FEED_POST', entityId: postId, purpose: 'ATTACHMENT', fileId: { in: placedIds }, removedAt: null,
         }, select: { fileId: true } });
         const photoCount = await tx.fileObject.count({ where: {
           id: { in: linkedPhotos.map((link) => link.fileId) }, OR: [
@@ -1178,7 +1193,7 @@ export class FeedService {
     await this.prisma.$transaction(async (tx) => {
       const result = await tx.feedPost.updateMany({
         where: { id: post.id, version: expectedVersion, status: 'PUBLISHED' },
-        data: { status: 'ARCHIVED', version: nextVersion, archivedAt: now },
+        data: { status: 'ARCHIVED', version: nextVersion, archivedAt: now, archivedById: principal.userId },
       });
       if (!result.count) throw conflict();
       await tx.feedItem.create({
@@ -1229,6 +1244,145 @@ export class FeedService {
     });
     this.realtime?.publishSummary(feedRecipientIds, ['feed']);
     return { id: postId, version: nextVersion, archived: true };
+  }
+
+  /**
+   * Restores an archived post (decision 2026-11-18): a global administrator
+   * always, the person who archived it for 10 minutes. The post returns to its
+   * earlier place in the Feed through a RESTORED projection of the new version.
+   */
+  async restore(
+    principal: AuthPrincipal,
+    postId: string,
+    expectedVersion: number,
+  ): Promise<{ id: string; version: number }> {
+    const post = await this.prisma.feedPost.findFirst({
+      where: { id: postId, workspaceId: principal.workspaceId, status: 'ARCHIVED' },
+      include: { recipients: true },
+    });
+    if (!post) throw notFound();
+    if (!isGlobalAdmin(principal)) {
+      if (post.archivedById !== principal.userId) throw notFound();
+      if (!canActorRestore(post.archivedById, post.archivedAt, principal.userId))
+        throw forbidden('Час для скасування минув. Відновити публікацію може адміністратор.');
+    }
+    if (post.version !== expectedVersion)
+      throw conflict(`Поточна версія: ${post.version}`);
+    const nextVersion = post.version + 1;
+    const itemId = id('fitem');
+    const feedRecipientIds = await this.expandStoredAudience(post.companyId, post.recipients);
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.feedPost.updateMany({
+        where: { id: post.id, version: expectedVersion, status: 'ARCHIVED' },
+        data: { status: 'PUBLISHED', version: nextVersion, archivedAt: null, archivedById: null },
+      });
+      if (!result.count) throw conflict();
+      const previous = await tx.feedItem.findFirst({
+        where: { postId, companyId: post.companyId, action: { not: 'ARCHIVED' } },
+        orderBy: [{ sourceVersion: 'desc' }, { occurredAt: 'desc' }],
+        select: { occurredAt: true },
+      });
+      const occurredAt = previous?.occurredAt ?? post.editedAt ?? post.publishedAt;
+      await tx.feedItem.create({
+        data: this.itemData(principal, {
+          id: itemId,
+          postId,
+          companyId: post.companyId,
+          sourceVersion: nextVersion,
+          action: 'RESTORED',
+          body: post.body,
+          occurredAt,
+          visibility: post.recipients[0]?.type ?? 'USERS',
+        }),
+      });
+      await advanceFeedSourceHead(tx, {
+        workspaceId: principal.workspaceId,
+        companyId: post.companyId,
+        sourceType: 'POST',
+        sourceId: post.id,
+        itemId,
+        sourceVersion: nextVersion,
+        countsAsUnread: true,
+        occurredAt,
+      });
+      await this.recordPostAudit(tx, principal, post.companyId, 'feed.post.restored', postId, {
+        version: { from: post.version, to: nextVersion },
+      });
+      await tx.outboxEvent.create({
+        data: {
+          id: id('out'),
+          aggregateType: 'FEED_POST',
+          aggregateId: postId,
+          aggregateVersion: nextVersion,
+          eventType: 'feed.post.restored',
+          safePayload: JSON.stringify({ postId, companyId: post.companyId, itemId }),
+        },
+      });
+    });
+    this.realtime?.publishSummary(feedRecipientIds, ['feed']);
+    return { id: postId, version: nextVersion };
+  }
+
+  /** Administrator-only archived posts with who archived them and when; newest archive first. */
+  async archivedList(
+    principal: AuthPrincipal,
+    query: FeedArchivedListQuery,
+  ): Promise<FeedArchivedListResult> {
+    if (!isGlobalAdmin(principal)) throw forbidden();
+    const cursor = query.cursor ? this.decodeCursor(query.cursor) : null;
+    const items = await this.prisma.feedItem.findMany({
+      where: {
+        workspaceId: principal.workspaceId,
+        sourceType: 'POST',
+        action: 'ARCHIVED',
+        sourceHead: { isNot: null },
+        post: { is: { workspaceId: principal.workspaceId, status: 'ARCHIVED' } },
+        ...(cursor ? { OR: [
+          { occurredAt: { lt: new Date(cursor.occurredAt) } },
+          { occurredAt: new Date(cursor.occurredAt), id: { lt: cursor.id } },
+        ] } : {}),
+      },
+      include: {
+        post: {
+          include: {
+            author: { select: { id: true, displayName: true, avatarAsset: true } },
+            recipients: true,
+            acknowledgementRecipients: true,
+            acknowledgements: true,
+            reactions: true,
+          },
+        },
+      },
+      orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+    });
+    const page = items.slice(0, query.limit);
+    const actorIds = [...new Set(page.flatMap((item) => item.post?.archivedById ? [item.post.archivedById] : []))];
+    const actors = actorIds.length > 0 ? await this.prisma.user.findMany({
+      where: { id: { in: actorIds }, workspaceId: principal.workspaceId },
+      select: { id: true, displayName: true },
+    }) : [];
+    const actorById = new Map(actors.map((actor) => [actor.id, actor]));
+    const itemByPostId = new Map(page.flatMap((item) => item.postId ? [[item.postId, item]] : []));
+    const views = (await this.toViews(principal, page)).map((view) => {
+      const item = itemByPostId.get(view.id);
+      const post = item?.post;
+      return {
+        ...view,
+        canEdit: false,
+        hidden: {
+          hiddenAt: (post?.archivedAt ?? item?.occurredAt ?? new Date()).toISOString(),
+          hiddenBy: post?.archivedById ? actorById.get(post.archivedById) ?? { id: post.archivedById, displayName: 'Недоступний користувач' } : null,
+        },
+      };
+    });
+    const last = page.at(-1);
+    return {
+      items: views,
+      nextCursor: items.length > query.limit && last
+        ? this.encodeCursor({ id: last.id, occurredAt: last.occurredAt.toISOString() })
+        : null,
+    };
   }
 
   async comment(
@@ -1831,13 +1985,17 @@ export class FeedService {
     const eventIds = items
       .filter((item) => item.sourceType === 'EVENT')
       .map((item) => item.sourceId);
+    const allowedCompanyIds = new Set(principal.allowedCompanyIds);
     const [tasks, events] = await Promise.all([
       taskIds.length > 0
         ? this.prisma.task.findMany({
             where: {
               id: { in: taskIds },
               workspaceId: principal.workspaceId,
-              companyId: { in: principal.allowedCompanyIds },
+              // The company scope is applied right below, in memory. In SQL,
+              // `companyId IN (...)` makes SQLite (no ANALYZE statistics) walk
+              // Task(companyId, ...) over every task of the company instead of
+              // the primary-key lookups for these few ids.
               AND: [
                 ...(isGlobalAdmin(principal)
                   ? []
@@ -1877,7 +2035,7 @@ export class FeedService {
                 orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
               },
             },
-          })
+          }).then((rows) => rows.filter((task) => allowedCompanyIds.has(task.companyId)))
         : Promise.resolve([]),
       eventIds.length > 0
         ? this.prisma.event.findMany({
@@ -1885,6 +2043,7 @@ export class FeedService {
               id: { in: eventIds },
               workspaceId: principal.workspaceId,
               companyId: { in: principal.allowedCompanyIds },
+              deletedAt: null,
               audiences: { some: { companyId: { in: principal.allowedCompanyIds } } },
               OR: [
                 { ownerId: principal.userId },
@@ -2074,6 +2233,7 @@ export class FeedService {
           entityType: 'FEED_POST',
           entityId: { in: postIds },
           purpose: 'ATTACHMENT',
+          removedAt: null,
         },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
@@ -2088,7 +2248,7 @@ export class FeedService {
       }),
     ]);
     const commentFileLinks = comments.length > 0 ? await this.prisma.fileLink.findMany({
-      where: { entityType: 'FEED_COMMENT', entityId: { in: comments.map((comment) => comment.id) }, purpose: 'ATTACHMENT' },
+      where: { entityType: 'FEED_COMMENT', entityId: { in: comments.map((comment) => comment.id) }, purpose: 'ATTACHMENT', removedAt: null },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     }) : [];
     const allFileLinks = [...fileLinks, ...commentFileLinks];

@@ -6,13 +6,14 @@ import { api, jsonBody } from '../shared/api/client'
 import { UserProfileLink } from '../features/employees/UserProfileDrawer'
 import { formatDate, formatDateTime } from '../shared/lib/format'
 import { Avatar, Button, Card, ErrorState, PageHeader, Skeleton, StatusBadge } from '../shared/ui'
+import { notifySuccess } from '../shared/ui/notify'
 
 interface Process { id: string; processType: 'OFFBOARDING'; status: string; progress: number; version: number; startAt: string; endAt?: string | null; employee: { id: string; displayName: string; jobTitle: string; avatarAsset?: string | null } | null; steps: Array<{ id: string; sourceKey: string; linkedTaskId: string; status: string; dueAt: string }> }
 
 export default function LifecyclePage() {
   const { processId } = useParams(); const client = useQueryClient()
   const query = useQuery({ queryKey: ['lifecycle', processId], queryFn: () => api<Process>(`/lifecycle/processes/${processId}`), enabled: Boolean(processId) })
-  const complete = useMutation({ mutationFn: () => api(`/lifecycle/processes/${processId}/complete`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version, ownershipTransferred: true }) }), onSuccess: () => void client.invalidateQueries({ queryKey: ['lifecycle', processId] }) })
+  const complete = useMutation({ mutationFn: () => api(`/lifecycle/processes/${processId}/complete`, { method: 'POST', body: jsonBody({ expectedVersion: query.data?.version, ownershipTransferred: true }) }), onSuccess: () => { void client.invalidateQueries({ queryKey: ['lifecycle', processId] }); notifySuccess('Процес завершено') } })
   if (query.isLoading) return <><PageHeader title="Офбординг" /><Skeleton rows={7} /></>
   if (query.isError || !query.data) return <ErrorState />
   const data = query.data

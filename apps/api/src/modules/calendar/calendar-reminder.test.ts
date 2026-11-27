@@ -39,7 +39,7 @@ it('rejects an elapsed reminder when creating and retains it without redelivery 
 it('delivers only one idempotent in-app notification to the owner', async () => {
   const { tx, prisma } = setup()
   expect(await deliverCalendarReminder(prisma, event.id, payload)).toBe('owner')
-  expect(tx.event.findFirst).toHaveBeenCalledWith({ where: { id: event.id, version: 2, visibility: 'PRIVATE' } })
+  expect(tx.event.findFirst).toHaveBeenCalledWith({ where: { id: event.id, version: 2, visibility: 'PRIVATE', deletedAt: null } })
   expect(tx.notification.upsert).toHaveBeenCalledWith({ where: { dedupeKey: expect.any(String) as unknown }, create: expect.objectContaining({
     recipientId: 'owner', category: 'CALENDAR', entityType: 'EVENT', entityId: 'event', safeSnippet: event.title,
   }) as unknown, update: {} })

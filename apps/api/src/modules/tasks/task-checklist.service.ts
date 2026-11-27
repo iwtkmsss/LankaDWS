@@ -1,10 +1,11 @@
 import { notifyTaskParticipants } from './task-notifications.js'
 import { Injectable } from '@nestjs/common'
 import { id } from '../../common/crypto.js'
-import { badRequest, conflict } from '../../common/errors.js'
+import { badRequest, conflict, notFound } from '../../common/errors.js'
 import type { AuthPrincipal } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { TaskAccessService } from '../authorization/task-access.service.js'
+import { assertTaskRestoreAllowed } from './task-restore-policy.js'
 import type { TaskTransaction } from './task-types.js'
 
 @Injectable()
@@ -48,6 +49,7 @@ export class TaskChecklistService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
+      // Hidden items keep their positions, so allocate after every row.
       const last = await tx.taskChecklistItem.findFirst({
         where: { taskId },
         orderBy: { position: 'desc' },
@@ -85,12 +87,12 @@ export class TaskChecklistService {
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, input.expectedVersion)
       const existing = await tx.taskChecklistItem.findFirst({
-        where: { id: itemId, taskId },
+        where: { id: itemId, taskId, deletedAt: null },
         select: { title: true, isCompleted: true },
       })
       if (!existing) throw badRequest('task_checklist')
       const updated = await tx.taskChecklistItem.updateMany({
-        where: { id: itemId, taskId },
+        where: { id: itemId, taskId, deletedAt: null },
         data: {
           ...(title ? { title } : {}),
           ...(input.isCompleted === undefined
@@ -119,17 +121,43 @@ export class TaskChecklistService {
     this.assertVersion(expectedVersion)
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
-      const removed = await tx.taskChecklistItem.deleteMany({
-        where: { id: itemId, taskId },
+      // Content is hidden, never deleted (decision 2026-11-18). The hidden item
+      // keeps its position: visible order is unchanged and a restore can put it
+      // back in place without colliding with @@unique([taskId, position]).
+      const removed = await tx.taskChecklistItem.updateMany({
+        where: { id: itemId, taskId, deletedAt: null },
+        data: { deletedAt: new Date(), deletedById: principal.userId, version: { increment: 1 } },
       })
       if (!removed.count) throw badRequest('task_checklist')
-      const remaining = await tx.taskChecklistItem.findMany({
-        where: { taskId },
-        orderBy: { position: 'asc' },
-        select: { id: true },
-      })
-      await this.reposition(tx, remaining.map((item) => item.id))
       await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: 'Чекліст: вилучено пункт' })
+      return { version: expectedVersion + 1 }
+    })
+  }
+
+  /** Brings a hidden item back at the position it kept (decision 2026-11-18). */
+  async restore(
+    principal: AuthPrincipal,
+    taskId: string,
+    itemId: string,
+    expectedVersion: number,
+  ): Promise<{ version: number }> {
+    await this.access.readableTask(principal, taskId)
+    this.assertVersion(expectedVersion)
+    const item = await this.prisma.taskChecklistItem.findFirst({
+      where: { id: itemId, taskId },
+      select: { title: true, deletedAt: true, deletedById: true },
+    })
+    if (!item) throw notFound()
+    if (!item.deletedAt) throw conflict('task_checklist_not_hidden')
+    assertTaskRestoreAllowed(principal, item.deletedById, item.deletedAt)
+    return this.prisma.$transaction(async (tx) => {
+      await this.advanceVersion(tx, taskId, expectedVersion)
+      const restored = await tx.taskChecklistItem.updateMany({
+        where: { id: itemId, taskId, deletedAt: { not: null } },
+        data: { deletedAt: null, deletedById: null, version: { increment: 1 } },
+      })
+      if (!restored.count) throw conflict('task_checklist_not_hidden')
+      await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: `Чекліст: відновлено «${item.title}»` })
       return { version: expectedVersion + 1 }
     })
   }
@@ -150,8 +178,8 @@ export class TaskChecklistService {
       throw badRequest('task_checklist_order')
     }
     const existing = await this.prisma.taskChecklistItem.findMany({
-      where: { taskId },
-      select: { id: true },
+      where: { taskId, deletedAt: null },
+      select: { id: true, position: true },
       orderBy: { position: 'asc' },
     })
     if (
@@ -163,23 +191,30 @@ export class TaskChecklistService {
 
     return this.prisma.$transaction(async (tx) => {
       await this.advanceVersion(tx, taskId, expectedVersion)
-      await this.reposition(tx, itemIds)
+      // Reuse the visible items' own position slots; hidden items keep theirs.
+      await this.reposition(tx, itemIds, existing.map((item) => item.position))
       await notifyTaskParticipants(tx, taskId, principal.userId, expectedVersion + 1, 'task.checklist_changed', { detail: 'Чекліст: змінено порядок пунктів' })
       return { version: expectedVersion + 1 }
     })
   }
 
-  private async reposition(tx: TaskTransaction, itemIds: string[]): Promise<void> {
-    for (const [position, itemId] of itemIds.entries()) {
+  /**
+   * Assigns `slots` (ascending positions already owned by these items) in the
+   * order of `itemIds`. Moving through negative temporaries avoids transient
+   * collisions with @@unique([taskId, position]); positions are never negative
+   * otherwise, so hidden items are never touched.
+   */
+  private async reposition(tx: TaskTransaction, itemIds: string[], slots: number[]): Promise<void> {
+    for (const [index, itemId] of itemIds.entries()) {
       await tx.taskChecklistItem.update({
         where: { id: itemId },
-        data: { position: -(position + 1) },
+        data: { position: -(index + 1) },
       })
     }
-    for (const [position, itemId] of itemIds.entries()) {
+    for (const [index, itemId] of itemIds.entries()) {
       await tx.taskChecklistItem.update({
         where: { id: itemId },
-        data: { position },
+        data: { position: slots[index] },
       })
     }
   }

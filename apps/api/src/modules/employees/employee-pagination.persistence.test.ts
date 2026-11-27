@@ -178,6 +178,49 @@ describe('employee directory pagination against SQLite', () => {
     expect(filters.managers.map((item) => item.id).sort()).toEqual(['boss', 'other-boss'])
   })
 
+  it('lists as managers only unit managers with a current member and approvers without a unit manager', async () => {
+    const unit = (id: string, managerId: string, status = 'ACTIVE') => prisma.$executeRawUnsafe(
+      'INSERT INTO OrgUnit (id, workspaceId, companyId, name, status, managerId, sortOrder) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      id, 'workspace', 'company', id, status, managerId, 50,
+    )
+    // Manager of an archived unit with an active member.
+    await addUser('archived-boss', 'Archived Boss')
+    await unit('archived', 'archived-boss', 'ARCHIVED')
+    await addUser('archived-member', 'Archived Member')
+    await assign('archived-member', 'archived')
+    // Manager of an active unit whose only members are inactive or no longer assigned.
+    await addUser('stale-boss', 'Stale Boss')
+    await unit('stale', 'stale-boss')
+    await addUser('stale-inactive', 'Stale Inactive', { isActive: 0 })
+    await assign('stale-inactive', 'stale')
+    await addUser('stale-ex', 'Stale Ex')
+    await assign('stale-ex', 'stale', new Date('2026-01-01T00:00:00Z'))
+    // Manager of an active unit with a current member, whose own account is in another workspace.
+    await prisma.$executeRawUnsafe("INSERT INTO User (id, workspaceId, isActive, accountType, primaryCompanyId, displayName, timezone) VALUES ('outsider', 'other', 1, 'USER', 'company', 'Outsider', 'UTC')")
+    await unit('outside-managed', 'outsider')
+    await addUser('outside-member', 'Outside Member')
+    await assign('outside-member', 'outside-managed')
+    // Approvers: of a person without a unit (kept), of a person whose unit has a manager,
+    // of an inactive person and of a person from another company (all dropped).
+    await addUser('mentor', 'Mentor')
+    await addUser('mentee', 'Mentee', { approverId: 'mentor' })
+    await addUser('shadowed-mentor', 'Shadowed Mentor')
+    await addUser('shadowed-mentee', 'Shadowed Mentee', { approverId: 'shadowed-mentor' })
+    await assign('shadowed-mentee', 'design')
+    await addUser('idle-mentor', 'Idle Mentor')
+    await addUser('idle-mentee', 'Idle Mentee', { approverId: 'idle-mentor', isActive: 0 })
+    await addUser('foreign-mentor', 'Foreign Mentor')
+    await addUser('foreign-mentee', 'Foreign Mentee', { approverId: 'foreign-mentor', primaryCompanyId: 'other-company' })
+
+    const { filters } = await page()
+    // other-boss manages sales (seller); boss manages design and approves people without a manager.
+    expect(filters.managers.map((item) => item.id).sort()).toEqual(['boss', 'mentor', 'other-boss'])
+    // Search narrows the people whose managers are listed: shadowed-mentee still brings their unit manager.
+    expect((await page({ search: 'mentee' })).filters.managers.map((item) => item.id).sort()).toEqual(['boss', 'mentor'])
+    expect((await page({ search: 'stale' })).filters.managers).toEqual([])
+    expect((await page({ search: 'nobody-matches' })).filters.managers).toEqual([])
+  })
+
   it('rejects an oversized cursor', async () => {
     await expect(page({ cursor: 'x'.repeat(121) })).rejects.toMatchObject({ status: 400 })
   })

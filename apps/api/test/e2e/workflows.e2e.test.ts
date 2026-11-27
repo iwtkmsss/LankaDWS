@@ -1,6 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1719,7 +1719,6 @@ describe('LankaDWS API workflows', () => {
 
   it('searches only active scoped users with Unicode-insensitive deterministic ranking', async () => {
     const maria = await login('maria');
-    const prisma = app.get(PrismaService);
     const uppercase = await maria.agent
       .get(`/api/v1/messages/users/search?company=cmp_lankadws_ua&q=${encodeURIComponent('ОЛЕНА')}`)
       .expect(200);
@@ -1765,27 +1764,11 @@ describe('LankaDWS API workflows', () => {
       .expect(200);
     expect(threadTitleOnly.body.items).toEqual([]);
 
-    const recommendationQuerySpies = [
-      vi.spyOn(prisma.messageThread, 'findMany'),
-      vi.spyOn(prisma.task, 'findMany'),
-      vi.spyOn(prisma.userOrgAssignment, 'findMany'),
-      vi.spyOn(prisma.user, 'findMany'),
-    ];
-    const recommended = await maria.agent
-      .get('/api/v1/messages/users/recommended?company=cmp_lankadws_ua&limit=6')
-      .expect(200);
-    const recommendationQueryCount = recommendationQuerySpies.reduce(
-      (total, spy) => total + spy.mock.calls.length,
-      0,
-    );
-    for (const spy of recommendationQuerySpies) spy.mockRestore();
-    expect(recommendationQueryCount).toBeLessThanOrEqual(8);
-    expect(recommended.body.items.every((item: { id: string }) => item.id !== 'usr_maria')).toBe(true);
-    expect(new Set(recommended.body.items.map((item: { id: string }) => item.id)).size)
-      .toBe(recommended.body.items.length);
-    expect(recommended.body.items.every((item: { reason: string }) =>
-      ['RECENT', 'FREQUENT', 'SHARED_CONTEXT', 'TEAM'].includes(item.reason),
-    )).toBe(true);
+    // Chat recommendations were removed (decision 2026-11-18); the path now
+    // falls through to the contact lookup and resolves to not found.
+    await maria.agent
+      .get('/api/v1/messages/users/recommended?company=cmp_lankadws_ua')
+      .expect(404);
   });
 
   it('keeps direct chat creation, search, reply, read and mute state exact and access-safe', async () => {

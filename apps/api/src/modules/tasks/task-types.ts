@@ -96,6 +96,7 @@ export const taskDetailInclude = {
     ],
   },
   checklist: {
+    where: { deletedAt: null },
     orderBy: {
       position: 'asc' as const,
     },
@@ -109,6 +110,7 @@ export const taskDetailInclude = {
     },
   },
   outgoingRelations: {
+    where: { deletedAt: null },
     include: {
       targetTask: {
         select: {
@@ -124,6 +126,7 @@ export const taskDetailInclude = {
     },
   },
   incomingRelations: {
+    where: { deletedAt: null },
     include: {
       sourceTask: {
         select: {
@@ -149,6 +152,7 @@ export const taskDetailInclude = {
   },
   recurrenceTemplate: true,
   timeEntries: {
+    where: { deletedAt: null },
     orderBy: [
       { startedAt: 'desc' as const },
       { id: 'desc' as const },

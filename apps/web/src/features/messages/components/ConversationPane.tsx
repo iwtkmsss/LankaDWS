@@ -43,6 +43,8 @@ interface ConversationPaneProps {
   onReplyCancel: () => void
   onEdit: (message: ChatMessageView, body: string, mentions: StructuredMentionInput[], attachmentIds?: string[]) => Promise<void>
   onDelete: (message: ChatMessageView) => Promise<void>
+  /** Administrator restore of a deleted message shown in place. */
+  onRestore?: (message: ChatMessageView) => Promise<void>
   onRemoveAttachment: (id: string) => void
   onFiles: (files: File[]) => void
   onDriveAttachment?: (attachment: ChatAttachmentView) => void
@@ -152,6 +154,7 @@ export function ConversationPane(props: ConversationPaneProps) {
         onForward={props.onForward}
         onEdit={props.onEdit}
         onDelete={props.onDelete}
+        onRestore={props.onRestore}
       />
 
       {props.thread.canPost && (

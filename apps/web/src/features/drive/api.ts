@@ -98,7 +98,7 @@ export function moveDocument(documentId: string, folderId: string | null, expect
 }
 
 export function trashDocument(documentId: string, expectedVersion: number) {
-  return api<{ archived: boolean }>(`/documents/${encodeURIComponent(documentId)}/archive`, {
+  return api<{ archived: boolean; version: number }>(`/documents/${encodeURIComponent(documentId)}/archive`, {
     method: 'POST',
     body: jsonBody({ expectedVersion }),
   })
@@ -127,6 +127,11 @@ export function createShare(input: {
 
 export function revokeShare(shareId: string) {
   return api<DriveShareView[]>(`/drive/shares/${encodeURIComponent(shareId)}`, { method: 'DELETE' })
+}
+
+/** Brings a revoked share back unchanged (undo); the recipient is not notified again. */
+export function restoreShare(shareId: string) {
+  return api<DriveShareView[]>(`/drive/shares/${encodeURIComponent(shareId)}/restore`, { method: 'POST' })
 }
 
 /** Saves a file the user can already see (e.g. a chat attachment) onto their Drive. */

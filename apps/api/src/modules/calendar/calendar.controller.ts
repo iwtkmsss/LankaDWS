@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req } from '@nestjs/common'
 import { z } from 'zod'
-import { acknowledgeCalendarEventSchema, createCalendarEventSchema, updateCalendarEventSchema } from '@lankadws/contracts'
-import { badRequest } from '../../common/errors.js'
+import { acknowledgeCalendarEventSchema, createCalendarEventSchema, restoreHiddenContentSchema, updateCalendarEventSchema } from '@lankadws/contracts'
+import { badRequest, forbidden } from '../../common/errors.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { isGlobalAdmin, principalFrom } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
@@ -54,9 +54,15 @@ export class CalendarController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('scope') scope = 'ALL',
+    @Query('deleted') deleted?: string,
   ) {
     const principal = principalFrom(request)
-    if (!['ALL', 'MINE', 'TEAM', 'TASKS'].includes(scope)) throw badRequest('calendar_scope_invalid')
+    // `scope` is ALL or a comma-separated subset of MINE, TEAM and TASKS.
+    const scopes = new Set(scope.split(','))
+    if (scope !== 'ALL' && (!scopes.size || [...scopes].some((value) => !['MINE', 'TEAM', 'TASKS'].includes(value)))) {
+      throw badRequest('calendar_scope_invalid')
+    }
+    const includes = (value: 'MINE' | 'TEAM' | 'TASKS') => scope === 'ALL' || scopes.has(value)
     const rangeFrom = from ? new Date(from) : new Date(new Date().getFullYear(), new Date().getMonth(), 1)
     const rangeTo = to ? new Date(to) : new Date(rangeFrom.getFullYear(), rangeFrom.getMonth() + 1, 1)
     if (!Number.isFinite(rangeFrom.getTime()) || !Number.isFinite(rangeTo.getTime())
@@ -64,9 +70,14 @@ export class CalendarController {
       throw badRequest('calendar_range_invalid')
     }
     const allowedCompanies = this.scope.allowedCompanies(principal, company)
+    if (deleted === '1' || deleted === 'true') {
+      if (!isGlobalAdmin(principal)) throw forbidden()
+      return this.deletedEvents(principal.workspaceId, allowedCompanies, rangeFrom, rangeTo)
+    }
     const rows = await this.prisma.event.findMany({
       where: {
         workspaceId: principal.workspaceId,
+        deletedAt: null,
         audiences: { some: { companyId: { in: allowedCompanies } } },
         OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
         AND: [{ OR: [
@@ -75,6 +86,7 @@ export class CalendarController {
         ] }],
       },
       include: { audiences: { select: { companyId: true } } },
+      omit: { deletedAt: true, deletedById: true },
       orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
     })
     const events = rows.flatMap((event) => calendarOccurrences(event, rangeFrom, rangeTo))
@@ -111,11 +123,8 @@ export class CalendarController {
     })
     const ownerById = new Map(owners.map((owner) => [owner.id, owner.displayName]))
     const companyNames = await this.companyNames(principal.workspaceId)
-    const filtered = events.filter((event) =>
-      scope === 'MINE' ? isPersonal(event)
-        : scope === 'TEAM' ? isCompany(event)
-          : scope === 'TASKS' ? false
-          : true,
+    const filtered = scope === 'ALL' ? events : events.filter((event) =>
+      (includes('MINE') && isPersonal(event)) || (includes('TEAM') && isCompany(event)),
     )
     return {
       items: [...filtered.map(({ audiences, recurrenceJson, ...event }) => ({
@@ -127,7 +136,7 @@ export class CalendarController {
         audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
         startAt: event.startAt.toISOString(),
         endAt: event.endAt.toISOString(),
-      })), ...(scope === 'ALL' || scope === 'TASKS' ? taskItems : [])]
+      })), ...(includes('TASKS') ? taskItems : [])]
         .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.id.localeCompare(b.id)),
       counts: {
         ALL: events.length + tasks.length,
@@ -143,6 +152,13 @@ export class CalendarController {
     const parsed = z.object({ expectedVersion: z.number().int().positive() }).safeParse(rawBody)
     if (!parsed.success) throw badRequest('calendar_event_invalid')
     return this.calendar.remove(principalFrom(request), eventId, parsed.data.expectedVersion)
+  }
+
+  @Post('events/:id/restore')
+  restoreEvent(@Req() request: LankaDWSRequest, @Param('id') eventId: string, @Body() rawBody: unknown) {
+    const parsed = restoreHiddenContentSchema.safeParse(rawBody)
+    if (!parsed.success) throw badRequest('calendar_event_invalid')
+    return this.calendar.restore(principalFrom(request), eventId, parsed.data.expectedVersion)
   }
 
   @Post('events/:id/acknowledge')
@@ -163,10 +179,12 @@ export class CalendarController {
       where: {
         id: eventId,
         workspaceId: principal.workspaceId,
+        deletedAt: null,
         audiences: { some: { companyId: { in: this.scope.allowedCompanies(principal, company) } } },
         OR: [{ ownerId: principal.userId }, { visibility: { in: ['INTERNAL', 'PUBLIC_SAFE'] } }],
       },
       include: { audiences: { select: { companyId: true } } },
+      omit: { deletedAt: true, deletedById: true },
     })
     if (!event) return null
     const owner = await this.prisma.user.findFirst({
@@ -195,6 +213,49 @@ export class CalendarController {
     const principal = principalFrom(request)
     const rows = await this.prisma.presenceRecord.findMany({ where: { companyId: { in: this.scope.allowedCompanies(principal, company) }, endAt: { gte: new Date() } }, orderBy: { startAt: 'asc' } })
     return { items: rows.map(({ state, userId, startAt, endAt }) => ({ userId, state, startAt: startAt.toISOString(), endAt: endAt.toISOString() })) }
+  }
+
+  /**
+   * Administrator view of hidden events in the range (decision 2026-11-18): one
+   * row per event, not per occurrence, flagged with who hid it and when. A
+   * deleted private event stays restorable, so it is listed as well.
+   */
+  private async deletedEvents(workspaceId: string, companyIds: string[], rangeFrom: Date, rangeTo: Date) {
+    const rows = await this.prisma.event.findMany({
+      where: {
+        workspaceId,
+        deletedAt: { not: null },
+        audiences: { some: { companyId: { in: companyIds } } },
+        OR: [
+          { startAt: { lt: rangeTo }, endAt: { gte: rangeFrom } },
+          { recurrenceJson: { not: null }, startAt: { lt: rangeTo } },
+        ],
+      },
+      include: { audiences: { select: { companyId: true } } },
+      orderBy: [{ deletedAt: 'desc' }, { id: 'asc' }],
+    })
+    const userIds = [...new Set(rows.flatMap((event) => [event.ownerId, ...(event.deletedById ? [event.deletedById] : [])]))]
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds }, workspaceId },
+      select: { id: true, displayName: true },
+    })
+    const nameById = new Map(users.map((user) => [user.id, user.displayName]))
+    const companyNames = await this.companyNames(workspaceId)
+    const items = rows.map(({ audiences, recurrenceJson, deletedAt, deletedById, ...event }) => ({
+      kind: 'EVENT',
+      ...event,
+      recurrence: readCalendarRecurrence(recurrenceJson),
+      ownerName: nameById.get(event.ownerId) ?? 'Недоступний користувач',
+      audienceCompanyIds: audiences.map((audience) => audience.companyId),
+      audienceLabel: audienceLabel(event.visibility, audiences, companyNames),
+      startAt: event.startAt.toISOString(),
+      endAt: event.endAt.toISOString(),
+      hidden: {
+        hiddenAt: deletedAt!.toISOString(),
+        hiddenBy: deletedById ? { id: deletedById, displayName: nameById.get(deletedById) ?? 'Недоступний користувач' } : null,
+      },
+    }))
+    return { items, counts: { ALL: items.length, MINE: 0, TEAM: 0, TASKS: 0 } }
   }
 
   private async companyNames(workspaceId: string): Promise<Map<string, string>> {

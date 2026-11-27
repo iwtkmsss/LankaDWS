@@ -10,6 +10,7 @@ import { InlinePhotoButton, useObjectUrls } from '../../../shared/inline-photos/
 import { InlinePhotoEditor } from '../../../shared/inline-photos/InlinePhotoEditor'
 import { imageRatio, initialPlacement, toPhotoLayout, type InlinePhoto } from '../../../shared/inline-photos/inlinePhotos'
 import { Button } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { toLocalDateTimeInput } from '../../../shared/lib/format'
 import { refreshTask } from './useTaskDetail'
 
@@ -58,6 +59,7 @@ export function TaskEditForm({
       clearDirty('edit')
       onClose()
       refreshTask(client, id)
+      notifySuccess('Зміни збережено')
     },
     onError: (error) => {
       setEditMessage(

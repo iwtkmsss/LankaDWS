@@ -189,7 +189,7 @@ describe('TasksService', () => {
     expect(where.AND).toContainEqual({ participants: { some: { userId: 'usr_viewer', role: 'RESPONSIBLE', removedAt: null } } })
     const mixed = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { preset: 'OVERDUE,IN_REVIEW,DONE' })
     expect(mixed.AND).toContainEqual({ OR: [
-      { dueAt: { lt: expect.any(Date) as Date }, status: { notIn: ['DONE', 'ARCHIVED'] } },
+      { dueAt: { lt: expect.any(Date) as Date }, status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] } },
       { status: 'IN_REVIEW' }, { status: 'DONE' },
     ] })
     expect(() => service.listWhere(principal(), undefined, 'RESPONSIBLE', { status: 'NEW,UNKNOWN' })).toThrow()
@@ -202,8 +202,8 @@ describe('TasksService', () => {
     expect(where.AND).toContainEqual({ participants: { some: { userId: 'usr_viewer', role: 'RESPONSIBLE', removedAt: null } } })
     expect(where.AND).toContainEqual({ OR: [
       { status: 'NEW' },
-      { dueAt: { lt: expect.any(Date) as Date }, status: { notIn: ['DONE', 'ARCHIVED'] } },
-      { dueAt: { gte: expect.any(Date) as Date, lte: expect.any(Date) as Date }, status: { notIn: ['DONE', 'ARCHIVED'] } },
+      { dueAt: { lt: expect.any(Date) as Date }, status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] } },
+      { dueAt: { gte: expect.any(Date) as Date, lte: expect.any(Date) as Date }, status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] } },
     ] })
     expect(() => service.listWhere(principal(), undefined, 'RESPONSIBLE', { preset: 'ACTIVE,UNKNOWN' })).toThrow()
     expect(() => service.listWhere(principal(), undefined, 'RESPONSIBLE', { preset: 'ACTIVE' })).toThrow()
@@ -228,6 +228,20 @@ describe('TasksService', () => {
     const empty = service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { preset: 'NONE' })
     expect(empty.AND).toContainEqual({ id: { in: [] } })
     expect(empty.AND).toContainEqual({ participants: { some: { userId: 'usr_viewer', role: 'RESPONSIBLE', removedAt: null } } })
+  })
+  it('adds a redundant status bound equal to the union of statuses the selected presets can match', () => {
+    const service = serviceWith({})
+    const bound = (preset: string) => service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE', { preset }).AND as unknown[]
+    expect(bound('DUE_SOON,OVERDUE,NEW,IN_PROGRESS,IN_REVIEW'))
+      .toContainEqual({ status: { in: ['NEW', 'IN_PROGRESS', 'IN_REVIEW'] } })
+    expect(bound('OTHER_ACTIVE,DONE')).toContainEqual({ status: { in: ['IN_PROGRESS', 'IN_REVIEW', 'DONE'] } })
+    expect(bound('DEFERRED,ARCHIVED')).toContainEqual({ status: { in: ['NEW', 'ARCHIVED'] } })
+    const isBound = (clause: unknown) => typeof clause === 'object' && clause !== null
+      && Object.keys(clause).length === 1 && 'status' in clause
+    // All statuses possible or no preset at all: no pointless bound.
+    expect(bound('OVERDUE,DONE,ARCHIVED').some(isBound)).toBe(false)
+    expect(bound('NONE').some(isBound)).toBe(false)
+    expect((service.listWhere(principal(), 'cmp_1', 'RESPONSIBLE').AND as unknown[]).some(isBound)).toBe(false)
   })
   it('combines selected roles with OR while retaining scope and validating every role', () => {
     const service = serviceWith({})

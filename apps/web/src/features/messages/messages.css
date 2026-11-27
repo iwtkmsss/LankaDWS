@@ -593,6 +593,11 @@
 .message-delivery-status { display: inline-flex; align-items: center; gap: var(--space-0_5); }
 .message-delivery-status.is-read { color: var(--fg-link); }
 .message-bubble.is-deleted { display: grid; min-width: auto; color: var(--fg-muted); padding: var(--space-2); }
+.message-bubble.is-deleted.is-admin-hidden { gap: var(--space-1); border: 1px dashed var(--line-strong); }
+.message-bubble__hidden-meta { font-size: var(--text-meta); }
+.message-bubble__hidden-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; opacity: 0.8; }
+.message-bubble__hidden-files { margin: 0; padding-left: var(--space-4); font-size: var(--text-meta); }
+.message-bubble__restore { justify-self: start; }
 .message-bubble.is-deleted time { justify-self: end; margin-top: var(--space-1); color: var(--fg-muted); font-size: var(--text-meta); font-variant-numeric: tabular-nums; }
 .message-bubble__reply-preview {
   display: grid;

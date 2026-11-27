@@ -594,23 +594,26 @@
   flex-wrap: wrap;
   overflow: visible;
 }
+.calendar-scope-tabs__group {
+  display: flex;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
+}
 .calendar-scope-tabs .tabs button {
   padding-inline: var(--space-2);
 }
-.calendar-scope-tabs.is-all-selected .tabs,
+.calendar-scope-tabs__group.is-active,
 .calendar-scope-tabs .tabs button.is-active {
-  border-radius: var(--radius-sm);
   background: var(--surface-soft);
   box-shadow: inset 0 0 0 1px var(--line-strong);
 }
+.calendar-scope-tabs__group.is-active button[aria-pressed='true'],
 .calendar-scope-tabs .tabs button.is-active {
   color: var(--fg-strong);
 }
-.calendar-scope-tabs.is-all-selected .tabs button.is-active {
-  background: transparent;
-  box-shadow: none;
-}
-.calendar-scope-tabs.is-all-selected .tabs button span,
+.calendar-scope-tabs__group.is-active button span,
 .calendar-scope-tabs .tabs button.is-active span {
   background: var(--surface);
 }

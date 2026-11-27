@@ -19,6 +19,7 @@ import { removeWhitespace } from '../shared/lib/credentials'
 import { FileDropzone } from '../shared/files/FileDropzone'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, idempotencyKey, jsonBody } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
 import { formatDateTime } from '../shared/lib/format'
@@ -386,7 +387,7 @@ function UserAccountFields({ user, isActive, setIsActive, accountType, onAccount
       </label>
       <label>
         Стать
-        <select name="gender" defaultValue={user?.gender ?? ''}><option value="">Не вказувати</option><option value="FEMALE">Жінка</option><option value="MALE">Чоловік</option><option value="OTHER">Інше</option></select>
+        <select name="gender" defaultValue={user?.gender ?? ''}><option value="">Не вказувати</option><option value="FEMALE">Жінка</option><option value="MALE">Чоловік</option></select>
       </label>
       <label>
         Телефон
@@ -521,7 +522,7 @@ function CreateUserDrawer({ onClose, defaultCompanyId = '' }: { onClose: () => v
       photoRef.current = photo
       photoMutation.mutate(created)
     }
-  }, onSettled: () => { creatingRef.current = false } })
+  }, onSuccess: () => notifySuccess('Користувача створено'), onSettled: () => { creatingRef.current = false } })
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (creatingRef.current || result) return
@@ -655,7 +656,7 @@ function UserEditor({
       avatar.set('file', photoRef.current)
       await api(`/admin/users/${user.id}/avatar`, { method: 'POST', body: avatar })
     },
-    onSuccess: () => { invalidateUser(); onClose() },
+    onSuccess: () => { invalidateUser(); onClose(); notifySuccess('Зміни збережено') },
   })
   const mutation = useMutation({
     mutationFn: async ({ body }: { body: Record<string, unknown>; photo: FormDataEntryValue | null }) => {
@@ -667,7 +668,10 @@ function UserEditor({
       if (photo instanceof File && photo.size > 0) {
         photoRef.current = photo
         photoMutation.mutate()
-      } else onClose()
+      } else {
+        onClose()
+        notifySuccess('Зміни збережено')
+      }
     },
   })
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -739,7 +743,7 @@ function AuditPage() {
         method: 'POST',
         headers: { 'idempotency-key': idempotencyKey('audit-export') },
       }),
-    onSuccess: (result) => setExportId(result.exportId),
+    onSuccess: (result) => { setExportId(result.exportId); notifySuccess('Експорт запущено') },
   })
   const exportStatus = useQuery({
     queryKey: ['audit-export', exportId],

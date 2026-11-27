@@ -12,7 +12,7 @@ export const taskListSortExpressions = {
   priority: "CASE t.priority WHEN 'LOW' THEN 0 WHEN 'MEDIUM' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END",
   subtaskProgress: '(SELECT COUNT(*) FROM Task s WHERE s.parentTaskId = t.id AND s.archivedAt IS NULL)',
   activity: `(SELECT COUNT(*) FROM Comment c WHERE c.entityType = 'TASK' AND c.entityId = t.id AND c.deletedAt IS NULL)
-    + (SELECT COUNT(*) FROM FileLink f WHERE f.entityType = 'TASK' AND f.entityId = t.id AND f.purpose = 'ATTACHMENT')`,
+    + (SELECT COUNT(*) FROM FileLink f WHERE f.entityType = 'TASK' AND f.entityId = t.id AND f.purpose = 'ATTACHMENT' AND f.removedAt IS NULL)`,
 } as const
 
 export function taskListSortQuery(ids: string[], sort: keyof typeof taskListSortExpressions, direction: 'asc' | 'desc', page: number, pageSize: number) {

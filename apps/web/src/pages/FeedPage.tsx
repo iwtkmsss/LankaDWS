@@ -2,6 +2,7 @@ import { personName, personNamesInLabel } from '../shared/lib/personName'
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type {
+  FeedArchivedListResult,
   FeedAttachmentView,
   FeedItemType,
   FeedListFilter,
@@ -11,11 +12,13 @@ import type {
   StructuredMentionInput,
 } from '@lankadws/contracts'
 import { FEED_COMMENT_PHOTO_LIMIT, FEED_PHOTO_MIME_TYPES } from '@lankadws/contracts'
-import { Check, CheckCircle2, Download, ImagePlus, LoaderCircle, Plus, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { Archive, Check, CheckCircle2, Download, ImagePlus, LoaderCircle, Plus, RotateCcw, Send, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, jsonBody } from '../shared/api/client'
+import { notifySuccess } from '../shared/ui/notify'
 import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
+import { hiddenContentLabel } from '../shared/lib/hiddenContent'
 import { organizationQueryScope } from '../shared/lib/navigation'
 import { MentionTextarea } from '../shared/mentions/MentionTextarea'
 import { editableMentions, trimMentionValue } from '../shared/mentions/mentionText'
@@ -37,6 +40,7 @@ import { FeedLoading, FeedPageState } from '../features/feed/FeedPageStates'
 import { FeedDraftPhotos } from '../features/feed/FeedDraftPhotos'
 import { useFeedCommentPhotos } from '../features/feed/useFeedCommentPhotos'
 import '../features/feed/feed-page.css'
+import '../styles/hidden-content.css'
 import { FeedBirthdayHighlight } from './FeedBirthdayHighlight'
 import { dashboardQueryOptions, FeedOverview } from './FeedOverview'
 import { useEntityNotificationRead } from '../features/notifications/useEntityNotificationRead'
@@ -66,6 +70,13 @@ export function FeedPage() {
   const [readPositionsOnArrival, setReadPositionsOnArrival] = useState<FeedListResult['readPositions'] | null>(null)
   const company = organizationQueryScope(user?.company?.id)
   const targetPostId = params.get('post')
+  // Administrator-only «Архів» of archived posts (decision 2026-11-18), URL-addressable as `archived=1`.
+  const showArchived = user?.accountType === 'ADMIN' && params.get('archived') === '1'
+  const toggleArchived = () => setParams((current) => {
+    if (current.get('archived') === '1') current.delete('archived')
+    else current.set('archived', '1')
+    return current
+  })
   const targetPost = useQuery({
     queryKey: ['feed', 'post', targetPostId],
     queryFn: () => api<FeedPostView>(`/feed/${encodeURIComponent(targetPostId!)}`),
@@ -249,20 +260,29 @@ export function FeedPage() {
         title="Жива стрічка"
         description="Важливі оновлення команди без шуму чатів і дублювання завдань"
         action={
-          <Button
-            onClick={() => {
-              setComposerDirty(false)
-              setComposerOpen(true)
-            }}
-          >
-            <Plus size={17} />
-            Створити публікацію
-          </Button>
+          <span className="hidden-content-actions">
+            {user.accountType === 'ADMIN' && (
+              <Button variant="secondary" aria-pressed={showArchived} onClick={toggleArchived}>
+                <Archive size={17} aria-hidden="true" />
+                Архів
+              </Button>
+            )}
+            <Button
+              onClick={() => {
+                setComposerDirty(false)
+                setComposerOpen(true)
+              }}
+            >
+              <Plus size={17} />
+              Створити публікацію
+            </Button>
+          </span>
         }
       />
       <FeedOverview />
       <div className="feed-layout">
         <div className="feed-main">
+          {showArchived ? <FeedArchivedPosts onBack={toggleArchived} /> : <>
           {hasLegacyFilter && (
             <div className="feed-legacy-filter-notice">
               <Button type="button" variant="secondary" onClick={clearAllFilters}>
@@ -313,6 +333,7 @@ export function FeedPage() {
           ) : items.length > 0 ? <p>Ви переглянули всі оновлення</p> : null}
           {pages.isFetchNextPageError && <p role="alert">Не вдалося завантажити давніші записи. Спробуйте ще раз.</p>}
           </div>
+          </>}
         </div>
 
         <aside className="feed-attention" aria-label="Потребує уваги">
@@ -376,6 +397,71 @@ export function FeedPage() {
         description="Текст, аудиторія та додані файли не збережуться."
       />
     </div>
+  )
+}
+
+/** Administrator «Архів»: archived posts, muted, with who archived them and when, and «Відновити». */
+export function FeedArchivedPosts({ onBack }: { onBack: () => void }) {
+  const queryClient = useQueryClient()
+  const archived = useInfiniteQuery({
+    queryKey: ['feed', 'archived'],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const query = new URLSearchParams({ limit: '20' })
+      if (pageParam) query.set('cursor', pageParam)
+      return api<FeedArchivedListResult>(`/feed/archived?${query}`)
+    },
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  })
+  const restore = useMutation({
+    mutationFn: (post: FeedPostView) => api(`/feed/${encodeURIComponent(post.id)}/restore`, {
+      method: 'POST', body: jsonBody({ expectedVersion: post.version }),
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['feed'] })
+      notifySuccess('Публікацію відновлено')
+    },
+  })
+  const posts = archived.data?.pages.flatMap((page) => page.items) ?? []
+  return (
+    <section className="feed-list" aria-label="Архів публікацій">
+      <div className="feed-legacy-filter-notice">
+        <Button type="button" variant="secondary" onClick={onBack}>Повернутися до стрічки</Button>
+      </div>
+      {archived.isPending ? <FeedLoading /> : archived.isError ? <FeedPageState kind="error" onAction={() => void archived.refetch()} /> : (
+        <Card>
+          {restore.isError && <p className="form-error" role="alert">Не вдалося відновити публікацію. Оновіть список і спробуйте ще раз.</p>}
+          {posts.length ? (
+            <ul className="hidden-content-list">
+              {posts.map((post) => {
+                const restoring = restore.isPending && restore.variables?.id === post.id
+                return (
+                  <li className="hidden-content-row" key={post.id}>
+                    <span className="hidden-content-row__body">
+                      <small>{personName(post.author.displayName)} · {formatDateTime(post.publishedAt)} · {personNamesInLabel(post.audienceLabel)}</small>
+                      <p className="hidden-content-row__excerpt">{post.body}</p>
+                      {post.hidden && <span className="hidden-content-row__marker">{hiddenContentLabel(post.hidden, 'Архівовано')}</span>}
+                    </span>
+                    <Button variant="secondary" aria-label={`Відновити публікацію від ${formatDateTime(post.publishedAt)}`} disabled={restoring}
+                      onClick={() => restore.mutate(post)}>
+                      <RotateCcw size={16} aria-hidden="true" />
+                      {restoring ? 'Відновлюємо…' : 'Відновити'}
+                    </Button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : <p className="hidden-content-empty">В архіві публікацій немає.</p>}
+          {archived.hasNextPage && (
+            <div className="stream-pagination">
+              <Button variant="secondary" disabled={archived.isFetchingNextPage} onClick={() => void archived.fetchNextPage()}>
+                {archived.isFetchingNextPage ? 'Завантаження…' : 'Показати давніші'}
+              </Button>
+            </div>
+          )}
+        </Card>
+      )}
+    </section>
   )
 }
 
@@ -534,15 +620,26 @@ export function FeedCard({ item, isNew, onChanged, loadedAt, viewerId }: { item:
       editPhotos.clear()
       setMenuOpen(false)
       onChanged()
+      notifySuccess('Публікацію оновлено')
     },
   })
   const archive = useMutation({
     mutationFn: () =>
-      api(`/feed/${item.id}`, {
+      api<{ id: string; version: number }>(`/feed/${item.id}`, {
         method: 'DELETE',
         body: jsonBody({ expectedVersion: item.version }),
       }),
-    onSuccess: onChanged,
+    onSuccess: (archived) => {
+      onChanged()
+      notifySuccess('Публікацію архівовано', {
+        undo: async () => {
+          await api(`/feed/${encodeURIComponent(item.id)}/restore`, {
+            method: 'POST', body: jsonBody({ expectedVersion: archived?.version ?? item.version + 1 }),
+          })
+          onChanged()
+        },
+      })
+    },
   })
   function submitComment(event: FormEvent) {
     event.preventDefault()

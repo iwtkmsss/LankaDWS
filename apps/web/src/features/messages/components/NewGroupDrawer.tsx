@@ -13,6 +13,7 @@ import {
   UnsavedChangesDialog,
   useModalCloseGuard,
 } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { createThread } from '../api/messageApi'
 import { normalizedCodePointLength } from '../lib/messageText'
 
@@ -58,7 +59,10 @@ export function NewGroupDrawer({
       }
       return createThread(payload, attemptRef.current.key)
     },
-    onSuccess: (thread) => closeGuard.closeForSuccess(() => onCreated(thread.id)),
+    onSuccess: (thread) => {
+      closeGuard.closeForSuccess(() => onCreated(thread.id))
+      notifySuccess('Груповий чат створено')
+    },
   })
 
   useEffect(() => {

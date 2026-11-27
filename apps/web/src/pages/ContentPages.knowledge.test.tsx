@@ -7,6 +7,7 @@ import ContentPages from './ContentPages'
 import { FeedbackDialogHost } from '../layout/FeedbackDialogHost'
 import { TopbarContentProvider } from '../layout/TopbarContent'
 import { OverlayProvider } from '../shared/ui/Overlay'
+import { AppNotice } from '../shared/ui/AppNotice'
 
 const { request, principal } = vi.hoisted(() => ({ request: vi.fn(), principal: { id: 'user', accountType: 'USER' } }))
 vi.mock('../shared/api/client', async (load) => ({ ...await load<object>(), api: request }))
@@ -34,7 +35,7 @@ it('opens feedback over any page from the URL and keeps that page state when clo
 
 it('submits private feedback through the shared editor without requesting companies or showing acknowledgement controls', async () => {
   request.mockImplementation(async (path: string) => path === '/knowledge/tickets' ? { submitted: true } : path === '/knowledge/tickets/attachments' ? { id: 'attachment', scanStatus: 'CLEAN' } : { items: [] })
-  const router = createMemoryRouter([{ path: '*', element: <OverlayProvider><FeedbackDialogHost /></OverlayProvider> }], { initialEntries: ['/feed?feedback=new'] })
+  const router = createMemoryRouter([{ path: '*', element: <OverlayProvider><FeedbackDialogHost /><AppNotice /></OverlayProvider> }], { initialEntries: ['/feed?feedback=new'] })
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
   const dialog = await screen.findByRole('dialog')
   expect(within(dialog).queryByText('Ознайомлення')).toBeNull()
@@ -266,4 +267,61 @@ it('keeps the debounced search in the URL and offers to clear an empty result', 
   fireEvent.click(within(empty).getByRole('button', { name: 'Очистити пошук' }))
   expect(router.state.location.search).toBe('')
   expect(await screen.findByRole('heading', { name: 'Інструкція' }, { timeout: 4000 })).toBeInTheDocument()
+})
+
+it('offers «Скасувати» after deleting a ticket and restores it through the same list', async () => {
+  principal.accountType = 'ADMIN'
+  let removed = false
+  const ticket = { id: 'ticket', title: 'Побажання', author: 'Автор', createdAt: '2026-10-19T09:00:00Z' }
+  request.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/knowledge/tickets/ticket' && init?.method === 'DELETE') { removed = true; return { archived: true } }
+    if (path === '/knowledge/tickets/ticket/restore' && init?.method === 'POST') { removed = false; return { restored: true } }
+    if (path === '/knowledge/tickets') return { items: removed ? [] : [ticket], nextCursor: null }
+    return { items: [] }
+  })
+  const router = createMemoryRouter([{ path: '/knowledge', element: <OverlayProvider><TopbarContentProvider><ContentPages /><AppNotice /></TopbarContentProvider></OverlayProvider> }], { initialEntries: ['/knowledge'] })
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Видалити звернення Побажання' }))
+  fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Видалити' }))
+  await screen.findByText('Нових звернень поки немає.')
+  const notice = await screen.findByRole('status')
+  expect(notice).toHaveTextContent('Звернення видалено')
+  fireEvent.click(within(notice).getByRole('button', { name: 'Скасувати' }))
+  await screen.findByText('Дію скасовано')
+  expect(await screen.findByRole('button', { name: /Побажання.*Автор/ })).toBeInTheDocument()
+  expect(request).toHaveBeenCalledWith('/knowledge/tickets/ticket/restore', { method: 'POST' })
+})
+
+it('shows the archive filter only to administrators and restores a muted archived article', async () => {
+  const archivedArticle = { id: 'old', slug: 'old-guide', title: 'Стара інструкція', createdAt: '2026-10-05', requiresAcknowledgement: false, hasAcknowledged: false, version: 2,
+    hidden: { hiddenAt: '2026-11-18T09:00:00Z', hiddenBy: { id: 'admin', displayName: 'Адміністратор Олена' } } }
+  let restored = false
+  request.mockImplementation(async (path: string, init?: RequestInit) => {
+    if (path === '/knowledge/articles?status=ARCHIVED') return { items: restored ? [] : [archivedArticle] }
+    if (path === '/knowledge/articles/old-guide/restore' && init?.method === 'POST') { restored = true; return { slug: 'old-guide', version: 3 } }
+    if (path === '/knowledge/tickets') return { items: [], nextCursor: null }
+    return { items: [] }
+  })
+  const renderPage = (entry: string) => {
+    const router = createMemoryRouter([{ path: '/knowledge', element: <OverlayProvider><TopbarContentProvider><ContentPages /></TopbarContentProvider></OverlayProvider> }], { initialEntries: [entry] })
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>)
+    return router
+  }
+  renderPage('/knowledge?status=archived')
+  await screen.findByRole('group', { name: 'Статус ознайомлення' })
+  expect(screen.queryByRole('button', { name: 'Архів' })).toBeNull()
+  expect(request.mock.calls.some(([path]) => String(path).includes('status=ARCHIVED'))).toBe(false)
+  cleanup()
+
+  principal.accountType = 'ADMIN'
+  const router = renderPage('/knowledge')
+  fireEvent.click(within(await screen.findByRole('group', { name: 'Статус ознайомлення' })).getByRole('button', { name: 'Архів' }))
+  const list = await screen.findByRole('list', { name: 'Архів матеріалів' })
+  expect(router.state.location.search).toBe('?status=archived')
+  expect(within(list).getByText('Стара інструкція')).toBeInTheDocument()
+  expect(within(list).getByText(/Видалено .* · Адміністратор Олена/)).toBeInTheDocument()
+  fireEvent.click(within(list).getByRole('button', { name: 'Відновити Стара інструкція' }))
+  await screen.findByText('В архіві матеріалів немає.')
+  const call = request.mock.calls.find(([path]) => path === '/knowledge/articles/old-guide/restore')
+  expect(JSON.parse(call![1].body)).toEqual({ expectedVersion: 2 })
 })

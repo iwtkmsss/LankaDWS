@@ -50,12 +50,6 @@ export const chatUserSearchQuerySchema = z.object({
 })
 export type ChatUserSearchQuery = z.infer<typeof chatUserSearchQuerySchema>
 
-export const recommendedChatUsersQuerySchema = z.object({
-  company: z.string().trim().min(1).max(120),
-  limit: userSearchLimitSchema,
-})
-export type RecommendedChatUsersQuery = z.infer<typeof recommendedChatUsersQuerySchema>
-
 export const createChatThreadSchema = z.object({
   companyId: z.string().trim().min(1).max(120),
   kind: z.enum(['DIRECT', 'GROUP']),
@@ -250,19 +244,6 @@ export const chatUserSearchPageSchema = z.object({
 })
 export type ChatUserSearchPage = z.infer<typeof chatUserSearchPageSchema>
 
-export const recommendedChatReasonSchema = z.enum(['RECENT', 'FREQUENT', 'SHARED_CONTEXT', 'TEAM'])
-export type RecommendedChatReason = z.infer<typeof recommendedChatReasonSchema>
-
-export const recommendedChatUserSchema = chatContactUserSchema.extend({
-  reason: recommendedChatReasonSchema,
-})
-export type RecommendedChatUser = z.infer<typeof recommendedChatUserSchema>
-
-export const recommendedChatUsersPageSchema = z.object({
-  items: z.array(recommendedChatUserSchema),
-})
-export type RecommendedChatUsersPage = z.infer<typeof recommendedChatUsersPageSchema>
-
 export const chatParticipantViewSchema = z.object({
   id: z.string(),
   displayName: z.string(),
@@ -368,6 +349,10 @@ export const chatMessageViewSchema = z.object({
   reactions: chatMessageReactionsSchema,
   canEdit: z.boolean(),
   canDelete: z.boolean(),
+  // Administrator view of a deleted message only (decision 2026-11-18): the body
+  // stays in place with who deleted it. Omitted for everyone else.
+  deletedBy: z.object({ id: z.string(), displayName: z.string() }).nullable().optional(),
+  canRestore: z.boolean().optional(),
 })
 export type ChatMessageView = z.infer<typeof chatMessageViewSchema>
 

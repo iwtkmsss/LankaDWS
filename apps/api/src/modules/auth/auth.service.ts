@@ -159,7 +159,7 @@ export class AuthService {
     })
   }
 
-  async updateProfile(principal: AuthPrincipal, input: { contactEmail: string | null; phone: string | null; gender: 'FEMALE' | 'MALE' | 'OTHER' | null; birthDate: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
+  async updateProfile(principal: AuthPrincipal, input: { contactEmail: string | null; phone: string | null; gender: 'FEMALE' | 'MALE' | null; birthDate: string | null; timezone: string; locale: 'uk-UA' | 'en-US' }) {
     try { Intl.DateTimeFormat('uk-UA', { timeZone: input.timezone }).format(new Date()) } catch { throw badRequest('timezone_invalid') }
     const user = await this.prisma.user.update({
       where: { id: principal.userId },
@@ -249,7 +249,7 @@ export class AuthService {
       accountType: user.accountType,
       contactEmail: user.contactEmail,
       phone: user.phone,
-      gender: user.gender as 'FEMALE' | 'MALE' | 'OTHER' | null,
+      gender: user.gender as 'FEMALE' | 'MALE' | null,
       birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null,
       timezone: user.timezone,
       locale: user.locale as 'uk-UA' | 'en-US',

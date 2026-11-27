@@ -29,7 +29,7 @@ beforeEach(async () => {
     id TEXT PRIMARY KEY, workspaceId TEXT, companyId TEXT, storageKey TEXT UNIQUE, safeFilename TEXT,
     declaredMime TEXT, detectedMime TEXT, bytes INTEGER, sha256 TEXT, scanStatus TEXT DEFAULT 'QUARANTINED',
     ownerId TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME)`)
-  await db.$executeRawUnsafe(`CREATE TABLE FileLink (id TEXT PRIMARY KEY, fileId TEXT, entityType TEXT, entityId TEXT, purpose TEXT, aclMode TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)`)
+  await db.$executeRawUnsafe(`CREATE TABLE FileLink (id TEXT PRIMARY KEY, fileId TEXT, entityType TEXT, entityId TEXT, purpose TEXT, aclMode TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, removedAt DATETIME, removedById TEXT)`)
   await db.$executeRawUnsafe(`CREATE TABLE FeedFileShare (id TEXT PRIMARY KEY, fileId TEXT)`)
   await db.$executeRawUnsafe(`CREATE TABLE AuditEvent (id TEXT PRIMARY KEY, workspaceId TEXT, companyId TEXT,
     actorType TEXT, actorId TEXT, action TEXT, entityType TEXT, entityId TEXT, result TEXT, risk TEXT,
@@ -172,6 +172,21 @@ describe('staged attachment storage lifecycle', () => {
     await db.fileLink.create({ data: { id: 'link', fileId: 'linked', entityType: 'MESSAGE', entityId: 'message', purpose: 'ATTACHMENT', aclMode: 'ENTITY' } })
     await worker().cleanupStagedFile('linked')
     expect(await db.fileObject.count()).toBe(1)
+  })
+
+  it('never purges or discards a file whose only links were removed', async () => {
+    const key = await createFile()
+    await db.fileLink.create({ data: {
+      id: 'removed-link', fileId: 'file', entityType: 'TASK', entityId: 'task', purpose: 'ATTACHMENT', aclMode: 'ENTITY',
+      removedAt: new Date(), removedById: 'me',
+    } })
+    expect(await files.discardStagedAttachment(principal, 'file')).toEqual({ discarded: false })
+    await worker().cleanupStagedFile('file')
+    expect(await db.fileObject.count()).toBe(1)
+    expect(await readFile(join(root, 'clean', key), 'utf8')).toBe('contents')
+    // A once-attached file is never treated as a fresh staged upload again.
+    await db.fileObject.update({ where: { id: 'file' }, data: { createdAt: new Date() } })
+    await expect(files.assertTaskStagedAttachments(principal, 'company', ['file'])).rejects.toMatchObject({ status: 400 })
   })
 
   it('preserves legacy files whose send history was not tracked', async () => {

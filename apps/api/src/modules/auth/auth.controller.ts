@@ -16,7 +16,7 @@ const passwordChangeSchema = z.object({ newPassword: z.string().transform(withou
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
 const recoverySchema = z.object({ code: z.string().min(8).max(64) })
 const reauthSchema = z.object({ password: z.string().transform(withoutWhitespace).pipe(z.string().min(1)), code: z.string().regex(/^\d{6}$/).optional() })
-const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE', 'OTHER']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
+const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value)

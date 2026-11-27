@@ -6,14 +6,15 @@ import CalendarPage from './CalendarPage'
 import { TopbarContentProvider } from '../layout/TopbarContent'
 import { OverlayProvider } from '../shared/ui/Overlay'
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }))
+const { api, authUser } = vi.hoisted(() => ({ api: vi.fn(), authUser: { id: 'me', accountType: 'USER' } }))
 vi.mock('../shared/api/client', () => ({ api, jsonBody: JSON.stringify, idempotencyKey: () => 'key' }))
-vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: { id: 'me' }, canUseCapability: () => true }) }))
+vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: authUser, canUseCapability: () => true }) }))
 const base = { companyId: 'mine', ownerId: 'me', ownerName: 'Me', description: null, allDay: false,
   startAt: '2026-10-05T09:00:00Z', endAt: '2026-10-05T10:00:00Z', sourceTimezone: 'Europe/Kyiv', version: 1,
   audienceCompanyIds: ['mine'], audienceLabel: 'Company' }
 
 beforeEach(() => {
+  authUser.accountType = 'USER'
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} })
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   api.mockReset().mockImplementation(async (path: string, options?: { method?: string }) => {
@@ -87,17 +88,21 @@ it('switches directly from a loading task preview to an event without a backdrop
 
 it('keeps task filter in the URL and API request', async () => {
   open('/calendar?date=2026-10-05')
-  fireEvent.click(await screen.findByRole('tab', { name: /Завдання/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Завдання/ }))
   await waitFor(() => expect(api.mock.calls.some(([path]) => path.includes('scope=TASKS'))).toBe(true))
-  expect(await screen.findByRole('tab', { name: /Компанія/ })).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: /Компанія/ }))
+  await waitFor(() => expect(api.mock.calls.some(([path]) => path.includes('scope=TEAM,TASKS'))).toBe(true))
+  expect(await screen.findByRole('button', { name: /Завдання/ })).toHaveAttribute('aria-pressed', 'true')
+  expect(await screen.findByRole('button', { name: /Компанія/ })).toHaveAttribute('aria-pressed', 'true')
+  expect(await screen.findByRole('button', { name: /Усі/ })).toHaveAttribute('aria-pressed', 'false')
 })
 
 it('shows Personal with its own count and preserves the existing deep link value', async () => {
   open('/calendar?date=2026-10-05')
-  fireEvent.click(await screen.findByRole('tab', { name: /Особисті\s*1/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Особисті\s*1/ }))
   await waitFor(() => expect(api.mock.calls.some(([path]) => path.includes('scope=MINE'))).toBe(true))
-  expect(screen.queryByRole('tab', { name: /Мої/ })).not.toBeInTheDocument()
-  expect(await screen.findByRole('tab', { name: /Особисті\s*1/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByRole('button', { name: /Мої/ })).not.toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /Особисті\s*1/ })).toHaveAttribute('aria-pressed', 'true')
 })
 
 it('opens a task deep link and preserves calendar filters when closing the preview', async () => {
@@ -305,4 +310,33 @@ it('keeps the canonical edit form in a popup and restores page scrolling after c
   fireEvent.click(within(editor).getByRole('button', { name: 'Скасувати' }))
   await screen.findByRole('dialog', { name: 'Personal' })
   expect(document.body.style.position).not.toBe('fixed')
+})
+
+it('does not offer the «Видалені» view to ordinary users, even from the URL', async () => {
+  open('/calendar?date=2026-10-05&view=month&deleted=1')
+  await screen.findByRole('link', { name: /Work/ })
+  expect(within(screen.getByRole('group', { name: 'Фільтр календаря' })).queryByRole('button', { name: 'Видалені' })).toBeNull()
+  expect(api.mock.calls.some(([path]) => String(path).includes('deleted=1'))).toBe(false)
+})
+
+it('lists hidden events muted with who deleted them for an administrator and restores one', async () => {
+  authUser.accountType = 'ADMIN'
+  const fallback = api.getMockImplementation()!
+  let restored = false
+  api.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
+    if (path.includes('&deleted=1')) return { items: restored ? [] : [{ ...base, id: 'gone', title: 'Cancelled meeting', visibility: 'INTERNAL', kind: 'EVENT', version: 2,
+      hidden: { hiddenAt: '2026-10-04T08:00:00Z', hiddenBy: { id: 'me', displayName: 'Me' } } }], counts: { ALL: 1, MINE: 0, TEAM: 0, TASKS: 0 } }
+    if (path === '/calendar/events/gone/restore') { restored = true; return { id: 'gone', version: 3 } }
+    return fallback(path, options)
+  })
+  open('/calendar?date=2026-10-05&view=month')
+  fireEvent.click(await screen.findByRole('button', { name: 'Видалені' }))
+  const list = await screen.findByRole('list', { name: 'Видалені події' })
+  expect(screen.getByRole('button', { name: 'Видалені' })).toHaveAttribute('aria-pressed', 'true')
+  expect(within(list).getByText('Cancelled meeting')).toBeInTheDocument()
+  expect(within(list).getByText(/Видалено .* · Me/)).toBeInTheDocument()
+  fireEvent.click(within(list).getByRole('button', { name: 'Відновити подію Cancelled meeting' }))
+  await screen.findByText('За цей період видалених подій немає.')
+  const call = api.mock.calls.find(([path]) => path === '/calendar/events/gone/restore')
+  expect(call![1]).toMatchObject({ method: 'POST', body: JSON.stringify({ expectedVersion: 2 }) })
 })

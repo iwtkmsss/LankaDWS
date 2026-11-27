@@ -7,7 +7,9 @@ import { Bell, BellOff, Crown, LogOut, Plus, Search, Trash2 } from 'lucide-react
 import { useState } from 'react'
 import { api, idempotencyKey, jsonBody } from '../../../shared/api/client'
 import { Avatar, Button, Drawer, Skeleton } from '../../../shared/ui'
+import { notifySuccess } from '../../../shared/ui/notify'
 import { messageKeys } from '../api/messageKeys'
+import { rejoinThread } from '../api/messageApi'
 import { UserProfileLink } from '../../employees/UserProfileDrawer'
 
 export function ThreadInfoDrawer({
@@ -59,6 +61,7 @@ export function ThreadInfoDrawer({
       setQuery('')
       setError('')
       await refresh()
+      notifySuccess('Учасника додано')
     },
     onError: () => setError('Склад діалогу вже міг змінитися. Оновіть і спробуйте ще раз.'),
   })
@@ -72,21 +75,42 @@ export function ThreadInfoDrawer({
           expectedThreadVersion: thread.version,
         }),
       }),
-    onSuccess: refresh,
+    onSuccess: async () => {
+      await refresh()
+      notifySuccess('Роль змінено')
+    },
     onError: () => setError('Не вдалося змінити роль. Оновіть склад діалогу.'),
   })
   const remove = useMutation({
     mutationFn: (participant: ChatParticipantView) =>
-      api(`/messages/threads/${thread.id}/participants/${participant.id}`, {
+      api<{ threadVersion: number }>(`/messages/threads/${thread.id}/participants/${participant.id}`, {
         method: 'DELETE',
         body: jsonBody({
           expectedVersion: participant.version,
           expectedThreadVersion: thread.version,
         }),
       }),
-    onSuccess: async (_, participant) => {
-      if (participant.id === currentUserId) onLeft()
-      else await refresh()
+    onSuccess: async (result, participant) => {
+      if (participant.id === currentUserId) {
+        onLeft()
+        // Leaving bumps the participant version once; the server allows rejoining for 10 minutes.
+        notifySuccess('Ви вийшли з діалогу', {
+          undo: () => rejoinThread(thread.id, participant.version + 1).then(refresh),
+        })
+      } else {
+        await refresh()
+        notifySuccess('Учасника видалено', {
+          undo: () => api(`/messages/threads/${thread.id}/participants`, {
+            method: 'POST',
+            headers: { 'idempotency-key': idempotencyKey('chat-participant') },
+            body: jsonBody({
+              userId: participant.id,
+              role: participant.role,
+              expectedThreadVersion: result.threadVersion,
+            }),
+          }).then(refresh),
+        })
+      }
     },
     onError: () => setError('Не вдалося змінити склад групи. У групі має лишитися власник.'),
   })

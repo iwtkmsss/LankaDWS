@@ -31,7 +31,9 @@ export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}
 
   @Get()
-  list(@Req() request: LankaDWSRequest, @Query('search') search?: string) {
+  list(@Req() request: LankaDWSRequest, @Query('search') search?: string, @Query('status') status?: string) {
+    // `status=ARCHIVED` is the administrator «Архів» view; the default list is unchanged.
+    if (status === 'ARCHIVED') return this.knowledge.archivedList(principalFrom(request))
     return this.knowledge.list(principalFrom(request), search)
   }
 
@@ -53,6 +55,11 @@ export class KnowledgeController {
   @Post(':slug/acknowledge')
   acknowledge(@Req() request: LankaDWSRequest, @Param('slug') slug: string, @Body() body: unknown) {
     return this.knowledge.acknowledge(principalFrom(request), slug, parseBody(expectedVersionBodySchema, body).expectedVersion)
+  }
+
+  @Post(':slug/restore')
+  restore(@Req() request: LankaDWSRequest, @Param('slug') slug: string, @Body() body: unknown) {
+    return this.knowledge.restore(principalFrom(request), slug, parseBody(expectedVersionBodySchema, body).expectedVersion)
   }
 
   @Patch(':slug')

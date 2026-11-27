@@ -1,5 +1,5 @@
 import type { TaskDetailView } from '@lankadws/contracts'
-import { ArrowLeft, Archive, CheckCircle2, CirclePlus, Copy, MoreHorizontal, Pencil, Play, RotateCcw, X } from 'lucide-react'
+import { ArrowLeft, Archive, ArchiveRestore, CheckCircle2, CirclePlus, Copy, MoreHorizontal, Pencil, Play, RotateCcw, X } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../../shared/auth/AuthProvider'
@@ -17,8 +17,10 @@ export function TaskDetailHeading({
   canManageTask,
   statusPending,
   archivePending,
+  restorePending,
   onStatus,
   onArchive,
+  onRestore,
   onToggleEdit,
   onDelegate,
   onCreateSubtask,
@@ -31,8 +33,10 @@ export function TaskDetailHeading({
   canManageTask: boolean
   statusPending: boolean
   archivePending: boolean
+  restorePending: boolean
   onStatus: (input: StatusActionInput) => void
   onArchive: () => void
+  onRestore: () => void
   onToggleEdit: () => void
   onDelegate: () => void
   onCreateSubtask: () => void
@@ -48,6 +52,11 @@ export function TaskDetailHeading({
       <div className="task-detail-heading__bar">
       <span className="task-detail-number">Завдання {task.number}</span>
       <div className="task-detail-heading-actions">
+        {task.status === 'ARCHIVED' && task.canRestore && (
+          <div className="task-detail-status-actions">
+            <Button type="button" variant="secondary" disabled={restorePending} onClick={onRestore}><ArchiveRestore size={16} />Відновити завдання</Button>
+          </div>
+        )}
         {!editOpen && task.availableStatusActions.length > 0 && (
           <div className="task-detail-status-actions">
             {task.availableStatusActions.includes('START') && <Button type="button" disabled={statusPending} onClick={() => onStatus({ action: 'START' })}><Play size={16} />Почати роботу</Button>}
