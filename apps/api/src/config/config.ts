@@ -27,6 +27,10 @@ const schema = z.object({
   SESSION_COOKIE_NAME: z.string().default('lankadws_session'),
   SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(60),
   TEMPORARY_PASSWORD_HOURS: z.coerce.number().int().positive().default(24),
+  // The authenticator-app second factor is mandatory for everyone; 'false' only for automated test runs.
+  SECOND_FACTOR_REQUIRED: z.enum(['true', 'false']).default('true'),
+  // Demo installation (shared with the web build): any 6-digit code passes, to show the flow.
+  VITE_DEMO_MODE: z.enum(['true', 'false']).catch('false').default('false'),
   REAUTH_MINUTES: z.coerce.number().int().positive().default(10),
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(8),

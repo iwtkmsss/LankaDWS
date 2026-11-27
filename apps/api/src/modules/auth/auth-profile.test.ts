@@ -3,6 +3,7 @@ import type { AuthPrincipal } from '../../common/request-context.js'
 import type { PrismaService } from '../../prisma/prisma.service.js'
 import type { CapabilitiesService } from '../authorization/capabilities.service.js'
 import { AuthService } from './auth.service.js'
+import { NoSecondFactorProvider } from './second-factor.js'
 
 it('keeps company and job data when the profile has no active primary department', async () => {
   const user = {
@@ -14,6 +15,7 @@ it('keeps company and job data when the profile has no active primary department
   const findMany = vi.fn()
   const service = new AuthService({ user: { findUnique }, orgUnit: { findMany } } as unknown as PrismaService,
     { forOrganizations: vi.fn().mockResolvedValue([]) } as unknown as CapabilitiesService)
+  service.secondFactor = new NoSecondFactorProvider()
   const profile = await service.me({ userId: user.id, allowedCompanyIds: ['company'] } as AuthPrincipal, 'csrf')
   expect(profile).toMatchObject({ company: { id: 'company' }, jobTitle: 'Дизайнерка', positionTitle: 'Дизайнерка', orgUnitPath: [] })
   expect(findUnique.mock.calls[0]?.[0] as unknown).toMatchObject({ include: { orgAssignments: {
@@ -32,6 +34,7 @@ it('places a manager without an assignment in the unit they manage in their own 
   const findMany = vi.fn().mockResolvedValue([{ id: 'root', name: 'Головний', parentId: null }, { id: 'child', name: 'Відділ', parentId: 'root' }])
   const service = new AuthService({ user: { findUnique: vi.fn().mockResolvedValue(user) }, orgUnit: { findMany } } as unknown as PrismaService,
     { forOrganizations: vi.fn().mockResolvedValue([]) } as unknown as CapabilitiesService)
+  service.secondFactor = new NoSecondFactorProvider()
   const profile = await service.me({ userId: user.id, allowedCompanyIds: ['company'] } as AuthPrincipal, 'csrf')
   expect(profile).toMatchObject({ orgUnitPath: [{ id: 'root', name: 'Головний' }, { id: 'child', name: 'Відділ' }] })
 })

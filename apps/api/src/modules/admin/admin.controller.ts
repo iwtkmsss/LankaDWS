@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common'
+import { Body, Controller, Get, Headers, Param, Patch, Post, Put, Query, Req, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { adminUserInputSchema, adminUserUpdateInputSchema, organizationCapabilityCodeSchema, updateOrganizationCapabilitySchema } from '@lankadws/contracts'
 import type { LankaDWSRequest } from '../../common/request-context.js'
@@ -14,6 +14,7 @@ import { getConfig } from '../../config/config.js'
 // Reasons stay plain strings so the service keeps its specific blank-reason error codes.
 const passwordResetBodySchema = z.object({ reason: z.string(), verificationMethod: z.string() })
 const unlockBodySchema = z.object({ reason: z.string() })
+const twoFactorExemptionSchema = z.object({ minutes: z.number().int().nullable(), reason: z.string().max(500).default('') })
 const deactivateBodySchema = z.object({ reason: z.string(), newOwnerId: z.string().optional() })
 const securityPolicyBodySchema = z.object({
   expectedVersion: z.number().int(),
@@ -73,6 +74,12 @@ export class AdminController {
 
   @Post('credential-reset-approvals/:id/finalize')
   finalizeReset(@Req() request: LankaDWSRequest, @Param('id') id: string, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.finalizeReset(principalFrom(request), id, reauth) }
+
+  @Post('users/:id/two-factor/reset')
+  resetTwoFactor(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.resetTwoFactor(principalFrom(request), id, parseBody(unlockBodySchema, body).reason, reauth) }
+
+  @Put('users/:id/two-factor/exemption')
+  twoFactorExemption(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.setTwoFactorExemption(principalFrom(request), id, parseBody(twoFactorExemptionSchema, body), reauth) }
 
   @Post('users/:id/unlock')
   unlock(@Req() request: LankaDWSRequest, @Param('id') id: string, @Body() body: unknown, @Headers('x-reauth-challenge') reauth?: string) { return this.admin.unlock(principalFrom(request), id, parseBody(unlockBodySchema, body).reason, reauth) }

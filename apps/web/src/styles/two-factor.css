@@ -1,0 +1,277 @@
+/* Authenticator-app (TOTP) enrolment wizard, code step and the administrator controls. */
+.setup-qr {
+  display: block;
+  justify-self: center;
+  width: min(184px, 60vw);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  padding: var(--space-2);
+  cursor: pointer;
+}
+.setup-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.setup-qr:focus-visible {
+  outline: 3px solid var(--cobalt-300);
+  outline-offset: 2px;
+}
+.setup-key {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.setup-key dt {
+  color: var(--ink-500);
+  font-size: 13px;
+}
+.setup-key dd {
+  margin: 0;
+  font-weight: 600;
+}
+/* Short facts on one line: the value right after its label. */
+.setup-key__row {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.setup-key__secret {
+  display: grid;
+  gap: var(--space-1);
+}
+/* The key and its copy button share one field. */
+.setup-key__secret dd {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* The key as an even 4 × 2 grid of four-character groups: no stray group on its own line. */
+.compact-form .setup-key__secret code {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  grid-template-columns: repeat(4, max-content);
+  justify-content: start;
+  gap: var(--space-1) var(--space-4);
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  padding: var(--space-2) var(--space-3);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+.setup-key__copy {
+  display: grid;
+  flex: none;
+  width: 40px;
+  align-self: stretch;
+  place-items: center;
+  border: 0;
+  border-left: 1px solid var(--line-strong);
+  background: none;
+  color: var(--cobalt-600);
+  cursor: pointer;
+}
+.setup-key__copy:hover {
+  background: var(--surface-hover);
+}
+.setup-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+/* Six code cells with a gap between digits; the real input sits invisibly over them. */
+.otp-cells {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.compact-form .otp-input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px;
+  opacity: 0;
+  cursor: text;
+}
+.otp-cell {
+  display: grid;
+  height: 54px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.otp-cell--active {
+  border-color: var(--cobalt-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cobalt-600) 22%, transparent);
+}
+/* The blinking bar shows where the next digit goes. */
+.otp-cell--active:not(.otp-cell--filled)::after {
+  width: 2px;
+  height: 26px;
+  background: var(--cobalt-600);
+  content: '';
+  animation: otp-caret 1s steps(1) infinite;
+}
+@keyframes otp-caret {
+  50% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .otp-cell--active:not(.otp-cell--filled)::after {
+    animation: none;
+  }
+}
+.access-link {
+  display: flex;
+  width: fit-content;
+  margin-inline: auto;
+  gap: var(--space-2);
+  align-items: center;
+  justify-self: center;
+  border: 0;
+  background: none;
+  color: var(--cobalt-600);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.access-link--muted {
+  color: var(--ink-500);
+  font-size: 14px;
+}
+.setup-more summary {
+  width: fit-content;
+  margin-inline: auto;
+  color: var(--cobalt-600);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The expanded help is one bordered block, not loose text under the link. */
+.setup-more__panel {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: var(--space-4);
+}
+.setup-more__panel p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+}
+.setup-more__panel .button {
+  width: 100%;
+}
+.demo-hint {
+  margin: 0;
+  color: var(--ink-500);
+  font-size: 13px;
+}
+.two-factor-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+section.two-factor-panel {
+  margin-top: var(--space-6);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-5);
+}
+section.two-factor-panel h3 {
+  margin: 0;
+}
+.two-factor-panel__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.two-factor-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-end;
+}
+.two-factor-panel__actions label {
+  display: grid;
+  gap: var(--space-1);
+}
+.two-factor-panel__actions label:last-child {
+  flex: 1 1 260px;
+}
+.two-factor-warning {
+  border-left: 3px solid var(--warning-line);
+  padding-left: var(--space-3);
+}
+/*
+ * The sign-in block is centred vertically. The 2FA screens keep a fixed height (the enrolment
+ * screen reserves one area for the QR code or the manual key; the code step reserves room for
+ * its opened hint), so switching views or opening a hint never makes the centred block jump.
+ */
+.login-card {
+  align-self: stretch;
+  justify-content: center;
+}
+.login-stage {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(var(--space-4), 2.5vh, var(--space-6));
+}
+.challenge-body {
+  min-height: 352px;
+  align-content: start;
+}
+@media (max-width: 720px) {
+  .challenge-body {
+    min-height: 0;
+  }
+}
+
+/* One area for the QR code or the manual key, the same height either way. */
+.setup-key-area {
+  display: grid;
+  min-height: 228px;
+  align-content: center;
+  gap: var(--space-2);
+}
+.setup-key-area__state {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+}
+.setup-single > p {
+  margin: 0;
+}
+/* The 2FA screens are compact: one block, no large gaps between its parts. */
+.compact-form.setup-single,
+.compact-form.challenge-body {
+  gap: var(--space-3);
+}
+.login-stage:has(.setup-single, .challenge-body) {
+  gap: var(--space-3);
+}
+.setup-single .demo-hint,
+.challenge-body .demo-hint {
+  margin-top: calc(-1 * var(--space-2));
+}

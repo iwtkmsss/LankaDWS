@@ -8,14 +8,16 @@ import { forbidden, unauthorized } from '../../common/errors.js'
 import type { LankaDWSRequest } from '../../common/request-context.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { ADMIN_ONLY, PUBLIC_ROUTE, RESTRICTED_ROUTE } from './auth.decorators.js'
-import { secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
+import { requiredSecondFactor, secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
 
 @Injectable()
 export class SessionAuthGuard implements CanActivate {
-  /** Replaceable in tests; production uses the module-level provider. */
-  secondFactor: SecondFactorProvider = secondFactorProvider
+  /** Replaceable in tests; production uses the shared provider. */
+  secondFactor: SecondFactorProvider
 
-  constructor(private readonly reflector: Reflector, private readonly prisma: PrismaService) {}
+  constructor(private readonly reflector: Reflector, private readonly prisma: PrismaService) {
+    this.secondFactor = secondFactorProvider(prisma)
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     if (this.reflector.getAllAndOverride<boolean>(PUBLIC_ROUTE, [context.getHandler(), context.getClass()])) return true
@@ -41,10 +43,9 @@ export class SessionAuthGuard implements CanActivate {
     }
     if (session.authorizationVersion !== session.user.authorizationVersion) throw unauthorized()
 
-    // Assurance 0 is a temporary-password session; below 2 the second factor is still owed,
-    // which can happen only once a second-factor method is configured.
-    const secondFactorOwed = this.secondFactor.enabled && session.authAssurance < 2
-      && (session.user.mustEnroll2FA || await this.secondFactor.isEnrolled(session.user.id))
+    // Assurance 0 is a temporary-password session; below 2 the second factor is still owed
+    // while an administrator has it switched on and the user is enrolled or obliged to enrol.
+    const secondFactorOwed = session.authAssurance < 2 && (await requiredSecondFactor(this.secondFactor, session.user)) !== null
     const restricted = session.authAssurance === 0 || secondFactorOwed
     const allowsRestricted = this.reflector.getAllAndOverride<boolean>(RESTRICTED_ROUTE, [context.getHandler(), context.getClass()])
     if (restricted && !allowsRestricted) throw unauthorized('credential_step_required')

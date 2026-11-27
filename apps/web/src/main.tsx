@@ -11,6 +11,7 @@ import './styles/global.css'
 import './styles/components.css'
 import './styles/layout.css'
 import './styles/pages.css'
+import './styles/two-factor.css'
 
 initializeTheme()
 installLabelClickGuard()

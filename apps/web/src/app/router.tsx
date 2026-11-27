@@ -15,7 +15,7 @@ function ProtectedRoot() {
   const location = useLocation()
   if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
   if (auth.state === 'anonymous') return <Navigate to="/login" replace />
-  if (auth.state === 'restricted') return <Navigate to="/access/setup" replace />
+  if (auth.state === 'restricted') return <Navigate to="/login" replace />
   const search = new URLSearchParams(location.search)
   if (search.has('company')) {
     search.delete('company')
@@ -48,7 +48,7 @@ function HomeRedirect() {
   const auth = useAuth()
   if (auth.state === 'loading') return <main className="center-state"><Skeleton rows={5} /></main>
   if (auth.state === 'anonymous') return <Navigate to="/login" replace />
-  if (auth.state === 'restricted') return <Navigate to="/access/setup" replace />
+  if (auth.state === 'restricted') return <Navigate to="/login" replace />
   return <Navigate to={resolveHomePath(auth.user)} replace />
 }
 
@@ -57,9 +57,9 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
   { path: '/first-login', element: <RestrictedAccessPage mode="first-login" /> },
   { path: '/password-changed', element: <RestrictedAccessPage mode="password-changed" /> },
-  { path: '/access-help', element: <RestrictedAccessPage mode="help" /> },
-  { path: '/access/setup', element: <RestrictedAccessPage mode="setup" /> },
-  { path: '/access/challenge', element: <RestrictedAccessPage mode="challenge" /> },
+  // The 2FA steps live inside the sign-in card; these older addresses resume there.
+  { path: '/access/setup', element: <Navigate to="/login" replace /> },
+  { path: '/access/challenge', element: <Navigate to="/login" replace /> },
   { path: '/errors/offline', element: <ErrorPage status="offline" /> },
   { path: '/errors/500', element: <ErrorPage status={500} /> },
   { path: '/errors/conflict', element: <ErrorPage status="conflict" /> },

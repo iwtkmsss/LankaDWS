@@ -15,6 +15,7 @@ import { getConfig } from '../../config/config.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { AuthService } from '../auth/auth.service.js'
 import { assertPasswordPolicy } from '../auth/password-policy.js'
+import { invalidateSecurityPolicyCache, MAX_SECOND_FACTOR_EXEMPTION_MINUTES, readSecondFactorExemption, readSecurityPolicy, writeSecondFactorExemption, type SecurityPolicy } from '../auth/security-policy.js'
 import { JobsService } from '../jobs/jobs.service.js'
 import { recordAudit } from '../../common/audit.js'
 
@@ -80,8 +81,9 @@ export class AdminService {
   async userDetail(principal: AuthPrincipal, userId: string) {
     const user = await this.prisma.user.findFirst({ where: { id: userId, workspaceId: principal.workspaceId }, include: { primaryCompany: true, orgAssignments: { where: { endedAt: null, isPrimary: true }, include: { orgUnit: true } }, managedCompanies: { select: { id: true, displayName: true } }, managedOrgUnits: { select: { id: true, name: true, companyId: true } }, sessions: { where: { revokedAt: null, expiresAt: { gt: new Date() } } }, totpCredential: true } })
     if (!user) throw notFound()
+    const twoFactorExemptUntil = await readSecondFactorExemption(this.prisma, user.id)
     const assignment = user.orgAssignments.find((item) => item.companyId === user.primaryCompanyId && item.orgUnit.status === 'ACTIVE')
-    return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, leadership: { companies: user.managedCompanies.map((company) => ({ id: company.id, name: company.displayName })), orgUnits: user.managedOrgUnits }, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA } }
+    return { id: user.id, displayName: user.displayName, firstName: user.firstName, lastName: user.lastName, middleName: user.middleName, username: user.username, contactEmail: user.contactEmail, phone: user.phone, gender: user.gender, birthDate: user.birthDate?.toISOString().slice(0, 10) ?? null, jobTitle: user.jobTitle, avatarAsset: user.avatarAsset?.startsWith('file_') ? `/api/v1/me/avatar/${user.avatarAsset}` : user.avatarAsset, accountType: user.accountType, company: user.primaryCompany ? { id: user.primaryCompany.id, name: user.primaryCompany.displayName } : null, orgUnit: assignment ? { id: assignment.orgUnitId, name: assignment.orgUnit.name } : null, approverId: user.approverId, timezone: user.timezone, isActive: user.isActive, version: user.authorizationVersion, leadership: { companies: user.managedCompanies.map((company) => ({ id: company.id, name: company.displayName })), orgUnits: user.managedOrgUnits }, security: { twoFactor: Boolean(user.totpCredential?.confirmedAt && !user.totpCredential.disabledAt), activeSessions: user.sessions.length, mustEnroll2FA: user.mustEnroll2FA, twoFactorExemptUntil: twoFactorExemptUntil?.toISOString() ?? null } }
   }
 
   async createUser(principal: AuthPrincipal, input: { firstName: string; lastName: string; middleName?: string; username: string; password: string; contactEmail: string; phone?: string; gender?: string | null; birthDate?: string | null; jobTitle?: string; accountType: 'ADMIN' | 'USER'; companyId?: string; orgUnitId?: string; isActive: boolean }) {
@@ -433,9 +435,8 @@ export class AdminService {
     return { queued: true }
   }
 
-  async securityPolicy() {
-    const setting = await this.prisma.systemSetting.findFirst({ where: { key: 'security-policy', effectiveAt: { lte: new Date() } }, orderBy: { version: 'desc' } })
-    return setting ? { ...JSON.parse(setting.valueJson) as object, version: setting.version, effectiveAt: setting.effectiveAt } : { require2faAccountTypes: ['ADMIN'], temporaryPasswordHours: 24, sessionHours: 12, version: 0 }
+  securityPolicy() {
+    return readSecurityPolicy(this.prisma, true)
   }
 
   async updateSecurityPolicy(principal: AuthPrincipal, input: { expectedVersion: number; require2faAccountTypes: Array<'ADMIN' | 'USER'>; temporaryPasswordHours: number; sessionHours: number; effectiveAt: string }, reauthChallengeId?: string) {
@@ -443,8 +444,51 @@ export class AdminService {
     const current = await this.securityPolicy()
     if (current.version !== input.expectedVersion) throw conflict()
     const affectedUsers = await this.prisma.user.count({ where: { accountType: { in: input.require2faAccountTypes }, isActive: true } })
-    await this.prisma.systemSetting.create({ data: { id: id('set'), key: 'security-policy', valueJson: JSON.stringify({ require2faAccountTypes: input.require2faAccountTypes, temporaryPasswordHours: input.temporaryPasswordHours, sessionHours: input.sessionHours }), version: input.expectedVersion + 1, effectiveAt: new Date(input.effectiveAt), updatedBy: principal.userId } })
+    await this.writeSecurityPolicy(principal, current, { ...current, require2faAccountTypes: input.require2faAccountTypes, temporaryPasswordHours: input.temporaryPasswordHours, sessionHours: input.sessionHours }, new Date(input.effectiveAt))
     return { version: input.expectedVersion + 1, affectedUsers }
+  }
+
+  private async writeSecurityPolicy(principal: AuthPrincipal, current: SecurityPolicy, next: SecurityPolicy, effectiveAt: Date) {
+    const value = { require2faAccountTypes: next.require2faAccountTypes, temporaryPasswordHours: next.temporaryPasswordHours, sessionHours: next.sessionHours }
+    await this.prisma.systemSetting.create({ data: { id: id('set'), key: 'security-policy', valueJson: JSON.stringify(value), version: current.version + 1, effectiveAt, updatedBy: principal.userId } })
+    invalidateSecurityPolicyCache()
+    await recordAudit(this.prisma, principal, { action: 'security_policy.updated', entityType: 'SYSTEM_SETTING', entityId: 'security-policy', risk: 'HIGH', safeDiff: { require2faAccountTypes: { from: current.require2faAccountTypes, to: next.require2faAccountTypes } } })
+  }
+
+  /** Removes a user's authenticator app (a lost phone); the next sign-in runs enrolment again. */
+  async resetTwoFactor(principal: AuthPrincipal, targetId: string, reason: string, reauthChallengeId?: string) {
+    await this.auth.assertRecentReauth(principal, reauthChallengeId)
+    if (!reason.trim()) throw badRequest('reason_required')
+    if (targetId === principal.userId) throw forbidden('Власний застосунок-автентифікатор скидає інший адміністратор.')
+    const target = await this.prisma.user.findFirst({ where: { id: targetId, workspaceId: principal.workspaceId }, select: { id: true, primaryCompanyId: true } })
+    if (!target) throw notFound()
+    await this.auth.secondFactor.reset(targetId)
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userSession.updateMany({ where: { userId: targetId, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'admin_second_factor_reset' } })
+      await tx.credentialEvent.create({ data: { id: id('cev'), userId: targetId, actorId: principal.userId, type: 'second_factor_reset', result: 'SUCCESS', reasonCode: reason.trim(), correlationId: id('corr') } })
+      await recordAudit(tx, principal, { companyId: target.primaryCompanyId, action: 'user.second_factor_reset', entityType: 'USER', entityId: targetId, risk: 'HIGH', reasonCode: reason.trim() })
+    })
+    return { reset: true }
+  }
+
+  /** Lets one person sign in without the second factor for up to a day; minutes null ends it now. */
+  async setTwoFactorExemption(principal: AuthPrincipal, targetId: string, input: { minutes: number | null; reason: string }, reauthChallengeId?: string) {
+    const target = await this.prisma.user.findFirst({ where: { id: targetId, workspaceId: principal.workspaceId }, select: { id: true, primaryCompanyId: true } })
+    if (!target) throw notFound()
+    let until: Date | null = null
+    if (input.minutes !== null) {
+      await this.auth.assertRecentReauth(principal, reauthChallengeId)
+      if (!input.reason.trim()) throw badRequest('reason_required')
+      if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > MAX_SECOND_FACTOR_EXEMPTION_MINUTES) throw badRequest('validation_failed', 'Пустити без коду можна щонайбільше на добу.')
+      until = new Date(Date.now() + input.minutes * 60_000)
+    }
+    await writeSecondFactorExemption(this.prisma, targetId, until, principal.userId)
+    if (!until) {
+      // Sessions opened under the exemption must pass the factor from now on.
+      await this.prisma.userSession.updateMany({ where: { userId: targetId, revokedAt: null, authAssurance: { lt: 2 } }, data: { revokedAt: new Date(), revokeReason: 'second_factor_exemption_ended' } })
+    }
+    await recordAudit(this.prisma, principal, { companyId: target.primaryCompanyId, action: until ? 'user.second_factor_exempted' : 'user.second_factor_exemption_ended', entityType: 'USER', entityId: targetId, risk: until ? 'HIGH' : 'NORMAL', reasonCode: input.reason.trim() || null, safeDiff: { until: until?.toISOString() ?? null } })
+    return { exemptUntil: until?.toISOString() ?? null }
   }
 
   private async issueTemporaryCredential(principal: AuthPrincipal, targetId: string, reason: string) {

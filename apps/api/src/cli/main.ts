@@ -87,6 +87,9 @@ export async function recoverAdmin(prisma: PrismaService): Promise<void> {
     await tx.temporaryCredential.updateMany({ where: { userId: user.id, consumedAt: null, invalidatedAt: null }, data: { invalidatedAt: new Date() } })
     await tx.temporaryCredential.create({ data: { id: id('tmp'), userId: user.id, secretHash, purpose: 'BREAK_GLASS', expiresAt } })
     await tx.userSession.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date(), revokeReason: 'break_glass' } })
+    // A lost authenticator is the usual reason for break-glass: the administrator enrols again.
+    await tx.recoveryCode.deleteMany({ where: { userId: user.id } })
+    await tx.totpCredential.deleteMany({ where: { userId: user.id } })
     await tx.user.update({ where: { id: user.id }, data: { isActive: true, mustEnroll2FA: true, authorizationVersion: { increment: 1 } } })
     await tx.auditEvent.create({ data: { id: id('aud'), workspaceId: user.workspaceId, companyId: user.primaryCompanyId, actorType: 'SYSTEM', actorId: user.id, action: 'system.break_glass', entityType: 'USER', entityId: user.id, result: 'SUCCESS', risk: 'CRITICAL', reasonCode: reason.trim(), correlationId: id('corr') } })
   })

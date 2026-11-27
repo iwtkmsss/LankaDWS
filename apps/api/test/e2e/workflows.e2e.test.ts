@@ -60,6 +60,7 @@ beforeAll(async () => {
   process.env.MALWARE_SCANNER = 'development-clean';
   process.env.DATABASE_URL = databaseUrl;
   process.env.DISABLE_JOB_WORKER = 'true';
+  process.env.SECOND_FACTOR_REQUIRED = 'false';
   resetConfigForTests();
   const { AppModule } = await import('../../src/app.module.js');
   const module = await Test.createTestingModule({

@@ -22,6 +22,8 @@ import { api, idempotencyKey, jsonBody } from '../shared/api/client'
 import { notifySuccess } from '../shared/ui/notify'
 import { useDebouncedSearchValue } from '../shared/lib/useDebouncedSearchValue'
 import { UserSearchCombobox } from '../features/employees/UserSearchCombobox'
+import { UserTwoFactorPanel } from '../features/admin/TwoFactorAdmin'
+import { useAuth } from '../shared/auth/AuthProvider'
 import { formatDateTime } from '../shared/lib/format'
 import {
   Avatar,
@@ -63,6 +65,8 @@ export default function AdminPages() {
   const path = useLocation().pathname
   return path.startsWith('/admin/users') ? <UsersPage /> : <AuditPage />
 }
+
+
 
 function errorMessage(error: unknown) {
   const problem = error && typeof error === 'object' && 'problem' in error
@@ -592,8 +596,10 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
       twoFactor: boolean
       activeSessions: number
       mustEnroll2FA: boolean
+      twoFactorExemptUntil: string | null
     }
   }
+  const { user: currentUser } = useAuth()
   const query = useQuery({
     queryKey: ['admin-user', id],
     queryFn: () => api<Detail>(`/admin/users/${id}`),
@@ -601,7 +607,10 @@ function UserDrawer({ id, onClose }: { id: string; onClose: () => void }) {
   return (
     <Drawer size="lg" title="Редагувати користувача" onRequestClose={onClose}>
       {query.isLoading ? <Skeleton /> : query.isError || !query.data ? <ErrorState /> :
-        <UserEditor key={id} user={query.data} onClose={onClose} />}
+        <>
+          <UserEditor key={id} user={query.data} onClose={onClose} />
+          <UserTwoFactorPanel userId={id} isSelf={currentUser?.id === id} enrolled={query.data.security.twoFactor} exemptUntil={query.data.security.twoFactorExemptUntil} />
+        </>}
     </Drawer>
   )
 }

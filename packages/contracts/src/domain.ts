@@ -62,7 +62,12 @@ export interface PrincipalView extends UserSummary {
   locale: 'uk-UA' | 'en-US'
   capabilities: OrganizationCapabilityView[]
   csrfToken: string
+  /** Kept for older clients: true when `secondFactorStep` is `ENROLL`. */
   mustEnroll2FA: boolean
+  /** What this session still owes before full access: an authenticator code, an enrolment, or nothing. */
+  secondFactorStep?: 'CHALLENGE' | 'ENROLL' | null
+  /** Whether the authenticator app is connected and enforced (re-authentication then asks for a code). */
+  secondFactorEnrolled?: boolean
 }
 
 export interface PageResult<T> {

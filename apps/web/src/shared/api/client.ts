@@ -26,6 +26,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (response.status === 401 && !path.startsWith('/auth/') && body.code !== 'credential_step_required') {
       window.dispatchEvent(new Event('lankadws:session-ended'))
     }
+    // The session now owes the second factor (an administrator pause or exemption ended).
+    if (response.status === 401 && body.code === 'credential_step_required') window.dispatchEvent(new Event('lankadws:credential-step'))
     throw new ApiProblem(body)
   }
   if (response.status === 204) return undefined as T

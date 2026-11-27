@@ -9,7 +9,7 @@ import type { Prisma } from '../../generated/prisma/client.js'
 import { PrismaService } from '../../prisma/prisma.service.js'
 import { assertPasswordPolicy } from './password-policy.js'
 import { CapabilitiesService } from '../authorization/capabilities.service.js'
-import { secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
+import { requiredSecondFactor, secondFactorProvider, type SecondFactorProvider } from './second-factor.js'
 import { recordAudit } from '../../common/audit.js'
 
 interface SessionTarget { id: string; authorizationVersion: number }
@@ -18,16 +18,33 @@ interface SessionTarget { id: string; authorizationVersion: number }
 export class AuthService {
   private readonly dummyHash = hashPassword(randomToken())
 
-  /** Replaceable in tests; production uses the module-level provider. */
-  secondFactor: SecondFactorProvider = secondFactorProvider
+  /** Replaceable in tests; production uses the shared provider. */
+  secondFactor: SecondFactorProvider
 
-  constructor(private readonly prisma: PrismaService, private readonly capabilities: CapabilitiesService) {}
+  constructor(private readonly prisma: PrismaService, private readonly capabilities: CapabilitiesService) {
+    this.secondFactor = secondFactorProvider(prisma)
+  }
 
-  /** Whether this user must pass the second factor; always false while no method is configured. */
-  async requiresSecondFactor(user: { id: string; mustEnroll2FA: boolean }): Promise<'CHALLENGE' | 'ENROLL' | null> {
-    if (!this.secondFactor.enabled) return null
-    if (await this.secondFactor.isEnrolled(user.id)) return 'CHALLENGE'
-    return user.mustEnroll2FA ? 'ENROLL' : null
+  /** What this user must pass after the password; always null while the second factor is switched off. */
+  requiresSecondFactor(user: { id: string }): Promise<'CHALLENGE' | 'ENROLL' | null> {
+    return requiredSecondFactor(this.secondFactor, user)
+  }
+
+  /**
+   * Wrong codes count as failed sign-ins for the same account, so the login throttle also bounds
+   * guessing a 6-digit code.
+   */
+  private async checkSecondFactorAttempt(principal: AuthPrincipal, request: Request, attempt: () => Promise<boolean>, reasonCode: string): Promise<boolean> {
+    const usernameFingerprint = fingerprint(principal.username.trim().toLowerCase(), 'login-username')
+    const since = new Date(Date.now() - getConfig().LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000)
+    const failed = await this.prisma.loginAttempt.count({ where: { createdAt: { gte: since }, result: 'FAILURE', usernameFingerprint } })
+    if (failed >= getConfig().LOGIN_RATE_LIMIT_MAX * 3) throw rateLimited()
+    const accepted = await attempt()
+    if (!accepted) {
+      const ipHash = request.ip ? fingerprint(request.ip, 'login-ip') : null
+      await this.recordLogin(usernameFingerprint, ipHash, principal.userId, 'FAILURE', reasonCode)
+    }
+    return accepted
   }
 
   async login(input: LoginInput, request: Request, response: Response): Promise<LoginResult> {
@@ -115,30 +132,28 @@ export class AuthService {
     return this.secondFactor.startEnrollment(principal)
   }
 
-  async confirmSecondFactorEnrollment(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<{ recoveryCodes: string[] }> {
-    const result = await this.secondFactor.confirmEnrollment(principal, code)
+  async confirmSecondFactorEnrollment(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
+    if (!await this.checkSecondFactorAttempt(principal, request, () => this.secondFactor.confirmEnrollment(principal, code), 'invalid_second_factor')) {
+      throw badRequest('invalid_second_factor', 'Код не підтверджено. Перевірте час на пристрої.')
+    }
     await this.prisma.user.update({ where: { id: principal.userId }, data: { mustEnroll2FA: false } })
+    await this.prisma.credentialEvent.create({ data: { id: id('cev'), userId: principal.userId, actorId: principal.userId, type: 'second_factor_enrolled', result: 'SUCCESS', correlationId: id('corr') } })
     await this.rotateSession(principal, request, response, 2, false)
-    return result
+    return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
   }
 
   async challengeSecondFactor(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
-    if (!await this.secondFactor.verify(principal, code)) throw unauthorized('invalid_second_factor')
+    if (!await this.checkSecondFactorAttempt(principal, request, () => this.secondFactor.verify(principal, code), 'invalid_second_factor')) throw unauthorized('invalid_second_factor')
     await this.rotateSession(principal, request, response, 2, false)
     return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
   }
 
-  async useRecoveryCode(principal: AuthPrincipal, code: string, request: Request, response: Response): Promise<LoginResult> {
-    if (!await this.secondFactor.useRecoveryCode(principal, code)) throw unauthorized('invalid_recovery_code')
-    await this.rotateSession(principal, request, response, 2, false)
-    return { nextStep: 'AUTHENTICATED', csrfToken: response.locals.csrfToken as string }
-  }
-
-  async reauthenticate(principal: AuthPrincipal, password: string, code?: string): Promise<{ challengeId: string; expiresAt: string }> {
+  async reauthenticate(principal: AuthPrincipal, password: string, code: string | undefined, request: Request): Promise<{ challengeId: string; expiresAt: string }> {
     const user = await this.prisma.user.findUnique({ where: { id: principal.userId }, include: { passwordCredential: true } })
     if (!user?.passwordCredential || !(await verifyPassword(user.passwordCredential.passwordHash, password))) throw unauthorized('reauth_failed')
-    const enrolled = this.secondFactor.enabled && await this.secondFactor.isEnrolled(user.id)
-    if (enrolled && (!code || !await this.secondFactor.verify(principal, code))) throw unauthorized('reauth_failed')
+    // An enrolled user confirms with a code even while an administrator has paused the factor.
+    const enrolled = await this.secondFactor.isEnrolled(user.id)
+    if (enrolled && (!code || !await this.checkSecondFactorAttempt(principal, request, () => this.secondFactor.verify(principal, code), 'invalid_second_factor'))) throw unauthorized('reauth_failed')
     const expiresAt = new Date(Date.now() + getConfig().REAUTH_MINUTES * 60_000)
     const challengeId = id('reauth')
     await this.prisma.reauthChallenge.create({ data: { id: challengeId, sessionId: principal.sessionId, purpose: 'critical_action', assurance: enrolled ? 2 : 1, expiresAt, satisfiedAt: new Date() } })
@@ -227,6 +242,9 @@ export class AuthService {
           })
         : Promise.resolve([]),
     ])
+    // A temporary-password session changes the password first; a full session owes nothing more.
+    const [required, secondFactorEnrolled] = await Promise.all([this.requiresSecondFactor(user), this.secondFactor.isEnrolled(user.id)])
+    const secondFactorStep = principal.authAssurance === 0 || principal.authAssurance >= 2 ? null : required
     const unitsById = new Map(orgUnits.map((unit) => [unit.id, unit]))
     const orgUnitPath: Array<{ id: string; name: string }> = []
     const visited = new Set<string>()
@@ -255,8 +273,9 @@ export class AuthService {
       locale: user.locale as 'uk-UA' | 'en-US',
       capabilities,
       csrfToken,
-      // An enrolment obligation applies only once a second-factor method exists.
-      mustEnroll2FA: (await this.requiresSecondFactor(user)) === 'ENROLL',
+      mustEnroll2FA: secondFactorStep === 'ENROLL',
+      secondFactorStep,
+      secondFactorEnrolled,
     }
   }
 

@@ -8,7 +8,9 @@ const mocks = vi.hoisted(() => ({
   login: vi.fn(),
   refresh: vi.fn(),
   api: vi.fn(),
-  state: 'anonymous' as 'loading' | 'anonymous',
+  logout: vi.fn(),
+  state: 'anonymous' as 'loading' | 'anonymous' | 'restricted',
+  user: null as { secondFactorStep?: 'CHALLENGE' | 'ENROLL' | null; mustEnroll2FA?: boolean } | null,
 }))
 
 vi.mock('react-router-dom', async (importOriginal) => ({
@@ -17,7 +19,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 }))
 
 vi.mock('../shared/auth/AuthProvider', () => ({
-  useAuth: () => ({ state: mocks.state, login: mocks.login, refresh: mocks.refresh }),
+  useAuth: () => ({ state: mocks.state, user: mocks.user, login: mocks.login, refresh: mocks.refresh, logout: mocks.logout }),
 }))
 
 vi.mock('../shared/api/client', () => ({
@@ -36,6 +38,29 @@ describe('auth completion navigation', () => {
     mocks.refresh.mockReset().mockResolvedValue(undefined)
     mocks.api.mockReset().mockResolvedValue(undefined)
     mocks.state = 'anonymous'
+    mocks.user = null
+  })
+
+  function restricted(step: 'CHALLENGE' | 'ENROLL') {
+    mocks.state = 'restricted'
+    mocks.user = { secondFactorStep: step }
+  }
+
+  it('asks for the authenticator code in the same sign-in card, without leaving the page', async () => {
+    mocks.login.mockImplementation(() => { mocks.state = 'restricted'; return Promise.resolve('TWO_FACTOR') })
+    renderPage(<LoginPage />)
+    fireEvent.change(screen.getByPlaceholderText('maria'), { target: { value: 'maria' } })
+    fireEvent.change(document.querySelector('input[autocomplete="current-password"]')!, { target: { value: 'secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Увійти' }))
+    expect(await screen.findByRole('heading', { name: 'Підтвердження входу' })).toBeVisible()
+    expect(screen.getByLabelText('Код із застосунку')).toBeVisible()
+    expect(screen.queryByPlaceholderText('maria')).not.toBeInTheDocument()
+    expect(mocks.navigate).not.toHaveBeenCalled()
+  })
+
+  it('has no separate access-help link on the sign-in card', () => {
+    renderPage(<LoginPage />)
+    expect(screen.queryByText('Не вдається увійти?')).not.toBeInTheDocument()
   })
 
   it('sends password login completion to the canonical root', async () => {
@@ -67,20 +92,43 @@ describe('auth completion navigation', () => {
     }))
   })
 
-  it.each([
-    ['challenge', '/auth/2fa/challenge'],
-    ['setup', '/auth/2fa/confirm'],
-  ] as const)('sends TOTP %s completion to the canonical root', async (mode, endpoint) => {
-    if (mode === 'setup') {
-      mocks.api.mockResolvedValueOnce({ secret: 'SECRET', uri: 'otpauth://totp/lankadws' }).mockResolvedValueOnce(undefined)
-    }
-    renderPage(<RestrictedAccessPage mode={mode} />)
-    if (mode === 'setup') fireEvent.click(screen.getByRole('button'))
-    const code = await screen.findByRole('textbox')
-    fireEvent.change(code, { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Підтвердити' }))
-    await waitFor(() => expect(mocks.api).toHaveBeenLastCalledWith(endpoint, expect.anything()))
+  it('sends the authenticator code after the password and opens the app', async () => {
+    restricted('CHALLENGE')
+    renderPage(<LoginPage />)
+    fireEvent.change(screen.getByLabelText('Код із застосунку'), { target: { value: '12 34-56' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Увійти' }))
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/auth/2fa/challenge', { method: 'POST', body: JSON.stringify({ code: '123456' }) }))
     await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
     expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true })
+  })
+
+  it('sends people without their phone to an administrator, with no recovery codes', () => {
+    restricted('CHALLENGE')
+    renderPage(<LoginPage />)
+    fireEvent.click(screen.getByText('Немає доступу до телефону?'))
+    expect(screen.getByText(/Зверніться до адміністратора/u)).toBeVisible()
+    expect(screen.queryByText(/Резервний код/u)).not.toBeInTheDocument()
+  })
+
+  it('enrols on one screen: QR code or manual key, then the code', async () => {
+    mocks.api
+      .mockResolvedValueOnce({ secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', uri: 'otpauth://totp/LankaDWS:maria?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP' })
+      .mockResolvedValueOnce({ nextStep: 'AUTHENTICATED' })
+    restricted('ENROLL')
+    renderPage(<LoginPage />)
+    expect(await screen.findByRole('link', { name: /QR-код/u })).toHaveAttribute('href', expect.stringContaining('otpauth://totp/'))
+    expect(mocks.api).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Не сканується?' }))
+    expect(screen.getByLabelText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeVisible()
+    expect(screen.queryByRole('link', { name: /QR-код/u })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Показати QR-код' }))
+    expect(screen.getByRole('link', { name: /QR-код/u })).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Код із застосунку'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Підключити' }))
+    await waitFor(() => expect(mocks.api).toHaveBeenLastCalledWith('/auth/2fa/confirm', { method: 'POST', body: JSON.stringify({ code: '123456' }) }))
+    await waitFor(() => expect(mocks.refresh).toHaveBeenCalledOnce())
+    expect(mocks.navigate).toHaveBeenCalledWith('/', { replace: true })
+    expect(screen.queryByText(/Резервні коди/u)).not.toBeInTheDocument()
   })
 })

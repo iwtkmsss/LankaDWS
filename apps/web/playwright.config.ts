@@ -29,6 +29,7 @@ export default defineConfig({
         NODE_ENV: 'test',
         DATABASE_URL: databaseUrl,
         DISABLE_JOB_WORKER: 'true',
+        SECOND_FACTOR_REQUIRED: 'false',
       },
       reuseExistingServer: false,
       timeout: 120_000,

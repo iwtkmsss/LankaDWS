@@ -30,7 +30,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (version !== refreshVersion.current) return
       setCsrfToken(principal.csrfToken)
       setUser(principal)
-      setState(principal.mustEnroll2FA ? 'restricted' : 'authenticated')
+      setState(principal.mustEnroll2FA || principal.secondFactorStep ? 'restricted' : 'authenticated')
     } catch {
       if (version !== refreshVersion.current) return
       setUser(null)
@@ -46,15 +46,23 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setUser(null)
       setState('anonymous')
     }
+    const stepRequired = () => { void refresh() }
     window.addEventListener('lankadws:session-ended', endSession)
+    window.addEventListener('lankadws:credential-step', stepRequired)
     void refresh()
-    return () => window.removeEventListener('lankadws:session-ended', endSession)
+    return () => {
+      window.removeEventListener('lankadws:session-ended', endSession)
+      window.removeEventListener('lankadws:credential-step', stepRequired)
+    }
   }, [refresh, queryClient])
 
   useEffect(() => {
     if (state !== 'authenticated' && state !== 'restricted') return
     const heartbeat = () => {
-      void api('/me', { headers: { 'x-session-check': '1' } }).catch(() => undefined)
+      void api<PrincipalView>('/me', { headers: { 'x-session-check': '1' } })
+        // A pause or exemption that ran out: send the person to the code step or enrolment.
+        .then((principal) => { if (state === 'authenticated' && principal?.secondFactorStep) void refresh() })
+        .catch(() => undefined)
     }
     const interval = window.setInterval(heartbeat, 15_000)
     document.addEventListener('visibilitychange', heartbeat)

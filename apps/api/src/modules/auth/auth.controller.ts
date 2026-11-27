@@ -14,7 +14,6 @@ import { FilesService, type UploadedBinary } from '../files/files.service.js'
 const withoutWhitespace = (value: string) => value.replace(/\s+/gu, '')
 const passwordChangeSchema = z.object({ newPassword: z.string().transform(withoutWhitespace), confirmation: z.string().transform(withoutWhitespace) })
 const codeSchema = z.object({ code: z.string().regex(/^\d{6}$/) })
-const recoverySchema = z.object({ code: z.string().min(8).max(64) })
 const reauthSchema = z.object({ password: z.string().transform(withoutWhitespace).pipe(z.string().min(1)), code: z.string().regex(/^\d{6}$/).optional() })
 const profileSchema = z.object({ contactEmail: z.string().email().max(254).nullable(), phone: z.string().trim().max(32).nullable(), gender: z.enum(['FEMALE', 'MALE']).nullable(), birthDate: z.string().date().nullable(), timezone: z.string().min(3).max(64), locale: z.enum(['uk-UA', 'en-US']) })
 
@@ -60,18 +59,14 @@ export class AuthController {
     return this.auth.challengeSecondFactor(principalFrom(request), parse(codeSchema, body).code, request, response)
   }
 
-  @Restricted()
-  @Post('recovery-code')
-  recovery(@Body() body: unknown, @Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
-    return this.auth.useRecoveryCode(principalFrom(request), parse(recoverySchema, body).code, request, response)
-  }
-
   @Post('reauth')
   reauth(@Body() body: unknown, @Req() request: LankaDWSRequest) {
     const value = parse(reauthSchema, body)
-    return this.auth.reauthenticate(principalFrom(request), value.password, value.code)
+    return this.auth.reauthenticate(principalFrom(request), value.password, value.code, request)
   }
 
+  // A session still owing the code or enrolment must be able to sign out from that step.
+  @Restricted()
   @Post('logout')
   async logout(@Req() request: LankaDWSRequest, @Res({ passthrough: true }) response: Response) {
     await this.auth.logout(principalFrom(request), response)

@@ -8,6 +8,7 @@ import { OverlayProvider } from '../shared/ui/Overlay'
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }))
 vi.mock('../shared/api/client', () => ({ api, jsonBody: JSON.stringify, idempotencyKey: vi.fn() }))
+vi.mock('../shared/auth/AuthProvider', () => ({ useAuth: () => ({ user: { id: 'admin-self', secondFactorEnrolled: false } }) }))
 
 const user = {
   id: 'user-1', displayName: 'Андрій Коваль', firstName: 'Андрій', lastName: 'Коваль',
@@ -16,6 +17,7 @@ const user = {
   orgUnit: { id: 'unit-1', name: 'Розробка' }, contactEmail: 'andrii@example.com',
   phone: '+380501234567', gender: 'MALE', birthDate: '1990-05-12',
   leadership: { companies: [], orgUnits: [] },
+  security: { twoFactor: true, activeSessions: 1, mustEnroll2FA: false, twoFactorExemptUntil: null },
 }
 
 beforeEach(() => {
